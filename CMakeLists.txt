@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.14...3.22)
+cmake_minimum_required(VERSION 3.28)
 
 # ---- Project ----
 
 # Note: update this to your new project's name and version
 project(
-  Greeter
-  VERSION 1.0
+  scorbit_sdk
+  VERSION 0.1.0
   LANGUAGES CXX
 )
 
