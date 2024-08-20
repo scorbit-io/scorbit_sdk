@@ -15,8 +15,17 @@ include(../cmake/tools.cmake)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage("gh:doctest/doctest@2.4.9")
 CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
+
+CPMAddPackage(
+    NAME Catch2
+    GIT_TAG v3.7.0
+    GITHUB_REPOSITORY catchorg/Catch2
+    GIT_SHALLOW TRUE
+    OPTIONS "CATCH_INSTALL_DOCS OFF" "CATCH_INSTALL_HELPERS OFF" "CATCH_INSTALL_TESTS OFF"
+)
+find_package(Catch2 REQUIRED)
+
 
 if(TEST_INSTALLED_VERSION)
   find_package(scorbit_sdk REQUIRED)
@@ -26,9 +35,12 @@ endif()
 
 # ---- Create binary ----
 
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
-add_executable(${PROJECT_NAME} ${sources})
-target_link_libraries(${PROJECT_NAME} doctest::doctest scorbit_sdk::scorbit_sdk)
+add_executable(${PROJECT_NAME})
+target_sources(${PROJECT_NAME}
+  PRIVATE
+    source/test1.cpp
+)
+target_link_libraries(${PROJECT_NAME} Catch2::Catch2WithMain scorbit_sdk::scorbit_sdk)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 # enable compiler warnings
@@ -45,12 +57,16 @@ endif()
 
 enable_testing()
 
-# Note: doctest and similar testing frameworks can automatically configure CMake tests. For other
+# Note: Catch2, doctest and similar testing frameworks can automatically configure CMake tests. For other
 # testing frameworks add the tests target instead: add_test(NAME ${PROJECT_NAME} COMMAND
 # ${PROJECT_NAME})
 
-include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
-doctest_discover_tests(${PROJECT_NAME})
+# include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
+# doctest_discover_tests(${PROJECT_NAME})
+
+include(CTest)
+include(${Catch2_SOURCE_DIR}/extras/Catch.cmake)
+catch_discover_tests(${PROJECT_NAME})
 
 # ---- code coverage ----
 
