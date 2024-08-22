@@ -9,6 +9,10 @@ project(
     LANGUAGES CXX
 )
 
+# ---- Options ----
+
+option(SCORBIT_SDK_SHARED "Build shared library" OFF)
+
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -16,6 +20,17 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
         FATAL_ERROR
         "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
     )
+endif()
+
+# ---- Project settings ----
+
+if(SCORBIT_SDK_SHARED)
+    set(BUILD_TYPE SHARED)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    message("Building shared library")
+else()
+    set(BUILD_TYPE STATIC)
+    message("Building static library")
 endif()
 
 # ---- Add dependencies via CPM ----
@@ -35,9 +50,7 @@ CPMAddPackage(
 
 # ---- Create library ----
 
-# Note: for header-only libraries change all PUBLIC flags to INTERFACE and create an interface
-# target: add_library(${PROJECT_NAME} INTERFACE)
-add_library(scorbit_sdk)
+add_library(scorbit_sdk ${BUILD_TYPE})
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_sources(scorbit_sdk
     PRIVATE
@@ -50,7 +63,10 @@ target_sources(scorbit_sdk
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+    fmt::fmt
+)
 
 target_include_directories(
     ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
