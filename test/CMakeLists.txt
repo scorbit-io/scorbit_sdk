@@ -49,7 +49,6 @@ if(NOT TEST_INSTALLED_VERSION)
     target_compile_options(scorbit_sdk PUBLIC -Wall -Wpedantic -Wextra -Werror)
   elseif(MSVC)
     target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
   endif()
 endif()
 
