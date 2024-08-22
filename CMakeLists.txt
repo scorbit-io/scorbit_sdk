@@ -55,8 +55,13 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_sources(scorbit_sdk
     PRIVATE
     source/net.cpp
+    source/logger.cpp
+    source/logger.h
+    source/log.cpp
     include/scorbit_sdk/scorbit_sdk.h
     include/scorbit_sdk/net.h
+    include/scorbit_sdk/log.h
+    include/scorbit_sdk/log_types.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
