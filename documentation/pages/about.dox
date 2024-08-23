@@ -1,5 +1,30 @@
-/** @page about About
-  @section doc ModernCppStarter Documentation 
-  This is the auto-generated documentation for the initial project of the ModernCppStarter.
-  It shows how we can use Doxygen to automatically build a browsable documentation for your projects.
-*/
+/**
+ * @page about About
+ *
+ * @section doc Scorbit SDK Documentation
+ *
+ * Welcome to the Scorbit SDK documentation! This page provides an overview of the SDK,
+ * its purpose, and how to use the documentation effectively.
+ *
+ * The Scorbit SDK is designed to help developers integrate Scorbit's functionality
+ * into their applications with ease. The SDK includes a range of features and tools
+ * to support logging, data handling, and more, all aimed at simplifying development
+ * processes.
+ *
+ * ## Key Features
+ * - **Comprehensive Logging:** Detailed logging capabilities to track the application's behavior.
+ * - **Easy Integration:** Simple interfaces and helper functions to integrate Scorbit features seamlessly.
+ * - **Thread-Safe Operations:** Built-in thread safety to ensure reliable performance in multi-threaded environments.
+ *
+ * ## Getting Started
+ * To get started with the Scorbit SDK, navigate through the documentation using the following sections:
+ * - **Installation:** Step-by-step guide to installing and configuring the SDK.
+ * - **API Reference:** Detailed descriptions of all classes, functions, and modules available in the SDK.
+ * - **Examples:** Practical examples demonstrating how to use various features of the SDK in real-world scenarios.
+ *
+ * ## Support
+ * If you encounter any issues or need assistance, please visit our [support page](https://support.scorbit.io)
+ * or contact our support team.
+ *
+ * We hope you find the Scorbit SDK helpful and easy to use. Happy coding!
+ */
