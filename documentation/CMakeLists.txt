@@ -6,7 +6,7 @@ project(scorbit_sdk_docs)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage("gh:mosra/m.css#a0d292ec311b97fefd21e93cdefb60f88d19ede6")
+CPMAddPackage("gh:mosra/m.css#0e5161ff17ebf3550bbc0cc99ef81ad7b7d8f80e")
 CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 
 # ---- Doxygen variables ----
