@@ -28,7 +28,7 @@ enum class LogLevel
  * @param line line number
  * @param user pointer to arbitrary user data
  */
-using logger_function_t = std::function<void(std::string_view msg, LogLevel level, const char *file,
+using logger_callback_t = std::function<void(std::string_view msg, LogLevel level, const char *file,
                                              int line, void *user)>;
 
 } // namespace scorbit

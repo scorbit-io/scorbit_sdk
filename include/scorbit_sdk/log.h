@@ -11,7 +11,7 @@
 
 namespace scorbit {
 
-extern void registerLogger(logger_function_t &&loggerFunction, void *userData = nullptr);
+extern void registerLogger(logger_callback_t &&loggerFunction, void *userData = nullptr);
 extern void unregisterLogger();
 
 } // namespace scorbit
