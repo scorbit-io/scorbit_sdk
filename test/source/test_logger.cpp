@@ -9,6 +9,9 @@
 #include <scorbit_sdk/log.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_vector.hpp>
+#include <thread>
+#include <random>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -152,4 +155,39 @@ TEST_CASE("logger using bind callback")
     INF("new logs");
     CHECK(userData.msg == "Hello");
     CHECK(userData.line == line);
+}
+
+TEST_CASE("logger multithread")
+{
+    std::vector<std::string> logs;
+    scorbit::registerLogger([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
+                                    void *) { logs.emplace_back(msg); });
+
+    // Set up the random number generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(1, 10); // Random duration between 1 and 10 milliseconds
+
+    constexpr auto numLogs = 20;
+
+    std::vector<std::thread> threads;
+    for (int i = 0; i < numLogs; ++i) {
+        threads.emplace_back([i, &dist, &gen]() {
+            INF("Hello world {}", i);
+            std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
+        });
+    }
+
+    for (auto &t : threads) {
+        t.join();
+    }
+
+    // Generate the test logs
+    std::vector<std::string> testLogs;
+    for (int i = 0; i < numLogs; ++i) {
+        testLogs.emplace_back(fmt::format("Hello world {}", i));
+    }
+
+    using namespace Catch::Matchers;
+    CHECK_THAT(logs, UnorderedEquals(testLogs));
 }
