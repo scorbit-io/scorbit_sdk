@@ -17,7 +17,7 @@ namespace scorbit {
 class Logger
 {
 public:
-    void registerLogger(logger_function_t &&loggerFunction);
+    void registerLogger(logger_function_t &&loggerFunction, void *userData = nullptr);
     void unregisterLogger();
 
     void log(std::string_view message, LogLevel level, const char *file, int line);
@@ -28,6 +28,7 @@ private:
 private:
     logger_function_t m_loggerFunction;
     std::mutex m_loggerMutex;
+    void *m_userData {nullptr};
 
     friend Logger *logger();
 };

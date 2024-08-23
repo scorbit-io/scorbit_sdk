@@ -15,10 +15,11 @@ Logger *logger()
     return &logger;
 }
 
-void Logger::registerLogger(logger_function_t &&loggerFunction)
+void Logger::registerLogger(logger_function_t &&loggerFunction, void *userData)
 {
     std::lock_guard<std::mutex> lock(m_loggerMutex);
     m_loggerFunction = std::move(loggerFunction);
+    m_userData = userData;
 }
 
 void Logger::unregisterLogger()
@@ -30,7 +31,7 @@ void Logger::log(std::string_view message, LogLevel level, const char *file, int
 {
     if (m_loggerFunction) {
         std::lock_guard<std::mutex> lock(m_loggerMutex);
-        m_loggerFunction(message, level, file, line);
+        m_loggerFunction(message, level, file, line, m_userData);
     }
 }
 

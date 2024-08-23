@@ -10,9 +10,9 @@
 
 namespace scorbit {
 
-void registerLogger(logger_function_t &&loggerFunction)
+void registerLogger(logger_function_t &&loggerFunction, void *userData)
 {
-    logger()->registerLogger(std::move(loggerFunction));
+    logger()->registerLogger(std::move(loggerFunction), userData);
 }
 
 void unregisterLogger()
