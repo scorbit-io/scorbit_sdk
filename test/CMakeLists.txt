@@ -41,7 +41,11 @@ target_sources(scorbit_sdk_tests
   source/test_net.cpp
   source/test_logger.cpp
 )
-target_link_libraries(${PROJECT_NAME} Catch2::Catch2WithMain scorbit_sdk::scorbit_sdk)
+target_link_libraries(${PROJECT_NAME}
+    scorbit_sdk::scorbit_sdk
+    Catch2::Catch2WithMain
+    fmt::fmt
+)
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
