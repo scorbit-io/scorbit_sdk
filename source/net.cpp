@@ -9,7 +9,7 @@
 
 namespace scorbit {
 
-net::net()
+Net::Net()
 {
 }
 

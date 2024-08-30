@@ -10,11 +10,10 @@
 
 // clazy:excludeall=non-pod-global-static
 
-TEST_CASE("Version") {
-    static_assert(std::string_view(SCORBIT_SDK_VERSION) == std::string_view("0.1.0"));
+TEST_CASE("version") {
     CHECK(std::string(SCORBIT_SDK_VERSION) == std::string("0.1.0"));
 }
 
-TEST_CASE("net ctor") {
-    scorbit::net n;
+TEST_CASE("Net ctor") {
+    scorbit::Net n;
 }

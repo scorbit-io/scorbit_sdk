@@ -9,10 +9,10 @@
 
 namespace scorbit {
 
-class net
+class Net
 {
 public:
-    net();
+    Net();
 };
 
 } // namespace scorbit
