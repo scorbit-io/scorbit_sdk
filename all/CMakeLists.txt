@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-project(BuildAll LANGUAGES CXX)
+project(scorbit_sdk_all LANGUAGES CXX)
 
 include(../cmake/tools.cmake)
 
