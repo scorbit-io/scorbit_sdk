@@ -17,6 +17,7 @@ include(../cmake/CPM.cmake)
 
 CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
 
+# Catch2
 CPMAddPackage(
     NAME Catch2
     GIT_TAG v3.7.0
@@ -26,7 +27,15 @@ CPMAddPackage(
 )
 find_package(Catch2 REQUIRED)
 
+# Trompeloeil
+CPMAddPackage(
+    NAME trompeloeil
+    GIT_TAG v48
+    GITHUB_REPOSITORY rollbear/trompeloeil
+    OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
+)
 
+# scorbit_sdk
 if(TEST_INSTALLED_VERSION)
   find_package(scorbit_sdk REQUIRED)
 else()
@@ -44,6 +53,7 @@ target_sources(scorbit_sdk_tests
 target_link_libraries(${PROJECT_NAME}
     scorbit_sdk::scorbit_sdk
     Catch2::Catch2WithMain
+    trompeloeil::trompeloeil
     fmt::fmt
 )
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)

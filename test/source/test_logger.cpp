@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_vector.hpp>
+#include <catch2/trompeloeil.hpp>
 #include <thread>
 #include <random>
 
@@ -76,6 +77,35 @@ TEST_CASE("logger using functor object callback")
 
         ERR("Error");
         CHECK(l.data.level == scorbit::LogLevel::Error);
+    }
+}
+
+struct MockCallback {
+    MAKE_MOCK5(callbackFunc, void(std::string_view, scorbit::LogLevel, const char *, int, void *));
+} mockCallback;
+
+void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
+                  void *user)
+{
+    mockCallback.callbackFunc(msg, level, file, line, user);
+}
+
+TEST_CASE("Logger with function callback using trompeloeil")
+{
+    using namespace trompeloeil;
+    using namespace scorbit;
+
+    SECTION("SectionName")
+    {
+        REQUIRE_CALL(mockCallback, callbackFunc(eq<std::string_view>("Hello"), eq(LogLevel::Info),
+                                                _, _, eq(nullptr)));
+
+        scorbit::registerLogger(callbackFunc);
+        INF("Hello");
+
+        // After unregister log it does no longer log (in the function object it's still old values)
+        scorbit::unregisterLogger();
+        INF("Hello");
     }
 }
 
