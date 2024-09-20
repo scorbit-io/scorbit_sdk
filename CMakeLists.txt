@@ -46,6 +46,8 @@ CPMAddPackage(
     GIT_TAG 10.2.1
     GITHUB_REPOSITORY fmtlib/fmt
     OPTIONS "FMT_INSTALL YES" # create an installable target
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
 )
 
 # ---- Create library ----
