@@ -96,7 +96,6 @@ packageProject(
     INCLUDE_DESTINATION include
     VERSION_HEADER "${VERSION_HEADER_LOCATION}"
     DISABLE_VERSION_SUFFIX YES
-    CPACK YES
 )
 
 include(CPack)
