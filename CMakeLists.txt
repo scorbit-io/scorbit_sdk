@@ -98,4 +98,5 @@ packageProject(
     DISABLE_VERSION_SUFFIX YES
 )
 
+set(CPACK_STRIP_FILES TRUE)
 include(CPack)
