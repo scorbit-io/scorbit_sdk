@@ -53,7 +53,12 @@ CPMAddPackage(
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    CXX_STANDARD 17
+
+    # CXX_VISIBILITY_PRESET hidden
+    # VISIBILITY_INLINES_HIDDEN 1
+)
 target_sources(scorbit_sdk
     PRIVATE
     source/net.cpp
@@ -86,6 +91,7 @@ target_include_directories(
 # the location where the project's version header will be placed should match the project's regular
 # header paths
 string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
+string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
 packageProject(
     NAME ${PROJECT_NAME}
@@ -95,6 +101,7 @@ packageProject(
     INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
     INCLUDE_DESTINATION include
     VERSION_HEADER "${VERSION_HEADER_LOCATION}"
+    EXPORT_HEADER "${EXPORT_HEADER_LOCATION}"
     DISABLE_VERSION_SUFFIX YES
 )
 
