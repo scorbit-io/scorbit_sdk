@@ -45,15 +45,16 @@ endif()
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
+
 target_sources(scorbit_sdk_tests PRIVATE source/test_net.cpp source/test_logger.cpp)
+
 target_link_libraries(
     ${PROJECT_NAME}
-    scorbit_sdk::scorbit_sdk
-    Catch2::Catch2WithMain
-    trompeloeil::trompeloeil
-    fmt::fmt
+    PRIVATE scorbit_sdk::scorbit_sdk Catch2::Catch2WithMain trompeloeil::trompeloeil fmt::fmt
 )
+
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
+
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 # enable compiler warnings
