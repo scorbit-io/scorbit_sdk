@@ -37,20 +37,17 @@ CPMAddPackage(
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
-  find_package(scorbit_sdk REQUIRED)
+    find_package(scorbit_sdk REQUIRED)
 else()
-  CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+    CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()
 
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
-target_sources(scorbit_sdk_tests
-  PRIVATE
-  source/test_net.cpp
-  source/test_logger.cpp
-)
-target_link_libraries(${PROJECT_NAME}
+target_sources(scorbit_sdk_tests PRIVATE source/test_net.cpp source/test_logger.cpp)
+target_link_libraries(
+    ${PROJECT_NAME}
     scorbit_sdk::scorbit_sdk
     Catch2::Catch2WithMain
     trompeloeil::trompeloeil
@@ -61,11 +58,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(scorbit_sdk PUBLIC -Wall -Wpedantic -Wextra -Werror)
-  elseif(MSVC)
-    target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
-  endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        target_compile_options(scorbit_sdk PUBLIC -Wall -Wpedantic -Wextra -Werror)
+    elseif(MSVC)
+        target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
+    endif()
 endif()
 
 # ---- Add Tests ----
@@ -86,6 +83,6 @@ catch_discover_tests(${PROJECT_NAME})
 # ---- code coverage ----
 
 if(ENABLE_TEST_COVERAGE)
-  target_compile_options(scorbit_sdk PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
-  target_link_options(scorbit_sdk PUBLIC -fprofile-arcs -ftest-coverage)
+    target_compile_options(scorbit_sdk PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
+    target_link_options(scorbit_sdk PUBLIC -fprofile-arcs -ftest-coverage)
 endif()

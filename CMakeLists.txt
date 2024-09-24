@@ -3,11 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 # ---- Project ----
 
 # Note: update this to your new project's name and version
-project(
-    scorbit_sdk
-    VERSION 0.1.0
-    LANGUAGES CXX
-)
+project(scorbit_sdk VERSION 0.1.0 LANGUAGES CXX)
 
 # ---- Options ----
 
@@ -45,7 +41,7 @@ CPMAddPackage(
     NAME fmt
     GIT_TAG 10.2.1
     GITHUB_REPOSITORY fmtlib/fmt
-    OPTIONS "FMT_INSTALL YES" # create an installable target
+    OPTIONS "FMT_INSTALL YES"
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
 )
@@ -53,35 +49,34 @@ CPMAddPackage(
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    CXX_STANDARD 17
-
+set_target_properties(
+    ${PROJECT_NAME}
+    PROPERTIES CXX_STANDARD 17
     # CXX_VISIBILITY_PRESET hidden
     # VISIBILITY_INLINES_HIDDEN 1
 )
-target_sources(scorbit_sdk
+target_sources(
+    scorbit_sdk
     PRIVATE
-    source/net.cpp
-    source/logger.cpp
-    source/logger.h
-    source/log.cpp
-    include/scorbit_sdk/scorbit_sdk.h
-    include/scorbit_sdk/net.h
-    include/scorbit_sdk/log.h
-    include/scorbit_sdk/log_types.h
+        source/net.cpp
+        source/logger.cpp
+        source/logger.h
+        source/log.cpp
+        include/scorbit_sdk/scorbit_sdk.h
+        include/scorbit_sdk/net.h
+        include/scorbit_sdk/log.h
+        include/scorbit_sdk/log_types.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME}
-    PRIVATE
-    fmt::fmt
-)
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
 
 target_include_directories(
-    ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    ${PROJECT_NAME}
+    PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     # $<INSTALL_INTERFACE:include>
 )
 
