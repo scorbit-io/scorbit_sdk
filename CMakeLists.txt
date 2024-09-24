@@ -7,7 +7,7 @@ project(scorbit_sdk VERSION 0.1.0 LANGUAGES CXX)
 
 # ---- Options ----
 
-option(SCORBIT_SDK_SHARED "Build shared library" OFF)
+option(SCORBIT_SDK_SHARED "Build shared library" ON)
 
 # ---- Include guards ----
 
@@ -35,15 +35,16 @@ endif()
 include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
-CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.8.0")
+# CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.12.0")
+CPMAddPackage("gh:dilshodm/PackageProject.cmake@1.13.0")
 
 CPMAddPackage(
     NAME fmt
     GIT_TAG 10.2.1
     GITHUB_REPOSITORY fmtlib/fmt
-    OPTIONS "FMT_INSTALL YES"
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
+    OPTIONS "FMT_INSTALL YES"
 )
 
 # ---- Create library ----
@@ -54,7 +55,10 @@ set_target_properties(
     PROPERTIES CXX_STANDARD 17
     # CXX_VISIBILITY_PRESET hidden
     # VISIBILITY_INLINES_HIDDEN 1
+    # VERSION ${PROJECT_VERSION}
+    # SOVERSION ${PROJECT_VERSION_MAJOR}
 )
+
 target_sources(
     scorbit_sdk
     PRIVATE
@@ -95,6 +99,7 @@ packageProject(
     BINARY_DIR ${PROJECT_BINARY_DIR}
     INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
     INCLUDE_DESTINATION include
+    RUNTIME_DESTINATION /
     VERSION_HEADER "${VERSION_HEADER_LOCATION}"
     EXPORT_HEADER "${EXPORT_HEADER_LOCATION}"
     DISABLE_VERSION_SUFFIX YES
