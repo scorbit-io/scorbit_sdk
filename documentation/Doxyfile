@@ -26,10 +26,13 @@ GENERATE_LATEX = NO
 XML_PROGRAMLISTING = NO
 CREATE_SUBDIRS = NO
 
-# Include all directories, files and namespaces in the documentation
-# Disable to include only explicitly documented objects
-M_SHOW_UNDOCUMENTED = YES
-
 ENABLE_PREPROCESSING = YES
 MACRO_EXPANSION = YES
 PREDEFINED += SCORBIT_SDK_EXPORT=
+
+# ------------ below is m.css specific configuration ------------
+
+# Include all directories, files and namespaces in the documentation
+# Disable to include only explicitly documented objects
+##! M_SHOW_UNDOCUMENTED = YES
+
