@@ -50,6 +50,7 @@ CPMAddPackage(
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
+
 set_target_properties(
     ${PROJECT_NAME}
     PROPERTIES
@@ -67,6 +68,8 @@ target_sources(
         source/logger.cpp
         source/logger.h
         source/log.cpp
+        source/game_state_c.cpp
+        include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/scorbit_sdk.h
         include/scorbit_sdk/net.h
         include/scorbit_sdk/log.h

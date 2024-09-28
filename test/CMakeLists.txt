@@ -46,7 +46,10 @@ endif()
 
 add_executable(${PROJECT_NAME})
 
-target_sources(scorbit_sdk_tests PRIVATE source/test_net.cpp source/test_logger.cpp)
+target_sources(
+    scorbit_sdk_tests
+    PRIVATE source/test_net.cpp source/test_logger.cpp source/test_game_state_c.cpp
+)
 
 target_link_libraries(
     ${PROJECT_NAME}
