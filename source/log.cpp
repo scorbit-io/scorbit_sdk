@@ -10,7 +10,7 @@
 
 namespace scorbit {
 
-void registerLogger(logger_callback_t &&loggerFunction, void *userData)
+void registerLogger(LoggerCallback &&loggerFunction, void *userData)
 {
     logger()->registerLogger(std::move(loggerFunction), userData);
 }

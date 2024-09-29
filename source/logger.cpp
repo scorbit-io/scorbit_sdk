@@ -15,7 +15,7 @@ Logger *logger()
     return &logger;
 }
 
-void Logger::registerLogger(logger_callback_t &&loggerFunction, void *userData)
+void Logger::registerLogger(LoggerCallback &&loggerFunction, void *userData)
 {
     std::lock_guard<std::mutex> lock(m_loggerMutex);
     m_loggerFunction = std::move(loggerFunction);

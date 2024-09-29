@@ -19,20 +19,20 @@ namespace scorbit {
  * the log event, including the message, log level, source file, line number, and any
  * user-provided data.
  *
- * @param loggerFunction The logger callback function to be registered. It should have the
- *                       signature specified by @ref scorbit::logger_callback_t "".
- * @param userData A pointer to user-defined data that will be passed to the logger callback
- *                 each time it is invoked. This parameter is optional and defaults to `nullptr`.
+ * @param loggerFunction The logger callback function to be registered. It should have the signature
+ * specified by @ref scorbit::LoggerCallback "".
+ * @param userData A pointer to user-defined data that will be passed to the logger callback each
+ * time it is invoked. This parameter is optional and defaults to `nullptr`.
  *
- * @note The logger function does not need to be thread-safe, as the logging mechanism ensures
- *       thread safety internally.
+ * @note The logger function does not need to be thread-safe, as the logging mechanism ensure thread
+ * safety internally.
  *
  * @warning The logger function can be registered multiple times, but only the most recently
- *          registered callback will be active. Previous registrations will be overwritten.
+ * registered callback will be active. Previous registrations will be overwritten.
  *
  * @see unregisterLogger()
  */
-extern void registerLogger(logger_callback_t &&loggerFunction, void *userData = nullptr);
+extern void registerLogger(LoggerCallback &&loggerFunction, void *userData = nullptr);
 
 /**
  * @brief Unregisters the currently registered logger callback function.
