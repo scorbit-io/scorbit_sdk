@@ -69,11 +69,14 @@ target_sources(
         source/logger.h
         source/log.cpp
         source/game_state_c.cpp
+        source/game_state.cpp
         include/scorbit_sdk/game_state_c.h
+        include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
         include/scorbit_sdk/net.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
+        include/scorbit_sdk/common_types_c.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC

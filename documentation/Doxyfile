@@ -30,6 +30,25 @@ ENABLE_PREPROCESSING = YES
 MACRO_EXPANSION = YES
 PREDEFINED += SCORBIT_SDK_EXPORT=
 
+MARKDOWN_SUPPORT = YES
+
+HAVE_DOT = YES
+#DOT_PATH = /usr/bin/dot
+COLLABORATION_GRAPH = YES
+UML_LOOK = YES
+CALL_GRAPH = YES
+CALLER_GRAPH = YES
+INCLUDE_GRAPH = YES
+INCLUDED_BY_GRAPH = YES
+GRAPHICAL_HIERARCHY = YES
+DIRECTORY_GRAPH = YES
+DOT_IMAGE_FORMAT = png
+
+WARNINGS = YES
+
+
+PLANTUML_JAR_PATH = /home/dilshodm/Downloads/plantuml-mit-1.2024.7.jar
+
 # ------------ below is m.css specific configuration ------------
 
 # Include all directories, files and namespaces in the documentation

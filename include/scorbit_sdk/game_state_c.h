@@ -7,146 +7,140 @@
 
 #pragma once
 
-#include "scorbit_sdk/export.h"
-
-#include <stdint.h>
+#include "common_types_c.h"
+#include <scorbit_sdk/export.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef unsigned int sb_player_num_t;
-typedef int64_t sb_score_t;
-
-struct sb_game_state_struct;
-typedef struct sb_game_state_struct *sb_game_handle_t;
-
 /**
- * @brief Status codes for API functions
- */
-typedef enum {
-    SB_SUCCESS = 0,
-    SB_ERROR_UNKNOWN,
-    SB_ERROR_INVALID_HANDLE,
-    SB_ERROR_INVALID_PLAYER,
-    SB_ERROR_MODE_NOT_FOUND
-} sb_status_t;
-
-/**
- * @brief Create game state
+ * @brief Create a game state.
  *
- * Create one game state at the start of the application. When the application finishes, call @ref
- * sb_destroy_game_state to release resources.
+ * Initializes and creates a game state. Use this function at the start of the application.
+ * When the application terminates, call @ref sb_destroy_game_state to release the allocated
+ * resources.
  *
- * @return handle to the game state, or NULL if creation fails
+ * @note Normally, one game state per application is sufficient.
+ *
+ * @return A handle to the game state, or NULL if creation fails.
  */
 SCORBIT_SDK_EXPORT
 sb_game_handle_t sb_create_game_state();
 
 /**
- * @brief Destroy game state
+ * @brief Destroy the game state.
  *
- * When the application finishes, call this function to free resources created by @ref
- * sb_create_game_state.
+ * Frees the resources associated with the game state created by @ref sb_create_game_state.
+ * This function should be called when the application finishes.
  *
- * @warning Do not call this function with a handle that was not created by @ref
- * sb_create_game_state. It will be undefined behavior.
- *
- * @param handle game handle created by @ref sb_create_game_state. If handle is NULL, the function
- * does nothing.
+ * @param handle The game handle created by @ref sb_create_game_state. If the handle is NULL,
+ * the function does nothing.
  */
 SCORBIT_SDK_EXPORT
 void sb_destroy_game_state(sb_game_handle_t handle);
 
 /**
- * @brief Game started
+ * @brief Mark the game as started.
  *
- * Call this function when the game starts. This sets the game as active.
+ * Indicates that the game has started. Call this function when the game begins.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @return SB_SUCCESS if the operation is successful, otherwise an error status
+ * @note This function automatically commits changes with @ref sb_commit.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_set_game_started(sb_game_handle_t handle);
+void sb_set_game_started(sb_game_handle_t handle);
 
 /**
- * @brief Game finished
+ * @brief Mark the game as finished.
  *
- * Call this function when the game finishes.
+ * Marks the game as completed. Call this function when the game ends.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @return SB_SUCCESS if the operation is successful, otherwise an error status
+ * @note This function automatically commits changes with @ref sb_commit.
+ *
+ * @warning After the game is finished, you can't add any mode or change the players' scores.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_set_game_finished(sb_game_handle_t handle);
+void sb_set_game_finished(sb_game_handle_t handle);
 
 /**
- * @brief Set active player
+ * @brief Set the active player.
  *
- * Call this function when the current player changes. The default active player is player 1.
+ * Updates the current active player in the game. By default, player 1 is the active player.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @param player player number (1, 2, 3, 4, ...)
- * @return SB_SUCCESS if the operation is successful, or SB_ERROR_INVALID_PLAYER if the player is
- * invalid
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param player The player's number [1-6]. Typically, up to 6 players are supported in pinball.
+ * If the player number is out of range, the function does nothing.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_set_active_player(sb_game_handle_t handle, sb_player_num_t player);
+void sb_set_active_player(sb_game_handle_t handle, sb_player_t player);
 
 /**
- * @brief Set player's score
+ * @brief Set the player's score.
  *
- * Sets the given player's score. If the new score matches the player's current score, the score
- * will not be updated.
+ * Updates the specified player's score. If the new score is the same as the current score,
+ * no update is made.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @param player player number (1, 2, 3, 4, ...)
- * @param score player's score
- * @return SB_SUCCESS if the operation is successful, or SB_ERROR_INVALID_PLAYER if the player is
- * invalid
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param player The player's number [1-6]. If the player number is out of range, the function
+ * does nothing.
+ * @param score The player's new score.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_set_score(sb_game_handle_t handle, sb_player_num_t player, sb_score_t score);
+void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score);
 
 /**
- * @brief Add mode
+ * @brief Add a mode to the game.
  *
- * Adds a new mode to the modes list. If the mode already exists, it will be skipped.
- * When it's time to remove a mode, call @ref sb_remove_mode.
- * All modes can be cleared at once by @ref sb_clear_all_modes.
+ * Adds a mode to the game's active mode list. If the mode already exists, the function skips it.
+ * To remove a mode, use @ref sb_remove_mode. All modes can be cleared at once using
+ * @ref sb_clear_modes.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @param mode current mode (e.g., "MB:Multiball")
- * @return SB_SUCCESS if the operation is successful, SB_HANDLE_INVALID if the handle is invalid.
- *         SB_ERROR_MODE_ALREADY_EXISTS if the mode already exists.
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param mode The mode to add (e.g., "MB:Multiball").
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_add_mode(sb_game_handle_t handle, const char *mode);
+void sb_add_mode(sb_game_handle_t handle, const char *mode);
 
 /**
- * @brief Remove mode
+ * @brief Remove a mode from the game.
  *
- * Removes a mode from the modes list. If the mode doesn't exist, it will be skipped.
- * All modes can be cleared at once by @ref sb_clear_all_modes.
+ * Removes a mode from the game's active mode list. If the mode does not exist, the function skips
+ * it. To remove all modes at once, use @ref sb_clear_modes.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @param mode current mode (e.g., "MB:Multiball")
- * @return SB_SUCCESS if the operation is successful, SB_HANDLE_INVALID if the handle is invalid.
- *         SB_ERROR_MODE_NOT_FOUND if the mode does not exist.
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param mode The mode to remove (e.g., "MB:Multiball"). If the mode doesn't exist, the
+ * function does nothing.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_remove_mode(sb_game_handle_t handle, const char *mode);
+void sb_remove_mode(sb_game_handle_t handle, const char *mode);
 
 /**
- * @brief Clear all modes
+ * @brief Clear all modes.
  *
- * Removes all modes from the list.
+ * Removes all modes from the game's active mode list.
  *
- * @param handle game handle created by @ref sb_create_game_state
- * @return SB_SUCCESS if the operation is successful, otherwise an error status
+ * @param handle The game handle created by @ref sb_create_game_state.
  */
 SCORBIT_SDK_EXPORT
-sb_status_t sb_clear_all_modes(sb_game_handle_t handle);
+void sb_clear_modes(sb_game_handle_t handle);
+
+/**
+ * @brief Commit changes to the game state.
+ *
+ * Applies all changes made to the game state. This function should be called after
+ * any modifications to the game state, such as @ref sb_set_active_player, @ref sb_set_score, @ref
+ * sb_add_mode, @ref sb_remove_mode, or @ref sb_clear_modes.
+ *
+ * If nothing was changed, this function does nothing.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_commit(sb_game_handle_t handle);
 
 #ifdef __cplusplus
 }
