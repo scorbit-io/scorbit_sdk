@@ -10,9 +10,15 @@
 #include <scorbit_sdk/common_types_c.h>
 #include <scorbit_sdk/export.h>
 
+#include "spimpl/spimpl.h"
+
 #include <string>
 
 namespace scorbit {
+
+namespace detail {
+class GameStateImpl;
+}
 
 /**
  * @brief Game state class.
@@ -117,6 +123,9 @@ public:
      * If nothing was changed, this function does nothing.
      */
     void commit();
+
+private:
+    spimpl::unique_impl_ptr<detail::GameStateImpl> p;
 };
 
 } // namespace scorbit

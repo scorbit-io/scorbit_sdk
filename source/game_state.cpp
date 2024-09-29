@@ -6,48 +6,53 @@
  ****************************************************************************/
 
 #include <scorbit_sdk/game_state.h>
+#include "game_state_impl.h"
 
 namespace scorbit {
 
 GameState::GameState()
+    : p {spimpl::make_unique_impl<detail::GameStateImpl>()}
 {
 }
 
 void GameState::setGameStarted()
 {
+    p->setGameStarted();
 }
 
 void GameState::setGameFinished()
 {
+    p->setGameFinished();
 }
 
 void GameState::setActivePlayer(sb_player_t player)
 {
-    (void)player;
+    p->setActivePlayer(std::move(player));
 }
 
 void GameState::setScore(sb_player_t player, sb_score_t score)
 {
-    (void)player;
-    (void)score;
+    p->setScore(std::move(player), std::move(score));
 }
 
 void GameState::addMode(std::string mode)
 {
-    (void)mode;
+    p->addMode(std::move(mode));
 }
 
 void GameState::removeMode(const std::string &mode)
 {
-    (void)mode;
+    p->removeMode(mode);
 }
 
 void GameState::clearModes()
 {
+    p->clearModes();
 }
 
 void GameState::commit()
 {
+    p->commit();
 }
 
 } // namespace scorbit

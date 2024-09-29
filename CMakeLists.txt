@@ -70,6 +70,8 @@ target_sources(
         source/log.cpp
         source/game_state_c.cpp
         source/game_state.cpp
+        source/game_state_impl.h
+        source/game_state_impl.cpp
         include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
