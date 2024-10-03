@@ -8,31 +8,35 @@
 #include "logger.h"
 
 namespace scorbit {
+namespace detail {
 
-Logger *logger()
+Logger *Logger::instance()
 {
     static Logger logger;
     return &logger;
 }
 
-void Logger::registerLogger(LoggerCallback &&loggerFunction, void *userData)
+void Logger::addCallback(LoggerCallback &&callback, void *userData)
 {
-    std::lock_guard<std::mutex> lock(m_loggerMutex);
-    m_loggerFunction = std::move(loggerFunction);
-    m_userData = userData;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_callbacks.emplace_back(CallbackAndData {std::move(callback), userData});
 }
 
-void Logger::unregisterLogger()
+void Logger::clear()
 {
-    registerLogger({});
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_callbacks.clear();
 }
 
-void Logger::log(std::string_view message, LogLevel level, const char *file, int line)
+void Logger::log(const std::string &message, LogLevel level, const char *file, int line) const
 {
-    if (m_loggerFunction) {
-        std::lock_guard<std::mutex> lock(m_loggerMutex);
-        m_loggerFunction(message, level, file, line, m_userData);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto &item : m_callbacks) {
+        if (item.callback) {
+            item.callback(message, level, file, line, item.userData);
+        }
     }
 }
 
+} // namespace detail
 } // namespace scorbit

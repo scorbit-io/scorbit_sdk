@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <string_view>
+#include <string>
 #include <functional>
 
 namespace scorbit {
@@ -31,22 +31,24 @@ enum class LogLevel {
     Error,
 };
 
+
 /**
- * @brief Type definition for the logger callback function.
+ * @typedef LoggerCallback
+ * @brief Defines the type for logger callback functions.
  *
- * This function type is used for logging messages, allowing clients to register a custom
- * logging function that will be called with detailed information about each log event.
+ * A callback function allows clients to provide custom logging logic. It is called
+ * for each log message with details such as the message content, log level, source file,
+ * and line number.
  *
- * The callback function takes the following parameters:
- * - **msg**: The log message content.
- * - **level**: The log level, indicating the severity of the message. This is of type
- *              @ref scorbit::LogLevel.
- * - **file**: The name of the source file where the log message was generated.
- * - **line**: The line number in the source file where the log message was generated.
- * - **userData**: A pointer to arbitrary user data, provided by the client when registering
- *                 the callback. This can be used to pass context or state information.
+ * The callback function parameters are:
+ * - **message**: The content of the log message.
+ * - **level**: The level of the log message, represented by @ref scorbit::LogLevel.
+ * - **file**: The name of the source file where the log message originated.
+ * - **line**: The line number in the source file where the log message originated.
+ * - **userData**: A pointer to user-defined data, passed when registering the callback. This
+ *                 can be used to maintain context or state within the callback.
  */
-using LoggerCallback = std::function<void(std::string_view msg, LogLevel level, const char *file,
-                                          int line, void *userData)>;
+using LoggerCallback = std::function<void(const std::string &message, LogLevel level,
+                                          const char *file, int line, void *userData)>;
 
 } // namespace scorbit

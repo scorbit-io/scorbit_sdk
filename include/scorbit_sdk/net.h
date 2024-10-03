@@ -7,9 +7,11 @@
 
 #pragma once
 
+#include <scorbit_sdk/export.h>
+
 namespace scorbit {
 
-class Net
+class SCORBIT_SDK_EXPORT Net
 {
 public:
     Net();
