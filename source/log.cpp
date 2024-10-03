@@ -5,7 +5,7 @@
  *
  ****************************************************************************/
 
-#include "scorbit_sdk/log.h"
+#include <scorbit_sdk/log.h>
 #include "logger.h"
 
 namespace scorbit {

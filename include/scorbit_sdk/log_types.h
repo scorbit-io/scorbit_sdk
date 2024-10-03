@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "log_types_c.h"
 #include <string>
 #include <functional>
 
@@ -16,19 +17,18 @@ namespace scorbit {
  * @enum LogLevel
  * @brief Defines the log levels for the logger.
  */
-
 enum class LogLevel {
     /** @brief Debug log level */
-    Debug,
+    Debug = SB_DEBUG,
 
     /** @brief Info log level */
-    Info,
+    Info = SB_INFO,
 
     /** @brief Warning log level */
-    Warn,
+    Warn = SB_WARN,
 
     /** @brief Error log level */
-    Error,
+    Error = SB_ERROR,
 };
 
 
