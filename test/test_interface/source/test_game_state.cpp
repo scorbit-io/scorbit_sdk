@@ -11,6 +11,11 @@
 
 // clazy:excludeall=non-pod-global-static
 
+using namespace scorbit;
+
 TEST_CASE("Create and destroy GameState")
 {
+    GameState gs;
+
+    gs.setGameStarted();
 }
