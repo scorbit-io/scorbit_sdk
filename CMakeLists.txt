@@ -84,6 +84,8 @@ target_sources(
         source/log_c.cpp
         source/player_state.h
         source/player_state.cpp
+        source/modes.h
+        source/modes.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC

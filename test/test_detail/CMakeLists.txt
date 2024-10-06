@@ -53,7 +53,13 @@ add_executable(${PROJECT_NAME})
 
 target_sources(
     test_detail
-    PRIVATE ../../source/player_state.h ../../source/player_state.cpp source/test_player_state.cpp
+    PRIVATE
+        ../../source/player_state.h
+        ../../source/player_state.cpp
+        source/test_player_state.cpp
+        ../../source/modes.h
+        ../../source/modes.cpp
+        source/test_modes.cpp
 )
 
 target_link_libraries(
