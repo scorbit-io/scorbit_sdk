@@ -7,27 +7,20 @@
 
 #pragma once
 
-#include "change_tracker.h"
-#include <vector>
-#include <string>
-#include <string_view>
-
 namespace scorbit {
 namespace detail {
 
-class Modes : public ChangeTracker
+class ChangeTracker
 {
 public:
-    Modes() = default;
+    bool isChanged() const { return m_isChanged; }
+    void clearChanged() { m_isChanged = false; }
 
-    void addMode(std::string mode);
-    void removeMode(std::string_view mode);
-    void clearModes();
-
-    std::string str() const;
+protected:
+    void setChanged() { m_isChanged = true; }
 
 private:
-    std::vector<std::string> m_modes;
+    bool m_isChanged {false};
 };
 
 } // namespace detail
