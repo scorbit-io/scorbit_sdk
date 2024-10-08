@@ -10,7 +10,8 @@
 namespace scorbit {
 namespace detail {
 
-GameStateImpl::GameStateImpl()
+GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
+    : m_net {std::move(net)}
 {
 }
 

@@ -8,7 +8,9 @@
 #pragma once
 
 #include <scorbit_sdk/common_types_c.h>
+#include <scorbit_sdk/net_base.h>
 #include <string>
+#include <memory>
 
 namespace scorbit {
 namespace detail {
@@ -16,7 +18,7 @@ namespace detail {
 class GameStateImpl
 {
 public:
-    GameStateImpl();
+    GameStateImpl(std::unique_ptr<NetBase> net);
 
     void setGameStarted();
     void setGameFinished();
@@ -29,6 +31,9 @@ public:
     void clearModes();
 
     void commit();
+
+private:
+    std::unique_ptr<NetBase> m_net;
 };
 
 } // namespace detail

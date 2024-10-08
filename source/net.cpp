@@ -13,4 +13,9 @@ Net::Net()
 {
 }
 
+void Net::sendGameData(const detail::GameData &data)
+{
+    (void)data;
+}
+
 } // namespace scorbit

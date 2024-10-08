@@ -7,12 +7,14 @@
 
 #pragma once
 
-#include <scorbit_sdk/common_types_c.h>
 #include <scorbit_sdk/export.h>
+#include "common_types_c.h"
+#include "net_base.h"
 
 #include "spimpl/spimpl.h"
 
 #include <string>
+#include <memory>
 
 namespace scorbit {
 
@@ -40,7 +42,7 @@ class GameStateImpl;
 class SCORBIT_SDK_EXPORT GameState
 {
 public:
-    GameState();
+    GameState(std::unique_ptr<NetBase> net = {}); // TODO: remove default value
 
     /**
      * @brief Mark the game as started.

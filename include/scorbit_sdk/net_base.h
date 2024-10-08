@@ -1,23 +1,25 @@
 /****************************************************************************
  *
  * @author Dilshod Mukhtarov <dilshodm(at)gmail.com>
- * Aug 2024
+ * Oct 2024
  *
  ****************************************************************************/
 
 #pragma once
 
-#include <scorbit_sdk/export.h>
-#include "net_base.h"
-
 namespace scorbit {
 
-class SCORBIT_SDK_EXPORT Net : public NetBase
+namespace detail {
+struct GameData;
+} // namespace detail
+
+class NetBase
 {
 public:
-    Net();
+    NetBase() = default;
+    virtual ~NetBase() = default;
 
-    void sendGameData(const detail::GameData &data) override;
+    virtual void sendGameData(const detail::GameData &data) = 0;
 };
 
 } // namespace scorbit
