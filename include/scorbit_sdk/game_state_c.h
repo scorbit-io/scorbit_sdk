@@ -46,6 +46,10 @@ void sb_destroy_game_state(sb_game_handle_t handle);
  * Indicates that the game has started. Call this function when the game begins.
  *
  * @note This function automatically commits changes with @ref sb_commit.
+ * Before starting the game, you can set the active player, scores, and modes, and then call
+ * this function to start the game and commit all changes. If the game has already been started,
+ * the function does nothing. If no scores are set and this function is called, player 1 is
+ * automatically set as active with a score of 0.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
  */
