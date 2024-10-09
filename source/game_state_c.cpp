@@ -35,6 +35,11 @@ void sb_set_game_finished(sb_game_handle_t handle)
     handle->gameState.setGameFinished();
 }
 
+void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball)
+{
+    handle->gameState.setCurrentBall(ball);
+}
+
 void sb_set_active_player(sb_game_handle_t handle, sb_player_t player)
 {
     handle->gameState.setActivePlayer(player);

@@ -71,6 +71,18 @@ SCORBIT_SDK_EXPORT
 void sb_set_game_finished(sb_game_handle_t handle);
 
 /**
+ * @brief Set the current ball number.
+ *
+ * Updates the current ball number in the game. When the game starts, the ball number is
+ * automatically set to 1.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param ball The ball number [1-5]. If the ball number is out of range, the function does nothing.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball);
+
+/**
  * @brief Set the active player.
  *
  * Updates the current active player in the game. By default, player 1 is the active player.

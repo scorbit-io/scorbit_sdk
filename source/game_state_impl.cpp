@@ -23,6 +23,11 @@ void GameStateImpl::setGameFinished()
 {
 }
 
+void GameStateImpl::setCurrentBall(sb_ball_t ball)
+{
+    (void)ball;
+}
+
 void GameStateImpl::setActivePlayer(sb_player_t player)
 {
     (void)player;

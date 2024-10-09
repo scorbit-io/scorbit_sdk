@@ -25,6 +25,11 @@ void GameState::setGameFinished()
     p->setGameFinished();
 }
 
+void GameState::setCurrentBall(sb_ball_t ball)
+{
+    p->setCurrentBall(std::move(ball));
+}
+
 void GameState::setActivePlayer(sb_player_t player)
 {
     p->setActivePlayer(std::move(player));

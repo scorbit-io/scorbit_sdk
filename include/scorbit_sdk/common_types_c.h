@@ -13,6 +13,7 @@
 extern "C" {
 #endif
 
+typedef unsigned int sb_ball_t;
 typedef unsigned int sb_player_t;
 typedef int64_t sb_score_t;
 

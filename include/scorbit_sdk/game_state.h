@@ -69,6 +69,17 @@ public:
     void setGameFinished();
 
     /**
+     * @brief Set the current ball number.
+     *
+     * Updates the current ball number in the game. When game starts, the ball number is
+     * automatically set to 1.
+     *
+     * @param ball The ball number [1-5]. If the ball number is out of range, the function does
+     * nothing.
+     */
+    void setCurrentBall(sb_ball_t ball);
+
+    /**
      * @brief Set the active player.
      *
      * Updates the current active player in the game. By default, player 1 is the active player.

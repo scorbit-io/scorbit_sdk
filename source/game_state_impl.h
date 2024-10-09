@@ -24,6 +24,8 @@ public:
     void setGameStarted();
     void setGameFinished();
 
+    void setCurrentBall(sb_ball_t ball);
+
     void setActivePlayer(sb_player_t player);
     void setScore(sb_player_t player, sb_score_t score);
 
