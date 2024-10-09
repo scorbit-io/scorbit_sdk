@@ -42,6 +42,11 @@ void Modes::clear()
     m_modes.clear();
 }
 
+bool Modes::isEmpty() const
+{
+    return m_modes.empty();
+}
+
 string Modes::str() const
 {
     if (m_modes.empty())

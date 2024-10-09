@@ -22,6 +22,7 @@ public:
     void addMode(std::string mode);
     void removeMode(std::string_view mode);
     void clear();
+    bool isEmpty() const;
 
     std::string str() const;
 

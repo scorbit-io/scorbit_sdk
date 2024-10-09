@@ -13,9 +13,10 @@
 using namespace scorbit;
 using namespace scorbit::detail;
 
-TEST_CASE("Add mode")
+TEST_CASE("Add mode", "[Modes]")
 {
     Modes modes;
+    REQUIRE(modes.isEmpty());
 
     SECTION("Add single mode")
     {
@@ -41,7 +42,7 @@ TEST_CASE("Add mode")
     }
 }
 
-TEST_CASE("Remove mode")
+TEST_CASE("Remove mode", "[Modes]")
 {
     Modes modes;
     modes.addMode("NA:Ball");
@@ -49,6 +50,7 @@ TEST_CASE("Remove mode")
     SECTION("Remove single mode")
     {
         modes.removeMode("NA:Ball");
+        CHECK(modes.isEmpty());
         CHECK(modes.str() == "");
     }
 
@@ -76,7 +78,7 @@ TEST_CASE("Remove mode")
     }
 }
 
-TEST_CASE("Clear modes")
+TEST_CASE("Clear modes", "[Modes]")
 {
     Modes modes;
 
@@ -109,7 +111,7 @@ TEST_CASE("Clear modes")
     }
 }
 
-TEST_CASE("Modes to string")
+TEST_CASE("Modes to string", "[Modes]")
 {
     Modes modes;
 

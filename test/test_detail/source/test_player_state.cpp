@@ -13,14 +13,14 @@
 using namespace scorbit;
 using namespace scorbit::detail;
 
-TEST_CASE("New created player score 0")
+TEST_CASE("Newly created player score 0", "[PlayerState]")
 {
     PlayerState ps {1};
     CHECK(ps.player() == 1);
     CHECK(ps.score() == 0);
 }
 
-TEST_CASE("Player number")
+TEST_CASE("Player number", "[PlayerState]")
 {
     PlayerState ps {1};
     CHECK(ps.player() == 1);
@@ -29,7 +29,7 @@ TEST_CASE("Player number")
     CHECK(ps2.player() == 2);
 }
 
-TEST_CASE("Score")
+TEST_CASE("Score", "[PlayerState]")
 {
     PlayerState ps {1};
 
