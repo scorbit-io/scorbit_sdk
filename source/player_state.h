@@ -8,7 +8,6 @@
 #pragma once
 
 #include <scorbit_sdk/common_types_c.h>
-#include "change_tracker.h"
 
 namespace scorbit {
 namespace detail {
@@ -16,7 +15,7 @@ namespace detail {
 class PlayerState
 {
 public:
-    explicit PlayerState(ChangeTracker &tracker, sb_player_t player, sb_score_t score = -1);
+    explicit PlayerState(sb_player_t player, sb_score_t score = 0);
 
     sb_player_t player() const;
 
@@ -25,8 +24,7 @@ public:
 
 private:
     sb_player_t m_player;
-    sb_score_t m_score {-1};
-    ChangeTracker &m_tracker;
+    sb_score_t m_score;
 };
 
 inline bool operator<(const scorbit::detail::PlayerState &lhs,

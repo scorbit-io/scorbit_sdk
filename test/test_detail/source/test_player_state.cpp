@@ -13,49 +13,25 @@
 using namespace scorbit;
 using namespace scorbit::detail;
 
-TEST_CASE("Change state")
+TEST_CASE("New created player score 0")
 {
-    ChangeTracker tracker;
-    PlayerState ps {tracker, 1};
-
-    SECTION("Initially it's not changed")
-    {
-        CHECK(tracker.isChanged() == false);
-    }
-
-    SECTION("Set score")
-    {
-        ps.setScore(100);
-        CHECK(tracker.isChanged() == true);
-
-        tracker.clearChanged();
-        CHECK(tracker.isChanged() == false);
-
-        // Setting same score doesn't change the state
-        ps.setScore(100);
-        CHECK(tracker.isChanged() == false);
-
-        // Setting different score changes the state
-        ps.setScore(200);
-        CHECK(tracker.isChanged() == true);
-    }
+    PlayerState ps {1};
+    CHECK(ps.player() == 1);
+    CHECK(ps.score() == 0);
 }
 
 TEST_CASE("Player number")
 {
-    ChangeTracker tracker;
-    PlayerState ps {tracker, 1};
+    PlayerState ps {1};
     CHECK(ps.player() == 1);
 
-    PlayerState ps2 {tracker, 2};
+    PlayerState ps2 {2};
     CHECK(ps2.player() == 2);
 }
 
 TEST_CASE("Score")
 {
-    ChangeTracker tracker;
-    PlayerState ps {tracker, 1};
-    CHECK(ps.score() == -1);
+    PlayerState ps {1};
 
     ps.setScore(100);
     CHECK(ps.score() == 100);
@@ -63,4 +39,3 @@ TEST_CASE("Score")
     ps.setScore(200);
     CHECK(ps.score() == 200);
 }
-

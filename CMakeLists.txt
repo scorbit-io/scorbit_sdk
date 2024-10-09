@@ -87,7 +87,6 @@ target_sources(
         source/player_state.cpp
         source/modes.h
         source/modes.cpp
-        source/change_tracker.h
         source/game_data.h
 )
 
