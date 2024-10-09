@@ -9,6 +9,8 @@
 
 #include <scorbit_sdk/common_types_c.h>
 #include <scorbit_sdk/net_base.h>
+#include "game_data.h"
+#include "change_tracker.h"
 #include <string>
 #include <memory>
 
@@ -34,6 +36,8 @@ public:
 
 private:
     std::unique_ptr<NetBase> m_net;
+    ChangeTracker m_tracker;
+    GameData m_data;
 };
 
 } // namespace detail

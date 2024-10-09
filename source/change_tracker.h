@@ -15,8 +15,6 @@ class ChangeTracker
 public:
     bool isChanged() const { return m_isChanged; }
     void clearChanged() { m_isChanged = false; }
-
-protected:
     void setChanged() { m_isChanged = true; }
 
 private:

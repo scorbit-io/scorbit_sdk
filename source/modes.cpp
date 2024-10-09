@@ -15,6 +15,11 @@ namespace detail {
 
 using namespace std;
 
+Modes::Modes(ChangeTracker &tracker)
+    : m_tracker(tracker)
+{
+}
+
 void Modes::addMode(std::string mode)
 {
     // TODO check if mode is valid
@@ -25,7 +30,7 @@ void Modes::addMode(std::string mode)
     }
 
     m_modes.emplace_back(std::move(mode));
-    setChanged();
+    m_tracker.setChanged();
 }
 
 void Modes::removeMode(std::string_view mode)
@@ -34,7 +39,7 @@ void Modes::removeMode(std::string_view mode)
     m_modes.erase(remove(begin(m_modes), end(m_modes), mode), end(m_modes));
 
     if (oldSize != m_modes.size()) {
-        setChanged();
+        m_tracker.setChanged();
     } else {
         DBG("Skipping removal of mode '{}': not found.", mode);
     }
@@ -46,7 +51,7 @@ void Modes::clearModes()
         return;
 
     m_modes.clear();
-    setChanged();
+    m_tracker.setChanged();
 }
 
 string Modes::str() const

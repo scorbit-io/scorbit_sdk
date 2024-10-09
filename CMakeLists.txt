@@ -88,6 +88,7 @@ target_sources(
         source/modes.h
         source/modes.cpp
         source/change_tracker.h
+        source/game_data.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC

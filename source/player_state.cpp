@@ -10,9 +10,11 @@
 namespace scorbit {
 namespace detail {
 
-PlayerState::PlayerState(sb_player_t player)
+PlayerState::PlayerState(ChangeTracker &tracker, sb_player_t player, sb_score_t score)
     : m_player(player)
+    , m_tracker(tracker)
 {
+    setScore(score); // To mark as changed if needed
 }
 
 sb_player_t PlayerState::player() const
@@ -31,7 +33,7 @@ void PlayerState::setScore(sb_score_t score)
         return;
 
     m_score = score;
-    setChanged();
+    m_tracker.setChanged();
 }
 
 } // namespace detail

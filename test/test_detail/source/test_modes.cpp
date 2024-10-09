@@ -15,69 +15,71 @@ using namespace scorbit::detail;
 
 TEST_CASE("Change modes")
 {
-    Modes modes;
+    ChangeTracker tracker;
+    Modes modes {tracker};
 
     SECTION("Initially it's not changed")
     {
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
     }
 
     SECTION("Add mode")
     {
         // Adding a new mode should set changed flag to true
         modes.addMode("NA:Ball");
-        REQUIRE(modes.isChanged() == true);
+        REQUIRE(tracker.isChanged() == true);
 
         // Clearing the changed state
-        modes.clearChanged();
-        CHECK(modes.isChanged() == false);
+        tracker.clearChanged();
+        CHECK(tracker.isChanged() == false);
 
         // Adding the same mode again shouldn't change the state
         modes.addMode("NA:Ball");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
 
         // Adding a different mode should change the state
         modes.addMode("NA:Multiball");
-        CHECK(modes.isChanged() == true);
+        CHECK(tracker.isChanged() == true);
     }
 
     SECTION("Remove mode")
     {
         modes.addMode("NA:Ball");
-        REQUIRE(modes.isChanged() == true);
+        REQUIRE(tracker.isChanged() == true);
 
         // Clearing the changed state
-        modes.clearChanged();
-        CHECK(modes.isChanged() == false);
+        tracker.clearChanged();
+        CHECK(tracker.isChanged() == false);
 
         // Removing a non-existing mode shouldn't change the state
         modes.removeMode("NA:Multiball");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
 
         // Removing an existing mode should change the state
         modes.removeMode("NA:Ball");
-        CHECK(modes.isChanged() == true);
+        CHECK(tracker.isChanged() == true);
     }
 
     SECTION("Clear modes")
     {
         modes.addMode("NA:Ball");
         modes.addMode("NA:Multiball");
-        REQUIRE(modes.isChanged() == true);
+        REQUIRE(tracker.isChanged() == true);
 
         // Clearing the changed state
-        modes.clearChanged();
-        CHECK(modes.isChanged() == false);
+        tracker.clearChanged();
+        CHECK(tracker.isChanged() == false);
 
         // Clearing all modes should change the state
         modes.clearModes();
-        CHECK(modes.isChanged() == true);
+        CHECK(tracker.isChanged() == true);
     }
 }
 
 TEST_CASE("Add mode")
 {
-    Modes modes;
+    ChangeTracker tracker;
+    Modes modes {tracker};
 
     SECTION("Add single mode")
     {
@@ -97,21 +99,22 @@ TEST_CASE("Add mode")
         modes.addMode("NA:Ball");
         modes.addMode("NA:Multiball");
 
-        modes.clearChanged();
-        REQUIRE(modes.isChanged() == false);
+        tracker.clearChanged();
+        REQUIRE(tracker.isChanged() == false);
 
         modes.addMode("NA:Ball");
         modes.addMode("NA:Multiball");
         CHECK(modes.str() == "NA:Ball;NA:Multiball");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
     }
 }
 
 TEST_CASE("Remove mode")
 {
-    Modes modes;
+    ChangeTracker tracker;
+    Modes modes {tracker};
     modes.addMode("NA:Ball");
-    modes.clearChanged();
+    tracker.clearChanged();
 
     SECTION("Remove single mode")
     {
@@ -130,11 +133,11 @@ TEST_CASE("Remove mode")
 
     SECTION("Remove non-existent mode does not change state")
     {
-        REQUIRE(modes.isChanged() == false);
+        REQUIRE(tracker.isChanged() == false);
 
         modes.removeMode("NA:NonExistent");
         CHECK(modes.str() == "NA:Ball");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
     }
 
     SECTION("Remove all modes")
@@ -148,16 +151,17 @@ TEST_CASE("Remove mode")
 
 TEST_CASE("Clear modes")
 {
-    Modes modes;
+    ChangeTracker tracker;
+    Modes modes{tracker};
 
     SECTION("Clear modes when no modes are added does not change state")
     {
-        modes.clearChanged();
-        REQUIRE(modes.isChanged() == false);
+        tracker.clearChanged();
+        REQUIRE(tracker.isChanged() == false);
 
         modes.clearModes();
         CHECK(modes.str() == "");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
     }
 
     SECTION("Clear modes when modes are present")
@@ -166,12 +170,12 @@ TEST_CASE("Clear modes")
         modes.addMode("NA:Multiball");
         REQUIRE(modes.str() == "NA:Ball;NA:Multiball");
 
-        modes.clearChanged();
-        REQUIRE(modes.isChanged() == false);
+        tracker.clearChanged();
+        REQUIRE(tracker.isChanged() == false);
 
         modes.clearModes();
         CHECK(modes.str() == "");
-        CHECK(modes.isChanged() == true);
+        CHECK(tracker.isChanged() == true);
     }
 
     SECTION("Clear modes twice in a row only changes state once")
@@ -179,26 +183,27 @@ TEST_CASE("Clear modes")
         modes.addMode("NA:Ball");
         REQUIRE(modes.str() == "NA:Ball");
 
-        modes.clearChanged();
-        REQUIRE(modes.isChanged() == false);
+        tracker.clearChanged();
+        REQUIRE(tracker.isChanged() == false);
 
         modes.clearModes();
         CHECK(modes.str() == "");
-        CHECK(modes.isChanged() == true);
+        CHECK(tracker.isChanged() == true);
 
         // Clear again without adding any modes
-        modes.clearChanged();
-        REQUIRE(modes.isChanged() == false);
+        tracker.clearChanged();
+        REQUIRE(tracker.isChanged() == false);
 
         modes.clearModes();
         CHECK(modes.str() == "");
-        CHECK(modes.isChanged() == false);
+        CHECK(tracker.isChanged() == false);
     }
 }
 
 TEST_CASE("Modes to string")
 {
-    Modes modes;
+    ChangeTracker tracker;
+    Modes modes {tracker};
 
     SECTION("Empty modes list returns an empty string")
     {

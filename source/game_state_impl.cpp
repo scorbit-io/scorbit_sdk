@@ -12,6 +12,7 @@ namespace detail {
 
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
+    , m_data {m_tracker}
 {
 }
 
