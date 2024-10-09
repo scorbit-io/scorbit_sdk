@@ -75,6 +75,9 @@ void sb_set_game_finished(sb_game_handle_t handle);
  *
  * Updates the current active player in the game. By default, player 1 is the active player.
  *
+ * @note If active player was set while player is not yet exists, new player will be added with
+ * score 0 and set active.
+ *
  * @param handle The game handle created by @ref sb_create_game_state.
  * @param player The player's number [1-6]. Typically, up to 6 players are supported in pinball.
  * If the player number is out of range, the function does nothing.

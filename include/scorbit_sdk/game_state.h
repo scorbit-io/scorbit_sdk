@@ -73,6 +73,9 @@ public:
      *
      * Updates the current active player in the game. By default, player 1 is the active player.
      *
+     * @note If active player was set while player is not yet exists, new player will be added with
+     * score 0 and set active.
+     *
      * @param player The player's number [1-6]. Typically, up to 6 players are supported in pinball.
      * If the player number is out of range, the function does nothing.
      */
@@ -83,6 +86,7 @@ public:
      *
      * Updates the specified player's score. If the new score is the same as the current score,
      * no update is made.
+     * If the player does not exist, a new player is added with the specified score.
      *
      * @param player The player's number [1-6]. If the player number is out of range, the function
      * does nothing.
