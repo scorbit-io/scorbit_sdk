@@ -30,11 +30,16 @@ void GameStateImpl::setGameStarted()
     setCurrentBall(1);
     setActivePlayer(1);
 
-    commit();
+    sendGameData();
 }
 
 void GameStateImpl::setGameFinished()
 {
+    m_data.isGameStarted = false;
+    sendGameData();
+
+    // Reset game data
+    m_data = GameData {};
 }
 
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
@@ -76,10 +81,6 @@ void GameStateImpl::clearModes()
 
 void GameStateImpl::commit()
 {
-    if (isChanged()) {
-        m_net->sendGameData(m_data);
-        m_prevData = m_data;
-    }
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)
@@ -91,6 +92,14 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
 
     m_data.players.insert(std::make_pair(player, PlayerState {player, 0}));
     DBG("Player {} added", player);
+}
+
+void GameStateImpl::sendGameData()
+{
+    if (isChanged()) {
+        m_net->sendGameData(m_data);
+        m_prevData = m_data;
+    }
 }
 
 bool GameStateImpl::isChanged() const

@@ -37,6 +37,7 @@ public:
 
 private:
     void addNewPlayer(sb_player_t player);
+    void sendGameData();
     bool isChanged() const;
 
 private:
