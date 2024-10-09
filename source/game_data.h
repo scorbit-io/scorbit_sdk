@@ -31,5 +31,10 @@ inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::deta
         && lhs.players == rhs.players;
 }
 
+inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
+{
+    return !(lhs == rhs);
+}
+
 } // namespace detail
 } // namespace scorbit

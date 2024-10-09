@@ -43,13 +43,14 @@ void sb_destroy_game_state(sb_game_handle_t handle);
 /**
  * @brief Mark the game as started.
  *
- * Indicates that the game has started. Call this function when the game begins.
+ * This function sets the game session active, resetting the game state. It initializes the
+ * active player to Player 1 with a score of 0, and sets the current ball to 1.
  *
- * @note This function automatically commits changes with @ref sb_commit.
- * Before starting the game, you can set the active player, scores, and modes, and then call
- * this function to start the game and commit all changes. If the game has already been started,
- * the function does nothing. If no scores are set and this function is called, player 1 is
- * automatically set as active with a score of 0.
+ * If the game is already in progress, this function has no effect.
+ *
+ * @note After starting the game, @ref sb_commit must be called to notify the cloud. Optionally,
+ * before calling @ref sb_commit, the active player, scores, modes, or current ball can be
+ * modified.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
  */

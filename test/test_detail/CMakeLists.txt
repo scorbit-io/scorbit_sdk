@@ -60,6 +60,9 @@ target_sources(
         ../../source/modes.h
         ../../source/modes.cpp
         source/test_modes.cpp
+        source/test_game_state.cpp
+        ../../source/game_data.h
+        source/trompeloeil_printer.h
 )
 
 target_link_libraries(

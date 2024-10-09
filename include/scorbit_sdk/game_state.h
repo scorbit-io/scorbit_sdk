@@ -30,11 +30,12 @@ class GameStateImpl;
  * modes. The game state can be modified by setting the active player, updating the player's score,
  * and adding or removing modes.
  *
- * The game must be marked as started by calling @ref setGameStarted before modifying the state.
+ * The game must be marked as started by calling @ref setGameStarted before any modifications to the
+ * state can be made.
  *
- * To apply changes to the game state, call the @ref commit function. This function applies all
- * changes made to the game state. The game state is not updated until the commit function is
- * called.
+ * @note To apply changes to the game state, the @ref commit function must be called. This function
+ * finalizes all modifications made to the game state. Until @ref commit is invoked, the game state
+ * remains unchanged. Ideally, @ref commit should be called at the end of each frame cycle.
  *
  * @warning If the game is not active, all calls to modify the game state, as well as @ref commit,
  * will be ignored.
@@ -47,13 +48,15 @@ public:
     /**
      * @brief Mark the game as started.
      *
-     * Indicates that the game has started. Call this function when the game begins.
+     * This function sets the game session active, resetting the game state. It initializes the
+     * active player to Player 1 with a score of 0, and sets the current ball to 1.
      *
-     * @note This function automatically commits changes using @ref commit.
-     * Before starting the game, you can set the active player, scores, and modes, and then call
-     * this function to start the game and commit all changes. If the game has already been started,
-     * the function does nothing. If no scores are set and this function is called, player 1 is
-     * automatically set as active with a score of 0.
+     * If the game is already in progress, this function has no effect.
+     *
+     * @note After starting the game, @ref commit must be called to notify the cloud. Optionally,
+     * before calling @ref commit, the active player, scores, modes, or current ball can be
+     * modified.
+     *
      */
     void setGameStarted();
 

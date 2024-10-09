@@ -36,8 +36,13 @@ public:
     void commit();
 
 private:
+    void addNewPlayer(sb_player_t player);
+    bool isChanged() const;
+
+private:
     std::unique_ptr<NetBase> m_net;
     GameData m_data;
+    GameData m_prevData;
 };
 
 } // namespace detail
