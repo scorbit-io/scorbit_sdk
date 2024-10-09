@@ -16,9 +16,6 @@ namespace scorbit {
 namespace detail {
 
 struct GameData {
-    GameData(ChangeTracker &tracker)
-        : modes {tracker} {};
-
     sb_player_t activePlayer {0};
     Modes modes;
     std::map<sb_player_t, PlayerState> players;

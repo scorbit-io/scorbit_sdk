@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include "change_tracker.h"
 #include <vector>
 #include <string>
 #include <string_view>
@@ -18,17 +17,16 @@ namespace detail {
 class Modes
 {
 public:
-    Modes(ChangeTracker &tracker);
+    Modes() = default;
 
     void addMode(std::string mode);
     void removeMode(std::string_view mode);
-    void clearModes();
+    void clear();
 
     std::string str() const;
 
 private:
     std::vector<std::string> m_modes;
-    ChangeTracker &m_tracker;
 
     // Declare friend for operator==
     friend bool operator==(const Modes &, const Modes &);
