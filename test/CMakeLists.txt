@@ -3,6 +3,8 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-add_subdirectory(test_interface)
+project(test)
+
 add_subdirectory(test_detail)
+add_subdirectory(test_interface)
 add_subdirectory(test_interface_c)
