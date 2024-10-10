@@ -78,7 +78,8 @@ void sb_set_game_finished(sb_game_handle_t handle);
  * automatically set to 1.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
- * @param ball The ball number [1-5]. If the ball number is out of range, the function does nothing.
+ * @param ball The ball number [1,...]. If the ball number is out of range, the function does
+ * nothing.
  */
 SCORBIT_SDK_EXPORT
 void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball);
@@ -92,7 +93,7 @@ void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball);
  * score 0 and set active.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
- * @param player The player's number [1-6]. Typically, up to 6 players are supported in pinball.
+ * @param player The player's number [1,...]. Typically, up to 6 players are supported in pinball.
  * If the player number is out of range, the function does nothing.
  */
 SCORBIT_SDK_EXPORT

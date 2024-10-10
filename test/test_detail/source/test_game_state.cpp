@@ -180,6 +180,83 @@ TEST_CASE("setCurrentBall functionality")
         // Act: Attempt to set an invalid ball number (0)
         gameState.setCurrentBall(0); // Wrong ball, will be ignored and ball will be 3
         gameState.setScore(1, 1000); // This is to make some change, so it will be commited
-        gameState.commit(); // This commit change ball to 2
+        gameState.commit();          // This commit change ball to 2
+    }
+}
+
+TEST_CASE("setActivePlayer functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+
+    SECTION("Sets a valid active player")
+    {
+        // Assert that active player is 1
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 1)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set player 1 as active
+        gameState.setActivePlayer(1);
+        gameState.commit();
+
+        // Assert that active player is 3
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 3)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set player 3 as active
+        gameState.setActivePlayer(3);
+        gameState.commit();
+    }
+
+    SECTION("Does nothing for an invalid player number")
+    {
+        // Assert that active player is 2
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 2)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set an initial valid player
+        gameState.setActivePlayer(2);
+        gameState.commit();
+
+        // Attempt to set an invalid player number (e.g., 0)
+        // Assert: The active player should remain unchanged (2)
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 2)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set an initial valid player
+        gameState.setActivePlayer(0);
+        gameState.setCurrentBall(2); // To make some change, so it will be commited
+        gameState.commit();
+    }
+
+    SECTION("Adds a new player if the active player does not exist")
+    {
+        // Assert: Player 4 should now exist with score 0 and be the active player
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 4 && _1.players.at(4).score() == 0)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set player 4 as active when player 4 doesn't exist yet
+        gameState.setActivePlayer(4);
+        gameState.commit();
+
+        // Assert: Player 2 should now exist with score 0 and be the active player
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.activePlayer == 2 && _1.players.at(2).score() == 1000)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Set player 2 as active (another non-existing player)
+        gameState.setActivePlayer(2);
+        gameState.setScore(2, 1000);
+        gameState.commit();
     }
 }

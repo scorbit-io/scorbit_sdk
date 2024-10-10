@@ -77,7 +77,7 @@ public:
      * Updates the current ball number in the game. When game starts, the ball number is
      * automatically set to 1.
      *
-     * @param ball The ball number [1-5]. If the ball number is out of range, the function does
+     * @param ball The ball number [1,...]. If the ball number is out of range, the function does
      * nothing.
      */
     void setCurrentBall(sb_ball_t ball);
@@ -90,8 +90,8 @@ public:
      * @note If active player was set while player is not yet exists, new player will be added with
      * score 0 and set active.
      *
-     * @param player The player's number [1-6]. Typically, up to 6 players are supported in pinball.
-     * If the player number is out of range, the function does nothing.
+     * @param player The player's number [1,...]. Typically, up to 6 players are supported in
+     * pinball. If the player number is out of range, the function does nothing.
      */
     void setActivePlayer(sb_player_t player);
 

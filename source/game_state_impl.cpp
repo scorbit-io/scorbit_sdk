@@ -52,6 +52,11 @@ void GameStateImpl::setCurrentBall(sb_ball_t ball)
 
 void GameStateImpl::setActivePlayer(sb_player_t player)
 {
+    if (player == 0) {
+        WRN("Ignoring attempt to set active player to {}", player);
+        return;
+    }
+
     if (m_data.players.count(player) == 0) {
         addNewPlayer(player);
     }
