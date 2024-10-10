@@ -24,13 +24,11 @@ void GameStateImpl::setGameStarted()
     }
 
     // Reset game data
-    m_data = GameData {};
+    m_prevData = m_data = GameData {};
 
     m_data.isGameStarted = true;
     setCurrentBall(1);
     setActivePlayer(1);
-
-    sendGameData();
 }
 
 void GameStateImpl::setGameFinished()
@@ -44,6 +42,11 @@ void GameStateImpl::setGameFinished()
 
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
 {
+    if (ball == 0) {
+        WRN("Ignoring attempt to set current ball to {}", ball);
+        return;
+    }
+
     m_data.ball = ball;
 }
 
@@ -81,6 +84,9 @@ void GameStateImpl::clearModes()
 
 void GameStateImpl::commit()
 {
+    if (m_data.isGameStarted) {
+        sendGameData();
+    }
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)

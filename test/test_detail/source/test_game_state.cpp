@@ -58,8 +58,10 @@ TEST_CASE("GameState - setGameStarted commits game start and default settings", 
         // When setGameStarted is called without setting any scores or players,
         // it should set player 1 as the active player with a score of 0.
         gameState.setGameStarted();
+        gameState.commit();
 
         gameState.setGameStarted(); // This should do nothing, since it's already started
+        gameState.commit();
     }
 
     SECTION("Setting score, player, ball will be reset after setGameStarted")
@@ -75,8 +77,10 @@ TEST_CASE("GameState - setGameStarted commits game start and default settings", 
 
         // Call setGameStarted, which should commit the changes and send the updated game state
         gameState.setGameStarted(); // This should trigger sendGameData
+        gameState.commit();
 
         gameState.setGameStarted(); // This should do nothing, since it's already started
+        gameState.commit();
     }
 }
 
@@ -109,6 +113,7 @@ TEST_CASE("setGameFinished functionality")
 
         // Act
         gameState.setGameStarted();
+        gameState.commit();
 
         gameState.setCurrentBall(3);
         gameState.setActivePlayer(2);
@@ -135,5 +140,46 @@ TEST_CASE("setGameFinished functionality")
         gameState.addMode("NA:Multiball");
         gameState.setCurrentBall(3);
         gameState.commit();
+    }
+}
+
+TEST_CASE("setCurrentBall functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+
+    SECTION("Sets a valid ball number")
+    {
+        // Assert: Check that the ball number is set correctly 1
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 1).IN_SEQUENCE(seq).TIMES(1);
+        // Act: Set a valid ball number
+        gameState.setCurrentBall(1);
+        gameState.commit();
+
+        // Assert: Check that the ball number is set correctly to 3
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(1);
+        // Set another valid ball number
+        gameState.setCurrentBall(3);
+        gameState.commit();
+    }
+
+    SECTION("Does nothing for invalid ball numbers")
+    {
+        // Assert: Check that the ball number is set correctly
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(2);
+        // Act: Set an initial valid ball number
+        gameState.setCurrentBall(3);
+        gameState.commit();
+
+        // Now set an invalid ball number (0) and set score for player 1. Ball should be still 3
+        // Act: Attempt to set an invalid ball number (0)
+        gameState.setCurrentBall(0); // Wrong ball, will be ignored and ball will be 3
+        gameState.setScore(1, 1000); // This is to make some change, so it will be commited
+        gameState.commit(); // This commit change ball to 2
     }
 }
