@@ -102,7 +102,7 @@ public:
      * no update is made.
      * If the player does not exist, a new player is added with the specified score.
      *
-     * @param player The player's number [1-6]. If the player number is out of range, the function
+     * @param player The player's number [1,...]. If the player number is out of range, the function
      * does nothing.
      * @param score The player's new score.
      */

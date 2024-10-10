@@ -260,3 +260,112 @@ TEST_CASE("setActivePlayer functionality")
         gameState.commit();
     }
 }
+
+TEST_CASE("setScore functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, sendGameData(_))
+            .WITH(_1.players.at(1).score() == 0)
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+    gameState.commit();
+
+    SECTION("Sets the score for an existing player")
+    {
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(1).score() == 500)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Add player 1 with initial score
+        gameState.setScore(1, 500);
+        gameState.commit();
+
+        // Assert that score of player 1 is updated to 1000
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(1).score() == 1000)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Update score for player 1
+        gameState.setScore(1, 1000);
+        gameState.commit();
+    }
+
+    SECTION("Does nothing if the new score is the same as the current score")
+    {
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(2).score() == 1500)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Add player 2 with initial score
+        gameState.setScore(2, 1500);
+        gameState.commit();
+
+        // No update should be made since the score is the same
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Set the same score for player 2
+        gameState.setScore(2, 1500);
+        gameState.commit();
+    }
+
+    SECTION("Adds a new player with the specified score if the player does not exist")
+    {
+        // Assert that player 3 is added with score 800
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(3).score() == 800)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Add player 3 with a score of 800
+        gameState.setScore(3, 800);
+        gameState.commit();
+    }
+
+    SECTION("Does nothing if the player number is out of range")
+    {
+        // No update should be made if the player number is invalid
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Try to set the score for an invalid player number (0)
+        gameState.setScore(0, 1000);
+        gameState.commit();
+    }
+
+    SECTION("Updates the score for multiple players")
+    {
+        // Add player 1 with an initial score
+        // Assert: score of player 1 to 500
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(1).score() == 500)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        gameState.setScore(1, 500);
+        gameState.commit();
+
+        // Assert: Update the score of player 1 to 700
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(1).score() == 700)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Update score for player 1
+        gameState.setScore(1, 700);
+        gameState.commit();
+
+        // Assert: Add player 2 with score 1500
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.players.at(2).score() == 1500)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+        // Act: Add player 2
+        gameState.setScore(2, 1500);
+        gameState.commit();
+    }
+}

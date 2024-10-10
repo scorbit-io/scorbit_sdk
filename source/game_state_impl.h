@@ -39,6 +39,8 @@ private:
     void addNewPlayer(sb_player_t player);
     void sendGameData();
     bool isChanged() const;
+    bool isPlayerValid(sb_player_t player) const;
+    bool isBallValid(sb_ball_t ball) const;
 
 private:
     std::unique_ptr<NetBase> m_net;

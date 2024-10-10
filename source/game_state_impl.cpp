@@ -42,7 +42,7 @@ void GameStateImpl::setGameFinished()
 
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
 {
-    if (ball == 0) {
+    if (!isBallValid(ball)) {
         WRN("Ignoring attempt to set current ball to {}", ball);
         return;
     }
@@ -52,7 +52,7 @@ void GameStateImpl::setCurrentBall(sb_ball_t ball)
 
 void GameStateImpl::setActivePlayer(sb_player_t player)
 {
-    if (player == 0) {
+    if (!isPlayerValid(player)) {
         WRN("Ignoring attempt to set active player to {}", player);
         return;
     }
@@ -66,6 +66,11 @@ void GameStateImpl::setActivePlayer(sb_player_t player)
 
 void GameStateImpl::setScore(sb_player_t player, sb_score_t score)
 {
+    if (!isPlayerValid(player)) {
+        WRN("Ignoring attempt to set score for invalid player {}, score: ", player, score);
+        return;
+    }
+
     if (m_data.players.count(player) == 0) {
         addNewPlayer(player);
     }
@@ -116,6 +121,16 @@ void GameStateImpl::sendGameData()
 bool GameStateImpl::isChanged() const
 {
     return m_data != m_prevData;
+}
+
+bool GameStateImpl::isPlayerValid(sb_player_t player) const
+{
+    return player > 0;
+}
+
+bool GameStateImpl::isBallValid(sb_ball_t ball) const
+{
+    return ball > 0;
 }
 
 } // namespace detail
