@@ -34,7 +34,7 @@ TEST_CASE("Create and destroy GameState")
     CHECK(true); // It constructed and destructed without crash
 }
 
-TEST_CASE("GameState - setGameStarted commits game start and default settings", "[GameState]")
+TEST_CASE("setGameStarted functionality")
 {
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
@@ -50,7 +50,7 @@ TEST_CASE("GameState - setGameStarted commits game start and default settings", 
     expected.players.insert(std::make_pair(1, PlayerState {1}));
     expected.players.at(1).setScore(0);
 
-    SECTION("setGameStarted without setting players or scores")
+    SECTION("Start a game without setting players or scores")
     {
         // Expect sendGameData to be called once when the game starts
         REQUIRE_CALL(mockNetRef, sendGameData(eq(expected))).IN_SEQUENCE(seq).TIMES(1);
@@ -168,19 +168,25 @@ TEST_CASE("setCurrentBall functionality")
         gameState.commit();
     }
 
-    SECTION("Does nothing for invalid ball numbers")
+    SECTION("Invalid ball numbers ignored")
     {
         // Assert: Check that the ball number is set correctly
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(2);
-        // Act: Set an initial valid ball number
-        gameState.setCurrentBall(3);
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 9).IN_SEQUENCE(seq).TIMES(3);
+        // Act: Set an initial valid ball number 9
+        gameState.setCurrentBall(9);
         gameState.commit();
 
-        // Now set an invalid ball number (0) and set score for player 1. Ball should be still 3
+        // Now set an invalid ball number (0) and set score for player 1. Ball should be still 9
         // Act: Attempt to set an invalid ball number (0)
-        gameState.setCurrentBall(0); // Wrong ball, will be ignored and ball will be 3
+        gameState.setCurrentBall(0); // Wrong ball, will be ignored and ball will be 9
         gameState.setScore(1, 1000); // This is to make some change, so it will be commited
-        gameState.commit();          // This commit change ball to 2
+        gameState.commit();
+
+        // Now set an invalid ball number (10) and set score for player 1. Ball should be still 9
+        // Act: Attempt to set an invalid ball number (10)
+        gameState.setCurrentBall(10); // Wrong ball, will be ignored and ball will be 9
+        gameState.setScore(1, 2000); // This is to make some change, so it will be commited
+        gameState.commit();
     }
 }
 
@@ -217,24 +223,27 @@ TEST_CASE("setActivePlayer functionality")
 
     SECTION("Does nothing for an invalid player number")
     {
-        // Assert that active player is 2
+        // Assert that active player is 9
         REQUIRE_CALL(mockNetRef, sendGameData(_))
-                .WITH(_1.activePlayer == 2)
+                .WITH(_1.activePlayer == 9)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(3);
         // Act: Set an initial valid player
-        gameState.setActivePlayer(2);
+        gameState.setActivePlayer(9);
         gameState.commit();
 
         // Attempt to set an invalid player number (e.g., 0)
-        // Assert: The active player should remain unchanged (2)
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
-                .WITH(_1.activePlayer == 2)
-                .IN_SEQUENCE(seq)
-                .TIMES(1);
+        // The active player should remain unchanged (9)
         // Act: Set an initial valid player
         gameState.setActivePlayer(0);
         gameState.setCurrentBall(2); // To make some change, so it will be commited
+        gameState.commit();
+
+        // Attempt to set an invalid player number (e.g., 10)
+        // The active player should remain unchanged (9)
+        // Act: Set an initial valid player
+        gameState.setActivePlayer(10);
+        gameState.setCurrentBall(3); // To make some change, so it will be commited
         gameState.commit();
     }
 

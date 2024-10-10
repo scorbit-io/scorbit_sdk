@@ -126,12 +126,12 @@ bool GameStateImpl::isChanged() const
 
 bool GameStateImpl::isPlayerValid(sb_player_t player) const
 {
-    return player > 0;
+    return 1 <= player && player <= 9;
 }
 
 bool GameStateImpl::isBallValid(sb_ball_t ball) const
 {
-    return ball > 0;
+    return 1 <= ball && ball <= 9;
 }
 
 } // namespace detail
