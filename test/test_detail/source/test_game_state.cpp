@@ -369,3 +369,153 @@ TEST_CASE("setScore functionality")
         gameState.commit();
     }
 }
+
+TEST_CASE("addMode functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+    gameState.commit();
+
+    SECTION("Adds a new mode to the active modes list")
+    {
+        // Assert that mode "MB:Multiball" is added
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Add mode "MB:Multiball"
+        gameState.addMode("MB:Multiball");
+        gameState.commit();
+
+        // Assert that another mode "SP:SuperPlay" is added
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.contains("SP:SuperPlay"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Add another mode "SP:SuperPlay"
+        gameState.addMode("SP:SuperPlay");
+        gameState.commit();
+    }
+
+    SECTION("Does nothing if the mode already exists")
+    {
+        // Assert that mode "MB:Multiball" is added
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.str() == "MB:Multiball")
+                .IN_SEQUENCE(seq)
+                .TIMES(2);
+
+        // Add mode "MB:Multiball"
+        gameState.addMode("MB:Multiball");
+        gameState.commit();
+
+        // Act: Try to add the same mode "MB:Multiball"
+        gameState.addMode("MB:Multiball");
+        gameState.setCurrentBall(2); // to make some change, so it will be commited
+        gameState.commit();
+    }
+}
+
+TEST_CASE("removeMode functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+    gameState.commit();
+
+    SECTION("Removes an existing mode from the active modes list")
+    {
+        // Assert: Mode "MB:Multiball" is removed
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Add mode "MB:Multiball"
+        gameState.addMode("MB:Multiball");
+        gameState.commit();
+
+        // Assert: Mode "MB:Multiball" is removed
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(!_1.modes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Remove mode "MB:Multiball"
+        gameState.removeMode("MB:Multiball");
+        gameState.commit();
+    }
+
+    SECTION("Does nothing if the mode does not exist")
+    {
+        // Assert: No update should occur as the mode doesn't exist
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Try to remove a mode that doesn't exist
+        gameState.removeMode("SP:SuperPlay");
+        gameState.commit();
+    }
+}
+
+TEST_CASE("clearModes functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+    gameState.commit();
+
+    SECTION("Removes all modes from the active modes list")
+    {
+        // Assert: All modes should be removed
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.str() == "MB:Multiball;SP:SuperPlay")
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Add some modes
+        gameState.addMode("MB:Multiball");
+        gameState.addMode("SP:SuperPlay");
+        gameState.commit();
+
+        // Assert: All modes should be removed
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.isEmpty())
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Clear all modes
+        gameState.clearModes();
+        gameState.commit();
+    }
+
+    SECTION("Does nothing if there are no modes to clear")
+    {
+        // Assert: No update should occur as there are no modes
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Clear modes when no modes exist
+        gameState.clearModes();
+        gameState.commit();
+    }
+}

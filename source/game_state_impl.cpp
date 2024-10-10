@@ -80,16 +80,17 @@ void GameStateImpl::setScore(sb_player_t player, sb_score_t score)
 
 void GameStateImpl::addMode(std::string mode)
 {
-    (void)mode;
+    m_data.modes.addMode(std::move(mode));
 }
 
 void GameStateImpl::removeMode(const std::string &mode)
 {
-    (void)mode;
+    m_data.modes.removeMode(mode);
 }
 
 void GameStateImpl::clearModes()
 {
+    m_data.modes.clear();
 }
 
 void GameStateImpl::commit()

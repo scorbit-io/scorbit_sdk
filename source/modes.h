@@ -23,6 +23,7 @@ public:
     void removeMode(std::string_view mode);
     void clear();
     bool isEmpty() const;
+    bool contains(std::string_view mode) const;
 
     std::string str() const;
 

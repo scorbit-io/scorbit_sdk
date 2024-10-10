@@ -47,6 +47,11 @@ bool Modes::isEmpty() const
     return m_modes.empty();
 }
 
+bool Modes::contains(std::string_view mode) const
+{
+    return find(begin(m_modes), end(m_modes), mode) != end(m_modes);
+}
+
 string Modes::str() const
 {
     if (m_modes.empty())

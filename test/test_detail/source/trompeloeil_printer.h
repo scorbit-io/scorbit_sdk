@@ -26,7 +26,9 @@ struct printer<scorbit::detail::GameData> {
             os << " Player " << p.second.player()
                << ": score = " << p.second.score() << ",";
         }
-        os << " } }";
+        os << " } }, ";
+
+        os << "modes: \"" << g.modes.str() << "\"";
     }
 };
 }
