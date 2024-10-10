@@ -519,3 +519,94 @@ TEST_CASE("clearModes functionality")
         gameState.commit();
     }
 }
+
+TEST_CASE("commit functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
+    gameState.setGameStarted();
+    gameState.commit(); // Initial commit after starting the game
+
+    SECTION("Commits changes when the game state is modified")
+    {
+        // Add mode "MB:Multiball"
+        gameState.addMode("MB:Multiball");
+
+        // Assert: commit should trigger sendGameData with "MB:Multiball" added
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Call commit to apply changes
+        gameState.commit();
+    }
+
+    SECTION("Does not commit if no changes were made")
+    {
+        // Assert: No sendGameData should be called since nothing was modified
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Call commit without making any changes
+        gameState.commit();
+    }
+
+    SECTION("Commits after multiple changes to the game state")
+    {
+        // Make several modifications
+        gameState.addMode("MB:Multiball");
+        gameState.setScore(1, 500);
+        gameState.setActivePlayer(2);
+
+        // Assert: commit should trigger sendGameData with the appropriate game state
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.contains("MB:Multiball") && _1.players.at(1).score() == 500
+                      && _1.activePlayer == 2)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Call commit to apply all changes
+        gameState.commit();
+    }
+
+    SECTION("Commits only once if the same changes are made repeatedly")
+    {
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+        // Add a mode and call commit
+        gameState.addMode("MB:Multiball");
+        gameState.commit();
+
+        // Assert: No further commit should occur if the state didn't change
+        FORBID_CALL(mockNetRef, sendGameData(_));
+
+        // Act: Call commit again without any new changes
+        gameState.commit();
+    }
+
+    SECTION("Commits after clearing modes")
+    {
+        REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+        // Add modes first
+        gameState.addMode("MB:Multiball");
+        gameState.addMode("SP:SuperPlay");
+        gameState.commit();
+
+        // Clear all modes
+        gameState.clearModes();
+
+        // Assert: commit should trigger sendGameData with no modes remaining
+        REQUIRE_CALL(mockNetRef, sendGameData(_))
+                .WITH(_1.modes.isEmpty())
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: Call commit to apply changes
+        gameState.commit();
+    }
+}
