@@ -1,5 +1,5 @@
 ignore:
-  - "test"
+  - "tests"
 
 comment:
   require_changes: true
