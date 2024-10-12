@@ -1,0 +1,13 @@
+iniconfig
+packaging
+pluggy<2,>=1.5
+
+[dev]
+argcomplete
+attrs>=19.2
+hypothesis>=3.56
+mock
+pygments>=2.7.2
+requests
+setuptools
+xmlschema

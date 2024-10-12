@@ -15,4 +15,6 @@ setup(
             "pytest",
         ],
     },
+    test_suite="tests",
+    tests_require=["pytest"],
 )
