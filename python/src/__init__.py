@@ -6,6 +6,7 @@ from .log import LogLevel, DEBUG, INFO, WARN, ERROR
 from .version import VERSION
 from .messages import ScorbitRESTMessage, ScorbitRESTResponse, ScorbitWSMessage, ScorbitWebSocketResponse
 from .common_types import Ball, Player, Score
+from .version import VERSION
 
 __all__ = [
     'ScorbitSDK',

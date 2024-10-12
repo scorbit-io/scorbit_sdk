@@ -1,9 +1,16 @@
 import asyncio
+import sys
+import os
 
-from scorbit_sdk import (
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.scorbit_sdk import (
     ScorbitSDK, initialize, start, tick, api_call, set_ws_message_callback,
-    ScorbitRESTResponse, ScorbitWSMessage, DOMAIN_STAGING, METHOD_GET
+    DOMAIN_STAGING, METHOD_GET
 )
+from src.messages import ScorbitRESTResponse, ScorbitWSMessage
+
 
 async def _scorbitron_paired_callback(message: ScorbitRESTResponse):
     print("_scorbitron_paired_callback", message)
@@ -20,18 +27,17 @@ async def main():
         domain=DOMAIN_STAGING,
         provider="",
         private_key="",
-        uuid="",  # You don't have to remove the dashes, the SDK will handle this
+        uuid="",
         machine_serial=0,
         machine_id=0,
         software_version="1.337"
     )
     
-    set_ws_message_callback(_ws_message_callback)
+    await set_ws_message_callback(_ws_message_callback)
     
     await start()
 
     await api_call(METHOD_GET, f"/api/scorbitron_paired/{ScorbitSDK._net_instance.uuid}/", authorization=True, callback=_scorbitron_paired_callback)
-
     # Main loop
     while True:
         await tick()

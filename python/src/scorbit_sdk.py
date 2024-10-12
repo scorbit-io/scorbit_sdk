@@ -5,6 +5,7 @@ from .net import Net
 from .game_state import GameState, create_game_state, destroy_game_state
 from .log import add_logger_callback, reset_logger, LogLevel
 from .common_types import Ball, Player, Score
+from .messages import ScorbitRESTResponse, ScorbitWSMessage
 import asyncio
 from typing import Callable, Dict, List
 
@@ -24,6 +25,15 @@ class ScorbitSDK:
     METHOD_DELETE = "DELETE"
     METHOD_PUT = "PUT"
     METHOD_PATCH = "PATCH"
+
+    @staticmethod
+    async def initialize(domain: str, provider: str, private_key: str, uuid: str, 
+                        machine_serial: int, machine_id: int, software_version: str, 
+                        developer_token: str = ""):
+        ScorbitSDK._net_instance = Net()
+        await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid, 
+                                                machine_serial, machine_id, software_version, 
+                                                developer_token)
 
     @staticmethod
     def start_game():
@@ -57,7 +67,7 @@ class ScorbitSDK:
         result = await ScorbitSDK._net_instance.api_call(method, endpoint, data, files, authorization)
         
         if callback:
-            callback(result)
+            await callback(result)
         
         return result
     
@@ -68,18 +78,9 @@ class ScorbitSDK:
         ScorbitSDK._ws_callbacks[command.upper()] = callback
 
     @staticmethod
-    def set_ws_message_callback(callback: Callable):
+    async def set_ws_message_callback(callback):
         if ScorbitSDK._net_instance:
-            ScorbitSDK._net_instance.set_ws_callback(callback)
-
-    @staticmethod
-    async def initialize(domain: str, provider: str, private_key: str, uuid: str, 
-                         machine_serial: int, machine_id: int, software_version: str, 
-                         developer_token: str = ""):
-        ScorbitSDK._net_instance = Net()
-        await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid, 
-                                                  machine_serial, machine_id, software_version, 
-                                                  developer_token)
+            await ScorbitSDK._net_instance.set_ws_callback(callback)
     
     @staticmethod
     async def ws_command(command: str, data: dict, specific_callback=None):
@@ -100,9 +101,9 @@ class ScorbitSDK:
         return f"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}&opdb={opdb_id}"
 
     @staticmethod
-    def start():
+    async def start():
         if ScorbitSDK._net_instance:
-            asyncio.run(ScorbitSDK._net_instance.start())
+            await ScorbitSDK._net_instance.start()
 
     @staticmethod
     def create_game_state():
@@ -130,3 +131,19 @@ class ScorbitSDK:
     @staticmethod
     def reset_logger():
         reset_logger()
+    
+# Expose ScorbitSDK methods for easier access
+DOMAIN_PRODUCTION = ScorbitSDK.DOMAIN_PRODUCTION
+DOMAIN_STAGING = ScorbitSDK.DOMAIN_STAGING
+METHOD_GET = ScorbitSDK.METHOD_GET
+METHOD_POST = ScorbitSDK.METHOD_POST
+METHOD_DELETE = ScorbitSDK.METHOD_DELETE
+METHOD_PUT = ScorbitSDK.METHOD_PUT
+METHOD_PATCH = ScorbitSDK.METHOD_PATCH
+initialize = ScorbitSDK.initialize
+start = ScorbitSDK.start
+tick = ScorbitSDK.tick
+api_call = ScorbitSDK.api_call
+set_ws_message_callback = ScorbitSDK.set_ws_message_callback
+ScorbitRESTResponse = ScorbitRESTResponse
+ScorbitWSMessage = ScorbitWSMessage

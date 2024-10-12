@@ -1,6 +1,7 @@
 Metadata-Version: 2.1
 Name: scorbit_sdk
 Version: 0.1.0
+License-File: LICENSE
 Requires-Dist: websockets
 Requires-Dist: requests
 Requires-Dist: ecdsa

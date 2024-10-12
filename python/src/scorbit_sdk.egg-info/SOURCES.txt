@@ -1,3 +1,5 @@
+LICENSE
+README.md
 setup.py
 src/scorbit_sdk.egg-info/PKG-INFO
 src/scorbit_sdk.egg-info/SOURCES.txt
