@@ -7,6 +7,7 @@
 
 #include "game_state_impl.h"
 #include "logger.h"
+#include <utility>
 
 namespace scorbit {
 namespace detail {

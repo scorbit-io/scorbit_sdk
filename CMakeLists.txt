@@ -76,7 +76,7 @@ target_sources(
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
         include/scorbit_sdk/net_base.h
-        include/scorbit_sdk/net.h
+        source/net.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
@@ -88,6 +88,8 @@ target_sources(
         source/modes.h
         source/modes.cpp
         source/game_data.h
+        include/scorbit_sdk/net_types_c.h
+        include/scorbit_sdk/net_types.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC

@@ -62,6 +62,9 @@ target_sources(
         source/test_game_state.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
+        ../../source/net.h
+        ../../source/net.cpp
+        source/test_net.cpp
 )
 
 target_link_libraries(

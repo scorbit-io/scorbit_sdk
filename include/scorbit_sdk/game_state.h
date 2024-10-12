@@ -43,7 +43,7 @@ class GameStateImpl;
 class SCORBIT_SDK_EXPORT GameState
 {
 public:
-    GameState(std::unique_ptr<NetBase> net = {}); // TODO: remove default value
+    GameState(std::unique_ptr<detail::NetBase> net = {}); // TODO: remove default value
 
     /**
      * @brief Mark the game as started.

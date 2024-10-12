@@ -10,7 +10,7 @@
 
 namespace scorbit {
 
-GameState::GameState(std::unique_ptr<NetBase> net)
+GameState::GameState(std::unique_ptr<detail::NetBase> net)
     : p {spimpl::make_unique_impl<detail::GameStateImpl>(std::move(net))}
 {
 }

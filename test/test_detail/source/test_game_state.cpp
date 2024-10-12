@@ -5,9 +5,8 @@
  *
  ****************************************************************************/
 
-#include <scorbit_sdk/game_state.h>
-#include <scorbit_sdk/net_base.h>
-
+#include "scorbit_sdk/game_state.h"
+#include "scorbit_sdk/net_base.h"
 #include "game_data.h"
 #include "trompeloeil_printer.h"
 
@@ -20,7 +19,7 @@ using namespace scorbit;
 using namespace scorbit::detail;
 using namespace trompeloeil;
 
-class MockNetBase : public scorbit::NetBase
+class MockNetBase : public NetBase
 {
 public:
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
