@@ -57,7 +57,6 @@ start = ScorbitSDK.start
 tick = ScorbitSDK.tick
 api_call = ScorbitSDK.api_call
 ws_command = ScorbitSDK.ws_command
-start_game = ScorbitSDK.start_game
 update_game = ScorbitSDK.update_game
 get_pairing_qr_url = ScorbitSDK.get_pairing_qr_url
 get_claiming_qr_url = ScorbitSDK.get_claiming_qr_url
@@ -66,6 +65,15 @@ create_game_state = ScorbitSDK.create_game_state
 destroy_game_state = ScorbitSDK.destroy_game_state
 add_logger_callback = ScorbitSDK.add_logger_callback
 reset_logger = ScorbitSDK.reset_logger
+set_game_started = ScorbitSDK.set_game_started
+set_game_finished = ScorbitSDK.set_game_finished
+set_current_ball = ScorbitSDK.set_current_ball
+set_active_player = ScorbitSDK.set_active_player
+set_score = ScorbitSDK.set_score
+add_mode = ScorbitSDK.add_mode
+remove_mode = ScorbitSDK.remove_mode
+clear_modes = ScorbitSDK.clear_modes
+commit = ScorbitSDK.commit
 
 # Expose constants
 DOMAIN_PRODUCTION = ScorbitSDK.DOMAIN_PRODUCTION
