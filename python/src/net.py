@@ -6,6 +6,8 @@ import json
 from typing import Dict, Any, Callable
 import requests
 import websockets
+import aiohttp
+
 from ecdsa import SigningKey, NIST256p
 
 from .net_base import NetBase
@@ -13,6 +15,7 @@ from .messages import ScorbitRESTMessage, ScorbitRESTResponse, ScorbitWSMessage,
 
 class Net(NetBase):
     def __init__(self):
+        self._session = None
         self.domain = ""
         self.provider = ""
         self.private_key = b""
@@ -34,7 +37,9 @@ class Net(NetBase):
         self.ws_callbacks = {}
         self.developer_token = ""
     
-    async def initialize(self, domain: str, provider: str, private_key: str, uuid: str, machine_serial: int, machine_id: int, software_version: str, developer_token: str = ""):
+    async def initialize(self, domain: str, provider: str, private_key: str, uuid: str,
+                     machine_serial: int, machine_id: int, software_version: str,
+                     developer_token: str = ""):
         self.domain = domain
         self.provider = provider
         self.private_key = bytes.fromhex(private_key.replace(":", ""))
@@ -45,6 +50,9 @@ class Net(NetBase):
         self.api_url = f'https://{self.domain}/'
         self.websocket_url = f'wss://{self.domain}/ws/'
         self.developer_token = developer_token
+        
+        self._session = aiohttp.ClientSession()
+        
         await self._get_session_token()
         await self._send_installed_data()
     
@@ -80,7 +88,7 @@ class Net(NetBase):
                 await asyncio.sleep(1)
 
     async def api_call(self, method: str, endpoint: str, data: Dict[str, Any] = None, 
-                       files: Dict[str, Any] = None, authorization: bool = False) -> Dict[str, Any]:
+                   files: Dict[str, Any] = None, authorization: bool = False) -> Dict[str, Any]:
         self.api_call_number += 1
         headers = {}
         if authorization:
@@ -91,9 +99,17 @@ class Net(NetBase):
         url = self._get_endpoint_url(endpoint)
         try:
             async with asyncio.timeout(8):  # 8-second timeout
-                response = await self._session.request(method, url, json=data, files=files, headers=headers)
-                response.raise_for_status()
-                return await response.json()
+                if files:
+                    form_data = aiohttp.FormData()
+                    for key, value in files.items():
+                        form_data.add_field(key, value)
+                    async with self._session.request(method, url, data=form_data, headers=headers) as response:
+                        response.raise_for_status()
+                        return await response.json()
+                else:
+                    async with self._session.request(method, url, json=data, headers=headers) as response:
+                        response.raise_for_status()
+                        return await response.json()
         except asyncio.TimeoutError:
             print(f"API call to {endpoint} timed out")
             raise
@@ -205,3 +221,15 @@ class Net(NetBase):
 
     def _get_timestamp_str(self) -> str:
         return str(int(time.time()))
+
+    async def close(self):
+        if self._session:
+            await self._session.close()
+        if self.websocket:
+            await self.websocket.close()
+        if self.websocket_task:
+            self.websocket_task.cancel()
+            try:
+                await self.websocket_task
+            except asyncio.CancelledError:
+                pass

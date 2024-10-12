@@ -25,12 +25,13 @@ class ScorbitSDK:
     METHOD_PATCH = "PATCH"
 
     @staticmethod
-    async def initialize(domain: str, provider: str, private_key: str, uuid: str, 
-                        machine_serial: int, machine_id: int, software_version: str, 
+    async def initialize(domain: str, provider: str, private_key: str, uuid: str,
+                        machine_serial: int, machine_id: int, software_version: str,
                         developer_token: str = ""):
-        ScorbitSDK._net_instance = Net()
-        await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid, 
-                                                machine_serial, machine_id, software_version, 
+        if not ScorbitSDK._net_instance:
+            ScorbitSDK._net_instance = Net()
+        await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid,
+                                                machine_serial, machine_id, software_version,
                                                 developer_token)
 
     @staticmethod
@@ -46,60 +47,61 @@ class ScorbitSDK:
         ScorbitSDK._current_game = None
 
     @staticmethod
-    def set_game_started():
+    async def set_game_started():
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.set_game_started()
+            await ScorbitSDK._current_game.set_game_started()
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def set_game_finished():
+    async def set_game_finished():
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.set_game_finished()
-            ScorbitSDK._current_game.send_session_log()
+            await ScorbitSDK._current_game.set_game_finished()
+            await ScorbitSDK._current_game.send_session_log()
             ScorbitSDK._current_game = None
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
+
     @staticmethod
-    def set_current_ball(ball: int):
+    async def set_current_ball(ball: int):
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.set_current_ball(ball)
+            await ScorbitSDK._current_game.set_current_ball(ball)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def set_active_player(player: int):
+    async def set_active_player(player: int):
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.set_active_player(player)
+            await ScorbitSDK._current_game.set_active_player(player)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def set_score(player: int, score: int):
+    async def set_score(player: int, score: int):
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.set_score(player, score)
+            await ScorbitSDK._current_game.set_score(player, score)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def add_mode(mode: str):
+    async def add_mode(mode: str):
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.add_mode(mode)
+            await ScorbitSDK._current_game.add_mode(mode)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def remove_mode(mode: str):
+    async def remove_mode(mode: str):
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.remove_mode(mode)
+            await ScorbitSDK._current_game.remove_mode(mode)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    def clear_modes():
+    async def clear_modes():
         if ScorbitSDK._current_game:
-            ScorbitSDK._current_game.clear_modes()
+            await ScorbitSDK._current_game.clear_modes()
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
@@ -111,25 +113,22 @@ class ScorbitSDK:
             raise Exception("Game state not created. Call create_game_state() first.")
 
     @staticmethod
-    async def update_game(active: bool, current_player: int=None, current_ball: int=None, 
-                          player_scores: Dict[int, int]=None, game_modes: List[str]=None, callback=None):
+    async def update_game(commit: bool = True, current_player: int = None, current_ball: int = None,
+                        player_scores: Dict[int, int] = None, game_modes: List[str] = None):
         if ScorbitSDK._current_game:
             if current_player is not None:
-                ScorbitSDK.set_active_player(current_player)
+                await ScorbitSDK.set_active_player(current_player)
             if current_ball is not None:
-                ScorbitSDK.set_current_ball(current_ball)
+                await ScorbitSDK.set_current_ball(current_ball)
             if player_scores:
                 for player, score in player_scores.items():
-                    ScorbitSDK.set_score(player, score)
-            if game_modes:
-                ScorbitSDK.clear_modes()
+                    await ScorbitSDK.set_score(player, score)
+            if game_modes is not None:
+                await ScorbitSDK.clear_modes()
                 for mode in game_modes:
-                    ScorbitSDK.add_mode(mode)
-            await ScorbitSDK.commit()
-            if callback:
-                callback()
-            if not active:
-                ScorbitSDK.set_game_finished()
+                    await ScorbitSDK.add_mode(mode)
+            if commit:
+                await ScorbitSDK.commit()
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
@@ -198,6 +197,12 @@ class ScorbitSDK:
     @staticmethod
     def reset_logger():
         reset_logger()
+
+    @staticmethod
+    async def close():
+        if ScorbitSDK._net_instance:
+            await ScorbitSDK._net_instance.close()
+            ScorbitSDK._net_instance = None
 
 # Expose ScorbitSDK methods for easier access
 DOMAIN_PRODUCTION = ScorbitSDK.DOMAIN_PRODUCTION
