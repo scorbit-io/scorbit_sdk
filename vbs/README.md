@@ -3,7 +3,7 @@
 - Written by Arelyel Krele
 - Based on original Dev Kit by @daphishbowl
 
-[!Changelog](CHANGELOG.md)
+![Changelog](CHANGELOG.md)
 
 ***CAUTION!!!*** If you re-distribute the contents of the SDK folder, avoid including these files as they contain sensitive info:
 QRclaim.bmp, QRclaim.png, QRcode.bmp, QRcode.png, all .dat files (e.g. sToken_number.dat).
