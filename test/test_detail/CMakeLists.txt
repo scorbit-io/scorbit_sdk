@@ -65,6 +65,9 @@ target_sources(
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
+        ../../source/net_util.h
+        ../../source/net_util.cpp
+        source/test_net_util.cpp
 )
 
 target_link_libraries(

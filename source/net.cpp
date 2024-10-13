@@ -6,6 +6,8 @@
  ****************************************************************************/
 
 #include "net.h"
+#include "net_util.h"
+#include <fmt/format.h>
 
 namespace scorbit {
 namespace detail {
@@ -15,9 +17,15 @@ Net::Net(SignerCallback signer)
 {
 }
 
-void Net::setHostAndPort(std::string hostname)
+std::string Net::Hostaname() const
 {
-    m_hostname = std::move(hostname);
+    return m_hostname;
+}
+
+void Net::setHostname(const std::string &hostname)
+{
+    const auto host = exctractHostAndPort(hostname);
+    m_hostname = fmt::format("{}://{}:{}", host.protocol, host.hostname, host.port);
 }
 
 void Net::authenticate()

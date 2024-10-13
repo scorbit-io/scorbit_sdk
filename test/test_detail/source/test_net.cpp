@@ -6,6 +6,8 @@
  ****************************************************************************/
 
 #include <scorbit_sdk/scorbit_sdk.h>
+#include "net.h"
+#include "net_util.h"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
 

@@ -7,7 +7,6 @@
 
 #pragma once
 
-#include <scorbit_sdk/export.h>
 #include "scorbit_sdk/net_types.h"
 #include "scorbit_sdk/net_base.h"
 #include "game_data.h"
@@ -21,7 +20,8 @@ class Net : public NetBase
 public:
     Net(SignerCallback signer);
 
-    void setHostAndPort(std::string host);
+    std::string Hostaname() const;
+    void setHostname(const std::string &hostname);
 
     void authenticate();
     bool isAuthenticated() const;
@@ -30,8 +30,8 @@ public:
 
 private:
     SignerCallback m_signer;
-    std::string m_hostname;
     bool m_isAuthenticated {false};
+    std::string m_hostname;
 };
 
 } // namespace detail

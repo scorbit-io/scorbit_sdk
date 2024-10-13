@@ -90,6 +90,8 @@ target_sources(
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
+        source/net_util.h
+        source/net_util.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
