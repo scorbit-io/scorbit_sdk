@@ -1,4 +1,6 @@
-![Scorbit](https://scorbit-cdn.scorbit.io/support_assets/scorbit_logo_text_600.png)
+<p align="center">
+  <img src="https://scorbit-cdn.scorbit.io/support_assets/scorbit_logo_text_800.png" alt="Scorbit" width="400">
+</p>
 
 <p align="center" style="font-style: italic;">
 At Scorbit, we merge traditional gaming with modern technology. We aim to create an
