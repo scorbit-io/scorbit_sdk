@@ -7,6 +7,8 @@
 
 #include <scorbit_sdk/game_state_c.h>
 #include <scorbit_sdk/game_state.h>
+#include "scorbit_sdk/net_types.h"
+#include "scorbit_sdk/game_state_factory.h"
 
 using namespace scorbit;
 
@@ -17,7 +19,9 @@ struct sb_game_state_struct
 
 sb_game_handle_t sb_create_game_state()
 {
-    return new sb_game_state_struct();
+    SignerCallback signer;
+    auto gs = new sb_game_state_struct {createGameState(std::move(signer))};
+    return gs;
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

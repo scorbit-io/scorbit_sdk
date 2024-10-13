@@ -25,14 +25,6 @@ public:
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
 };
 
-TEST_CASE("Create and destroy GameState")
-{
-    {
-        GameState gs;
-    }
-    CHECK(true); // It constructed and destructed without crash
-}
-
 TEST_CASE("setGameStarted functionality")
 {
     auto mockNet = std::make_unique<MockNetBase>();

@@ -10,6 +10,7 @@
 #include "net_types_c.h"
 #include <array>
 #include <functional>
+#include <cstddef>
 
 namespace scorbit {
 
