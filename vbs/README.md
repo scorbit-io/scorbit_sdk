@@ -1,6 +1,6 @@
 # ZSCO: SCORBIT Interface v2.0.beta5
 
-- Written by Arelyel Krele
+- Written by @arelyelkrele
 - Based on original Dev Kit by @daphishbowl
 
 [Changelog](CHANGELOG.md)
