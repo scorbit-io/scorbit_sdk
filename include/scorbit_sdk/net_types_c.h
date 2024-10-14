@@ -31,14 +31,13 @@ enum {
  * @param signature The buffer to store the signature.
  * @param signature_len The length of the signature.
  * @param digest The digest to sign.
- * @param key The key to sign the digest with.
  * @param user_data The user data passed to the signer.
  *
- * @return true if the signing was successful, false otherwise.
+ * @return 0 if the signing was successful
  */
-typedef bool (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
-                                     size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
-                                     const uint8_t key[SB_KEY_LENGTH], void *user_data);
+typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
+                                    size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
+                                    void *user_data);
 
 #ifdef __cplusplus
 }

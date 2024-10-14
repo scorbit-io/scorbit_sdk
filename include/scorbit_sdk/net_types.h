@@ -23,7 +23,7 @@ using Signature = std::array<uint8_t, SIGNATURE_MAX_LENGTH>;
 using Digest = std::array<uint8_t, DIGEST_LENGTH>;
 using Key = std::array<uint8_t, KEY_LENGTH>;
 
-using SignerCallback = std::function<bool(Signature &signature, size_t &signatureLen,
-                                          const Digest &digest, const Key &key)>;
+using SignerCallback =
+        std::function<bool(Signature &signature, size_t &signatureLen, const Digest &digest)>;
 
 } // namespace scorbit

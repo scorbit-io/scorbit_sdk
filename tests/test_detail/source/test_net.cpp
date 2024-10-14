@@ -23,17 +23,17 @@ TEST_CASE("version")
 
 // Using this indirection to mock free function
 struct {
-    MAKE_MOCK4(signer, void(uint8_t *, size_t *, const uint8_t *, const uint8_t *));
+    MAKE_MOCK3(signer, void(uint8_t *, size_t *, const uint8_t *));
 } Signer;
 
-bool signer(Signature &signature, size_t &signatureLen, const Digest &digest, const Key &key)
+bool signer(Signature &signature, size_t &signatureLen, const Digest &digest)
 {
-    Signer.signer(signature.data(), &signatureLen, digest.data(), key.data());
+    Signer.signer(signature.data(), &signatureLen, digest.data());
     return true;
 }
 
 TEST_CASE("Net authenticate")
 {
-    ALLOW_CALL(Signer, signer(_, _, _, _));
+    ALLOW_CALL(Signer, signer(_, _, _));
     Net net {signer};
 }

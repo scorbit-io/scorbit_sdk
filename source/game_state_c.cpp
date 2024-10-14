@@ -20,8 +20,8 @@ struct sb_game_state_struct {
 sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data)
 {
     SignerCallback cb = [signer, signer_user_data](Signature &signature, size_t &signatureLen,
-                                                   const Digest &digest, const Key &key) {
-        return signer(signature.data(), &signatureLen, digest.data(), key.data(), signer_user_data);
+                                                   const Digest &digest) {
+        return 0 == signer(signature.data(), &signatureLen, digest.data(), signer_user_data);
     };
     return new sb_game_state_struct {createGameState(std::move(cb))};
 }
