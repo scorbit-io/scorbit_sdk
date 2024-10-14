@@ -75,6 +75,7 @@ target_sources(
         include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
+        include/scorbit_sdk/scorbit_sdk_c.h
         include/scorbit_sdk/net_base.h
         source/net.h
         include/scorbit_sdk/log.h

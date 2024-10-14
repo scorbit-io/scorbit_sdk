@@ -5,4 +5,5 @@ cmake_minimum_required(VERSION 3.20)
 
 project(examples)
 
-add_subdirectory(cpp_simple)
+add_subdirectory(cpp_example)
+add_subdirectory(c_example)
