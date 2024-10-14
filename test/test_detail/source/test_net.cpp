@@ -7,7 +7,6 @@
 
 #include <scorbit_sdk/scorbit_sdk.h>
 #include "net.h"
-#include "net_util.h"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
 
@@ -27,8 +26,7 @@ struct {
     MAKE_MOCK4(signer, void(uint8_t *, size_t *, const uint8_t *, const uint8_t *));
 } Signer;
 
-bool signer(Signature &signature, size_t &signatureLen, const Digest &digest, const Key &key,
-            void *)
+bool signer(Signature &signature, size_t &signatureLen, const Digest &digest, const Key &key)
 {
     Signer.signer(signature.data(), &signatureLen, digest.data(), key.data());
     return true;

@@ -8,20 +8,22 @@
 #include <scorbit_sdk/game_state_c.h>
 #include <scorbit_sdk/game_state.h>
 #include "scorbit_sdk/net_types.h"
+#include "scorbit_sdk/net_types_c.h"
 #include "scorbit_sdk/game_state_factory.h"
 
 using namespace scorbit;
 
-struct sb_game_state_struct
-{
+struct sb_game_state_struct {
     GameState gameState;
 };
 
-sb_game_handle_t sb_create_game_state()
+sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data)
 {
-    SignerCallback signer;
-    auto gs = new sb_game_state_struct {createGameState(std::move(signer))};
-    return gs;
+    SignerCallback cb = [signer, signer_user_data](Signature &signature, size_t &signatureLen,
+                                                   const Digest &digest, const Key &key) {
+        return signer(signature.data(), &signatureLen, digest.data(), key.data(), signer_user_data);
+    };
+    return new sb_game_state_struct {createGameState(std::move(cb))};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

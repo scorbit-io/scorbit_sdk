@@ -7,8 +7,9 @@
 
 #pragma once
 
-#include "common_types_c.h"
 #include <scorbit_sdk/export.h>
+#include "common_types_c.h"
+#include "net_types_c.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,7 +27,7 @@ extern "C" {
  * @return A handle to the game state, or NULL if creation fails.
  */
 SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state();
+sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data);
 
 /**
  * @brief Destroy the game state.
