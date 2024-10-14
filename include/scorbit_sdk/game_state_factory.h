@@ -20,6 +20,9 @@ class GameState;
  * Creates a new game state object. The game state object can be used to modify the game state
  * such as the active player, scores, and active modes.
  *
+ * @param signer A callback function that will be used to sign the game state. The function should
+ * have the signature specified by @ref SignerCallback. @see examples/cpp_example/main.cpp
+ *
  * @return A new game state object.
  */
 SCORBIT_SDK_EXPORT
