@@ -47,7 +47,7 @@ add_executable(${PROJECT_NAME})
 
 target_sources(
     scorbit_sdk_tests
-    PRIVATE source/test_logger.cpp source/test_game_state_c.cpp
+    PRIVATE source/test_logger.cpp source/test_game_state_c.cpp source/test_version.cpp
 )
 
 target_link_libraries(

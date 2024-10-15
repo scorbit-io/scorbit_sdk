@@ -20,8 +20,8 @@ class Net : public NetBase
 public:
     Net(SignerCallback signer);
 
-    std::string Hostaname() const;
-    void setHostname(const std::string &hostname);
+    std::string hostname() const;
+    void setHostname(std::string hostname);
 
     void authenticate();
     bool isAuthenticated() const;

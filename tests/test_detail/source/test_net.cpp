@@ -16,11 +16,6 @@ using namespace scorbit;
 using namespace scorbit::detail;
 using namespace trompeloeil;
 
-TEST_CASE("version")
-{
-    CHECK(std::string(SCORBIT_SDK_VERSION) == std::string("0.1.0"));
-}
-
 // Using this indirection to mock free function
 struct {
     MAKE_MOCK3(signer, void(uint8_t *, size_t *, const uint8_t *));
@@ -36,4 +31,25 @@ TEST_CASE("Net authenticate")
 {
     ALLOW_CALL(Signer, signer(_, _, _));
     Net net {signer};
+}
+
+TEST_CASE("Net hostname")
+{
+    ALLOW_CALL(Signer, signer(_, _, _));
+    Net net {signer};
+    net.setHostname("production");
+    CHECK(net.hostname() == "https://api.scorbit.io:443");
+
+    net.setHostname("staging");
+    CHECK(net.hostname() == "https://staging.scorbit.io:443");
+
+    net.setHostname("http://localhost:8080");
+    CHECK(net.hostname() == "http://localhost:8080");
+
+    // Make sure that anything after port is thrown away
+    net.setHostname("http://localhost:8080/api");
+    CHECK(net.hostname() == "http://localhost:8080");
+
+    net.setHostname("https://example.com/api");
+    CHECK(net.hostname() == "https://example.com:443");
 }
