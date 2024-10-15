@@ -1,3 +1,9 @@
+# Created by Dilshod Mukhtarov <dilshodm@gmail.com>, 2024
+# License: MIT
+# © 2024 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved
+
+# Dockerfile for building the Scorbit SDK for the arm32v7 architecture on BeagleBone Black running Ubuntu 12.10
+
 FROM dilshodm/ubuntu:12.04
 
 # Install dependencies
@@ -13,15 +19,10 @@ RUN \
         perl \
         linux-headers-3.2.0-150 \
     && add-apt-repository ppa:ubuntu-toolchain-r/test \
+    && add-apt-repository ppa:git-core/ppa \
     && apt-get update \
-    && apt-get install -y g++-9 \
+    && apt-get install -y g++-9 git \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 10 --slave /usr/bin/g++ g++ /usr/bin/g++-9
-
-# Install CMake
-ARG CMAKE_VERSION=3.30.3
-RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-armv7l.sh \
-    && sh cmake-$CMAKE_VERSION-Linux-armv7l.sh --skip-license --prefix=/usr \
-    && rm cmake-$CMAKE_VERSION-Linux-armv7l.sh
 
 # Install newer perl modules, as in ubuntu 12.04 perl 5.14 is installed and it's too old
 RUN apt-get install -y cpanminus \
@@ -41,8 +42,14 @@ RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.
     && ./config --openssldir=/usr/lib/ssl no-apps shared zlib && make -j $(nproc) && make install_sw \
     && cd .. && rm -rf $OPENSSL
 
-ARG CURL=curl-8.9.1
-ARG CURL_VER=8_9_1
+# Install CMake
+ARG CMAKE_VERSION=3.30.3
+RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-armv7l.sh \
+    && sh cmake-$CMAKE_VERSION-Linux-armv7l.sh --skip-license --prefix=/usr \
+    && rm cmake-$CMAKE_VERSION-Linux-armv7l.sh
+
+ARG CURL=curl-8.10.1
+ARG CURL_VER=8_10_1
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
