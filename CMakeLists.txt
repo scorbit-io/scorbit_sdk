@@ -3,11 +3,12 @@ cmake_minimum_required(VERSION 3.28)
 # ---- Project ----
 
 # Note: update this to your new project's name and version
-project(scorbit_sdk VERSION 0.1.0 LANGUAGES CXX)
+project(scorbit_sdk VERSION 1.0.0 LANGUAGES CXX)
 
 # ---- Options ----
 
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
+option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
 
 # ---- Include guards ----
 
@@ -28,6 +29,17 @@ else()
     set(BUILD_TYPE STATIC)
     message("Building static library")
 endif()
+
+include(GNUInstallDirs)
+# Set the RPATH config to be relative to the install location, so extra libs will be first searched
+# in the same directory
+file(
+    RELATIVE_PATH
+    relDir
+    ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
+    ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
+)
+set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
 
 # ---- Add dependencies via CPM ----
 # see https://github.com/TheLartians/CPM.cmake for more info
@@ -117,6 +129,27 @@ target_include_directories(
 string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
+# BeableBone Black (BBB) requires installing extra libs
+if(BBB_BUILD)
+    install(
+        FILES
+            "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
+            "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
+            "/usr/local/lib/libssl.so"
+            "/usr/local/lib/libssl.so.3"
+            "/usr/local/lib/libcrypto.so"
+            "/usr/local/lib/libcrypto.so.3"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
+        COMPONENT "${PROJECT_NAME}_Development"
+    )
+
+    install(
+        DIRECTORY "/usr/local/include/openssl"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/"
+        COMPONENT "${PROJECT_NAME}_Development"
+    )
+endif()
+
 packageProject(
     NAME ${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
@@ -129,6 +162,24 @@ packageProject(
     EXPORT_HEADER "${EXPORT_HEADER_LOCATION}"
     DISABLE_VERSION_SUFFIX YES
 )
+set(CPACK_GENERATOR DEB)
+
+set(CPACK_PACKAGE_VENDOR "scorbit.io")
+set(CPACK_PACKAGE_CONTACT "Dilshod Mukhtarov <dilshodm@gmail.com>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scorbit SDK")
+
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+
+# Generate Deb dependencies
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# set(CPACK_DEBIAN_PACKAGE_DEPENDS "unzip, coreutils, wget, sed, grep, apt, bash")
+
+set(CPACK_DEBIAN_PACKAGE_SECTION "General")
 
 set(CPACK_STRIP_FILES TRUE)
+
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr/local")
+
 include(CPack)
