@@ -14,7 +14,7 @@ namespace detail {
 // Function to extract protocol, hostname, and port
 UrlInfo exctractHostAndPort(const std::string &url)
 {
-    std::regex url_regex(R"((https?):\/\/([^\/:]+)(?::(\d+))?)");
+    static const std::regex url_regex(R"((https?):\/\/([^\/:]+)(?::(\d+))?)");
     std::smatch url_match_result;
 
     UrlInfo result;
