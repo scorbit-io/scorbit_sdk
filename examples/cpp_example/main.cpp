@@ -96,18 +96,18 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     std::cout << '[' << std::put_time(std::localtime(&ct), "%Y-%m-%d %H:%M:%S") << "] [";
 
     switch (level) {
-        case scorbit::LogLevel::Debug:
-            std::cout << "DBG";
-            break;
-        case scorbit::LogLevel::Info:
-            std::cout << "INF";
-            break;
-        case scorbit::LogLevel::Warn:
-            std::cout << "WRN";
-            break;
-        case scorbit::LogLevel::Error:
-            std::cout << "ERR";
-            break;
+    case scorbit::LogLevel::Debug:
+        std::cout << "DBG";
+        break;
+    case scorbit::LogLevel::Info:
+        std::cout << "INF";
+        break;
+    case scorbit::LogLevel::Warn:
+        std::cout << "WRN";
+        break;
+    case scorbit::LogLevel::Error:
+        std::cout << "ERR";
+        break;
     }
 
     std::cout << "] " << message << "\n";
@@ -129,6 +129,26 @@ bool signerCallback(scorbit::Signature &signature, size_t &signatureLen,
     return SIGN_OK == scorbit_sign(signature.data(), &signatureLen, digest.data(), key.data());
 }
 
+scorbit::GameState setupGameState()
+{
+    scorbit::DeviceInfo info;
+
+    info.provider = "vscorbitron"; // This is required, set to your provider name
+    info.hostname = "staging";     // Optional, if not set, it will be "production"
+    // Another example: info.hostname = "https://api.scorbit.io";
+
+    // If not set, will be 0, however, it there is serial number attached to the device, set it here
+    // info.serialNumber = 12345;
+
+    // uuid is optional, if not set, it will be automatically derived from device
+    // However, if there is known uuid attached to the device, set it here:
+    // info.uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce";
+
+    // Create game state object. Normally, device info will be copied.
+    // However, it can be moved, because we don't need this struct anymore.
+    return scorbit::createGameState(signerCallback, std::move(info));
+}
+
 int main()
 {
     cout << "Simple example of Scorbit SDK usage" << endl;
@@ -137,7 +157,7 @@ int main()
     scorbit::addLoggerCallback(loggerCallback);
 
     // Create game state object
-    scorbit::GameState gs = scorbit::createGameState(signerCallback);
+    scorbit::GameState gs = setupGameState();
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 10; ++i) {

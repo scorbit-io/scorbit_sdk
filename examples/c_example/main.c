@@ -136,6 +136,30 @@ int signer_callback(uint8_t signature[SB_SIGNATURE_MAX_LENGTH], size_t *signatur
     return scorbit_sign(signature, signature_len, digest, key);
 }
 
+sb_game_handle_t setup_game_state()
+{
+    // Setup device info
+    sb_device_info_t device_info = {
+            .provider = "vscorbitron", // This is required, set to your provider name
+            .hostname = "staging",     // Optional, if NULL, it will be production
+            .uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce", // Optional, if NULL, will be
+                                                            // automatically derived from device
+            .serial_number = 12345, // If no serial number available, set to 0
+    };
+
+    // Another example with default values:
+    sb_device_info_t device_info2 = {
+            .provider = "vscorbitron", // This is required, set to your provider name
+            .hostname = NULL,          // NULL, it will be production, or can set to "production"
+            .uuid = NULL,              // NULL, will be automatically derived from device
+            .serial_number = 0,        // no serial number available, set to 0
+    };
+    (void)device_info2;
+
+    // Create game state object. Device info will be copied, so it's safe to create it in the stack
+    return sb_create_game_state(signer_callback, NULL, &device_info);
+}
+
 int main()
 {
 
@@ -144,8 +168,7 @@ int main()
     // Setup logger
     sb_add_logger_callback(loggerCallback, NULL);
 
-    // Create game state object
-    sb_game_handle_t gs = sb_create_game_state(signer_callback, NULL);
+    sb_game_handle_t gs = setup_game_state();
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 10; ++i) {

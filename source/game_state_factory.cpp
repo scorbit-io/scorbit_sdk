@@ -12,10 +12,9 @@
 
 namespace scorbit {
 
-GameState createGameState(SignerCallback signer, const std::string &hostname)
+GameState createGameState(SignerCallback signer, const DeviceInfo &deviceInfo)
 {
-    auto net = std::make_unique<detail::Net>(std::move(signer));
-    net->setHostname(hostname);
+    auto net = std::make_unique<detail::Net>(std::move(signer), deviceInfo);
     return GameState(std::move(net));
 }
 

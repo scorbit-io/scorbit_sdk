@@ -30,18 +30,26 @@ bool signer(Signature &signature, size_t &signatureLen, const Digest &digest)
 TEST_CASE("Net authenticate")
 {
     ALLOW_CALL(Signer, signer(_, _, _));
-    Net net {signer};
+    DeviceInfo info;
+    Net net {signer, std::move(info)};
 }
 
 TEST_CASE("Net hostname")
 {
     ALLOW_CALL(Signer, signer(_, _, _));
-    Net net {signer};
+
+    DeviceInfo info;
+    Net net {signer, std::move(info)};
+    CHECK(net.hostname() == "https://api.scorbit.io:443"); // By default it's production
+
     net.setHostname("production");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
 
     net.setHostname("staging");
     CHECK(net.hostname() == "https://staging.scorbit.io:443");
+
+    net.setHostname("");
+    CHECK(net.hostname() == "https://api.scorbit.io:443");
 
     net.setHostname("http://localhost:8080");
     CHECK(net.hostname() == "http://localhost:8080");

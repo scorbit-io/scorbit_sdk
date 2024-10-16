@@ -7,6 +7,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "scorbit_sdk/net_types.h"
 #include <fmt/format.h>
 
 namespace scorbit {
@@ -17,9 +18,11 @@ constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 
-Net::Net(SignerCallback signer)
+Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     : m_signer(std::move(signer))
+    , m_deviceInfo(std::move(deviceInfo))
 {
+    setHostname(m_deviceInfo.hostname);
 }
 
 std::string Net::hostname() const
@@ -29,7 +32,7 @@ std::string Net::hostname() const
 
 void Net::setHostname(std::string hostname)
 {
-    if (hostname == PRODUCTION_LABEL) {
+    if (hostname == PRODUCTION_LABEL || hostname.empty()) {
         hostname = PRODUCTION_HOSTNAME;
     } else if (hostname == STAGING_LABEL) {
         hostname = STAGING_HOSTNAME;

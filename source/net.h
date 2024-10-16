@@ -18,7 +18,7 @@ namespace detail {
 class Net : public NetBase
 {
 public:
-    Net(SignerCallback signer);
+    Net(SignerCallback signer, DeviceInfo deviceInfo);
 
     std::string hostname() const;
     void setHostname(std::string hostname);
@@ -32,6 +32,7 @@ private:
     SignerCallback m_signer;
     bool m_isAuthenticated {false};
     std::string m_hostname;
+    DeviceInfo m_deviceInfo;
 };
 
 } // namespace detail

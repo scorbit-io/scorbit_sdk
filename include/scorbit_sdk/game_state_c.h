@@ -27,11 +27,13 @@ extern "C" {
  * @param signer The callback function to sign the game state. The function should have the
  * signature specified by @ref sb_signer_callback_t. @see examples/c_example/main.c
  * @param signer_user_data The user data passed to the signer. It can be used to pass the context.
+ * @param device_info The device information used to authenticate
  *
  * @return A handle to the game state, or NULL if creation fails.
  */
 SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data);
+sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
+                                      const sb_device_info_t *device_info);
 
 /**
  * @brief Destroy the game state.
