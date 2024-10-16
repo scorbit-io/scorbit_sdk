@@ -7,8 +7,14 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "logger.h"
 #include "scorbit_sdk/net_types.h"
+#include "utils/bytearray.h"
 #include <fmt/format.h>
+#include <openssl/sha.h>
+#include <chrono>
+
+using namespace std;
 
 namespace scorbit {
 namespace detail {
@@ -18,11 +24,34 @@ constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 
+string getSignature(const SignerCallback &signer, const std::string &uuid,
+                    const std::string &timestamp)
+{
+    ByteArray message(uuid);
+    ByteArray timestampBytes(timestamp.cbegin(), timestamp.cend());
+    message.insert(message.end(), timestampBytes.cbegin(), timestampBytes.cend());
+
+    Digest digest;
+    SHA256(message.data(), message.size(), digest.data());
+
+    Signature signature;
+    size_t signatureLen = 0;
+    if (!signer(signature, signatureLen, digest)) {
+        ERR("Can't sign message, signer callback returned error");
+        return string {};
+    }
+
+    return ByteArray(signature.data(), signatureLen).hex();
+}
+
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
 {
     setHostname(m_deviceInfo.hostname);
+
+    // Cleanup UUID
+    m_deviceInfo.uuid = removeSymbols(m_deviceInfo.uuid, "-{}");
 }
 
 std::string Net::hostname() const

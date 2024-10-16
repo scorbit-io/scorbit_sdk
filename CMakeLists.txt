@@ -59,6 +59,8 @@ CPMAddPackage(
     OPTIONS "FMT_INSTALL YES"
 )
 
+find_package(OpenSSL REQUIRED)
+
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
@@ -107,13 +109,15 @@ target_sources(
         source/net_util.cpp
         include/scorbit_sdk/game_state_factory.h
         source/game_state_factory.cpp
+        source/utils/bytearray.cpp
+        source/utils/bytearray.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt OpenSSL::Crypto)
 
 target_include_directories(
     ${PROJECT_NAME}

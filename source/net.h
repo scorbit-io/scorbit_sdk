@@ -15,6 +15,9 @@
 namespace scorbit {
 namespace detail {
 
+std::string getSignature(const SignerCallback &signer, const std::string &uuid,
+                         const std::string &timestamp);
+
 class Net : public NetBase
 {
 public:

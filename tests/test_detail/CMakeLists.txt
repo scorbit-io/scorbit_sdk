@@ -46,6 +46,8 @@ else()
     CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
 
+find_package(OpenSSL REQUIRED)
+
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
@@ -65,6 +67,8 @@ target_sources(
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
+        ../../source/utils/bytearray.h
+        ../../source/utils/bytearray.cpp
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
@@ -72,7 +76,12 @@ target_sources(
 
 target_link_libraries(
     ${PROJECT_NAME}
-    PRIVATE scorbit_sdk::scorbit_sdk Catch2::Catch2WithMain trompeloeil::trompeloeil fmt::fmt
+    PRIVATE
+        scorbit_sdk::scorbit_sdk
+        Catch2::Catch2WithMain
+        trompeloeil::trompeloeil
+        fmt::fmt
+        OpenSSL::Crypto
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
