@@ -62,3 +62,21 @@ TEST_CASE("Invalid URL", "[exctractHostAndPort]")
     CHECK(result.hostname.empty());
     CHECK(result.port.empty());
 }
+
+TEST_CASE("Remove single symbol", "[removeSymbols]")
+{
+    std::string s {"hello-world"};
+    CHECK(removeSymbols(s, "-") == "helloworld");
+}
+
+TEST_CASE("Remove few of single symbols", "[removeSymbols]")
+{
+    std::string s {"=hello=world="};
+    CHECK(removeSymbols(s, "=") == "helloworld");
+}
+
+TEST_CASE("Remove different symbols", "[removeSymbols]")
+{
+    std::string s {"{f0b188f8-9f2d-4f8d-abe4-c3107516e7ce}"};
+    CHECK(removeSymbols(s, "-{}") == "f0b188f89f2d4f8dabe4c3107516e7ce");
+}

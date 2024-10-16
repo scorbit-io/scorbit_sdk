@@ -8,6 +8,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 namespace scorbit {
 namespace detail {
@@ -19,6 +20,8 @@ struct UrlInfo {
 };
 
 UrlInfo exctractHostAndPort(const std::string &url);
+
+std::string removeSymbols(std::string_view str, std::string_view symbols);
 
 } // namespace detail
 } // namespace scorbit

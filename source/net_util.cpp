@@ -37,5 +37,15 @@ UrlInfo exctractHostAndPort(const std::string &url)
     return result;
 }
 
+std::string removeSymbols(std::string_view str, std::string_view symbols)
+{
+    std::string result {str};
+    for (const auto &symbol : symbols) {
+        result.erase(std::remove(result.begin(), result.end(), symbol), result.end());
+    }
+
+    return result;
+}
+
 } // namespace detail
 } // namespace scorbit
