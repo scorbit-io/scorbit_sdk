@@ -1,17 +1,12 @@
 from .version import VERSION
 from .net import Net
-from .game_state import GameState, create_game_state, destroy_game_state
+from .game_state import GameState
 from .log import add_logger_callback, reset_logger, LogLevel
 from .common_types import Ball, Player, Score
-from .messages import ScorbitRESTResponse, ScorbitWSMessage
-import asyncio
-from typing import Callable, Dict, List
+from typing import Dict, List
 
 class ScorbitSDK:
     _net_instance = None
-    _api_call_callbacks = {}
-    _ws_callbacks = {}
-    _api_call_number = 0
     _current_game = None
 
     DEBUG: bool = True
@@ -202,25 +197,6 @@ class ScorbitSDK:
     async def tick():
         if ScorbitSDK._net_instance:
             await ScorbitSDK._net_instance.process_messages()
-
-    @staticmethod
-    def set_ws_callback(command: str, callback: Callable):
-        ScorbitSDK._ws_callbacks[command.upper()] = callback
-
-    @staticmethod
-    async def set_ws_message_callback(callback):
-        if ScorbitSDK._net_instance:
-            await ScorbitSDK._net_instance.set_ws_callback(callback)
-    
-    @staticmethod
-    async def ws_command(command: str, data: dict, specific_callback=None):
-        if not ScorbitSDK._net_instance:
-            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
-        
-        if specific_callback:
-            ScorbitSDK._net_instance.set_ws_callback(command, specific_callback)
-        
-        await ScorbitSDK._net_instance.ws_send(command.upper(), data)
     
     @staticmethod
     def get_pairing_qr_url(manufacturer_prefix, scorbit_machine_id, scorbitron_uuid):
@@ -293,8 +269,6 @@ METHOD_PATCH = ScorbitSDK.METHOD_PATCH
 initialize = ScorbitSDK.initialize
 start = ScorbitSDK.start
 tick = ScorbitSDK.tick
-api_call = ScorbitSDK.api_call
-set_ws_message_callback = ScorbitSDK.set_ws_message_callback
 create_game_state = ScorbitSDK.create_game_state
 destroy_game_state = ScorbitSDK.destroy_game_state
 set_game_started = ScorbitSDK.set_game_started

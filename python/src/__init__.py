@@ -13,9 +13,6 @@ __all__ = [
     'initialize',
     'start',
     'tick',
-    'api_call',
-    'set_ws_message_callback',
-    'ws_command',
     'start_game',
     'update_game',
     'get_pairing_qr_url',
@@ -35,10 +32,6 @@ __all__ = [
     'WARN',
     'ERROR',
     'VERSION',
-    'ScorbitRESTMessage',
-    'ScorbitRESTResponse',
-    'ScorbitWSMessage',
-    'ScorbitWebSocketResponse',
     'Ball',
     'Player',
     'Score',
@@ -55,8 +48,6 @@ __all__ = [
 initialize = ScorbitSDK.initialize
 start = ScorbitSDK.start
 tick = ScorbitSDK.tick
-api_call = ScorbitSDK.api_call
-ws_command = ScorbitSDK.ws_command
 update_game = ScorbitSDK.update_game
 get_pairing_qr_url = ScorbitSDK.get_pairing_qr_url
 get_claiming_qr_url = ScorbitSDK.get_claiming_qr_url
