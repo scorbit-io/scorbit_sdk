@@ -1,6 +1,7 @@
 import csv
 import os
 from datetime import datetime
+from .net import Net
 
 class SessionLogger:
     def __init__(self, uuid):
@@ -40,3 +41,11 @@ class SessionLogger:
                     record['current_ball'],
                     record['game_modes']
                 ])
+
+    async def send_session_log(self):
+        if os.path.exists(self.log_file_path):
+            with open(self.log_file_path, 'rb') as log_file:
+                # Call the new method in net.py to upload the session log
+                await self.net_instance.upload_session_log(self.uuid, self.log_file_path, log_file)
+        else:
+            raise Exception("Log file does not exist.")

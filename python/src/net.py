@@ -4,15 +4,12 @@ import time
 import hashlib
 import json
 from typing import Dict, Any, Callable
-import requests
 import websockets
 import aiohttp
 
 from ecdsa import SigningKey, NIST256p
 
 from .net_base import NetBase
-from .messages import ScorbitRESTMessage, ScorbitRESTResponse, ScorbitWSMessage, ScorbitWebSocketResponse
-
 class Net(NetBase):
     def __init__(self):
         self._session = None
@@ -321,3 +318,44 @@ class Net(NetBase):
 
     async def set_achievement_achieved(self, achievement_id: str):
         return await self.api_call("POST", f"/api/achievements/achieve/{achievement_id}/", authorization=True)
+    
+    async def upload_session_log(self, uuid: str, filename: str, content: str):
+        data = {"uuid": uuid}
+        files = {"log_file": (filename, content)}
+        return await self.api_call("POST", "/api/session_log/", data=data, files=files, authorization=True)
+    
+    async def send_installed_data(self, installed_data):
+        return await self.api_call("POST", "/api/installed/", data=installed_data, authorization=True)
+
+    async def get_config(self):
+        return await self.api_call("GET", "/api/config/", authorization=True)
+class ScorbitRESTMessage:
+    def __init__(self, api_call_number, method, endpoint, data, files, authorization):
+        self.api_call_number = api_call_number
+        self.method = method
+        self.endpoint = endpoint
+        self.data = data
+        self.files = files
+        self.authorization = authorization
+        self.result = None
+
+class ScorbitRESTResponse:
+    def __init__(self, message, result):
+        self.message: ScorbitRESTMessage = message
+        self.result: dict = result
+
+class ScorbitWSMessage:
+    def __init__(self, command, data):
+        self.command = command
+        self.data = data
+
+    def get_json(self):
+        return json.JSONEncoder().encode({
+            "message": {
+                "cmd": self.command,
+                "data": self.data,
+            }
+        })
+class ScorbitWebSocketResponse:
+    def __init__(self, result):
+        self.result = result

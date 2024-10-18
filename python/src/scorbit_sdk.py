@@ -125,7 +125,7 @@ class ScorbitSDK:
             await ScorbitSDK._current_game.set_game_finished()
             if ScorbitSDK._session_logger:
                 ScorbitSDK._session_logger.save_log()
-                await ScorbitSDK.upload_session_log(ScorbitSDK._session_logger.log_file_path)
+                await ScorbitSDK._session_logger.send_session_log()
                 ScorbitSDK._session_logger = None
         else:
             raise Exception("No active game. Call set_game_started() first.")
@@ -246,29 +246,21 @@ class ScorbitSDK:
     @staticmethod
     async def unlock_achievement(user_id: str, achievement_id: str):
         if ScorbitSDK._net_instance:
-            data = {
-                "user_id": user_id,
-                "achievement_id": achievement_id
-            }
-            return await ScorbitSDK._net_instance.api_call("POST", f"/api/achievements/unlock/", data=data, authorization=True)
+            return await ScorbitSDK._net_instance.unlock_achievement(user_id, achievement_id)
         else:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
 
     @staticmethod
     async def increment_achievement(achievement_id: str, increment: int):
         if ScorbitSDK._net_instance:
-            data = {
-                "achievement_id": achievement_id,
-                "increment": increment
-            }
-            return await ScorbitSDK._net_instance.api_call("POST", "/api/achievements/increment/", data=data, authorization=True)
+            return await ScorbitSDK._net_instance.increment_achievement(achievement_id, increment)
         else:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
 
     @staticmethod
     async def set_achievement_achieved(achievement_id: str):
         if ScorbitSDK._net_instance:
-            return await ScorbitSDK._net_instance.api_call("POST", f"/api/achievements/achieve/{achievement_id}/", authorization=True)
+            return await ScorbitSDK._net_instance.set_achievement_achieved(achievement_id)
         else:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
 

@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables
 load_dotenv()
 
-from src.scorbit_sdk import ScorbitSDK, initialize, start, api_call, METHOD_POST, METHOD_GET
+from src.scorbit_sdk import ScorbitSDK, initialize, start
 
 async def configure_example():
     await initialize(
@@ -25,29 +25,22 @@ async def configure_example():
     await start()
 
     # Send installed data
-    async def installed_callback(response):
-        if response.success:
-            print("Installed data sent successfully!")
-            print("Custom data from server:", response.result)
-        else:
-            print("Failed to send installed data:", response.message)
-
     installed_data = {
-        "type": "score_detector", # Tells us the name of your client and version number
-        "version": "1.0.0", # We recommend versioning client changes for Scorbit support
-        "installed": True # Set to true if the game is installed, false if it is not
+        "type": "score_detector",  # Tells us the name of your client and version number
+        "version": "1.0.0",  # We recommend versioning client changes for Scorbit support
+        "installed": True  # Set to true if the game is installed, false if it is not
     }
-    await api_call(METHOD_POST, "/api/installed/", data=installed_data, authorization=True, callback=installed_callback)
+    
+    response = await ScorbitSDK._net_instance.send_installed_data(installed_data)
+    if response.success:
+        print("Installed data sent successfully!")
+        print("Custom data from server:", response.result)
+    else:
+        print("Failed to send installed data:", response.message)
 
-# Get current configuration
-    async def get_config_callback(response):
-        if response.success:
-            print("Current configuration:", response.result)
-        else:
-            print("Failed to get configuration:", response.message)
-
-    await api_call(METHOD_GET, "/api/config/", authorization=True, callback=get_config_callback)
-
-# Remove the SET configuration part as it's not supported
-if __name__ == "__main__":
-    asyncio.run(configure_example())
+    # Get current configuration
+    response = await ScorbitSDK._net_instance.get_config()
+    if response.success:
+        print("Current configuration:", response.result)
+    else:
+        print("Failed to get configuration:", response.message)
