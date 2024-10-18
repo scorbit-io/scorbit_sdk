@@ -24,13 +24,8 @@ async def game_modes_example():
     # Start the SDK
     await start()
 
-    # Check if a game state already exists
-    if ScorbitSDK._current_game is None:
-        # Create a game state
-        game_state = create_game_state()
-    else:
-        game_state = ScorbitSDK._current_game  # Use the existing game state
-        print("Using existing game state.")
+    # Create a game state
+    game_state = create_game_state()
 
     # Create Modes instance
     modes = Modes()
@@ -38,33 +33,39 @@ async def game_modes_example():
     # Simulate a game with different modes
     async def simulate_game_with_modes():
         # Start the game
-        if not game_state.is_game_active():  # Assuming is_game_active() is a method in GameState
-            game_state.start_game()
-            await ScorbitSDK.commit()  # Abstracted network call
-            print("Game started")
-        else:
-            print("Game is already active.")
+        game_state.start_game()
+        await ScorbitSDK.commit()
+        print("Game started")
 
-        # Stacking multiple modes
-        modes.add_mode(GameMode("Normal Play"))
-        modes.add_mode(GameMode("Multiball"))
-        modes.add_mode(GameMode("Wizard Mode"))
+        # Normal play
+        modes.add(GameMode("NA", "Normal Play"))  # Using the NA category
         game_state.set_modes(modes)
-        await ScorbitSDK.commit()  # Abstracted network call
-        print("Stacked modes active: Normal Play, Multiball, Wizard Mode")
+        await ScorbitSDK.log_event(game_state.scores, game_state.current_player, game_state.current_ball, str(modes))
+        await ScorbitSDK.commit()
+        print("Normal Play mode active")
         await asyncio.sleep(2)
 
-        # Remove one of the first modes (e.g., "Normal Play")
-        modes.remove_mode("Normal Play")
+        # Multiball
+        modes.add(GameMode("MB", "Multiball"))  # Using the MB category
         game_state.set_modes(modes)
-        await ScorbitSDK.commit()  # Abstracted network call
-        print("Removed 'Normal Play' mode. Remaining modes: Multiball, Wizard Mode")
+        await ScorbitSDK.log_event(game_state.scores, game_state.current_player, game_state.current_ball, str(modes))
+        await ScorbitSDK.commit()
+        print("Multiball mode active")
+        await asyncio.sleep(2)
+
+        # Wizard mode
+        modes.clear()  # Clear previous modes
+        modes.add(GameMode("WM", "Wizard Mode"))  # Using the WM category
+        game_state.set_modes(modes)
+        await ScorbitSDK.log_event(game_state.scores, game_state.current_player, game_state.current_ball, str(modes))
+        await ScorbitSDK.commit()
+        print("Wizard Mode active")
         await asyncio.sleep(2)
 
         # End the game
-        modes.clear_modes()
+        modes.clear()
         game_state.end_game()
-        await ScorbitSDK.commit()  # Abstracted network call
+        await ScorbitSDK.commit()
         print("Game ended")
 
     await simulate_game_with_modes()

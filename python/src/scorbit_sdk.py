@@ -4,6 +4,8 @@ from .game_state import GameState
 from .log import add_logger_callback, reset_logger, LogLevel
 from .common_types import Ball, Player, Score
 from typing import Dict, List
+from .session_logger import SessionLogger
+import os
 
 class ScorbitSDK:
     _net_instance = None
@@ -90,6 +92,7 @@ class ScorbitSDK:
         if not ScorbitSDK._net_instance:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
         await ScorbitSDK._net_instance.start()
+        
     @staticmethod
     def create_game_state():
         if ScorbitSDK._net_instance:
@@ -106,13 +109,24 @@ class ScorbitSDK:
     async def set_game_started():
         if ScorbitSDK._current_game:
             await ScorbitSDK._current_game.set_game_started()
+            if ScorbitSDK._session_logger is None:
+                ScorbitSDK._session_logger = SessionLogger(uuid=os.getenv("SCORBIT_UUID"))
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
+
+    @staticmethod
+    async def log_event(current_scores, current_player, current_ball, game_modes):
+        if ScorbitSDK._session_logger:
+            ScorbitSDK._session_logger.log_event(current_scores, current_player, current_ball, game_modes)
 
     @staticmethod
     async def set_game_finished():
         if ScorbitSDK._current_game:
             await ScorbitSDK._current_game.set_game_finished()
+            if ScorbitSDK._session_logger:
+                ScorbitSDK._session_logger.save_log()
+                await ScorbitSDK.upload_session_log(ScorbitSDK._session_logger.log_file_path)
+                ScorbitSDK._session_logger = None
         else:
             raise Exception("No active game. Call set_game_started() first.")
 
