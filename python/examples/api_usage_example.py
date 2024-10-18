@@ -1,19 +1,23 @@
 import asyncio
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the parent directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.scorbit_sdk import ScorbitSDK, initialize, start, api_call, METHOD_POST, create_game_state, update_game
+# Load environment variables
+load_dotenv()
+
+from src.scorbit_sdk import ScorbitSDK, initialize, start, create_game_state, update_game, get_achievements
 
 async def api_usage_example():
     # Initialize the SDK
     await initialize(
-        domain="staging.scorbit.io",
-        provider="your_provider",
-        private_key="your_private_key",
-        uuid="your_uuid",
+        domain=os.getenv("SCORBIT_DOMAIN", "api.scorbit.io"),
+        provider=os.getenv("SCORBIT_PROVIDER"),
+        private_key=os.getenv("SCORBIT_PRIVATE_KEY"),
+        uuid=os.getenv("SCORBIT_UUID"),
         machine_serial=123456,
         machine_id=789,
         software_version="1.0.0"
@@ -24,6 +28,10 @@ async def api_usage_example():
 
     # Create a game state
     game_state = create_game_state()
+
+    # Get achievements using the abstracted method
+    achievements = await ScorbitSDK.get_achievements()
+    print("Available achievements:", achievements)
 
     # Simulate a game
     async def simulate_game():
@@ -46,7 +54,9 @@ async def api_usage_example():
         await update_game(game_state)
         print("Game ended")
 
+    # Run the game simulation
     await simulate_game()
 
+# Run the example
 if __name__ == "__main__":
     asyncio.run(api_usage_example())

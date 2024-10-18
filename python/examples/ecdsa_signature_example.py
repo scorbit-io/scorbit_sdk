@@ -1,43 +1,43 @@
-import asyncio
-import sys
-import os
+from ecdsa import SigningKey, NIST256p, VerifyingKey
+import hashlib
+import time
 
-# Add the parent directory to the Python path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Derive key from a seed (this could be stored securely)
+seed = b"your_secure_seed_here"
+sk = SigningKey.from_string(hashlib.sha256(seed).digest(), curve=NIST256p, hashfunc=hashlib.sha256)
+vk = sk.get_verifying_key()
 
-from src.scorbit_sdk import ScorbitSDK, initialize, start, api_call, METHOD_POST
+# Message to be signed (in this case, a nonce)
+timestamp = str(int(time.time()))
+uuid = "your_uuid_here"
+nonce = bytes.fromhex(uuid) + timestamp.encode('utf-8')
 
-async def ecdsa_signature_example():
-    await initialize(
-        domain="staging.scorbit.io",
-        provider="your_provider",
-        private_key="your_private_key",
-        uuid="your_uuid",
-        machine_serial=123456,
-        machine_id=789,
-        software_version="1.0.0"
-    )
+# Sign the nonce
+signature = sk.sign(nonce)
 
-    await start()
+# Verify the signature
+try:
+    assert vk.verify(signature, nonce)
+    print("Signature verified successfully!")
+except:
+    print("Signature verification failed!")
 
-    message = "Hello, Scorbit!"
+# Get the public key in hex format
+public_key_hex = vk.to_string().hex()
+print(f"Public Key: {public_key_hex}")
 
-    async def sign_callback(response):
-        if response.success:
-            print(f"Message: {message}")
-            print(f"Signature: {response.result.get('signature', 'N/A')}")
-        else:
-            print("Signing failed:", response.message)
+# Get the private key in hex format (be cautious with this in real applications)
+private_key_hex = sk.to_string().hex()
+print(f"Private Key: {private_key_hex}")
 
-    await api_call(METHOD_POST, "/api/sign/", data={"message": message}, authorization=True, callback=sign_callback)
+# Signature in hex format
+signature_hex = signature.hex()
+print(f"Signature: {signature_hex}")
 
-    async def verify_callback(response):
-        if response.success:
-            print(f"Verification result: {response.result.get('verified', False)}")
-        else:
-            print("Verification failed:", response.message)
+# Example of reconstructing keys from hex (as might be done on the server side)
+reconstructed_vk = VerifyingKey.from_string(bytes.fromhex(public_key_hex), curve=NIST256p)
+reconstructed_sk = SigningKey.from_string(bytes.fromhex(private_key_hex), curve=NIST256p)
 
-    await api_call(METHOD_POST, "/api/verify/", data={"message": message, "signature": sign_callback.result['signature']}, authorization=True, callback=verify_callback)
-
-if __name__ == "__main__":
-    asyncio.run(ecdsa_signature_example())
+# Verify again with reconstructed key
+assert reconstructed_vk.verify(signature, nonce)
+print("Signature verified with reconstructed key!")

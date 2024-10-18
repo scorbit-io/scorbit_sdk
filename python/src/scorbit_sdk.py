@@ -10,6 +10,7 @@ from typing import Callable, Dict, List
 class ScorbitSDK:
     _net_instance = None
     _api_call_callbacks = {}
+    _ws_callbacks = {}
     _api_call_number = 0
     _current_game = None
 
@@ -26,14 +27,74 @@ class ScorbitSDK:
 
     @staticmethod
     async def initialize(domain: str, provider: str, private_key: str, uuid: str,
-                        machine_serial: int, machine_id: int, software_version: str,
-                        developer_token: str = ""):
+                         machine_serial: int, machine_id: int, software_version: str):
         if not ScorbitSDK._net_instance:
             ScorbitSDK._net_instance = Net()
         await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid,
-                                                machine_serial, machine_id, software_version,
-                                                developer_token)
+                                                  machine_serial, machine_id, software_version)
+        print("Scorbit initialized successfully")
 
+    @staticmethod
+    async def send_installed_data(data: dict):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.send_installed_data(data)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def get_config():
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.get_config()
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def get_achievements():
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.get_achievements()
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def unlock_achievement(user_id: str, achievement_id: str):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.unlock_achievement(user_id, achievement_id)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def increment_achievement(achievement_id: str, increment: int):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.increment_achievement(achievement_id, increment)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def set_achievement_achieved(achievement_id: str):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.set_achievement_achieved(achievement_id)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def start_heartbeat(interval=10):
+        if ScorbitSDK._net_instance:
+            await ScorbitSDK._net_instance.start_heartbeat(interval)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def stop_heartbeat():
+        if ScorbitSDK._net_instance:
+            await ScorbitSDK._net_instance.stop_heartbeat()
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def start():
+        if not ScorbitSDK._net_instance:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+        await ScorbitSDK._net_instance.start()
     @staticmethod
     def create_game_state():
         if ScorbitSDK._net_instance:
@@ -57,10 +118,8 @@ class ScorbitSDK:
     async def set_game_finished():
         if ScorbitSDK._current_game:
             await ScorbitSDK._current_game.set_game_finished()
-            await ScorbitSDK._current_game.send_session_log()
-            ScorbitSDK._current_game = None
         else:
-            raise Exception("Game state not created. Call create_game_state() first.")
+            raise Exception("No active game. Call set_game_started() first.")
 
 
     @staticmethod
@@ -83,6 +142,13 @@ class ScorbitSDK:
             await ScorbitSDK._current_game.set_score(player, score)
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
+
+    @staticmethod
+    async def post_score(score_data: dict):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.post_score(score_data)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
 
     @staticmethod
     async def add_mode(mode: str):
@@ -138,23 +204,6 @@ class ScorbitSDK:
             await ScorbitSDK._net_instance.process_messages()
 
     @staticmethod
-    async def api_call(method: str, endpoint: str, data=None, files=None, authorization: bool=False, callback=None):
-        if not ScorbitSDK._net_instance:
-            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
-        
-        ScorbitSDK._api_call_number += 1
-        ScorbitSDK._api_call_callbacks[ScorbitSDK._api_call_number] = callback
-        
-        result = await ScorbitSDK._net_instance.api_call(method, endpoint, data, files, authorization)
-        
-        if callback:
-            await callback(result)
-        
-        return result
-    
-    _ws_callbacks = {}
-
-    @staticmethod
     def set_ws_callback(command: str, callback: Callable):
         ScorbitSDK._ws_callbacks[command.upper()] = callback
 
@@ -203,6 +252,35 @@ class ScorbitSDK:
         if ScorbitSDK._net_instance:
             await ScorbitSDK._net_instance.close()
             ScorbitSDK._net_instance = None
+
+    @staticmethod
+    async def unlock_achievement(user_id: str, achievement_id: str):
+        if ScorbitSDK._net_instance:
+            data = {
+                "user_id": user_id,
+                "achievement_id": achievement_id
+            }
+            return await ScorbitSDK._net_instance.api_call("POST", f"/api/achievements/unlock/", data=data, authorization=True)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def increment_achievement(achievement_id: str, increment: int):
+        if ScorbitSDK._net_instance:
+            data = {
+                "achievement_id": achievement_id,
+                "increment": increment
+            }
+            return await ScorbitSDK._net_instance.api_call("POST", "/api/achievements/increment/", data=data, authorization=True)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+
+    @staticmethod
+    async def set_achievement_achieved(achievement_id: str):
+        if ScorbitSDK._net_instance:
+            return await ScorbitSDK._net_instance.api_call("POST", f"/api/achievements/achieve/{achievement_id}/", authorization=True)
+        else:
+            raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
 
 # Expose ScorbitSDK methods for easier access
 DOMAIN_PRODUCTION = ScorbitSDK.DOMAIN_PRODUCTION

@@ -56,6 +56,53 @@ class Net(NetBase):
         await self._get_session_token()
         await self._send_installed_data()
     
+    async def authenticate(self):
+        timestamp = str(int(time.time()))
+        nonce = bytes.fromhex(self.uuid) + timestamp.encode('utf-8')
+
+        sk = SigningKey.from_string(self.private_key, curve=NIST256p)
+        signature = sk.sign(nonce)
+
+        payload = {
+            'provider': self.provider,
+            'uuid': self.uuid,
+            'serial_number': self.machine_serial,
+            'machine_id': self.machine_id,
+            'timestamp': timestamp,
+            'sign': signature.hex()
+        }
+
+        result = await self.api_call("POST", "/api/stoken/", data=payload, authorization=False)
+        if 'stoken' in result:
+            self.session_token = result['stoken']
+            return True
+        return False
+    
+    async def start_heartbeat(self, interval=10):
+        self.heartbeat_interval = interval
+        self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def stop_heartbeat(self):
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self.heartbeat_task = None
+
+    async def _heartbeat_loop(self):
+        while True:
+            await self._send_heartbeat()
+            await asyncio.sleep(self.heartbeat_interval)
+
+    async def _send_heartbeat(self):
+        try:
+            result = await self.api_call("POST", "/api/heartbeat/", authorization=True)
+            print("Heartbeat sent successfully")
+        except Exception as e:
+            print(f"Failed to send heartbeat: {e}")
+            
     async def process_messages(self):
         # Process API call responses and WebSocket messages
         # This method should be called regularly (e.g., in a game loop)
@@ -135,7 +182,20 @@ class Net(NetBase):
         self.ws_callback = callback
 
     async def start(self):
+        # Initialize the session if it hasn't been done already
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+        
+        # Authenticate and get the session token
+        await self._get_session_token()
+        
+        # Send installed data
+        await self._send_installed_data()
+        
+        # Start the WebSocket handler
         self.websocket_task = asyncio.create_task(self._websocket_handler())
+
+        print("Network connection started and authenticated")
 
     async def stop(self):
         if self.websocket_task:
@@ -233,3 +293,31 @@ class Net(NetBase):
                 await self.websocket_task
             except asyncio.CancelledError:
                 pass
+    async def send_installed_data(self, data: dict):
+        return await self.api_call("POST", "/api/installed/", data=data, authorization=True)
+
+    async def get_config(self):
+        return await self.api_call("GET", "/api/config/", authorization=True)
+
+    async def get_achievements(self):
+        return await self.api_call("GET", "/api/achievements/", authorization=True)
+
+    async def post_score(self, score_data: dict):
+        return await self.api_call("POST", "/api/scores/", data=score_data, authorization=True)
+
+    async def unlock_achievement(self, user_id: str, achievement_id: str):
+        data = {
+            "user_id": user_id,
+            "achievement_id": achievement_id
+        }
+        return await self.api_call("POST", "/api/achievements/unlock/", data=data, authorization=True)
+
+    async def increment_achievement(self, achievement_id: str, increment: int):
+        data = {
+            "achievement_id": achievement_id,
+            "increment": increment
+        }
+        return await self.api_call("POST", "/api/achievements/increment/", data=data, authorization=True)
+
+    async def set_achievement_achieved(self, achievement_id: str):
+        return await self.api_call("POST", f"/api/achievements/achieve/{achievement_id}/", authorization=True)

@@ -1,36 +1,41 @@
 import asyncio
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the parent directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.scorbit_sdk import ScorbitSDK, initialize, start, api_call, METHOD_POST
+# Load environment variables
+load_dotenv()
 
-async def authenticate():
+from src.scorbit_sdk import ScorbitSDK, initialize, start, create_game_state
+
+async def authenticate_example():
     # Initialize the SDK
     await initialize(
-        domain="staging.scorbit.io",
-        provider="your_provider",
-        private_key="your_private_key",
-        uuid="your_uuid",
+        domain=os.getenv("SCORBIT_DOMAIN", "api.scorbit.io"),
+        provider=os.getenv("SCORBIT_PROVIDER"),
+        private_key=os.getenv("SCORBIT_PRIVATE_KEY"),
+        uuid=os.getenv("SCORBIT_UUID"),
         machine_serial=123456,
         machine_id=789,
         software_version="1.0.0"
     )
 
-    # Start the SDK
+    # Start the SDK (this includes authentication)
     await start()
 
-    # Perform authentication
-    async def auth_callback(response):
-        if response.success:
-            print("Authentication successful!")
-            print("Stoken:", response.result.get('stoken'))
-        else:
-            print("Authentication failed:", response.message)
+    # Check if authentication was successful
+    if ScorbitSDK._net_instance.session_token:
+        print("Authentication successful!")
+        print("Stoken:", ScorbitSDK._net_instance.session_token)
 
-    await api_call(METHOD_POST, "/api/stoken/", authorization=True, callback=auth_callback)
+        # Create a game state (optional, depending on your use case)
+        game_state = create_game_state()
+        print("Game state created")
+    else:
+        print("Authentication failed")
 
 if __name__ == "__main__":
-    asyncio.run(authenticate())
+    asyncio.run(authenticate_example())
