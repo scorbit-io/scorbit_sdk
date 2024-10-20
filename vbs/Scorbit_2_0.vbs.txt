@@ -1,26 +1,39 @@
 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ' X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  
 '/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/
-' ZSCO: SCORBIT Interface v2.0.beta5
+' ZSCO: SCORBIT Interface v2.0.beta7
+'
+' *** THIS SDK REQUIRES VPX 10.8 RC4 OR LATER!!! ***
+' It will NOT work correctly on RC3 or earlier due to a major bug with the LoadTexture method in VPX.
+' *You will corrupt your table cache if you try running this in RC3 or before!*
+' Be sure you clearly indicate this in your table's minimum system requirements.
 '
 ' ***CAUTION!!!*** If you re-distribute the contents of the SDK folder, avoid including these files as they contain sensitive info:
-' QRclaim.bmp, QRclaim.png, QRcode.bmp, QRcode.png, all .dat files (e.g. sToken_number.dat).
-' Don't remove them from your own SDK folder (or you might have to re-pair your machines) but ensure they're not in the folder you
+' 	QRclaim.bmp, QRclaim.png, QRcode.bmp, QRcode.png, all .dat files (e.g. sToken_number.dat), all csv files (e.g. sGameLog).
+'
+' Note that QRcodeB and QRcodeS *should* be included when re-distributing as these are PinUp overlays.
+' Don't remove these from your own SDK folder (or you might have to re-pair your machines) but ensure they're not in the folder you
 ' distribute.
 '
 ' To integrate Scorbit into your own table:
-' 0) Contact the Scorbit team (such as in the Scorbit Discord server) to get (or create) the Machine ID for your table.
+' 0) Contact the Scorbit team (such as in the Scorbit Discord server) to get (or create) the Machine ID and OPDB ID for your table.
 ' 1) Create a timer named tmrScorbit; it should be disabled by default. Interval does not matter (it is set to 2 seconds in the code).
-' 2) If you want to use a VPX flasher for Scorbit QR code and statuses:
-'		Set ScorbitUseFlasher to true. Create a square flasher named ScorbitFlasher. Set visibility off, opacity 100%, amount 100%. 
-'		Place this where you want Scorbit QR codes and statuses to appear, such as on the apron. Note that it will almost always show.
-'		Set height to 2 (or make it 2 units higher than the highest object under it).
+' 2a) If you want to use a VPX flasher for Scorbit QR code and statuses:
+'		Set ScorbitUseFlasher to true. Create a square flasher named ScorbitFlasher. Set visibility off, opacity 100%, amount 100%.
+'       Also set color to white. Place this where you want Scorbit QR codes and statuses to appear, such as on the apron. 
+'		Note that it will almost always show. Set height to 2 (or make it 2 units higher than the highest object under it).
+' 2b) An optional "Scorbit Monitor" primitive is provided if you would like something visually appealing to surround your 
+'		ScorbitFlasher and indicate it is a Scorbit QR code. This was created by RoberBen. Simply import the Scorbit Monitor.png into
+'		VPX's Images Manager, create a primitive, and then import Scorbit Monitor.obj (also import the material). Place the primitive
+'		wherever the ScorbitFlasher will go (set it to a height of 1 VPX unit less than the flasher and make sure it is above other
+'		objects). And then place the ScorbitFlasher inside the square area of the primitive.
 ' 3) If you want to use a large VPX flasher to display large Scorbit QR codes (easier to scan for lower-res displays):
-'		Set ScorbitUseLargeFlasher to true. Create a square flasher named ScorbitFlasherLarge. Set visibility off, opacity 100%, amount 100%. 
-'		Make this flasher rather large (suggested you square-scale it by a factor of 4). Place on the middle of the playfield. 
-'		Set height to 2 (or make it 2 units higher than the highest object under it). It will hide itself when a ball is in play.
-'		This will display only QR codes and only when the option "Scorbit QR Large" is enabled or ScorbitUseFlasher is false.
-' 4) If ScorbitUseFlasher is true (step 2), in the VPX images manager, import these images (from the SDK):
+'		Set ScorbitUseLargeFlasher to true. Create a square flasher named ScorbitFlasherLarge. Set visibility off, opacity 100%, 
+'		amount 100%. Set color to white. Make this flasher rather large (suggested you square-scale it by a factor of 3 or 4). 
+'		Place on the middle of the playfield. Set height to 2 (or make it 2 units higher than the highest object under it). 
+'		It will hide itself when a ball is in play. This will display only QR codes and only when the option "Scorbit QR Large" is 
+'		enabled or ScorbitUseFlasher is false.
+' 4) If ScorbitUseFlasher is true (step 2a), in the VPX images manager, import these images (from the SDK):
 '		ScorbitNotReady, ScorbitError, ScorbitClaimInApp, ScorbitClaimed, ScorbitDisabled, and ScorbitReady.
 ' 5) In the VPX sound manager, import these sounds:
 '		scorbit_detected_2, scorbit_detected_2b, scorbit_login.
@@ -29,29 +42,30 @@
 ' 7) Modify the DoInit call in the initScorbit Sub as follows:
 '    	Replace 0 with your Machine ID from Scorbit
 '	  	Replace TablesDirectory & "\ScorbitSDK_2_0" with the full path to the Scorbit SDK and binaries
-'     	Replace puplayer.getroot & "\PupOverlays" with the full path to where the generated QR Code images should be saved
+'     	Replace ScorbitOptions.Item("Scorbit QR Path") with the full path to where the generated QR Code images should be saved
 '			(Should use PupOverlays if the table uses PinUp, otherwise can be anything like TablesDirectory & "\" & cGameName)
+'			The example code provided will modify the path according to whether or not usePUP is true.
 '     	Replace "1.0.0" with the version number of your table
 '			(Ideally you should define your table version in a constant at the top of your table script)
 '     	Replace OPDB-ID with your table on OPDB - eg: https://opdb.org/machines/2103 
 '			(original vpins will have a different OPDB ID provided by Scorbit)
 ' 8) Customize these functions as necessary, and then have them get called as indicated 
 '		initScorbit
-'			in your Table1_Init Sub (After PUP is initialized, if applicable)
-'			in your Table1_OptionEvent Sub (when eventId is 3)
+'			Call in your Table1_Init Sub (After PUP is initialized, if applicable)
+'			Call in your Table1_OptionEvent Sub (Place in an if guard so it only gets called if EventId = 3)
 '		StartSession
-'			When a game starts (e.g. ResetForNewGame)
+'			Call when a game starts (e.g. ResetForNewGame)
 '		StopSession
-'			When the game is over (e.g. EndOfGame)
+'			Call when the game is over (e.g. EndOfGame)
 '		StopSession2
-'			When the game is cancelled (e.g. Table1_Exit, or a Slam Tilt)
+'			Call when the game is cancelled (e.g. Table1_Exit, or a Slam Tilt)
 '		SendUpdate
-'			When Score Changes (e.g. AddScore) 
-'			(this is optional but not recommended for vpins; see Scorbit_SendSessionUpdate and ideally use that instead)
+'			Call when Score Changes (e.g. AddScore) 
+'			(this is optional but *not* recommended for vpins; see Scorbit_SendSessionUpdate and ideally use that instead)
 '		SetGameMode
-'			When different game events happen like starting a mode, MB etc. 
-'			(ScorbitBuildGameModes helper function shows you how)
-' 9) Customize Callbacks 
+'			Call when different game events happen like starting a mode, MB etc. 
+'			(Ideally use and customize ScorbitBuildGameModes instead)
+' 9) Customize Callbacks, and call where necessary if indicated 
 '		Scorbit_Paired
 '			Called when machine is successfully paired.
 '		Scorbit_PlayerClaimed
@@ -59,11 +73,12 @@
 '		Scorbit_SendSessionUpdate
 '			Called when it is time to send a score update to Scorbit
 '		Scorbit_ClaimQRPinUp
-'			Call when we want to show/hide the claim QR code on PinUp
-'			(generally should be called by Scorbit_UpdateQR)
+'			Called when Scorbit_updateQR is called
+'			Also call this when we want to show/hide the claim QR code on PinUp
 '		Scorbit_updateQR
-'			Call/called when we should re-calculate what to display for Scorbit statuses and QR codes
-'			(any changes to game in progress status, change in which player is up, or when a ball hits / unhits the plunger lane trigger)
+'			Called when we should re-calculate what to display for Scorbit statuses and QR codes
+'			(you should also call this for any changes to game in progress status, change in which player is up, or
+'			when a ball hits / unhits the plunger lane trigger)
 '		Scorbit_Debug
 '			All debug information gets called by this Sub. You can customize this to use debug.print, your choice of a logger, or 
 '			nothing at all.
@@ -83,30 +98,34 @@ Dim ScorbitOptions : Set ScorbitOptions = CreateObject("Scripting.Dictionary")
 
 Sub initScorbit()
 	'Register Tweak UI Scorbit Options
+	'NB: In your code, you should use Scorbit.Enabled, not ScorbitOptions.Item("Scorbit"), when checking if Scorbit is *actually* enabled. Scorbit.Enabled will be false even if enabled in Tweak UI if an error occurred.
     ScorbitOptions.Item("Scorbit") = Table1.Option("Scorbit", 0, 1, 1, 0, 0, Array("Disabled", "Enabled"))
-	If ScorbitUseFlasher = False And ScorbitUseLargeFlasher = True Then ScorbitOptions.Item("Scorbit Large Table QR") = Table1.Option("Scorbit Large Table QR", 0, 1, 1, 0, 0, Array("Off", "On"))
-    ScorbitOptions.Item("Scorbit Claim QR") = Table1.Option("Scorbit Claim QR", 0, 1, 1, 1, 0, Array("Hide (Claim in App)", "Show"))
+	
+	'NB: Only offer a Scorbit Large Table QR option if we are using both a large and regular flasher; the large flasher should always be used if a regular flasher is not being used
+	If ScorbitUseFlasher = True And ScorbitUseLargeFlasher = True Then ScorbitOptions.Item("Scorbit Large Table QR") = Table1.Option("Scorbit Large Table QR", 0, 1, 1, 0, 0, Array("Off", "On"))
+    
+	ScorbitOptions.Item("Scorbit Claim QR") = Table1.Option("Scorbit Claim QR", 0, 1, 1, 1, 0, Array("Hide (Claim in App)", "Show"))
 	ScorbitOptions.Item("Scorbit UUID") = Table1.Option("Scorbit UUID", 0, 1, 1, 0, 0, Array("Use System", "Force Alternate")) 'If Scorbit is having trouble getting UUID on Windows, you can try "Force Alternate"
 
 	'NB: Comment / remove these two lines if your table does not use PinUp; you may also have to modify the "usePUP" variable if you use something else
 	If UsePUP = True Then ScorbitOptions.Item("Scorbit QR on PinUp") = Table1.Option("Scorbit QR on PinUp", 0, 1, 1, 1, 0, Array("No", "Yes"))
     If UsePUP = True Then ScorbitOptions.Item("Scorbit Large PinUp QR") = Table1.Option("Scorbit Large PinUp QR", 0, 1, 1, 0, 0, Array("Off", "On"))
 
+	'NB: to force log uploading on or off instead of allowing a Tweak UI option, set ScorbitOptions.Item("Scorbit Logs / Timelines") equal to 1 or 0 respectively
+	ScorbitOptions.Item("Scorbit Logs / Timelines") = Table1.Option("Scorbit Logs / Timelines", 0, 1, 1, 0, 0, Array("Disabled (do not upload)", "Enabled (upload)"))
+
 	'Initialize, or deactivate, Scorbit, as appropriate
 	If (ScorbitOptions.Item("Scorbit") = 1) And Scorbit.Enabled = False Then 'Enabling Scorbit when disabled
 		ScorbitOptions.Item("Scorbit QR Path") = TablesDirectory & "\ScorbitSDK_2_0"
 
-		'NB: Remove this line if your table does not support PinUp; modify "usePUP" if you use a different variable
+		'NB: Comment or remove this line if your table does not support PinUp; modify "usePUP" if you use a different variable
 		If UsePUP = True And ScorbitOptions.Item("Scorbit QR on PinUp") = 1 Then ScorbitOptions.Item("Scorbit QR Path") = puplayer.getroot & "\PupOverlays"
 		
-		'NB: Modify the DoInit call as appropriate: Machine ID, SDK path; QR Code path; table version; OPDB ID
+		'NB: Modify the DoInit call as appropriate (see step 7): Machine ID, SDK path; QR Code path; table version; OPDB ID
 		If Scorbit.DoInit(0, TablesDirectory & "\ScorbitSDK_2_0", ScorbitOptions.Item("Scorbit QR Path"), "1.0.0", "OPDB-ID") then 
 			tmrScorbit.Interval = 2000 'DO NOT MODIFY
 			tmrScorbit.UserValue = 0
 			tmrScorbit.Enabled=True
-
-			'NB: Uncomment this line if you would like session logs to be uploaded (which enables Scorbit's game timeline support)
-			'Scorbit.UploadLog = True
 		End If
 	ElseIf (ScorbitOptions.Item("Scorbit") = 0) And Scorbit.Enabled = True Then 'Disabling Scorbit when enabled
 		Scorbit.RunAsync = False 'So we force the script to wait after calling StopSession2 before destroying the class
@@ -115,6 +134,7 @@ Sub initScorbit()
 		'NB: Modify the parameters of StopSession2 as appropriate with the variables you use: Player 1 score; Player 2 score; Player 3 score; Player 4 score; Current Player; true (cancelled session)
 		Scorbit.StopSession2 Score(0), Score(1), Score(2), Score(3), CurrentPlayer, true
 
+		'Reset the Scorbit class
 		Set Scorbit = Nothing
 		Set Scorbit = New ScorbitIF
 	End If
@@ -141,10 +161,16 @@ Sub Scorbit_PlayerClaimed(PlayerNum, PlayerNameOrInitials)	' Scorbit callback wh
 	Scorbit_UpdateQR
 	'NB: Uncomment if you want to display the claimed player's name on PinUp; modify the name of the label as necessary
 	'If usePUP = True Then puPlayer.LabelSet pDMDText,"Player", PlayerNameOrInitials,1,""
+
+	'NB: Want to do something amazing and have Microsoft Text-To-Speech read out the player's name? Un-comment the below lines!
+	'CAUTION! This will freeze the game until speech is finished.
+	'Dim speech
+	'Set speech = CreateObject("SAPI.SpVoice")
+	'speech.Speak "Welcome to the game, " & PlayerNameOrInitials & "!"
 End Sub
 
 Sub Scorbit_SendSessionUpdate() 'Scorbit callback when we should send a game update
-	'Note: If you are calling SendUpdate on every score change (not recommended for VPX/vpins), you can remove it from this callback
+	'Note: If you are calling SendUpdate on every score change (not recommended for VPX/vpins), you can comment/remove it from this callback
 	'NB: Modify the parameters of SendUpdate as appropriate with the variables you use: Player 1 score; Player 2 score; Player 3 score; Player 4 score; Current ball; Current Player; number of players playing the game
 	Scorbit.SendUpdate Score(0), Score(1), Score(2), Score(3), Balls, CurrentPlayer, PlayersPlayingGame
 End Sub
@@ -160,7 +186,7 @@ Sub Scorbit_updateQR() 'Call when we should update the display of Scorbit status
 		Exit Sub
 	End If
 
-	If Scorbit.Enabled = False Then 'Scorbit error
+	If Scorbit.Enabled = False Then 'Scorbit enabled in Tweak UI, but not actually enabled (usually means an error occurred)
 		ScorbitSetFlasherImages "ScorbitError", False
 		Exit Sub
 	End If
@@ -184,7 +210,7 @@ Sub Scorbit_updateQR() 'Call when we should update the display of Scorbit status
 
 	'NB: In this space, you might add any special cases where Scorbit would be unavailable, such as running a co-op game
 
-	If Scorbit.SessionActive = False Then 'Game in progress but Scorbit not initialized for this game
+	If Scorbit.SessionActive = False Then 'Game in progress but Scorbit was not initialized for this game
 		ScorbitSetFlasherImages "ScorbitDisabled", False
 		Exit Sub
 	End If
@@ -372,10 +398,10 @@ Class ScorbitIF
 
 	Private bSessionActive
 	Private bNeedsPairing
-	Private bUploadLog
 	Private bActive
 	Private LogFile
 	Private LogIdx
+	Private LogPrev
 
 	Private bProduction
 
@@ -413,15 +439,12 @@ Class ScorbitIF
 		bSessionActive=False
 		bEnabled=False
 		RunAsync=False
+		LogPrev = ""
 
 		Set LogFile = CreateObject("Scripting.Dictionary")
 		Set CachedPlayer = CreateObject("Scripting.Dictionary")
 		LogIdx = 0
-	End Sub 
-
-	Public Property Let UploadLog(bValue)
-		bUploadLog = bValue
-	End Property
+	End Sub
 
 	Public Sub DoTimer(bInterval)	'Heartbeat timer (2 second interval)
 		if bInterval=0 then 
@@ -607,6 +630,7 @@ Class ScorbitIF
 		SessionUUID=GUID()
 		SessionTimeStart=GameTime
 		LogFile.RemoveAll
+		LogPrev = ""
 		LogIdx=0
 		SendUpdate 0, 0, 0, 0, 1, 1, 1
 
@@ -631,7 +655,7 @@ Class ScorbitIF
 		bSessionActive=False
 '		SendHeartbeat
 
-		if bUploadLog and LogIdx<>0 and bCancel=False then 
+		if ScorbitOptions.Item("Scorbit Logs / Timelines") = 1 and LogIdx<>0 and bCancel=False then 
 			Scorbit_Debug "Creating Scorbit Log: Size " & LogIdx
 			Scorbit_LOGUpload(0)
 			Set objFile = fso.CreateTextFile(dirScorbitBin & "\sGameLog_" & MachineID & ".csv")
@@ -640,6 +664,7 @@ Class ScorbitIF
 			Next 
 			objFile.Close
 			LogIdx=0
+			LogPrev = ""
 			LogFile.RemoveAll
 			Scorbit_LOGUpload(1)
 			pvPostFile "https://" & domain & "/api/session_log/", dirScorbitBin & "\sGameLog_" & MachineID & ".csv", False
@@ -668,17 +693,25 @@ Class ScorbitIF
 
 	Public Sub SendUpdateAsynch(P1Score, P2Score, P3Score, P4Score, CurrentBall, CurrentPlayer, NumberPlayers, bAsynch)
 		dim i
+		dim logPart
 		Dim PostData
 		Dim resultStr
 		dim LogScores(4)
 
-		if bUploadLog And CurrentPlayer > 0 And CurrentBall > 0 then
+		if ScorbitOptions.Item("Scorbit Logs / Timelines") = 1 And CurrentPlayer > 0 And CurrentBall > 0 then
 			if NumberPlayers>=1 then LogScores(0)=P1Score
 			if NumberPlayers>=2 then LogScores(1)=P2Score
 			if NumberPlayers>=3 then LogScores(2)=P3Score
 			if NumberPlayers>=4 then LogScores(3)=P4Score
-			LogFile.Add LogIdx, DateDiff("S", "1/1/1970", Now()) & "," & LogScores(0) & "," & LogScores(1) & "," & LogScores(2) & "," & LogScores(3) & ",,," & CurrentPlayer & "," & CurrentBall & ",""" & GameModeOrig & """"
-			LogIdx=LogIdx+1
+
+			'Add to log but only if something (other than the timestamp) changed
+			logPart = LogScores(0) & "," & LogScores(1) & "," & LogScores(2) & "," & LogScores(3) & ",,," & CurrentPlayer & "," & CurrentBall & ",""" & GameModeOrig & """"
+			If Not LogPrev = logPart Then
+				LogFile.Add LogIdx, DateDiff("S", "1/1/1970", Now()) & "," & logPart
+				LogIdx=LogIdx+1
+			End If
+			
+			LogPrev = logPart
 		End if 
 
 		if bSessionActive=False then Exit Sub 'DO NOT REMOVE
@@ -870,7 +903,7 @@ Class ScorbitIF
 				VenueMachineID=TmpStr		
 				Command = """" & dirScorbitBin & "\sQRCode.exe"" " & VenueMachineID & " " & opdbID & " """ & QRFile & """"
 				On Error Resume Next
-					rc = wsh.Run(Command, 0, False)
+					rc = wsh.Run(Command, 0, True)
 					If Err.Number <> 0 Then 
 						Msgbox "Failed to generate a claim QR code; ensure the Scorbit SDK files (e.g. sQRCode.exe) are located directly in " & dirScorbitBin & ". Also ensure the directory " & QRFile & " exists for the QR code images. Scorbit has been disabled."
 						bEnabled = False

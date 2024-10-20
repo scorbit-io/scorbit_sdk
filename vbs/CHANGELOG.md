@@ -16,6 +16,8 @@
 * [BREAKING] Private property CachedPlayerNames(4) changed to CachedPlayer (Dictionary). This dictionary contains keys all prefixed with PlayerNumber_, and contains name (string), initials (string), and prefer_initials (boolean).
  * Use GetName, GetNameOrInitials (which is prefer_initials-aware), or GetInitials methods on the ScorbitIF class for easy retrieving of a player's name or initials.
 
+* [BREAKING] Private property bUploadLog and public property UploadLog removed. This was replaced with a Tweak UI option defined in initScorbit "Scorbit Logs / Timelines".
+
 * New private property dirScorbitBin which stores the defined directory path to the Scorbit binaries (.exe files)
 
 ## ScorbitIF Methods
@@ -45,7 +47,7 @@
 
 ## Callbacks
 
-* [BREAKING] Removed ScorbitClaimQR. Instead, use Scorbit_updateQR and Scorbit_ClaimQRPinUp (note that Scorbit_updateQR also calls Scorbit_ClaimQRPinUp when PinUp is enabled)
+* [BREAKING] Removed ScorbitClaimQR. Instead, use Scorbit_updateQR and Scorbit_ClaimQRPinUp (note that Scorbit_updateQR also calls Scorbit_ClaimQRPinUp when PinUp is enabled when using the included default code)
 
 * [BREAKING] Added Scorbit_SendSessionUpdate because previously the SendUpdate call was buried inside the ScorbitIF class; it should be within the table customizations section (it generally needs modified according to the variables used in a table). This new callback also allows adding other code to run on every update call by the timer.
  * This is breaking because you must use this new callback if you want the tmrScorbit timer to periodically send score updates; this is no-longer done directly in the ScorbitIF class.
@@ -80,6 +82,10 @@
 * Various other code clean-ups were performed
 
 * A message box error will appear if wsh.run fails when trying to get an auth token or QR code. This is usually because the SDK files are in the wrong place. The message box will instruct the user exactly where they need to go and will allow the table to continue (but with Scorbit disabled).
+
+* SendUpdate will now prevent adding duplicate log entries to the session log which gets uploaded to Scorbit
+
+* The script will now wait when generating a Claim QR Code (previously it did not which necessitated a delay timer or risk loading an old QR). This will cause a slight stutter one time, but generally a claim QR would never be generated in the middle of game play (the only time this will happen is if you pair the machine in the middle of a game).
 
 # Changes in version 1.0.3 (Daphishbowl):
 * Bug fix for certain MAC addresses caused Scorbit "ERROR We couldnt pair your device" when trying to pair with scorbit
