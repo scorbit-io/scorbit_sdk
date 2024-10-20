@@ -10,6 +10,18 @@ import os
 class ScorbitSDK:
     _net_instance = None
     _current_game = None
+    _session_logger = None
+    _api_call_callbacks = {}
+    _ws_callbacks = {}
+    _api_call_number = 0
+
+    @classmethod
+    def reset(cls):
+        cls._net_instance = None
+        cls._current_game = None
+        cls._session_logger = None
+        cls._initialized = False
+        cls._started = False
 
     DEBUG: bool = True
 
@@ -24,11 +36,16 @@ class ScorbitSDK:
 
     @staticmethod
     async def initialize(domain: str, provider: str, private_key: str, uuid: str,
-                         machine_serial: int, machine_id: int, software_version: str):
+                        machine_serial: int, machine_id: int, software_version: str):
         if not ScorbitSDK._net_instance:
             ScorbitSDK._net_instance = Net()
         await ScorbitSDK._net_instance.initialize(domain, provider, private_key, uuid,
-                                                  machine_serial, machine_id, software_version)
+                                                machine_serial, machine_id, software_version)
+        if ScorbitSDK._session_logger is None:
+            ScorbitSDK._session_logger = SessionLogger(uuid=uuid, net_instance=ScorbitSDK._net_instance)
+            print("Session logger initialized:", ScorbitSDK._session_logger)
+        else:
+            print("Session logger already initialized:", ScorbitSDK._session_logger)
         print("Scorbit initialized successfully")
 
     @staticmethod
@@ -100,7 +117,7 @@ class ScorbitSDK:
             return ScorbitSDK._current_game
         else:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
-
+        
     @staticmethod
     def destroy_game_state():
         ScorbitSDK._current_game = None
@@ -109,8 +126,6 @@ class ScorbitSDK:
     async def set_game_started():
         if ScorbitSDK._current_game:
             await ScorbitSDK._current_game.set_game_started()
-            if ScorbitSDK._session_logger is None:
-                ScorbitSDK._session_logger = SessionLogger(uuid=os.getenv("SCORBIT_UUID"))
         else:
             raise Exception("Game state not created. Call create_game_state() first.")
 
@@ -124,7 +139,7 @@ class ScorbitSDK:
         if ScorbitSDK._current_game:
             await ScorbitSDK._current_game.set_game_finished()
             if ScorbitSDK._session_logger:
-                ScorbitSDK._session_logger.save_log()
+                await ScorbitSDK._session_logger.save_session_log()
                 await ScorbitSDK._session_logger.send_session_log()
                 ScorbitSDK._session_logger = None
         else:
@@ -263,6 +278,27 @@ class ScorbitSDK:
             return await ScorbitSDK._net_instance.set_achievement_achieved(achievement_id)
         else:
             raise Exception("Net instance not initialized. Call ScorbitSDK.initialize() first.")
+    
+    @staticmethod
+    async def send_session_log():
+        if ScorbitSDK._session_logger:
+            await ScorbitSDK._session_logger.send_session_log()
+        else:
+            raise Exception("Session logger not initialized. Call create_game_state() first.")
+        
+    @staticmethod
+    async def save_session_log():
+        if ScorbitSDK._session_logger:
+            await ScorbitSDK._session_logger.save_session_log()
+        else:
+            raise Exception("Session logger not initialized. Call create_game_state() first.")
+        
+    @staticmethod
+    async def log_event(current_scores, current_player, current_ball, game_modes):
+        if ScorbitSDK._session_logger:
+            ScorbitSDK._session_logger.log_event(current_scores, current_player, current_ball, game_modes)
+        else:
+            raise Exception("Session logger not initialized. Call create_game_state() first.")
 
 # Expose ScorbitSDK methods for easier access
 DOMAIN_PRODUCTION = ScorbitSDK.DOMAIN_PRODUCTION

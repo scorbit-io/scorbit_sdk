@@ -4,8 +4,9 @@ from datetime import datetime
 from .net import Net
 
 class SessionLogger:
-    def __init__(self, uuid):
+    def __init__(self, uuid, net_instance):
         self.uuid = uuid
+        self.net_instance = net_instance
         self.records = []
         self.log_file_path = f"{uuid}.csv"
 
@@ -24,7 +25,7 @@ class SessionLogger:
         }
         self.records.append(record)
 
-    def save_log(self):
+    async def save_session_log(self):
         with open(self.log_file_path, mode='w', newline='') as file:
             writer = csv.writer(file)
             writer.writerow(["time", "p1", "p2", "p3", "p4", "p5", "p6", "player", "ball", "game_modes"])

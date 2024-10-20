@@ -132,7 +132,8 @@ class Net(NetBase):
                 await asyncio.sleep(1)
 
     async def api_call(self, method: str, endpoint: str, data: Dict[str, Any] = None, 
-                   files: Dict[str, Any] = None, authorization: bool = False) -> Dict[str, Any]:
+                   files: Dict[str, Any] = None, authorization: bool = False, 
+                   callback: Callable[[Dict[str, Any]], None] = None) -> Dict[str, Any]:
         self.api_call_number += 1
         headers = {}
         if authorization:
@@ -149,11 +150,17 @@ class Net(NetBase):
                         form_data.add_field(key, value)
                     async with self._session.request(method, url, data=form_data, headers=headers) as response:
                         response.raise_for_status()
-                        return await response.json()
+                        result = await response.json()
                 else:
                     async with self._session.request(method, url, json=data, headers=headers) as response:
                         response.raise_for_status()
-                        return await response.json()
+                        result = await response.json()
+
+                # Invoke the callback if provided
+                if callback:
+                    callback(result)
+
+                return result
         except asyncio.TimeoutError:
             print(f"API call to {endpoint} timed out")
             raise
