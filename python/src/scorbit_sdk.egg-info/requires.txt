@@ -1,6 +1,0 @@
-websockets
-requests
-ecdsa
-
-[dev]
-pytest
