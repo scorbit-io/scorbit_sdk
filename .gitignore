@@ -64,3 +64,8 @@ compile_commands.json
 
 *_qmlcache.qrc
 __pycache__/
+
+# Ignore egg files and directories
+*.egg-info/
+*.egg/
+.eggs/

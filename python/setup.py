@@ -15,6 +15,10 @@ setup(
             "pytest",
         ],
     },
+    setup_requires=[
+        "setuptools>=42",
+        "wheel",
+    ],
     test_suite="tests",
     tests_require=["pytest"],
 )
