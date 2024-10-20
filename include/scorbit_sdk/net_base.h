@@ -18,6 +18,8 @@ public:
     NetBase() = default;
     virtual ~NetBase() = default;
 
+    virtual void authenticate() = 0;
+
     virtual void sendGameData(const detail::GameData &data) = 0;
 };
 

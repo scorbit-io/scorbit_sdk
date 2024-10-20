@@ -27,7 +27,7 @@ bool signer(Signature &signature, size_t &signatureLen, const Digest &digest)
     return true;
 }
 
-TEST_CASE("Net authenticate")
+TEST_CASE("Net constructor")
 {
     ALLOW_CALL(Signer, signer(_, _, _));
     DeviceInfo info;

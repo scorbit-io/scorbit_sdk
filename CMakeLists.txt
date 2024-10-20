@@ -57,9 +57,24 @@ CPMAddPackage(
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
     OPTIONS "FMT_INSTALL YES"
+    GIT_SHALLOW TRUE
 )
 
 find_package(OpenSSL REQUIRED)
+
+find_package(CURL 8.0.0)
+if(CURL_FOUND)
+    set(CPR_USE_SYSTEM_CURL ON)
+endif()
+set(BUILD_SHARED_LIBS OFF)
+CPMAddPackage(
+    NAME cpr
+    GIT_TAG 1.11.0
+    GITHUB_REPOSITORY libcpr/cpr
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+    GIT_SHALLOW TRUE
+)
 
 # ---- Create library ----
 
@@ -117,7 +132,7 @@ target_sources(
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt OpenSSL::Crypto)
+target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr)
 
 target_include_directories(
     ${PROJECT_NAME}

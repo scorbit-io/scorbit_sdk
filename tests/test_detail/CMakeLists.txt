@@ -35,6 +35,7 @@ CPMAddPackage(
 CPMAddPackage(
     NAME trompeloeil
     GIT_TAG v48
+    GIT_SHALLOW TRUE
     GITHUB_REPOSITORY rollbear/trompeloeil
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
@@ -82,6 +83,7 @@ target_link_libraries(
         trompeloeil::trompeloeil
         fmt::fmt
         OpenSSL::Crypto
+        cpr::cpr
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)

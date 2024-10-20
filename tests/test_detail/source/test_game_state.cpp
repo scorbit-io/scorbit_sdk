@@ -22,6 +22,7 @@ using namespace trompeloeil;
 class MockNetBase : public NetBase
 {
 public:
+    void authenticate() override {};
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
 };
 

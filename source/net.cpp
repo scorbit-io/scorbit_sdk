@@ -12,6 +12,7 @@
 #include "utils/bytearray.h"
 #include <fmt/format.h>
 #include <openssl/sha.h>
+#include <cpr/cpr.h>
 #include <chrono>
 
 using namespace std;
@@ -23,6 +24,8 @@ constexpr auto PRODUCTION_LABEL = "production";
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
+constexpr auto API = "/api/";
+constexpr auto STOKEN_URL = "stoken/";
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
@@ -73,6 +76,36 @@ void Net::setHostname(std::string hostname)
 
 void Net::authenticate()
 {
+    const auto timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
+    ByteArray message(m_deviceInfo.uuid);
+
+    const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
+    if (signature.empty()) {
+        ERR("Can't authenticate, signature is empty");
+        return;
+    }
+
+    // TODO
+    // Sending post
+    auto payload = cpr::Payload {
+            {"provider", m_deviceInfo.provider},
+            {"uuid", m_deviceInfo.uuid},
+            // {"serial_number", std::to_string(m_tpm->serial())},
+            {"timestamp", timestamp},
+            {"sign", signature},
+    };
+
+    auto r = cpr::Post(cpr::Url{m_hostname + API + STOKEN_URL}, payload);
+
+    if (r.status_code != 200) {
+        const auto msg = fmt::format("authentication failed: code {}, {}", r.status_code, r.error.message);
+        ERR("{}", msg);
+        ERR("{}", r.text);
+        // SentryManager::message(msg);
+
+        m_isAuthenticated = false;
+        return;
+    }
 }
 
 bool Net::isAuthenticated() const

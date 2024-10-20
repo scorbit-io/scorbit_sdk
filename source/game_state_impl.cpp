@@ -15,6 +15,7 @@ namespace detail {
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
 {
+    m_net->authenticate();
 }
 
 void GameStateImpl::setGameStarted()

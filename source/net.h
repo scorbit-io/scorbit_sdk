@@ -26,7 +26,7 @@ public:
     std::string hostname() const;
     void setHostname(std::string hostname);
 
-    void authenticate();
+    void authenticate() override;
     bool isAuthenticated() const;
 
     void sendGameData(const detail::GameData &data) override;
