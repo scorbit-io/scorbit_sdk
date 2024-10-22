@@ -27,6 +27,15 @@ build-*/
 *.lai
 *.la
 *.a
+
+# Pytest cache
+.pytest_cache/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 *.lib
 
 # Executables
@@ -54,3 +63,9 @@ compile_commands.json
 *creator.user*
 
 *_qmlcache.qrc
+__pycache__/
+
+# Ignore egg files and directories
+*.egg-info/
+*.egg/
+.eggs/
