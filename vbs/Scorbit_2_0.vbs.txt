@@ -1,0 +1,1196 @@
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+' X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  X  
+'/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/ \/
+' ZSCO: SCORBIT Interface v2.1.beta7
+'
+' *** THIS SDK REQUIRES VPX 10.8 RC4 OR LATER!!! ***
+' It will NOT work correctly on RC3 or earlier due to a major bug with the LoadTexture method in VPX.
+' *You will corrupt your table cache if you try running this in RC3 or before!*
+' Be sure you clearly indicate this in your table's minimum system requirements.
+'
+' ***CAUTION!!!*** If you re-distribute the contents of the SDK folder, avoid including these files as they contain sensitive info:
+' 	QRclaim.bmp, QRclaim.png, QRcode.bmp, QRcode.png, all .dat files (e.g. sToken_number.dat), all csv files (e.g. sGameLog).
+'
+' Note that QRcodeB and QRcodeS *should* be included when re-distributing as these are PinUp overlays.
+' Don't remove these from your own SDK folder (or you might have to re-pair your machines) but ensure they're not in the folder you
+' distribute.
+'
+' To integrate Scorbit into your own table:
+' 0) Contact the Scorbit team (such as in the Scorbit Discord server) to get (or create) the Machine ID and OPDB ID for your table.
+' 1) Create a timer named tmrScorbit; it should be disabled by default. Interval does not matter (it is set to 2 seconds in the code).
+' 2a) If you want to use a VPX flasher for Scorbit QR code and statuses:
+'		Set ScorbitUseFlasher to true. Create a square flasher named ScorbitFlasher. Set visibility off, opacity 100%, amount 100%.
+'       Also set color to white. Place this where you want Scorbit QR codes and statuses to appear, such as on the apron. 
+'		Note that it will almost always show. Set height to 2 (or make it 2 units higher than the highest object under it).
+' 2b) An optional "Scorbit Monitor" primitive is provided if you would like something visually appealing to surround your 
+'		ScorbitFlasher and indicate it is a Scorbit QR code. This was created by RoberBen. Simply import the Scorbit Monitor.png into
+'		VPX's Images Manager, create a primitive, and then import Scorbit Monitor.obj (also import the material). Place the primitive
+'		wherever the ScorbitFlasher will go (set it to a height of 1 VPX unit less than the flasher and make sure it is above other
+'		objects). And then place the ScorbitFlasher inside the square area of the primitive.
+' 3) If you want to use a large VPX flasher to display large Scorbit QR codes (easier to scan for lower-res displays):
+'		Set ScorbitUseLargeFlasher to true. Create a square flasher named ScorbitFlasherLarge. Set visibility off, opacity 100%, 
+'		amount 100%. Set color to white. Make this flasher rather large (suggested you square-scale it by a factor of 3 or 4). 
+'		Place on the middle of the playfield. Set height to 2 (or make it 2 units higher than the highest object under it). 
+'		It will hide itself when a ball is in play. This will display only QR codes and only when the option "Scorbit QR Large" is 
+'		enabled or ScorbitUseFlasher is false.
+' 4) If ScorbitUseFlasher is true (step 2a), in the VPX images manager, import these images (from the SDK):
+'		ScorbitNotReady, ScorbitError, ScorbitClaimInApp, ScorbitClaimed, ScorbitDisabled, and ScorbitReady.
+' 5) In the VPX sound manager, import these sounds:
+'		scorbit_detected_2, scorbit_detected_2b, scorbit_login.
+' 6) If your table has a PinUp pack, copy (and optionally customize) these images to your PUP pack (pupoverlays typically):
+'		QRcodeB, QRcodeS.
+' 7) Modify the InitializeScorbit call in the initScorbit Sub as follows:
+'    	Replace 0 with your Machine ID from Scorbit
+'	  	Replace TablesDirectory & "\ScorbitSDK_2_0" with the full path to the Scorbit SDK and binaries
+'     	Replace ScorbitOptions.Item("Scorbit QR Path") with the full path to where the generated QR Code images should be saved
+'			(Should use PupOverlays if the table uses PinUp, otherwise can be anything like TablesDirectory & "\" & cGameName)
+'			The example code provided will modify the path according to whether or not usePUP is true.
+'     	Replace "1.0.0" with the version number of your table
+'			(Ideally you should define your table version in a constant at the top of your table script)
+'     	Replace OPDB-ID with your table on OPDB - eg: https://opdb.org/machines/2103 
+'			(original vpins will have a different OPDB ID provided by Scorbit)
+' 8) Customize these functions as necessary, and then have them get called as indicated 
+'		initScorbit
+'			Call in your Table1_Init Sub (After PUP is initialized, if applicable)
+'			Call in your Table1_OptionEvent Sub (Place in an if guard so it only gets called if EventId = 3)
+'		CreateGameState
+'			Call when a game starts (e.g. ResetForNewGame)
+'		DestroyGameState
+'			Call when the game is over (e.g. EndOfGame)
+'		CancelGameState
+'			Call when the game is cancelled (e.g. Table1_Exit, or a Slam Tilt)
+'		UpdateGameState
+'			Call when Score Changes (e.g. AddScore) 
+'			(this is optional but *not* recommended for vpins; see Scorbit_SendSessionUpdate and ideally use that instead)
+'		SetGameMode
+'			Call when different game events happen like starting a mode, MB etc. 
+'			(Ideally use and customize ScorbitBuildGameModes instead)
+' 9) Customize Callbacks, and call where necessary if indicated 
+'		Scorbit_Paired
+'			Called when machine is successfully paired.
+'		Scorbit_PlayerClaimed
+'			Called when player is claimed.
+'		Scorbit_SendSessionUpdate
+'			Called when it is time to send a score update to Scorbit
+'		Scorbit_ClaimQRPinUp
+'			Called when Scorbit_updateQR is called
+'			Also call this when we want to show/hide the claim QR code on PinUp
+'		Scorbit_updateQR
+'			Called when we should re-calculate what to display for Scorbit statuses and QR codes
+'			(you should also call this for any changes to game in progress status, change in which player is up, or
+'			when a ball hits / unhits the plunger lane trigger)
+'		Scorbit_Debug
+'			All debug information gets called by this Sub. You can customize this to use debug.print, your choice of a logger, or 
+'			nothing at all.
+' 10) Delete these comments inside your table's script and instruct in a comment instead to refer to this file (Scorbit_2_0.vbs.txt) 
+'     in the SDK for implementation instructions and script. That way authors don't accidentally integrate customizations specific to your table.
+' 11) MOVE YOUR CAR!!!
+'
+' ** PRO TIP: Find comments containing "NB:"; these are places of the code you will likely need to edit for your table **
+'
+'>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+' TABLE CUSTOMIZATIONS START HERE 
+
+Const ScorbitUseFlasher = True 'NB: Set to true if you have a "ScorbitFlasher" (e.g. on the apron) to display QR codes and Scorbit statuses
+Const ScorbitUseLargeFlasher = True 'NB: Set to true if you have a large "ScorbitFlasherLarge" on the playfield to display only QR codes when no balls are in play
+
+Dim ScorbitOptions : Set ScorbitOptions = CreateObject("Scripting.Dictionary")
+
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+' SCORBIT GAME STATE FUNCTIONS
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Sub initScorbit()
+	'Register Tweak UI Scorbit Options
+	'NB: In your code, you should use Scorbit.Enabled, not ScorbitOptions.Item("Scorbit"), when checking if Scorbit is *actually* enabled. Scorbit.Enabled will be false even if enabled in Tweak UI if an error occurred.
+    ScorbitOptions.Item("Scorbit") = Table1.Option("Scorbit", 0, 1, 1, 0, 0, Array("Disabled", "Enabled"))
+	
+	'NB: Only offer a Scorbit Large Table QR option if we are using both a large and regular flasher; the large flasher should always be used if a regular flasher is not being used
+	If ScorbitUseFlasher = True And ScorbitUseLargeFlasher = True Then ScorbitOptions.Item("Scorbit Large Table QR") = Table1.Option("Scorbit Large Table QR", 0, 1, 1, 0, 0, Array("Off", "On"))
+    
+	ScorbitOptions.Item("Scorbit Claim QR") = Table1.Option("Scorbit Claim QR", 0, 1, 1, 1, 0, Array("Hide (Claim in App)", "Show"))
+	ScorbitOptions.Item("Scorbit UUID") = Table1.Option("Scorbit UUID", 0, 1, 1, 0, 0, Array("Use System", "Force Alternate")) 'If Scorbit is having trouble getting UUID on Windows, you can try "Force Alternate"
+
+	'NB: Comment / remove these two lines if your table does not use PinUp; you may also have to modify the "usePUP" variable if you use something else
+	If UsePUP = True Then ScorbitOptions.Item("Scorbit QR on PinUp") = Table1.Option("Scorbit QR on PinUp", 0, 1, 1, 1, 0, Array("No", "Yes"))
+    If UsePUP = True Then ScorbitOptions.Item("Scorbit Large PinUp QR") = Table1.Option("Scorbit Large PinUp QR", 0, 1, 1, 0, 0, Array("Off", "On"))
+
+	'NB: to force log uploading on or off instead of allowing a Tweak UI option, set ScorbitOptions.Item("Scorbit Logs / Timelines") equal to 1 or 0 respectively
+	ScorbitOptions.Item("Scorbit Logs / Timelines") = Table1.Option("Scorbit Logs / Timelines", 0, 1, 1, 0, 0, Array("Disabled (do not upload)", "Enabled (upload)"))
+
+	'Initialize, or deactivate, Scorbit, as appropriate
+	If (ScorbitOptions.Item("Scorbit") = 1) And Scorbit.Enabled = False Then 'Enabling Scorbit when disabled
+		ScorbitOptions.Item("Scorbit QR Path") = TablesDirectory & "\ScorbitSDK_2_0"
+
+		'NB: Comment or remove this line if your table does not support PinUp; modify "usePUP" if you use a different variable
+		If UsePUP = True And ScorbitOptions.Item("Scorbit QR on PinUp") = 1 Then ScorbitOptions.Item("Scorbit QR Path") = puplayer.getroot & "\PupOverlays"
+		
+		'NB: Modify the InitializeScorbit call as appropriate (see step 7): Machine ID, SDK path; QR Code path; table version; OPDB ID
+		If Scorbit.InitializeScorbit(0, TablesDirectory & "\ScorbitSDK_2_0", ScorbitOptions.Item("Scorbit QR Path"), "1.0.0", "OPDB-ID") then 
+			tmrScorbit.Interval = 2000 'DO NOT MODIFY
+			tmrScorbit.UserValue = 0
+			tmrScorbit.Enabled=True
+		End If
+	ElseIf (ScorbitOptions.Item("Scorbit") = 0) And Scorbit.Enabled = True Then 'Disabling Scorbit when enabled
+		Scorbit.RunAsync = False 'So we force the script to wait after calling CancelGameState before destroying the class
+		tmrScorbit.Enabled = False
+
+		'NB: Modify the parameters of CancelGameState as appropriate with the variables you use: Player 1 score; Player 2 score; Player 3 score; Player 4 score; Current Player; true (cancelled session)
+		Scorbit.CancelGameState Score(0), Score(1), Score(2), Score(3), CurrentPlayer, true
+
+		'Reset the Scorbit class
+		Set Scorbit = Nothing
+		Set Scorbit = New ScorbitIF
+	End If
+
+	Scorbit_updateQR
+End Sub
+
+' Create a new game state
+Public Sub CreateGameState()
+		if bEnabled=False then Exit Sub 'DO NOT REMOVE
+		if bNeedsPairing=True Then Exit Sub 'DO NOT REMOVE
+		if bSessionActive=True Then Exit Sub 'DO NOT REMOVE
+
+		Scorbit_Debug "Starting new session..."
+
+		Dim i
+		For i = 1 to 4
+			CachedPlayer.Item(i & "_name") = ""
+			CachedPlayer.Item(i & "_initials") = ""
+			CachedPlayer.Item(i & "_prefer_initials") = False
+		Next
+		bActive="true"
+		bSessionActive=True
+		SessionSeq=0
+		SessionUUID=GUID()
+		SessionTimeStart=GameTime
+		LogFile.RemoveAll
+		LogPrev = ""
+		LogIdx=0
+		UpdateGameState 0, 0, 0, 0, 1, 1, 1
+
+		Scorbit_Debug "Started session " & SessionUUID
+	End Sub 
+
+' Destroy the current game state (game over)
+	Public Sub DestroyGameState(P1Score, P2Score, P3Score, P4Score, NumberPlayers)
+		CancelGameState P1Score, P2Score, P3Score, P4Score, NumberPlayers, False
+	End Sub 
+
+' Cancel the current game state (e.g., table exit or slam tilt)
+Public Sub CancelGameState(P1Score, P2Score, P3Score, P4Score, NumberPlayers, bCancel)
+		Dim i
+		dim objFile
+		if bEnabled=False then Exit Sub 'DO NOT REMOVE
+		if bNeedsPairing=True Then Exit Sub 'DO NOT REMOVE
+		if bSessionActive=False then Exit Sub 'DO NOT REMOVE
+
+		Scorbit_Debug "Stopping session..."
+
+		bActive="false" 
+		UpdateGameState P1Score, P2Score, P3Score, P4Score, -1, -1, NumberPlayers
+		bSessionActive=False
+'		SendHeartbeat
+
+		if ScorbitOptions.Item("Scorbit Logs / Timelines") = 1 and LogIdx<>0 and bCancel=False then 
+			Scorbit_Debug "Creating Scorbit Log: Size " & LogIdx
+			Scorbit_LOGUpload(0)
+			Set objFile = fso.CreateTextFile(dirScorbitBin & "\sGameLog_" & MachineID & ".csv")
+			For i = 0 to LogIdx-1 
+				objFile.Writeline LogFile.Item(i)
+			Next 
+			objFile.Close
+			LogIdx=0
+			LogPrev = ""
+			LogFile.RemoveAll
+			Scorbit_LOGUpload(1)
+			SendSessionLog SessionUUID, dirScorbitBin & "\sGameLog_" & MachineID & ".csv"
+			Scorbit_LOGUpload(2)
+			on error resume next
+			fso.DeleteFile(dirScorbitBin & "\sGameLog_" & MachineID & ".csv")
+			on error goto 0
+		End if
+
+		Scorbit_Debug "Stopped session"
+	End Sub 
+
+' Set the current game mode
+	Public Sub SetGameMode(GameModeStr)
+		GameModeOrig=GameModeStr
+		GameMode=GameModeStr
+		GameMode=Replace(GameMode, ":", "%3a")
+		GameMode=Replace(GameMode, ";", "%3b")
+		GameMode=Replace(GameMode, " ", "%20")
+		GameMode=Replace(GameMode, "{", "%7B")
+		GameMode=Replace(GameMode, "}", "%7D")
+	End sub 
+
+Sub ScorbitBuildGameModes()		' Custom function to build the game modes for better stats 
+	dim GameModeStr
+	if Scorbit.Enabled=False then Exit Sub
+	if Scorbit.SessionActive=False then Exit Sub
+	if Scorbit.NeedsPairing then exit sub
+
+	GameModeStr=""
+
+	'NB: The below is provided as an example. Please refer to the Scorbit documentation on Game Modes and modify accordingly for your table.
+	'If you do not want to use game modes, remove everything from here up until, but excluding, Scorbit.SetGameMode(GameModeStr)
+	Select Case PlayerMode
+		case -1:' No Mode Selected
+		Case 0: ' Nebula - Pod Chase (10 shots)
+			GameModeStr="NA{blue}:Pod Chase"
+        Case 1: ' Ronan - Sanctuary (5 shots)
+			GameModeStr="NA{yellow}:Sanctuary"
+        Case 2: ' Yandu - Yaka Arrow (8 shots)
+			GameModeStr="NA{blue}:Yaka Arrow"
+        Case 3: ' Star Lord - Quills Quest (12 shots)
+			GameModeStr="NA{yellow}:Quills Quest"
+        Case 4: ' Drax - Knowhere (8 shots)
+			GameModeStr="NA{red}:Knowhere"
+        Case 5: ' Rocket - Escape Kyln (7 shots, Hadron Enforcer works on all except Rocket)
+			GameModeStr="NA{orange}:Escape Kyln"
+        Case 6: ' Gamora - Siblng Rvlry (8 shots)
+			GameModeStr="NA{green}:Siblng"
+        Case 7: ' Broker - Antique Shop (7 shots)
+			GameModeStr="NA{blue}:Antique Shop"
+	End Select
+
+	if bPlayerModeSelect=False and bSecondMode then 
+		Select Case PlayerMode2
+			case -1:' No Mode Selected
+			Case 0: ' Nebula - Pod Chase (10 shots)
+				GameModeStr="NA{blue}:Pod Chase 2nd"
+			Case 1: ' Ronan - Sanctuary (5 shots)
+				GameModeStr="NA{yellow}:Sanctuary 2nd"
+			Case 2: ' Yandu - Yaka Arrow (8 shots)
+				GameModeStr="NA{blue}:Yaka Arrow 2nd"
+			Case 3: ' Star Lord - Quills Quest (12 shots)
+				GameModeStr="NA{yellow}:Quills Quest 2nd"
+			Case 4: ' Drax - Knowhere (8 shots)
+				GameModeStr="NA{red}:Knowhere 2nd"
+			Case 5: ' Rocket - Escape Kyln (7 shots, Hadron Enforcer works on all except Rocket)
+				GameModeStr="NA{orange}:Escape Kyln 2nd"
+			Case 6: ' Gamora - Siblng Rvlry (8 shots)
+				GameModeStr="NA{green}:Siblng 2nd"
+			Case 7: ' Broker - Antique Shop (7 shots)
+				GameModeStr="NA{blue}:Antique Shop 2nd"
+		End Select
+	End if 
+
+	if bGrootMultiball then
+		if GameModeStr<>"" then GameModeStr=GameModeStr & ";"
+		GameModeStr=GameModeStr&"MB{green}:Groot"
+	End if 
+	if bOrbMultiBall then
+		if GameModeStr<>"" then GameModeStr=GameModeStr & ";"
+		GameModeStr=GameModeStr&"MB{purple}:Orb"
+	End if 
+	if tmrCherryBomb.Enabled then 
+		if GameModeStr<>"" then GameModeStr=GameModeStr & ";"
+		GameModeStr=GameModeStr&"WM{red}:Cherry Bomb"
+	End if 
+	if tmrImmolation.Enabled then 
+		if GameModeStr<>"" then GameModeStr=GameModeStr & ";"
+		GameModeStr=GameModeStr&"WM{purple}:Immolation Initiative"
+	End if 
+	if tmrXandar.Enabled then 
+		if GameModeStr<>"" then GameModeStr=GameModeStr & ";"
+		GameModeStr=GameModeStr&"WM{purple}:Save Xandar"
+	End if
+
+	Scorbit.SetGameMode(GameModeStr)
+End Sub 
+
+' Get a player's name
+	Public Function GetPlayerName(PlayerNum)	'Return Parsed Player's Scorbit name  
+		if PlayerNum<1 or PlayerNum>4 then 
+			GetPlayerName=""
+		else 
+			GetPlayerName=CachedPlayer.Item(PlayerNum & "_name")
+		End if 
+	End Function
+
+' Get a player's name or initials (respects prefer_initials setting)
+	Public Function GetPlayerNameOrInitials(PlayerNum)	'Return Parsed Player's Scorbit name, or initials if they prefer to use their initials
+		if PlayerNum<1 or PlayerNum>4 then 
+			GetPlayerNameOrInitials=""
+		else
+			If CachedPlayer.Item(PlayerNum & "_prefer_initials") = True Then
+				GetPlayerNameOrInitials=CachedPlayer.Item(PlayerNum & "_initials")
+			Else
+				GetPlayerNameOrInitials=CachedPlayer.Item(PlayerNum & "_name")
+			End If
+		End if 
+	End Function
+
+' Get a player's initials
+	Public Function GetPlayerInitials(PlayerNum)	'Return Parsed Player's initials
+		if PlayerNum<1 or PlayerNum>4 then 
+			GetPlayerInitials=""
+		else
+			GetPlayerInitials=CachedPlayer.Item(PlayerNum & "_initials")
+		End if 
+	End Function
+
+Sub Scorbit_PlayerClaimed(PlayerNum, PlayerNameOrInitials)	' Scorbit HandleCallback when QR Is Claimed 
+	Scorbit_Debug "Player claimed"
+	PlaySound "scorbit_login"
+	Scorbit_UpdateQR
+	'NB: Uncomment if you want to display the claimed player's name on PinUp; modify the name of the label as necessary
+	'If usePUP = True Then puPlayer.LabelSet pDMDText,"Player", PlayerNameOrInitials,1,""
+
+	'NB: Want to do something amazing and have Microsoft Text-To-Speech read out the player's name? Un-comment the below lines!
+	'CAUTION! This will freeze the game until speech is finished.
+	'Dim speech
+	'Set speech = CreateObject("SAPI.SpVoice")
+	'speech.Speak "Welcome to the game, " & PlayerNameOrInitials & "!"
+End Sub
+
+Private Sub HandlePlayerClaimResp(ResponseStr)
+		If bEnabled = False Then Exit Sub 'DO NOT REMOVE
+        Dim Parts, Parts2, i
+
+		'Parse Names if present
+		If bSessionActive = True Then
+			if CachedPlayer.Item(SaveCurrentPlayer & "_name")="" then  ' Player doesnt have a name
+				if instr(1, ResponseStr, "cached_display_name") <> 0 Then	' There are names in the result
+					Parts=Split(ResponseStr,",{")							' split it 
+					if ubound(Parts)>=SaveCurrentPlayer-1 then 				' Make sure they are enough avail
+						if instr(1, Parts(SaveCurrentPlayer-1), "cached_display_name")<>0 then 	' See if mine has a name 
+
+							'Grab full Scorbit name
+							CachedPlayer.Item(SaveCurrentPlayer & "_name")=GetJSONValue(Parts(SaveCurrentPlayer-1), "cached_display_name")	'Get my name
+							CachedPlayer.Item(SaveCurrentPlayer & "_name")=Replace(CachedPlayer.Item(SaveCurrentPlayer & "_name"), """", "")
+							Scorbit_Debug "Found name for player " & SaveCurrentPlayer & ": " & CachedPlayer.Item(SaveCurrentPlayer & "_name")
+
+							'Do we also have initials?
+							if instr(1, Parts(SaveCurrentPlayer-1), "initials")<>0 Then
+								CachedPlayer.Item(SaveCurrentPlayer & "_initials")=GetJSONValue(Parts(SaveCurrentPlayer-1), "initials")	'Get my initials
+								CachedPlayer.Item(SaveCurrentPlayer & "_initials")=Replace(CachedPlayer.Item(SaveCurrentPlayer & "_initials"), """", "")
+								Scorbit_Debug "Found initials for player " & SaveCurrentPlayer & ": " & CachedPlayer.Item(SaveCurrentPlayer & "_initials")
+							End If
+
+							'Does the player prefer initials over name?
+							if instr(1, Parts(SaveCurrentPlayer-1), """prefer_initials"":true")<>0 Then
+								CachedPlayer.Item(SaveCurrentPlayer & "_prefer_initials")=True
+								Scorbit_Debug "Player " & SaveCurrentPlayer & " prefers initials."
+							Else
+								CachedPlayer.Item(SaveCurrentPlayer & "_prefer_initials")=False
+							End If
+
+							Scorbit_PlayerClaimed SaveCurrentPlayer, GetPlayerNameOrInitials(SaveCurrentPlayer)
+							Scorbit_Debug "Player Claim: " & SaveCurrentPlayer & " " & GetPlayerNameOrInitials(SaveCurrentPlayer)
+						End if 
+					End if
+				End if 
+			else												    ' Check for unclaim 
+				if instr(1, ResponseStr, """player"":null")<>0 Then	' Someone doesnt have a name
+					Parts=Split(ResponseStr,"[")						' split it 
+					Scorbit_Debug "Parts: " & Parts(1)
+
+					Parts2=Split(Parts(1),"}")							' split it 
+					for i = 0 to Ubound(Parts2)
+					    Scorbit_Debug "Parts2: " & Parts2(i)
+
+						if instr(1, Parts2(i), """player"":null")<>0 Then
+							Scorbit_Debug "Player " & (i+1) & " is not claimed or does not have a name"
+							CachedPlayer.Item((i+1) & "_name") = ""
+							CachedPlayer.Item((i+1) & "_initials") = ""
+							CachedPlayer.Item((i+1) & "_prefer_initials") = False
+						End if 
+					Next 
+				End if 
+			End if
+		End If
+	End Sub
+
+' Update the current game state (scores, current ball, active player)
+Public Sub UpdateGameState(P1Score, P2Score, P3Score, P4Score, CurrentBall, CurrentPlayer, NumberPlayers)
+	SendUpdateAsynch P1Score, P2Score, P3Score, P4Score, CurrentBall, CurrentPlayer, NumberPlayers, RunAsync
+End Sub 
+
+Sub Scorbit_SendSessionUpdate() 'Scorbit HandleCallback when we should send a game update
+	'Note: If you are calling UpdateGameState on every score change (not recommended for VPX/vpins), you can comment/remove it from this HandleCallback
+	'NB: Modify the parameters of UpdateGameState as appropriate with the variables you use: Player 1 score; Player 2 score; Player 3 score; Player 4 score; Current ball; Current Player; number of players playing the game
+	Scorbit.UpdateGameState Score(0), Score(1), Score(2), Score(3), Balls, CurrentPlayer, PlayersPlayingGame
+End Sub
+
+
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+' SCORBIT QRCODE FUNCTIONS
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+Sub Scorbit_updateQR() 'Call when we should update the display of Scorbit statuses / QR Codes (should also be called on hit/unhit of the plunger lane trigger)
+	If ScorbitOptions.Item("Scorbit") = 0 Then 'Scorbit manually disabled
+		ScorbitSetFlasherImages "ScorbitDisabled", False
+		Exit Sub
+	End If
+
+	If Scorbit is Nothing Then 'Scorbit not initialized
+		ScorbitSetFlasherImages "ScorbitNotReady", False
+		Exit Sub
+	End If
+
+	If Scorbit.Enabled = False Then 'Scorbit enabled in Tweak UI, but not actually enabled (usually means an error occurred)
+		ScorbitSetFlasherImages "ScorbitError", False
+		Exit Sub
+	End If
+
+	If Scorbit.NeedsPairing Then 'Machine needs to be paired
+		'Don't show on the big flasher if a ball is in play
+		'NB: Modify (BIP - BIPL) as appropriate with the variables used to calculate balls in play minus balls in the plunger lane
+		If (BIP - BIPL) <= 0 Then 'No balls are in play on the playfield
+			ScorbitSetFlasherImages "ScorbitQRCode", True
+		Else
+			ScorbitSetFlasherImages "ScorbitQRCode", False
+		End If
+		Exit Sub
+	End If
+
+	'NB: Modify bGameInPlay with the variable used to track when a game is in progress
+	If Scorbit.SessionActive = False And bGameInPlay = False Then 'No game in progress, but Scorbit was paired
+		ScorbitSetFlasherImages "ScorbitReady", False
+		Exit Sub
+	End If
+
+	'NB: In this space, you might add any special cases where Scorbit would be unavailable, such as running a co-op game
+
+	If Scorbit.SessionActive = False Then 'Game in progress but Scorbit was not initialized for this game
+		ScorbitSetFlasherImages "ScorbitDisabled", False
+		Exit Sub
+	End If
+
+	If Scorbit.SessionActive = True Then
+		'NB: Modify CurrentPlayer to the variable used to track which player number is currently up
+		If Scorbit.GetPlayerName(CurrentPlayer) = "" Then 'Current player did not claim their slot
+			If ScorbitOptions.Item("Scorbit Claim QR") = 1 Then
+				'NB: Modify (BIP - BIPL) as appropriate with the variables used to calculate balls in play minus balls in the plunger lane
+				If (BIP - BIPL) <= 0 Then 'No balls are in play on the playfield
+					ScorbitSetFlasherImages "ScorbitQRClaim", True
+					Scorbit_ClaimQRPinUP True
+				Else
+					ScorbitSetFlasherImages "ScorbitQRClaim", False
+					Scorbit_ClaimQRPinUP False
+				End If
+			Else
+				ScorbitSetFlasherImages "ScorbitClaimInApp", False
+				Scorbit_ClaimQRPinUP False
+			End If
+		Else 'Current player claimed
+			ScorbitSetFlasherImages "ScorbitClaimed", False
+			Scorbit_ClaimQRPinUP False
+		End If
+	End If
+End Sub
+
+Sub Scorbit_ClaimQRPinUP(bShow)
+	'NB: If your table does not support PinUp, then uncomment this line
+	'Exit Sub
+
+	'NB: Modify usePUP as necessary with the variable that tracks when PinUp is being used
+	if usePUP = False Then Exit Sub
+
+	if Scorbit.SessionActive=False then Exit Sub 
+	if Scorbit.NeedsPairing then exit sub 
+	if ScorbitOptions.Item("Scorbit Claim QR") = 0 then Exit Sub
+	If ScorbitOptions.Item("Scorbit QR on PinUp") = 0 Then Exit Sub
+
+	'NB: Modify bGameInPlay to the variable used to track when a game is in progress; modify CurrentPlayer to the variable of the player number currently up
+	if bShow and bGameInPlay and Scorbit.GetPlayerName(CurrentPlayer)="" then
+		if PupOption=0 or ScorbitOptions.Item("Scorbit Large PinUp QR") = 1 then ' Desktop Make it Larger
+			PuPlayer.LabelSet pDMDText, "ScorbitQR", "PuPOverlays\\QRclaim.png",1,"{'mt':2,'width':20, 'height':40,'xalign':0,'yalign':0,'ypos':40,'xpos':5}"
+			PuPlayer.LabelSet pDMDText, "ScorbitQRIcon", "PuPOverlays\\QRcodeB.png",1,"{'mt':2,'width':23, 'height':52,'xalign':0,'yalign':0,'ypos':38,'xpos':3.5,'zback':1}"
+		else 
+			PuPlayer.LabelSet pDMDText, "ScorbitQR", "PuPOverlays\\QRclaim.png",1,"{'mt':2,'width':12, 'height':24,'xalign':0,'yalign':0,'ypos':60,'xpos':5}"
+			PuPlayer.LabelSet pDMDText, "ScorbitQRIcon", "PuPOverlays\\QRcodeB.png",1,"{'mt':2,'width':14, 'height':32.5,'xalign':0,'yalign':0,'ypos':58,'xpos':4,'zback':1}"
+		End if
+	Else
+		PuPlayer.LabelSet pDMDText, "ScorbitQR", "PuPOverlays\\clear.png",0,""
+		PuPlayer.LabelSet pDMDText, "ScorbitQRIcon", "PuPOverlays\\clear.png",0,""
+	End if 
+End Sub 
+
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+' SCORBIT NETWORK FUNCTIONS
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+' Initialize Scorbit with necessary parameters
+Public Function InitializeScorbit(MyMachineID, ScorbitSDKDir, QRCodeDir, MyTableVersion, opdb) 'Initialize a Scorbit connection
+		InitializeScorbit = False
+		If bEnabled Then Exit Function 	'DO NOT REMOVE; prevent initializing if we already initialized
+
+		dim Nad
+		Dim EndPoint
+		Dim resultStr 
+		Dim UUIDParts 
+		Dim UUIDFile
+
+		bProduction=1
+'		bProduction=0 'Uncomment if using a staging MyMachineID
+		SaveCurrentPlayer=0
+		VenueMachineID=""
+		bWaitResp=False 
+		RunAsync=False 
+		opdbID=opdb
+		dirScorbitBin=ScorbitSDKDir
+		dirQrCode=QRCodeDir
+		MachineID=MyMachineID
+		TableVersion=MyTableVersion
+		bNeedsPairing=False 
+		if bProduction then 
+			domain = "api.scorbit.io"
+		else 
+			domain = "staging.scorbit.io"
+			domain = "scorbit-api-staging.herokuapp.com"
+		End if 
+		Set fso = CreateObject("Scripting.FileSystemObject")
+		dim objLocator:Set objLocator = CreateObject("WbemScripting.SWbemLocator")
+		Dim objService:Set objService = objLocator.ConnectServer(".", "root\cimv2")
+		Set objXmlHttpMain = CreateObject("Msxml2.ServerXMLHTTP")
+		Set objXmlHttpMainAsync = CreateObject("Microsoft.XMLHTTP")
+		objXmlHttpMain.onreadystatechange = GetRef("ScorbitIF_Callback")
+		Set wsh = CreateObject("WScript.Shell")
+
+		' Get Mac for Serial Number 
+		dim Nads: set Nads = objService.ExecQuery("Select * from Win32_NetworkAdapter where physicaladapter=true")
+		for each Nad in Nads
+			if not isnull(Nad.MACAddress) then
+				if left(Nad.MACAddress, 6)<>"00090F" then ' Skip over forticlient MAC
+					Scorbit_Debug "Using MAC Addresses:" & Nad.MACAddress & " From Adapter:" & Nad.description   
+					MyMac=replace(Nad.MACAddress, ":", "")
+					Exit For 
+				End if 
+			End if 
+		Next
+		Serial=eval("&H" & mid(MyMac, 5))
+		if Serial<0 then Serial=eval("&H" & mid(MyMac, 6))		' Mac Address Overflow Special Case 
+		if MyMachineID<>2108 then 			' GOTG did it wrong but MachineID should be added to serial number also
+			Serial=Serial+MyMachineID
+		End if 
+'		Serial=123456
+		Scorbit_Debug "Detected serial: " & Serial
+
+		' Get System UUID
+		set Nads = objService.ExecQuery("SELECT * FROM Win32_ComputerSystemProduct")
+		for each Nad in Nads
+			Scorbit_Debug "Using UUID:" & Nad.UUID   
+			MyUUID=Nad.UUID
+			Exit For 
+		Next
+
+		if MyUUID="" or IsNull(MyUUID) then 
+			MsgBox "SCORBIT - Cannot get UUID, Disabling. Try going into the Tweak UI and setting Scorbit UUID to Force Alternate."
+			Exit Function
+		elseif CountLetters("0", MyUUID) >= 16 or CountLetters("F", MyUUID) >= 16 or ScorbitOptions.Item("Scorbit UUID") = 1 then 'UUIDs with 16 (half) or more 0s or Fs are likely invalid / defaults, so we need to fall back to the alternate
+			If fso.FolderExists(UserDirectory) then 
+				If fso.FileExists(UserDirectory & "ScorbitUUID.dat") then
+					Set UUIDFile = fso.OpenTextFile(UserDirectory & "ScorbitUUID.dat",1)
+					MyUUID = UUIDFile.ReadLine()
+					UUIDFile.Close
+					Set UUIDFile = Nothing
+				Else 
+					MyUUID=GUID()
+					Set UUIDFile=fso.CreateTextFile(UserDirectory & "ScorbitUUID.dat",True)
+					UUIDFile.WriteLine MyUUID
+					UUIDFile.Close
+					Set UUIDFile=Nothing
+				End if
+			End if 
+		End if
+
+		' Clean UUID
+		UUIDParts=split(MyUUID, "-")
+		MyUUID=LCASE(Hex(eval("&h" & UUIDParts(0))+MyMachineID) & UUIDParts(1) &  UUIDParts(2) &  UUIDParts(3) & UUIDParts(4))		 ' Add MachineID to UUID
+		MyUUID=LPad(MyUUID, 32, "0")
+'		MyUUID=Replace(MyUUID, "-",  "")
+		Scorbit_Debug "MyUUID: " & MyUUID 
+
+
+' Debug
+'		myUUID="adc12b19a3504453a7414e722f58737f"
+'		Serial="123456778"
+
+		' Authenticate, get our token, and post install status
+		if GetAuthToken() then
+			If SendInstalledData() Then 'Must be in a separate if statement because we don't want to call this if GetAuthToken failed
+				bEnabled=True 
+				InitializeScorbit=True
+				RunAsync=True
+				Scorbit_updateQR
+			End If
+		End If
+	End Function 
+
+' Process timer events for Scorbit
+	Public Sub ProcessTimer(bInterval)	'Heartbeat timer (2 second interval)
+		if bInterval=0 then 
+			SendHeartbeat()
+		elseif bSessionActive then
+			Scorbit_SendSessionUpdate()
+		End if 
+	End Sub 
+
+' Handle callbacks from Scorbit
+Public Sub HandleCallback()
+		Dim ResponseStr
+		Dim i 
+		Dim Parts
+		Dim Parts2
+		Dim Parts3
+		if bEnabled=False then Exit Sub 'DO NOT REMOVE
+
+		if bWaitResp and objXmlHttpMain.readystate=4 then 
+			Scorbit_Debug "HandleCallback data received: " & objXmlHttpMain.Status & " " & objXmlHttpMain.readystate
+			if objXmlHttpMain.Status=200 and objXmlHttpMain.readystate = 4 then 
+				ResponseStr=objXmlHttpMain.responseText
+
+				'Check player names / claiming
+				HandlePlayerClaimResp ResponseStr
+
+				'Check heartbeat
+				HandleHeartbeatResp ResponseStr
+			End if 
+			bWaitResp=False
+		End if 
+	End Sub
+
+' Send a heartbeat to Scorbit servers
+	Private Sub SendHeartbeat()
+		Dim resultStr
+		if bEnabled=False then Exit Sub 'DO NOT REMOVE
+		resultStr = GetMessageWithHeader("https://" & domain, "/api/heartbeat/", "Authorization", "SToken " & sToken)
+		If RunAsync = False Then 'Should never happen; heartbeat should normally always be async
+			Scorbit_Debug "Heartbeat Resp: " & resultStr
+			HandleHeartbeatResp ResultStr
+		End If
+	End Sub 
+
+' Send installed data to Scorbit
+Private Function SendInstalledData()
+		SendInstalledData = False
+
+		Dim installType
+		'installType = "vpin" 'Does not work yet
+		installType = "score_detector"
+		Dim installVersion
+		'installVersion = "2.0" 'version of the SDK
+		installVersion = TableVersion
+
+		Dim resultStr
+		Dim postData
+
+		PostData = "type=" & installType & "&version=" & installVersion & "&installed=true"
+		resultStr = PostMessage("https://" & domain, "/api/installed/", PostData, False)
+		Scorbit_Debug "POSTed installed Resp: " & resultStr
+
+		Dim msgKey
+		msgKey = GetJSONValue(resultStr, "msg")
+		if msgKey = "" Then
+			bEnabled=False
+			msgBox "Scorbit - non-successful response in SendInstalledData(). Scorbit disabled."
+			Scorbit_updateQR
+		Else
+			SendInstalledData = True
+		End If
+	End Function
+
+' Get authentication token from Scorbit
+Private Function GetAuthToken()
+		Dim result
+		Dim results
+'		dim wsh
+		Dim tmpUUID:tmpUUID="adc12b19a3504453a7414e722f58736b"
+		Dim tmpVendor:tmpVendor="vscorbitron"
+		Dim tmpSerial:tmpSerial="999990104"
+		Dim QRFile:QRFile=dirQrCode
+		Dim sTokenFile:sTokenFile=dirScorbitBin & "\sToken_" & MachineID & ".dat"
+
+		' Set everything up
+		tmpUUID=MyUUID
+		tmpVendor="vpin"
+		tmpSerial=Serial
+		
+		on error resume next
+		fso.DeleteFile(sTokenFile)
+		On error goto 0 
+
+		' get sToken and generate QRCode
+'		Set wsh = CreateObject("WScript.Shell")
+		Dim waitOnReturn: waitOnReturn = True
+		Dim windowStyle: windowStyle = 0
+		Dim Command 
+		Dim rc
+		Dim objFileToRead
+
+		Command = """" & dirScorbitBin & "\sToken.exe"" " & tmpUUID & " " & tmpVendor & " " &  tmpSerial & " " & MachineID & " """ & QRFile & """ """ & sTokenFile & """ " & domain
+		Scorbit_Debug "RUNNING Command:" & Command
+		On Error Resume Next
+			rc = wsh.Run(Command, windowStyle, waitOnReturn)
+			If Err.Number <> 0 Then 
+				Msgbox "Failed to generate an authorization token for Scorbit; ensure the Scorbit SDK files (e.g. sToken.exe) are located directly in " & dirScorbitBin & ". Also ensure the directory " & QRFile & " exists for QR codes. Scorbit has been disabled."
+				bEnabled = False
+				GetAuthToken = False
+				On Error GoTo 0
+				Exit Function
+			End If
+		On Error GoTo 0
+		Scorbit_Debug "Return:" & rc
+		if FileExists(sTokenFile) and rc=0 then
+			Set objFileToRead = fso.OpenTextFile(sTokenFile,1)
+			result = objFileToRead.ReadLine()
+			objFileToRead.Close
+			Set objFileToRead = Nothing
+			Scorbit_Debug "Token auth: " & result
+
+			if Instr(1, result, "Invalid timestamp")<> 0 then 
+				MsgBox "Scorbit Timestamp Error: Please make sure the time on your system is exact"
+				GetAuthToken=False
+			elseif Instr(1, result, ":")<>0 then 
+				results=split(result, ":")
+				sToken=results(1)
+				sToken=mid(sToken, 3, len(sToken)-4)
+				Scorbit_Debug "Got TOKEN: " & sToken
+				LoadTexture "ScorbitQRCode", QRFile & "\QRcode.bmp"
+				Scorbit_updateQR
+				GetAuthToken=True
+			Else 
+				Scorbit_Debug "Token ERROR: " & result
+				GetAuthToken=False
+			End if 
+		else 
+			Scorbit_Debug "Token ERROR No File: " & rc
+			GetAuthToken = False
+		End if 
+
+	End Function 
+
+' Get a message from Scorbit servers
+	Private Function GetMessage(URLBase, endpoint)
+		GetMessage = GetMessageWithHeader(URLBase, endpoint, "", "")
+	End Function
+
+' Get a message with custom header from Scorbit servers
+Private Function GetMessageWithHeader(URLBase, endpoint, Hdr1, Hdr1Val)
+		Dim Url
+		Url = URLBase + endpoint & "?session_active=" & bActive
+		Scorbit_Debug "Running GetMessageWithHeader: Url: " & Url  & "  Async=" & RunAsync
+		objXmlHttpMain.open "GET", Url, RunAsync
+'		objXmlHttpMain.setRequestHeader "Content-Type", "text/xml"
+		objXmlHttpMain.setRequestHeader "Cache-Control", "no-cache"
+		if Hdr1<> "" then objXmlHttpMain.setRequestHeader Hdr1, Hdr1Val
+
+'		on error resume next
+			err.clear
+			objXmlHttpMain.send ""
+			if err.number=-2147012867 then 
+				MsgBox "Scorbit - Multiplayer Server is down; Scorbit disabled. To restart Scorbit, open and close the Tweak UI (without changing anything)."
+				bEnabled=False
+				Scorbit_updateQR
+			elseif err.number <> 0 then 
+				Scorbit_Debug "Server error: (" & err.number & ") " & Err.Description
+			End if 
+			if RunAsync=False then 
+				Scorbit_Debug "Status: " & objXmlHttpMain.status
+				If objXmlHttpMain.status = 200 Then
+					GetMessageWithHeader = objXmlHttpMain.responseText
+				Else 
+					GetMessageWithHeader=""
+				End if 
+			Else 
+				bWaitResp=True
+				GetMessageWithHeader=""
+			End if 
+'		On error goto 0
+
+	End Function
+
+' Post a message to Scorbit servers
+Private Function PostMessage(URLBase, endpoint, PostData, bAsynch)
+		Dim Url
+
+		Url = URLBase + endpoint
+		Scorbit_Debug "Running PostMessage: " & Url & " " & PostData
+
+		objXmlHttpMain.open "POST",Url, bAsynch
+		objXmlHttpMain.setRequestHeader "Content-Type", "application/x-www-form-urlencoded"
+		objXmlHttpMain.setRequestHeader "Content-Length", Len(PostData)
+		objXmlHttpMain.setRequestHeader "Cache-Control", "no-cache"
+		objXmlHttpMain.setRequestHeader "Authorization", "SToken " & sToken
+		if bAsynch then bWaitResp=True 
+
+		on error resume next
+			objXmlHttpMain.send PostData
+			if err.number=-2147012867 then 
+				MsgBox "Scorbit - Multiplayer Server is down; Scorbit disabled. To restart Scorbit, open and close the Tweak UI (without changing anything)."
+				bEnabled=False
+				Scorbit_updateQR
+			elseif err.number <> 0 then 
+				Scorbit_Debug "Multiplayer Server error (" & err.number & ") " & Err.Description
+			End if 
+			If objXmlHttpMain.status = 200 Then
+				PostMessage = objXmlHttpMain.responseText
+			else 
+				PostMessage="ERROR: " & objXmlHttpMain.status & " >" & objXmlHttpMain.responseText & "<"
+			End if 
+		On error goto 0
+	End Function
+
+' Post a file to Scorbit servers
+
+Private Function PostFile(url, filePath, isAsync)
+    Dim Response
+    Dim sPostData
+    Dim nFile
+    Const STR_BOUNDARY = "3fbd04f5-b1ed-4060-99b9-fca7ff59c113"
+
+    Set nFile = fso.GetFile(filePath)
+    With nFile.OpenAsTextStream()
+        sPostData = .Read(nFile.Size)
+        .Close
+    End With
+
+    sPostData = "--" & STR_BOUNDARY & vbCrLf & _
+        "Content-Disposition: form-data; name=""uuid""" & vbCrLf & vbCrLf & _
+        SessionUUID & vbcrlf & _
+        "--" & STR_BOUNDARY & vbCrLf & _
+        "Content-Disposition: form-data; name=""log_file""; filename=""" & SessionUUID & ".csv""" & vbCrLf & _
+        "Content-Type: application/octet-stream" & vbCrLf & vbCrLf & _
+        sPostData & vbCrLf & _
+        "--" & STR_BOUNDARY & "--"
+
+    With objXmlHttpMain
+        .Open "POST", url, isAsync
+        .SetRequestHeader "Content-Type", "multipart/form-data; boundary=" & STR_BOUNDARY
+        .SetRequestHeader "Authorization", "SToken " & sToken
+        .Send sPostData
+        If Not isAsync Then
+            Response = .ResponseText
+            PostFile = Response
+            Scorbit_Debug "Upload Response: " & Response
+        End If
+    End With
+End Function
+
+' Upload session log to Scorbit servers
+
+Private Function SendSessionLog(sessionUUID, logFilePath)
+    Dim url: url = "https://" & domain & "/api/session_log/"
+    Dim result: result = PostFile(url, logFilePath, False)
+    SendSessionLog = result
+End Function
+
+Sub Scorbit_Paired()								' Scorbit HandleCallback when new machine is paired 
+	Scorbit_Debug "Machine paired"
+	PlaySound "scorbit_detected_2"
+
+	'If we paired in the middle of a game, we should immediately initialize a session (note that any game logs prior to this call will not be included)
+	'NB: Modify bGameInPlay with the variable that tracks when a game is in progress
+	If bGameInPlay = True And Scorbit.SessionActive = False Then
+		Scorbit.CreateGameState
+	End If
+
+	Scorbit_updateQR
+End Sub 
+
+Private Sub HandleHeartbeatResp(resultStr)
+		dim TmpStr
+		Dim Command
+		Dim rc
+		Dim QRFile:QRFile=dirQrCode
+
+		If VenueMachineID="" then
+			'Parse pairing status
+			if resultStr<>"" and Instr(resultStr, """unpaired"":true")=0 then 'We Paired
+				Scorbit_Debug "Heartbeat: We are paired"
+				bNeedsPairing=False
+				Scorbit_Paired()
+			else 
+				Scorbit_Debug "Heartbeat: We are not paired"
+				bNeedsPairing=True
+				Scorbit_updateQR
+			End if 
+
+			'Parse venue machine ID and generate a claim QR code
+			TmpStr=GetJSONValue(resultStr, "venuemachine_id")
+			if TmpStr<>"" then 
+				VenueMachineID=TmpStr		
+				Command = """" & dirScorbitBin & "\sQRCode.exe"" " & VenueMachineID & " " & opdbID & " """ & QRFile & """"
+				On Error Resume Next
+					rc = wsh.Run(Command, 0, True)
+					If Err.Number <> 0 Then 
+						Msgbox "Failed to generate a claim QR code; ensure the Scorbit SDK files (e.g. sQRCode.exe) are located directly in " & dirScorbitBin & ". Also ensure the directory " & QRFile & " exists for the QR code images. Scorbit has been disabled."
+						bEnabled = False
+						On Error GoTo 0
+						Exit Sub
+					End If
+				On Error GoTo 0
+				LoadTexture "ScorbitQRClaim", QRFile & "\QRclaim.bmp"
+				Scorbit_updateQR
+				Scorbit_Debug "Heartbeat: Received venuemachine_id and generated QR claim code"
+			End if
+		End if
+End Sub
+
+
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+' SCORBIT HELPER FUNCTIONS
+' Copy and paste the following functions into your script to integrate Scorbit functionality
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+
+
+private Function FileExists(FilePath)
+	If fso.FileExists(FilePath) Then
+		FileExists=CBool(1)
+	Else
+		FileExists=CBool(0)
+	End If
+End Function
+
+Private Function pvToByteArray(sText)
+	pvToByteArray = StrConv(sText, 128)		' vbFromUnicode
+End Function
+
+Private Function CountLetters(strLetter, strInput)
+	    Dim i, letterCount, strPosition
+	    i = 0
+	    letterCount = 0
+	    strPosition = 0
+	    
+	    Do While i < Len(strInput)
+	        i = i + 1
+	        strPosition = InStr(i, strInput, strLetter)
+	        If strPosition > 0 Then
+	        	letterCount = letterCount + 1
+	        	i = strPosition
+	        End If
+	    Loop
+	    
+	    CountLetters = letterCount
+End Function
+
+Sub Scorbit_LOGUpload(state)	' HandleCallback during the log creation process.  0=Creating Log, 1=Uploading Log, 2=Done 
+	Select Case state 
+		case 0:
+			Scorbit_Debug "Creating log"
+		case 1:
+			Scorbit_Debug "Uploading log"
+		case 2:
+			Scorbit_Debug "Log complete"
+	End Select 
+End Sub
+
+Sub Scorbit_Debug(debugInfo)	'HandleCallback containing debugging information from Scorbit
+	'NB: Modify with your own debug handler / logger, or comment out / remove everything within this sub if you do not want Scorbit debugging.
+	Debug.print "SCORBIT: " & debugInfo
+End Sub
+
+dim Scorbit : Set Scorbit = New ScorbitIF
+' Workaround - Call get a reference to Member Function
+Sub tmrScorbit_Timer()	'Timer to send heartbeat 
+	tmrScorbit.Interval = 2000 'DO NOT MODIFY
+	Scorbit.ProcessTimer(tmrScorbit.UserValue)
+	tmrScorbit.UserValue=tmrScorbit.UserValue+1
+	if tmrScorbit.UserValue>5 then tmrScorbit.UserValue=0
+End Sub
+
+Function ScorbitIF_Callback()
+	Scorbit.HandleCallback()
+End Function 
+
+Sub ScorbitSetFlasherImages(imageName, showOnLargeFlasher) 'When using flashers, this sets the image which the flashers display. Kept outside of the class because we may be setting images when Scorbit class has not been constructed.
+	If ScorbitUseFlasher = True Then
+		If imageName<>"" Then
+			ScorbitFlasher.ImageA = imageName
+			ScorbitFlasher.Visible = True
+		Else
+			ScorbitFlasher.Visible = False
+		End If
+	End If
+
+	If ScorbitUseLargeFlasher = True And (ScorbitOptions.Item("Scorbit Large Table QR") = 1 Or ScorbitUseFlasher = False) Then
+		If showOnLargeFlasher = True And imageName<>"" Then
+			ScorbitFlasherLarge.ImageA = imageName
+			ScorbitFlasherLarge.Visible = True
+		Else
+			ScorbitFlasherLarge.Visible = False
+		End If
+	End If
+End Sub
+
+Class ScorbitIF
+	Public RunAsync 'Whether API calls should be async (do not stop the script while waiting for a response)
+
+	Private bSessionActive
+	Private bNeedsPairing
+	Private bActive
+	Private LogFile
+	Private LogIdx
+	Private LogPrev
+
+	Private bProduction
+
+	Private TypeLib
+	Private MyMac
+	Private Serial
+	Private MyUUID
+	Private TableVersion
+
+	Private SessionUUID
+	Private SessionSeq
+	Private SessionTimeStart
+	Private bWaitResp
+	Private GameMode
+	Private GameModeOrig		' Non escaped version for log
+	Private VenueMachineID
+	Private CachedPlayer
+	Private SaveCurrentPlayer
+
+	private bEnabled
+	Private sToken
+	Private machineID
+	Private dirQRCode
+	Private dirScorbitBin
+	Private opdbID
+	Private wsh
+
+	Private objXmlHttpMain
+	Private objXmlHttpMainAsync
+	Private fso
+	Private Domain
+
+	Public Sub Class_Initialize()
+		bActive="false"
+		bSessionActive=False
+		bEnabled=False
+		RunAsync=False
+		LogPrev = ""
+
+		Set LogFile = CreateObject("Scripting.Dictionary")
+		Set CachedPlayer = CreateObject("Scripting.Dictionary")
+		LogIdx = 0
+	End Sub
+
+	Public Sub SendUpdateAsynch(P1Score, P2Score, P3Score, P4Score, CurrentBall, CurrentPlayer, NumberPlayers, bAsynch)
+		dim i
+		dim logPart
+		Dim PostData
+		Dim resultStr
+		dim LogScores(4)
+
+		if ScorbitOptions.Item("Scorbit Logs / Timelines") = 1 And CurrentPlayer > 0 And CurrentBall > 0 then
+			if NumberPlayers>=1 then LogScores(0)=P1Score
+			if NumberPlayers>=2 then LogScores(1)=P2Score
+			if NumberPlayers>=3 then LogScores(2)=P3Score
+			if NumberPlayers>=4 then LogScores(3)=P4Score
+
+			'Add to log but only if something (other than the timestamp) changed
+			logPart = LogScores(0) & "," & LogScores(1) & "," & LogScores(2) & "," & LogScores(3) & ",,," & CurrentPlayer & "," & CurrentBall & ",""" & GameModeOrig & """"
+			If Not LogPrev = logPart Then
+				LogFile.Add LogIdx, DateDiff("S", "1/1/1970", Now()) & "," & logPart
+				LogIdx=LogIdx+1
+			End If
+			
+			LogPrev = logPart
+		End if 
+
+		if bSessionActive=False then Exit Sub 'DO NOT REMOVE
+		if bEnabled=False then Exit Sub 'DO NOT REMOVE
+		if bWaitResp then exit sub ' Drop message until we get our next response 
+
+		SaveCurrentPlayer=CurrentPlayer
+
+'		PostData = "session_uuid=" & SessionUUID & "&session_time=" & DateDiff("S", "1/1/1970", Now()) & _
+'					"&session_sequence=" & SessionSeq & "&active=" & bActive
+		PostData = "session_uuid=" & SessionUUID & "&session_time=" & GameTime-SessionTimeStart+1 & _
+					"&session_sequence=" & SessionSeq & "&active=" & bActive
+
+		SessionSeq=SessionSeq+1
+		if NumberPlayers > 0 then 
+			for i = 0 to NumberPlayers-1
+				PostData = PostData & "&current_p" & i+1 & "_score="
+				if i <= NumberPlayers-1 then 
+					if i = 0 then PostData = PostData & P1Score
+					if i = 1 then PostData = PostData & P2Score
+					if i = 2 then PostData = PostData & P3Score
+					if i = 3 then PostData = PostData & P4Score
+				else 
+					PostData = PostData & "-1"
+				End if 
+			Next 
+
+			PostData = PostData & "&current_ball=" & CurrentBall & "&current_player=" & CurrentPlayer
+			if GameMode<>"" then PostData=PostData & "&game_modes=" & GameMode
+		End if 
+		resultStr = PostMessage("https://" & domain, "/api/entry/", PostData, bAsynch)
+		if resultStr<>"" then Scorbit_Debug "UpdateGameState Resp: " & resultStr
+	End Sub
+
+	' Getter-only properties
+	Public Property Get Enabled()
+		Enabled = bEnabled
+	End Property
+	Public Property Get SessionActive()
+		SessionActive = bSessionActive
+	End Property
+	Public Property Get NeedsPairing()
+		NeedsPairing = bNeedsPairing
+	End Property
+
+' PRIVATE BELOW 
+	Private Function LPad(StringToPad, Length, CharacterToPad)
+	  Dim x : x = 0
+	  If Length > Len(StringToPad) Then x = Length - len(StringToPad)
+	  LPad = String(x, CharacterToPad) & StringToPad
+	End Function
+
+	Private Function GUID()		
+		Dim TypeLib
+		Set TypeLib = CreateObject("Scriptlet.TypeLib")
+		GUID = Mid(TypeLib.Guid, 2, 36)
+
+'		Set wsh = CreateObject("WScript.Shell")
+'		Set fso = CreateObject("Scripting.FileSystemObject")
+'
+'		dim rc
+'		dim result
+'		dim objFileToRead
+'		Dim sessionID:sessionID=dirScorbitBin & "\sessionID_" & MachineID & ".txt"
+'
+'		on error resume next
+'		fso.DeleteFile(sessionID)
+'		On error goto 0 
+'
+'		rc = wsh.Run("powershell -Command ""(New-Guid).Guid"" | out-file -encoding ascii " & sessionID, 0, True)
+'		if FileExists(sessionID) and rc=0 then
+'			Set objFileToRead = fso.OpenTextFile(sessionID,1)
+'			result = objFileToRead.ReadLine()
+'			objFileToRead.Close
+'			GUID=result
+'		else 
+'			MsgBox "Cant Create SessionUUID through powershell. Disabling Scorbit"
+'			bEnabled=False 
+'		End if
+
+	End Function
+
+	Private Function GetJSONValue(JSONStr, key)
+		dim i 
+		Dim tmpStrs,tmpStrs2
+		GetJSONValue=""
+		if Instr(1, JSONStr, key)<>0 then 
+			tmpStrs=split(JSONStr,",")
+			for i = 0 to ubound(tmpStrs)
+				if instr(1, tmpStrs(i), key)<>0 then 
+					tmpStrs2=split(tmpStrs(i),":")
+					GetJSONValue=tmpStrs2(1)
+					exit for
+				End if 
+			Next
+		End If
+	End Function	
+
+End Class 
+'  END SCORBIT 
+'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
