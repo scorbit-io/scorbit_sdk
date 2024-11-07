@@ -13,7 +13,6 @@
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
-#include <chrono>
 
 using namespace std;
 
@@ -47,6 +46,8 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
     return ByteArray(signature.data(), signatureLen).hex();
 }
 
+// --------------------------------------------------------------------------------
+
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
@@ -79,19 +80,19 @@ void Net::authenticate()
     const auto timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
     ByteArray message(m_deviceInfo.uuid);
 
-    const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
-    if (signature.empty()) {
-        ERR("Can't authenticate, signature is empty");
-        return;
-    }
+        const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
+        if (signature.empty()) {
+            ERR("Can't authenticate, signature is empty");
+            return;
+        }
 
-    // TODO
-    // Sending post
-    auto payload = cpr::Payload {
-            {"provider", m_deviceInfo.provider},
-            {"uuid", m_deviceInfo.uuid},
-            // {"serial_number", std::to_string(m_tpm->serial())},
-            {"timestamp", timestamp},
+        // TODO
+        // Sending post
+        auto payload = cpr::Payload {
+                {"provider", m_deviceInfo.provider},
+                {"uuid", m_deviceInfo.uuid},
+                // {"serial_number", std::to_string(m_tpm->serial())},
+                {"timestamp", timestamp},
             {"sign", signature},
     };
 
@@ -115,7 +116,28 @@ bool Net::isAuthenticated() const
 
 void Net::sendGameData(const detail::GameData &data)
 {
-    (void)data;
+    m_data = data;
+}
+
+void Net::sendInstalled(const std::string &type, const std::string &version, bool success)
+{
+    if (!m_isAuthenticated) {
+        authenticate();
+        return;
+    }
+
+    (void)type;
+    (void)version;
+    (void)success;
+    // TODO
+}
+
+void Net::nextFromQueue()
+{
+    if (!m_isAuthenticated) {
+        authenticate();
+        return;
+    }
 }
 
 } // namespace detail

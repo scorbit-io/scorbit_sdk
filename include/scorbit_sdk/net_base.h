@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace scorbit {
 namespace detail {
 
@@ -20,6 +22,8 @@ public:
 
     virtual void authenticate() = 0;
 
+    virtual void sendInstalled(const std::string &type, const std::string &version,
+                               bool success = true) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
 };
 

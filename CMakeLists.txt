@@ -76,6 +76,36 @@ CPMAddPackage(
     GIT_SHALLOW TRUE
 )
 
+# Boost -----------
+set(BOOST_INCLUDE_LIBRARIES
+    # filesystem
+    asio
+    beast
+)
+set(Boost_USE_STATIC_LIBS ON) # only find static libs
+set(Boost_USE_DEBUG_LIBS OFF) # ignore debug libs and
+set(Boost_USE_RELEASE_LIBS ON) # only find release libs
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+
+cmake_policy(SET CMP0167 NEW)
+find_package(Boost 1.86.0 COMPONENTS Beast Thread)
+if(Boost_FOUND)
+    message(STATUS "Boost found")
+    include_directories(${Boost_INCLUDE_DIRS})
+else()
+    message(STATUS "Boost not found, using CPM to add boost")
+    CPMAddPackage(
+        NAME Boost
+        URL
+            https://github.com/boostorg/boost/releases/download/boost-1.86.0/boost-1.86.0-cmake.tar.xz
+            URL_HASH
+            SHA256=2c5ec5edcdff47ff55e27ed9560b0a0b94b07bd07ed9928b476150e16b0efc57
+        EXCLUDE_FROM_ALL YES
+        OPTIONS "BOOST_ENABLE_CMAKE=ON"
+    )
+endif()
+
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
@@ -132,7 +162,10 @@ target_sources(
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr)
+target_link_libraries(
+    ${PROJECT_NAME}
+    PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr Boost::boost Boost::thread
+)
 
 target_include_directories(
     ${PROJECT_NAME}
