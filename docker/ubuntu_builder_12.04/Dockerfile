@@ -37,9 +37,11 @@ RUN apt-get install -y cpanminus \
 RUN apt-get install -y zlib1g-dev
 
 ARG OPENSSL=openssl-3.3.2
+ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xvf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
-    && ./config --openssldir=/usr/lib/ssl no-apps shared zlib && make -j $(nproc) && make install_sw \
+    && ./config --openssldir=/usr/lib/ssl no-apps shared zlib ${OPENSSL_CONFIG_ARGS} \
+    && make -j $(nproc) && make install_sw \
     && cd .. && rm -rf $OPENSSL
 
 # Install CMake
