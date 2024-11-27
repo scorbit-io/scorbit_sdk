@@ -20,7 +20,7 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *userData)
             userData);
 }
 
-void sb_reset_logger()
+void sb_reset_logger(void)
 {
     resetLogger();
 }

@@ -45,7 +45,7 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *userData);
  * @see sb_add_logger_callback
  */
 SCORBIT_SDK_EXPORT
-void sb_reset_logger();
+void sb_reset_logger(void);
 
 #ifdef __cplusplus
 }

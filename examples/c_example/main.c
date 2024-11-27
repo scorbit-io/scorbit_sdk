@@ -13,67 +13,67 @@
 #include <string.h>
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
-int isGameFinished()
+int isGameFinished(void)
 {
     return 1;
 }
 
-int isGameJustStarted()
+int isGameJustStarted(void)
 {
     return 0;
 }
 
-int isGameActive()
+int isGameActive(void)
 {
     return 0;
 }
 
-int player1Score()
+int player1Score(void)
 {
     return 1000;
 }
 
-int hasPlayer2()
+int hasPlayer2(void)
 {
     return 0;
 }
 
-int player2Score()
+int player2Score(void)
 {
     return 2000;
 }
 
-int hasPlayer3()
+int hasPlayer3(void)
 {
     return 0;
 }
 
-int player3Score()
+int player3Score(void)
 {
     return 3000;
 }
 
-int hasPlayer4()
+int hasPlayer4(void)
 {
     return 0;
 }
 
-int player4Score()
+int player4Score(void)
 {
     return 4000;
 }
 
-int currentPlayer()
+int currentPlayer(void)
 {
     return 1;
 }
 
-int currentBall()
+int currentBall(void)
 {
     return 1;
 }
 
-int timeToClearModes()
+int timeToClearModes(void)
 {
     return 0;
 }
@@ -136,7 +136,7 @@ int signer_callback(uint8_t signature[SB_SIGNATURE_MAX_LENGTH], size_t *signatur
     return scorbit_sign(signature, signature_len, digest, key);
 }
 
-sb_game_handle_t setup_game_state()
+sb_game_handle_t setup_game_state(void)
 {
     // Setup device info
     sb_device_info_t device_info = {
@@ -160,7 +160,7 @@ sb_game_handle_t setup_game_state()
     return sb_create_game_state(signer_callback, NULL, &device_info);
 }
 
-int main()
+int main(void)
 {
 
     printf("Simple example of Scorbit SDK usage\n");

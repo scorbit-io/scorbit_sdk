@@ -164,7 +164,8 @@ target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>
 # Link dependencies
 target_link_libraries(
     ${PROJECT_NAME}
-    PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr Boost::boost Boost::thread
+    PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr
+    #Boost::thread
 )
 
 target_include_directories(

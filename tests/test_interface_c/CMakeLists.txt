@@ -29,7 +29,7 @@ endif()
 
 # ---- Create binary ----
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
@@ -43,7 +43,6 @@ target_include_directories(
     ${PROJECT_NAME}
     PRIVATE ${munit_SOURCE_DIR} ${scorbit_sdk_SOURCE_DIR}/source
 )
-set_target_properties(${PROJECT_NAME} PROPERTIES C_STANDARD 99)
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)
