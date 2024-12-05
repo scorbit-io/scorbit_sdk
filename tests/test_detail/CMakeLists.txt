@@ -76,6 +76,9 @@ target_sources(
         ../../source/worker.cpp
         ../../source/worker.h
         source/test_worker.cpp
+        ../../source/utils/mac_address.h
+        ../../source/utils/mac_address.cpp
+        source/test_mac_address.cpp
 )
 
 target_link_libraries(

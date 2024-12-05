@@ -136,6 +136,8 @@ target_sources(
         source/utils/bytearray.h
         source/worker.h
         source/worker.cpp
+        source/utils/mac_address.h
+        source/utils/mac_address.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
