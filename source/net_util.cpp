@@ -6,6 +6,7 @@
  ****************************************************************************/
 
 #include "net_util.h"
+#include <boost/uuid.hpp>
 #include <regex>
 
 namespace scorbit {
@@ -45,6 +46,14 @@ std::string removeSymbols(std::string_view str, std::string_view symbols)
     }
 
     return result;
+}
+
+// Returns a name-based UUID version 5
+std::string deriveUuid(const std::string &source)
+{
+    using namespace boost::uuids;
+    name_generator_sha1 gen(ns::dns());
+    return to_string(gen(source));
 }
 
 } // namespace detail

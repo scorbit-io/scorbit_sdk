@@ -80,3 +80,13 @@ TEST_CASE("Remove different symbols", "[removeSymbols]")
     std::string s {"{f0b188f8-9f2d-4f8d-abe4-c3107516e7ce}"};
     CHECK(removeSymbols(s, "-{}") == "f0b188f89f2d4f8dabe4c3107516e7ce");
 }
+
+TEST_CASE("Derive UUID v5 from given source", "[deriveUuid]")
+{
+    const auto uuid = deriveUuid("aaa");
+    // https://uuidgenerator.dev/uuid-v5 - choose DNS namespace
+    CHECK(uuid == "01d2f0ce-8f47-56e4-9a9c-0f368406feb7");
+
+    const auto uuid2 = deriveUuid("52:00:66:74:98:50");
+    CHECK(uuid2 == "f4de2fc0-36bf-5209-b019-d40c961d079e");
+}
