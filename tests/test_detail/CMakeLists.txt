@@ -73,6 +73,9 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
+        ../../source/worker.cpp
+        ../../source/worker.h
+        source/test_worker.cpp
 )
 
 target_link_libraries(

@@ -134,6 +134,8 @@ target_sources(
         source/game_state_factory.cpp
         source/utils/bytearray.cpp
         source/utils/bytearray.h
+        source/worker.h
+        source/worker.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
