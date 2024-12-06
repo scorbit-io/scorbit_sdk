@@ -25,5 +25,7 @@ std::string removeSymbols(std::string_view str, std::string_view symbols);
 
 std::string deriveUuid(const std::string &source);
 
+std::string parseUuid(const std::string &str);
+
 } // namespace detail
 } // namespace scorbit

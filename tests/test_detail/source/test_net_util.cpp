@@ -90,3 +90,33 @@ TEST_CASE("Derive UUID v5 from given source", "[deriveUuid]")
     const auto uuid2 = deriveUuid("52:00:66:74:98:50");
     CHECK(uuid2 == "f4de2fc0-36bf-5209-b019-d40c961d079e");
 }
+
+TEST_CASE("Parse UUID", "[parseUuid]")
+{
+    const auto uuid = parseUuid("f4de2fc0-36bf-5209-b019-d40c961d079e");
+    CHECK(uuid == "f4de2fc0-36bf-5209-b019-d40c961d079e");
+}
+
+TEST_CASE("Parse UUID with curly braces", "[parseUuid]")
+{
+    const auto uuid = parseUuid("{f4de2fc0-36bf-5209-b019-d40c961d079e}");
+    CHECK(uuid == "f4de2fc0-36bf-5209-b019-d40c961d079e");
+}
+
+TEST_CASE("Parse UUID without dashes", "[parseUuid]")
+{
+    const auto uuid = parseUuid("f4de2fc036bf5209b019d40c961d079e");
+    CHECK(uuid == "f4de2fc0-36bf-5209-b019-d40c961d079e");
+}
+
+TEST_CASE("Parse UUID without dashes with curly braces", "[parseUuid]")
+{
+    const auto uuid = parseUuid("{f4de2fc036bf5209b019d40c961d079e}");
+    CHECK(uuid == "f4de2fc0-36bf-5209-b019-d40c961d079e");
+}
+
+TEST_CASE("Parse incorrect UUID returns empty string", "[parseUuid]")
+{
+    const auto uuid = parseUuid("f4de2fc0");
+    CHECK(uuid == "");
+}

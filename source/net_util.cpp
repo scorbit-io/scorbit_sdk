@@ -56,5 +56,19 @@ std::string deriveUuid(const std::string &source)
     return to_string(gen(source));
 }
 
+std::string parseUuid(const std::string &str)
+{
+    using namespace boost::uuids;
+    string_generator gen;
+    uuid u1;
+    try {
+        u1 = gen(str);
+    } catch (const std::exception &e) {
+        return {};
+    }
+
+    return to_string(u1);
+}
+
 } // namespace detail
 } // namespace scorbit
