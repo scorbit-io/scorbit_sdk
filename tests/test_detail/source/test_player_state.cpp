@@ -35,7 +35,39 @@ TEST_CASE("Score", "[PlayerState]")
 
     ps.setScore(100);
     CHECK(ps.score() == 100);
+    CHECK(ps.scoreFeature() == 0);
 
-    ps.setScore(200);
+    ps.setScore(200, 10);
     CHECK(ps.score() == 200);
+    CHECK(ps.scoreFeature() == 10);
+}
+
+TEST_CASE("Compare two players", "[PlayerState]")
+{
+    PlayerState ps1 {1};
+    PlayerState ps2 {1};
+    REQUIRE(ps1 == ps2);
+
+    ps1.setScore(100);
+    ps2.setScore(100);
+    CHECK(ps1 == ps2);
+
+    ps1.setScore(100, 10);
+    ps2.setScore(100, 10);
+    CHECK(ps1 == ps2);
+
+    ps1.setScore(100);
+    ps2.setScore(200);
+    CHECK_FALSE(ps1 == ps2);
+}
+
+TEST_CASE("Compare two similar players but with different score features", "[PlayerState]")
+{
+    PlayerState ps1 {1};
+    PlayerState ps2 {1};
+    REQUIRE(ps1 == ps2);
+
+    ps1.setScore(100, 1);
+    ps2.setScore(100, 2);
+    CHECK_FALSE(ps1 == ps2);
 }

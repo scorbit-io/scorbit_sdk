@@ -16,6 +16,7 @@ extern "C" {
 typedef unsigned int sb_ball_t;
 typedef unsigned int sb_player_t;
 typedef int64_t sb_score_t;
+typedef int32_t sb_score_feature_t;
 
 struct sb_game_state_struct;
 typedef struct sb_game_state_struct *sb_game_handle_t;

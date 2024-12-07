@@ -26,9 +26,15 @@ sb_score_t PlayerState::score() const
     return m_score;
 }
 
-void PlayerState::setScore(sb_score_t score)
+sb_score_feature_t PlayerState::scoreFeature() const
+{
+    return m_scoreFeature;
+}
+
+void PlayerState::setScore(sb_score_t score, sb_score_feature_t feature)
 {
     m_score = score;
+    m_scoreFeature = feature;
 }
 
 } // namespace detail
