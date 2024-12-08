@@ -27,6 +27,7 @@ public:
     bool isRunning() const { return m_running; }
 
     void postQueue(std::function<void()> func);
+    void post(std::function<void()> func);
 
 private:
     void run();

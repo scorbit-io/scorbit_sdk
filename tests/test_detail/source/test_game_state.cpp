@@ -25,6 +25,7 @@ class MockNetBase : public NetBase
 public:
     void authenticate() override { };
     virtual void sendInstalled(const std::string &, const std::string &, bool = true) override { };
+    virtual void sendHeartbeat(bool) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
 };
 

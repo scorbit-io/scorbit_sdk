@@ -25,6 +25,7 @@ public:
     virtual void sendInstalled(const std::string &type, const std::string &version,
                                bool success = true) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
+    virtual void sendHeartbeat(bool isActive) = 0;
 };
 
 } // namespace detail

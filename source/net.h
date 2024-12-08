@@ -10,7 +10,12 @@
 #include "scorbit_sdk/net_types.h"
 #include "scorbit_sdk/net_base.h"
 #include "game_data.h"
+#include "worker.h"
+#include <cpr/cpr.h>
 #include <string>
+#include <functional>
+#include <chrono>
+#include <condition_variable>
 
 namespace scorbit {
 namespace detail {
@@ -18,30 +23,60 @@ namespace detail {
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 
+enum class AuthStatus {
+    NotAuthenticated,
+    Authenticating,
+    Authenticated,
+    AuthenticationFailed,
+};
+
 class Net : public NetBase
 {
+    using task_t = std::function<void()>;
+
+    struct GameSession {
+        int sessionCounter {0};
+        GameData gameData;
+        std::chrono::time_point<std::chrono::steady_clock> startedTime {
+                std::chrono::steady_clock::now()};
+    };
+
 public:
     Net(SignerCallback signer, DeviceInfo deviceInfo);
 
     std::string hostname() const;
     void setHostname(std::string hostname);
-
-    void authenticate() override;
     bool isAuthenticated() const;
 
-    void sendGameData(const detail::GameData &data) override;
+    void authenticate() override;
     void sendInstalled(const std::string &type, const std::string &version,
                        bool success = true) override;
+    void sendGameData(const detail::GameData &data) override;
+    void sendHeartbeat(bool isActive) override;
 
 private:
-    void nextFromQueue();
+    task_t createAuthenticateTask();
+    task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
+    task_t createGameDataTask(const std::string &sessionUuid);
+    task_t createHeartbeatTask();
+
+    cpr::Header header() const;
+    cpr::Header authHeader() const;
 
 private:
     SignerCallback m_signer;
-    bool m_isAuthenticated {false};
+
+    std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
+    std::condition_variable m_authCV;
+    std::mutex m_authMutex;
+    std::mutex m_gameSessionsMutex;
+
     std::string m_hostname;
+    std::string m_stoken;
+
     DeviceInfo m_deviceInfo;
-    detail::GameData m_data;
+    std::map<std::string, GameSession> m_gameSessions;
+    Worker m_worker;
 };
 
 } // namespace detail

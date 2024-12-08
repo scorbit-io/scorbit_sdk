@@ -51,5 +51,10 @@ void Worker::postQueue(std::function<void()> func)
     boost::asio::post(m_strand, std::move(func));
 }
 
+void Worker::post(std::function<void()> func)
+{
+    boost::asio::post(m_ioc, std::move(func));
+}
+
 } // namespace detail
 } // namespace scorbit
