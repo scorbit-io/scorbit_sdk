@@ -22,13 +22,14 @@ struct GameData {
     sb_player_t activePlayer {0};
     Modes modes;
     std::map<sb_player_t, PlayerState> players;
+    std::string sessionUuid;
 };
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
 {
     return lhs.isGameStarted == rhs.isGameStarted && lhs.ball == rhs.ball
         && lhs.activePlayer == rhs.activePlayer && lhs.modes == rhs.modes
-        && lhs.players == rhs.players;
+        && lhs.players == rhs.players && lhs.sessionUuid == rhs.sessionUuid;
 }
 
 inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)

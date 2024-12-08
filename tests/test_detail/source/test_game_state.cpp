@@ -12,6 +12,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
+#include <boost/uuid.hpp>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -22,11 +23,46 @@ using namespace trompeloeil;
 class MockNetBase : public NetBase
 {
 public:
-    void authenticate() override {};
-    virtual void sendInstalled(const std::string &, const std::string &,
-                               bool = true) override {};
+    void authenticate() override { };
+    virtual void sendInstalled(const std::string &, const std::string &, bool = true) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
 };
+
+// We need custom GameDataMatcher, because sessionUuid is randomly generated
+struct GameDataMatcher {
+    GameData expected;
+
+    GameDataMatcher(const GameData &expected)
+        : expected(expected)
+    {
+    }
+
+    bool operator()(const GameData &actual) const
+    {
+        // sessionUuid should be parsed ok, otherwise it will throw an exception
+        try {
+            boost::uuids::uuid actualUuid = boost::uuids::string_generator()(actual.sessionUuid);
+            (void)actualUuid;
+        } catch (...) {
+            FAIL("Invalid UUID: '" << actual.sessionUuid << "'");
+        }
+        return actual.isGameStarted == expected.isGameStarted && actual.ball == expected.ball
+            && actual.activePlayer == expected.activePlayer && actual.players == expected.players
+            && actual.modes == expected.modes;
+    }
+
+    friend std::ostream &operator<<(std::ostream &os, const GameDataMatcher &matcher)
+    {
+        os << "GameData { isGameStarted: " << matcher.expected.isGameStarted
+           << ", ball: " << matcher.expected.ball
+           << ", activePlayer: " << matcher.expected.activePlayer
+           << ", num of players: " << matcher.expected.players.size()
+           << ", modes: " << matcher.expected.modes.str() << " }";
+        return os;
+    }
+};
+
+// =============================================================================
 
 TEST_CASE("setGameStarted functionality")
 {
@@ -47,7 +83,10 @@ TEST_CASE("setGameStarted functionality")
     SECTION("Start a game without setting players or scores")
     {
         // Expect sendGameData to be called once when the game starts
-        REQUIRE_CALL(mockNetRef, sendGameData(eq(expected))).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+                .WITH(GameDataMatcher(expected)(_1))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
 
         // When setGameStarted is called without setting any scores or players,
         // it should set player 1 as the active player with a score of 0.
@@ -61,7 +100,10 @@ TEST_CASE("setGameStarted functionality")
     SECTION("Setting score, player, ball will be reset after setGameStarted")
     {
         // Set up expectations for the game data after setting the active player and score
-        REQUIRE_CALL(mockNetRef, sendGameData(eq(expected))).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+                .WITH(GameDataMatcher(expected)(_1))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
 
         // Set ball and active player and score before starting the game
         gameState.setCurrentBall(2);
@@ -103,7 +145,10 @@ TEST_CASE("setGameFinished functionality")
                 .TIMES(1);
 
         // Second call will be when the game is finished
-        REQUIRE_CALL(mockNetRef, sendGameData(eq(expected))).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+                .WITH(GameDataMatcher(expected)(_1))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
 
         // Act
         gameState.setGameStarted();
@@ -179,7 +224,7 @@ TEST_CASE("setCurrentBall functionality")
         // Now set an invalid ball number (10) and set score for player 1. Ball should be still 9
         // Act: Attempt to set an invalid ball number (10)
         gameState.setCurrentBall(10); // Wrong ball, will be ignored and ball will be 9
-        gameState.setScore(1, 2000); // This is to make some change, so it will be commited
+        gameState.setScore(1, 2000);  // This is to make some change, so it will be commited
         gameState.commit();
     }
 }

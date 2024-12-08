@@ -7,6 +7,7 @@
 
 #include "game_state_impl.h"
 #include "logger.h"
+#include <boost/uuid.hpp>
 #include <utility>
 
 namespace scorbit {
@@ -29,6 +30,7 @@ void GameStateImpl::setGameStarted()
     m_prevData = m_data = GameData {};
 
     m_data.isGameStarted = true;
+    m_data.sessionUuid = boost::uuids::to_string(boost::uuids::random_generator()());
     setCurrentBall(1);
     setActivePlayer(1);
 }
