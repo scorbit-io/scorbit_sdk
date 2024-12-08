@@ -25,8 +25,18 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         return 0 == signer(signature.data(), &signatureLen, digest.data(), signer_user_data);
     };
 
-    DeviceInfo deviceInfo {device_info->provider, device_info->hostname, device_info->uuid,
-                           device_info->serial_number};
+    DeviceInfo deviceInfo;
+
+    if (device_info) {
+        deviceInfo.provider = device_info->provider;
+        if (device_info->hostname) {
+            deviceInfo.hostname = device_info->hostname;
+        }
+        if (device_info->uuid) {
+            deviceInfo.uuid = device_info->uuid;
+        }
+        deviceInfo.serialNumber = device_info->serial_number;
+    }
 
     return new sb_game_state_struct {createGameState(std::move(cb), std::move(deviceInfo))};
 }
