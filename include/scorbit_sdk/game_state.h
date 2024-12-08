@@ -105,8 +105,10 @@ public:
      * @param player The player's number [1-9]. If the player number is out of range, the function
      * does nothing.
      * @param score The player's new score.
+     * @param feature The score feature (i.e., what game feature caused the score bump, like
+     * spinner, etc.). If the feature is not set, it is 0.
      */
-    void setScore(sb_player_t player, sb_score_t score);
+    void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature = 0);
 
     /**
      * @brief Add a mode to the game.

@@ -56,9 +56,10 @@ void sb_set_active_player(sb_game_handle_t handle, sb_player_t player)
     handle->gameState.setActivePlayer(player);
 }
 
-void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score)
+void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score,
+                  sb_score_feature_t feature)
 {
-    handle->gameState.setScore(player, score);
+    handle->gameState.setScore(player, score, feature);
 }
 
 void sb_add_mode(sb_game_handle_t handle, const char *mode)

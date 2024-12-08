@@ -66,10 +66,10 @@ void GameStateImpl::setActivePlayer(sb_player_t player)
     m_data.activePlayer = player;
 }
 
-void GameStateImpl::setScore(sb_player_t player, sb_score_t score)
+void GameStateImpl::setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature)
 {
     if (!isPlayerValid(player)) {
-        WRN("Ignoring attempt to set score for invalid player {}, score: ", player, score);
+        WRN("Ignoring attempt to set score for invalid player {}, score: {}", player, score);
         return;
     }
 
@@ -77,7 +77,7 @@ void GameStateImpl::setScore(sb_player_t player, sb_score_t score)
         addNewPlayer(player);
     }
 
-    m_data.players.at(player).setScore(score);
+    m_data.players.at(player).setScore(score, feature);
 }
 
 void GameStateImpl::addMode(std::string mode)

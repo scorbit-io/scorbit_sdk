@@ -116,9 +116,12 @@ void sb_set_active_player(sb_game_handle_t handle, sb_player_t player);
  * @param player The player's number [1-9]. If the player number is out of range, the function
  * does nothing.
  * @param score The player's new score.
+ * @param feature The score feature (i.e. what game feature caused score bump, like spinner, etc.).
+ * If the feature is not set, it is 0.
  */
 SCORBIT_SDK_EXPORT
-void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score);
+void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score,
+                  sb_score_feature_t feature);
 
 /**
  * @brief Add a mode to the game.

@@ -35,9 +35,9 @@ void GameState::setActivePlayer(sb_player_t player)
     p->setActivePlayer(std::move(player));
 }
 
-void GameState::setScore(sb_player_t player, sb_score_t score)
+void GameState::setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature)
 {
-    p->setScore(std::move(player), std::move(score));
+    p->setScore(std::move(player), std::move(score), std::move(feature));
 }
 
 void GameState::addMode(std::string mode)

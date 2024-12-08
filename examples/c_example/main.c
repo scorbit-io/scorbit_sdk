@@ -189,21 +189,21 @@ int main(void)
 
         if (isGameActive()) {
             // Set player1 score, no problem, if it was not changed in the current cycle
-            sb_set_score(gs, 1, player1Score());
+            sb_set_score(gs, 1, player1Score(), 0);
 
             if (hasPlayer2()) {
                 // Set player2 score if player2 is present
-                sb_set_score(gs, 2, player2Score());
+                sb_set_score(gs, 2, player2Score(), 0);
             }
 
             if (hasPlayer3()) {
                 // Set player3 score if player3 is present
-                sb_set_score(gs, 3, player3Score());
+                sb_set_score(gs, 3, player3Score(), 0);
             }
 
             if (hasPlayer4()) {
                 // Set player4 score if player4 is present
-                sb_set_score(gs, 4, player4Score());
+                sb_set_score(gs, 4, player4Score(), 0);
             }
 
             // Set active player
