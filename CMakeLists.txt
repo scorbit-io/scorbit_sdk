@@ -8,6 +8,7 @@ project(scorbit_sdk VERSION 1.0.0 LANGUAGES CXX)
 # ---- Options ----
 
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
+option(SCORBIT_SDK_INSTALL_PREFIX "Install prefix" "/usr/local")
 option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
 
 # ---- Include guards ----
@@ -215,6 +216,6 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "General")
 
 set(CPACK_STRIP_FILES TRUE)
 
-set(CPACK_PACKAGING_INSTALL_PREFIX "/usr/local")
+set(CPACK_PACKAGING_INSTALL_PREFIX ${SCORBIT_SDK_INSTALL_PREFIX})
 
 include(CPack)
