@@ -51,9 +51,14 @@ void Worker::postQueue(std::function<void()> func)
     boost::asio::post(m_strand, std::move(func));
 }
 
-void Worker::post(std::function<void()> func)
+void Worker::postGameDataQueue(std::function<void()> func)
 {
-    boost::asio::post(m_ioc, std::move(func));
+    boost::asio::post(m_gameDataStrand, std::move(func));
+}
+
+void Worker::postHeartbeatQueue(std::function<void()> func)
+{
+    boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
 } // namespace detail

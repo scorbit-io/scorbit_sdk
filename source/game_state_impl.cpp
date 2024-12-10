@@ -7,6 +7,7 @@
 
 #include "game_state_impl.h"
 #include "logger.h"
+#include <scorbit_sdk/version.h>
 #include <boost/uuid.hpp>
 #include <utility>
 
@@ -17,6 +18,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
 {
     m_net->authenticate();
+    // m_net->sendInstalled("sdk", SCORBIT_SDK_VERSION, true);
 }
 
 void GameStateImpl::setGameStarted()

@@ -36,8 +36,11 @@ constexpr auto PLAYER_SCORE_TAIL {"_score"};
 constexpr auto REST_TOKEN {"SToken"};
 constexpr auto RETURNED_TOKEN_NAME {"stoken"};
 
+constexpr auto JSON_UNPAIRED {"unpaired"};
+
 using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
+constexpr auto NUM_RETRIES = 3;
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
@@ -109,7 +112,8 @@ void Net::setHostname(std::string hostname)
 
 bool Net::isAuthenticated() const
 {
-    return m_status == AuthStatus::Authenticated;
+    return m_status == AuthStatus::AuthenticatedPaired
+        || m_status == AuthStatus::AuthenticatedUnpaired;
 }
 
 void Net::authenticate()
@@ -129,13 +133,18 @@ void Net::sendGameData(const detail::GameData &data)
         m_gameSessions[data.sessionUuid].gameData = data;
     }
 
-    m_worker.post(createGameDataTask(data.sessionUuid));
+    // Ensure that only single task in the queue (while another can be running)
+    if (!m_isGameDataInQueue.exchange(true)) {
+        m_worker.postGameDataQueue(createGameDataTask(data.sessionUuid));
+    }
 }
 
-void Net::sendHeartbeat(bool isActive)
+void Net::sendHeartbeat()
 {
-    (void)isActive; // TODO
-    m_worker.postQueue(createHeartbeatTask());
+    // Ensure that only single task in the queue (while another can be running)
+    if (!m_isHeartbeatInQueue.exchange(true)) {
+        m_worker.postHeartbeatQueue(createHeartbeatTask());
+    }
 }
 
 Net::task_t Net::createAuthenticateTask()
@@ -181,22 +190,22 @@ Net::task_t Net::createAuthenticateTask()
         boost::system::error_code ec;
         boost::json::object json = boost::json::parse(r.text, ec).as_object();
 
-        if (!json.contains(RETURNED_TOKEN_NAME)) {
+        if (ec || !json.contains(RETURNED_TOKEN_NAME)) {
             const auto msg = fmt::format("No token, authentication failed, got reply: {}", r.text);
             ERR(msg);
             // SentryManager::message(msg);
-            // TODO: retry later
+            // TODO: retry later with exponential timing
             return;
         }
 
         m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
 
-        m_status = AuthStatus::Authenticated;
-        INF("API authentication successful!");
+        m_status = AuthStatus::AuthenticatedCheckingPairing;
+        INF("API authentication successful! Checking pairing status...");
 
         m_authCV.notify_all();
 
-        m_worker.postQueue(createHeartbeatTask());
+        sendHeartbeat(); // To check if it's paired
     };
 }
 
@@ -204,16 +213,15 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                                      bool success)
 {
     return [this, type, version, success] {
-        for (;;) {
+        for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return m_status == AuthStatus::Authenticated
-                    || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
             });
 
-            if (m_status != AuthStatus::Authenticated) {
+            if (m_status == AuthStatus::AuthenticationFailed) {
                 DBG("Can't send installed task, authentication failed!");
-                return;
+                break;
             }
 
             auto payload = cpr::Payload {{"installed", success ? "true" : "false"}};
@@ -223,94 +231,22 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
             INF("API send installed: type={}, version={}, installed={}", type, version, success);
 
             // TODO: Sentry
-            // auto transaction = SentryManager::startTransaction(INSTALLED_URL, "POST");
-            // m_session.SetHeader(header(m_authHeader));
+
             const auto r = cpr::Post(cpr::Url {m_hostname + API + INSTALLED_URL}, payload,
                                      authHeader(), cpr::Timeout {NET_TIMEOUT});
-            // if (transaction) {
-            //     transaction->setStatus(r.status_code);
-            //     transaction->finish();
-            // }
 
             if (r.status_code == 200) {
                 INF("API installed response: {}", r.text);
-                return;
+                break;
             }
 
             ERR("API installed failed: code={}, {}", r.status_code, r.error.message);
             ERR("{}", r.text);
 
-            if (r.status_code == 401) {
-                m_status = AuthStatus::NotAuthenticated;
-                auto auth = createAuthenticateTask();
-                auth();
+            if (r.status_code != 401) {
+                break;
             }
-        }
-    };
-}
 
-Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
-{
-    return [this, sessionUuid]() {
-        INF("API sending game data for session {}", sessionUuid);
-
-        int sessionCounter;
-        {
-            std::lock_guard lock(m_gameSessionsMutex);
-            sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
-        }
-
-        GameSession session;
-        {
-            std::lock_guard lock(m_gameSessionsMutex);
-            session = m_gameSessions[sessionUuid];
-        }
-
-        int64_t elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              chrono::steady_clock::now() - session.startedTime)
-                                              .count();
-        auto &data = session.gameData;
-        cpr::Payload payload {
-                {"session_uuid", data.sessionUuid},
-                {"session_time", std::to_string(elapsedMilliseconds)},
-                {"active", data.isGameStarted ? "true" : "false"},
-                {"session_sequence", to_string(sessionCounter)},
-        };
-
-        if (data.ball > 0) {
-            payload.Add({"current_ball", std::to_string(data.ball)});
-        }
-
-        if (data.activePlayer > 0) {
-            payload.Add({"current_player", std::to_string(data.activePlayer)});
-        }
-
-        const auto gameModes = data.modes.str();
-        if (!gameModes.empty()) {
-            payload.Add({"game_modes", gameModes});
-        }
-
-        // Iterate over all existing scores and build payload with scores
-        for (const auto &player : data.players) {
-            payload.Add({fmt::format("{}{}{}", PLAYER_SCORE_HEAD, player.second.player(),
-                                     PLAYER_SCORE_TAIL),
-                         std::to_string(player.second.score())});
-        }
-
-        // TODO: sentry
-        const auto r = cpr::Post(cpr::Url {m_hostname + API + ENTRY_URL}, payload, authHeader(),
-                                 cpr::Timeout {NET_TIMEOUT});
-
-        if (r.status_code == 200) {
-            INF("API send game data: ok");
-            DBG("{}", r.text);
-            return;
-        }
-
-        ERR("API send game data failed: code={}, {}", r.status_code, r.error.message);
-        ERR("{}", r.text);
-
-        if (r.status_code == 401) {
             m_status = AuthStatus::NotAuthenticated;
             auto auth = createAuthenticateTask();
             auth();
@@ -318,18 +254,131 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
     };
 }
 
+Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
+{
+    return [this, sessionUuid]() {
+        int sessionCounter;
+        {
+            std::lock_guard lock(m_gameSessionsMutex);
+            sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
+        }
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            DBG("Before waiting game data");
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            if (m_status != AuthStatus::AuthenticatedPaired) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send game data, authentication failed!");
+                }
+                break;
+            }
+
+            GameSession session;
+            {
+                std::lock_guard lock(m_gameSessionsMutex);
+                session = m_gameSessions[sessionUuid];
+            }
+
+            int64_t elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                  chrono::steady_clock::now() - session.startedTime)
+                                                  .count();
+            auto &data = session.gameData;
+            cpr::Payload payload {
+                    {"session_uuid", data.sessionUuid},
+                    {"session_time", std::to_string(elapsedMilliseconds)},
+                    {"active", data.isGameStarted ? "true" : "false"},
+                    {"session_sequence", to_string(sessionCounter)},
+            };
+
+            if (data.ball > 0) {
+                payload.Add({"current_ball", std::to_string(data.ball)});
+            }
+
+            if (data.activePlayer > 0) {
+                payload.Add({"current_player", std::to_string(data.activePlayer)});
+            }
+
+            const auto gameModes = data.modes.str();
+            if (!gameModes.empty()) {
+                payload.Add({"game_modes", gameModes});
+            }
+
+            // Iterate over all existing scores and build payload with scores
+            std::string scoresStr;
+            for (const auto &player : data.players) {
+                payload.Add({fmt::format("{}{}{}", PLAYER_SCORE_HEAD, player.second.player(),
+                                         PLAYER_SCORE_TAIL),
+                             std::to_string(player.second.score())});
+                scoresStr +=
+                        fmt::format("player{}={}, ", player.second.player(), player.second.score());
+            }
+
+            INF("API sending game data for session {}, counter: {}, active player: {}, current "
+                "ball: {}, scores: {}modes: [{}]",
+                sessionUuid, sessionCounter, data.activePlayer, data.ball, scoresStr, gameModes);
+
+            // Reset the flag only single time. From this point there maybe another score change
+            // added and flag will be again true. So, we don't want to reset the flag another time
+            // while another score change already is in the queue.
+            if (i == 0) {
+                m_isGameDataInQueue = false;
+            }
+
+            // TODO: sentry
+
+            const auto r = cpr::Post(cpr::Url {m_hostname + API + ENTRY_URL}, payload, authHeader(),
+                                     cpr::Timeout {NET_TIMEOUT});
+
+            if (r.status_code == 200) {
+                INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
+                break;
+            }
+
+            ERR("API send game data failed: code={}, {}", r.status_code, r.error.message);
+            ERR("{}", r.text);
+
+            if (r.status_code == 500 && r.text.find("not attached") != string::npos) {
+                m_status = AuthStatus::AuthenticatedUnpaired;
+                break;
+            }
+
+            if (r.status_code != 401) {
+                break;
+            }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
+        }
+        DBG("On quit game data");
+    };
+}
+
 Net::task_t Net::createHeartbeatTask()
 {
     return [this] {
-        for (;;) {
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            DBG("Before waiting heartbeat");
+
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return m_status == AuthStatus::Authenticated
-                    || m_status == AuthStatus::AuthenticationFailed;
+                switch (m_status) {
+                case AuthStatus::AuthenticatedCheckingPairing:
+                case AuthStatus::AuthenticatedUnpaired:
+                case AuthStatus::AuthenticatedPaired:
+                case AuthStatus::AuthenticationFailed:
+                    return true;
+                default:
+                    return false;
+                }
             });
 
-            if (m_status != AuthStatus::Authenticated) {
-                return;
+            if (m_status == AuthStatus::AuthenticationFailed) {
+                break;
             }
 
             bool isActiveSession = false; // FIXME
@@ -342,20 +391,37 @@ Net::task_t Net::createHeartbeatTask()
                                     authHeader(), cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
-                INF("API heartbeat: ok");
-                DBG("{}", r.text);
-                return;
+                INF("API heartbeat: ok, {}", r.text);
+
+                boost::system::error_code ec;
+                boost::json::object json = boost::json::parse(r.text, ec).as_object();
+                if (!ec) {
+                    if (m_status == AuthStatus::AuthenticatedCheckingPairing) {
+                        if (json.contains(JSON_UNPAIRED) && json.at(JSON_UNPAIRED).as_bool()) {
+                            m_status = AuthStatus::AuthenticatedUnpaired;
+                        } else {
+                            m_status = AuthStatus::AuthenticatedPaired;
+                        }
+                        m_authCV.notify_all();
+                    }
+                }
+                break;
             }
 
             ERR("API send game data failed: code={}, {}", r.status_code, r.error.message);
             ERR("{}", r.text);
 
-            if (r.status_code == 401) {
-                m_status = AuthStatus::NotAuthenticated;
-                auto auth = createAuthenticateTask();
-                auth();
+            if (r.status_code != 401) {
+                break;
             }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
         }
+
+        m_isHeartbeatInQueue = false;
+        DBG("On quit heartbeat");
     };
 }
 

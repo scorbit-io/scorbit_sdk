@@ -26,7 +26,9 @@ std::string getSignature(const SignerCallback &signer, const std::string &uuid,
 enum class AuthStatus {
     NotAuthenticated,
     Authenticating,
-    Authenticated,
+    AuthenticatedCheckingPairing,
+    AuthenticatedUnpaired,
+    AuthenticatedPaired,
     AuthenticationFailed,
 };
 
@@ -52,7 +54,7 @@ public:
     void sendInstalled(const std::string &type, const std::string &version,
                        bool success = true) override;
     void sendGameData(const detail::GameData &data) override;
-    void sendHeartbeat(bool isActive) override;
+    void sendHeartbeat() override;
 
 private:
     task_t createAuthenticateTask();
@@ -70,6 +72,8 @@ private:
     std::condition_variable m_authCV;
     std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
+    std::atomic_bool m_isGameDataInQueue {false};
+    std::atomic_bool m_isHeartbeatInQueue {false};
 
     std::string m_hostname;
     std::string m_stoken;

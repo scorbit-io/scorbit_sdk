@@ -27,7 +27,8 @@ public:
     bool isRunning() const { return m_running; }
 
     void postQueue(std::function<void()> func);
-    void post(std::function<void()> func);
+    void postGameDataQueue(std::function<void()> func);
+    void postHeartbeatQueue(std::function<void()> func);
 
 private:
     void run();
@@ -36,10 +37,15 @@ private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
 
     std::atomic_bool m_running {false};
+
     boost::asio::io_context m_ioc;
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_workGuard {
             boost::asio::make_work_guard(m_ioc)};
+
     asio_strand m_strand {m_ioc.get_executor()};
+    asio_strand m_gameDataStrand {m_ioc.get_executor()};
+    asio_strand m_heartbeatStrand {m_ioc.get_executor()};
+
     boost::thread_group m_threads;
 };
 
