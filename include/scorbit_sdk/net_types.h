@@ -21,8 +21,11 @@ constexpr auto SIGNATURE_MAX_LENGTH = SB_SIGNATURE_MAX_LENGTH;
 constexpr auto KEY_LENGTH = SB_KEY_LENGTH;
 
 struct DeviceInfo {
-    /** Required. The provider name, e.g., "scorbitron", "vpin". */
+    /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;
+
+    /** Mandatory for manufacturers. The Machine ID assigned by Scorbit, ex. 4419. */
+    int32_t machineId {0};
 
     /**
      * Optional. The hostname of the server to connect to.

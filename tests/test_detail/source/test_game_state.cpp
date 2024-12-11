@@ -24,8 +24,11 @@ class MockNetBase : public NetBase
 {
 public:
     void authenticate() override { };
-    virtual void sendInstalled(const std::string &, const std::string &, bool = true) override { };
-    virtual void sendHeartbeat() override { };
+    void sendInstalled(const std::string &, const std::string &, bool = true) override { };
+    void sendHeartbeat() override { };
+    std::string getMachineUuid() const override { return {}; };
+    std::string getPairDeeplink() const override { return {}; };
+    std::string getClaimDeeplink(int) const override { return {}; };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
 };
 

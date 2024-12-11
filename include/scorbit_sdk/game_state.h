@@ -150,6 +150,40 @@ public:
      */
     void commit();
 
+    // ----------------------------------------------------------------
+
+    /**
+     * @brief Retrieve the machine's UUID.
+     *
+     * If machine UUID was not provided and it was derived from MAC address
+     *
+     * @return The machine UUID.
+     */
+    std::string getMachineUuid() const;
+
+    /**
+     * @brief Retrieve the pairing deeplink.
+     *
+     * This link has to be encoded and displayed as QR code, so that the user can scan it with
+     * mobile app to do pairing.
+     *
+     * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
+     * authenticated, an empty string is returned.
+     */
+    std::string getPairDeeplink() const;
+
+    /**
+     * @brief Retrieve the claim and navigation deeplink.
+     *
+     * This link has to be encoded and displayed as QR code, so that the user can scan it with
+     * mobile app to claim the player's slot.
+     *
+     * @param player The player number (starting from 1).
+     * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
+     * authenticated, an empty string is returned.
+     */
+    std::string getClaimDeeplink(int player) const;
+
 private:
     spimpl::unique_impl_ptr<detail::GameStateImpl> p;
 };

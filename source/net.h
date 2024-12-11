@@ -43,6 +43,11 @@ class Net : public NetBase
                 std::chrono::steady_clock::now()};
     };
 
+    struct VenueMachineInfo {
+        int64_t venuemachineId {0};
+        std::string opdbId;
+    };
+
 public:
     Net(SignerCallback signer, DeviceInfo deviceInfo);
 
@@ -55,6 +60,10 @@ public:
                        bool success = true) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
+
+    std::string getMachineUuid() const override;
+    std::string getPairDeeplink() const override;
+    std::string getClaimDeeplink(int player) const override;
 
 private:
     task_t createAuthenticateTask();
@@ -79,6 +88,7 @@ private:
     std::string m_stoken;
 
     DeviceInfo m_deviceInfo;
+    VenueMachineInfo m_vmInfo;
     std::map<std::string, GameSession> m_gameSessions;
     Worker m_worker;
 };

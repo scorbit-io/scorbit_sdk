@@ -26,6 +26,10 @@ public:
                                bool success = true) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
+
+    virtual std::string getMachineUuid() const = 0;
+    virtual std::string getPairDeeplink() const = 0;
+    virtual std::string getClaimDeeplink(int player) const = 0;
 };
 
 } // namespace detail

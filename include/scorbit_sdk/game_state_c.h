@@ -173,6 +173,47 @@ void sb_clear_modes(sb_game_handle_t handle);
 SCORBIT_SDK_EXPORT
 void sb_commit(sb_game_handle_t handle);
 
+/**
+ * @brief Retrieve the machine's UUID.
+ *
+ * If the machine UUID was not explicitly provided, it will be derived from the MAC address.
+ *
+ * @note The pointer to the string remains valid until this function is called again or the handle
+ * is destroyed.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @return A pointer to the machine's UUID string.
+ */
+SCORBIT_SDK_EXPORT
+const char *sb_get_machine_uuid(sb_game_handle_t handle);
+
+/**
+ * @brief Retrieve the pairing deeplink.
+ *
+ * @note The pointer to the string remains valid until this function is called again or the handle
+ * is destroyed.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @return A pointer to the pairing deeplink string. If the machine is not paired or the SDK is not
+ * yet authenticated, an empty string is returned.
+ */
+SCORBIT_SDK_EXPORT
+const char *sb_get_pair_deeplink(sb_game_handle_t handle);
+
+/**
+ * @brief Retrieve the claim and navigation deeplink.
+ *
+ * @note The returned string pointer remains valid until this function is called again or the handle
+ * is destroyed.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param player The player number (starting from 1).
+ * @return A pointer to the claim deeplink string. If the machine is not paired or the SDK is not
+ * yet authenticated, an empty string is returned.
+ */
+SCORBIT_SDK_EXPORT
+const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
+
 #ifdef __cplusplus
 }
 #endif

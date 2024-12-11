@@ -60,4 +60,19 @@ void GameState::commit()
     p->commit();
 }
 
+std::string GameState::getMachineUuid() const
+{
+    return p->getMachineUuid();
+}
+
+std::string GameState::getPairDeeplink() const
+{
+    return p->getPairDeeplink();
+}
+
+std::string GameState::getClaimDeeplink(int player) const
+{
+    return p->getClaimDeeplink(player);
+}
+
 } // namespace scorbit

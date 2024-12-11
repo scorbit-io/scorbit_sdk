@@ -10,11 +10,17 @@
 #include "scorbit_sdk/net_types.h"
 #include "scorbit_sdk/net_types_c.h"
 #include "scorbit_sdk/game_state_factory.h"
+#include <string>
+#include <map>
 
 using namespace scorbit;
 
 struct sb_game_state_struct {
     GameState gameState;
+
+    std::string machineUuid;
+    std::string pairDeeplink;
+    std::map<int, std::string> claimDeeplinks;
 };
 
 sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
@@ -29,6 +35,7 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
 
     if (device_info) {
         deviceInfo.provider = device_info->provider;
+        deviceInfo.machineId = device_info->machine_id;
         if (device_info->hostname) {
             deviceInfo.hostname = device_info->hostname;
         }
@@ -38,7 +45,8 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         deviceInfo.serialNumber = device_info->serial_number;
     }
 
-    return new sb_game_state_struct {createGameState(std::move(cb), std::move(deviceInfo))};
+    return new sb_game_state_struct {
+            createGameState(std::move(cb), std::move(deviceInfo)), {}, {}, {}};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)
@@ -90,4 +98,22 @@ void sb_clear_modes(sb_game_handle_t handle)
 void sb_commit(sb_game_handle_t handle)
 {
     handle->gameState.commit();
+}
+
+const char *sb_get_machine_uuid(sb_game_handle_t handle)
+{
+    handle->machineUuid = handle->gameState.getMachineUuid();
+    return handle->machineUuid.c_str();
+}
+
+const char *sb_get_pair_deeplink(sb_game_handle_t handle)
+{
+    handle->pairDeeplink = handle->gameState.getPairDeeplink();
+    return handle->pairDeeplink.c_str();
+}
+
+const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
+{
+    handle->claimDeeplinks[player] = handle->gameState.getClaimDeeplink(player);
+    return handle->claimDeeplinks[player].c_str();
 }

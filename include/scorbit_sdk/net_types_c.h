@@ -22,8 +22,11 @@ enum {
 };
 
 typedef struct {
-    /** Required. The provider name, e.g., "scorbitron", "vpin". */
+    /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;
+
+    /** Mandatory for manufacturers. The Machine ID assigned by Scorbit, ex. 4419. */
+    int32_t machine_id;
 
     /**
      * Optional. The hostname of the server to connect to.

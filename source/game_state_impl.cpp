@@ -106,6 +106,21 @@ void GameStateImpl::commit()
     }
 }
 
+std::string GameStateImpl::getMachineUuid() const
+{
+    return m_net->getMachineUuid();
+}
+
+std::string GameStateImpl::getPairDeeplink() const
+{
+    return m_net->getPairDeeplink();
+}
+
+std::string GameStateImpl::getClaimDeeplink(int player) const
+{
+    return m_net->getClaimDeeplink(player);
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

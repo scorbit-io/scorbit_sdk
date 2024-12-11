@@ -37,6 +37,11 @@ constexpr auto REST_TOKEN {"SToken"};
 constexpr auto RETURNED_TOKEN_NAME {"stoken"};
 
 constexpr auto JSON_UNPAIRED {"unpaired"};
+constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
+                                 "qrcode?$deeplink_path={manufacturer_prefix}"
+                                 "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
+constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
+                               "&opdb={opdb_id}&position={player_number}"};
 
 using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
@@ -69,6 +74,23 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     , m_deviceInfo(std::move(deviceInfo))
 {
     setHostname(m_deviceInfo.hostname);
+
+    // Verify that mandatory "provider" field in deviceInfo is set
+    if (m_deviceInfo.provider.empty()) {
+        ERR("Provider is not set");
+        // TODO: Set an appropriate error status
+        return;
+    }
+
+    // Verify that mandatory "provider" field in deviceInfo is set for manufacturers (except
+    // scorbitron, vscorbitron)
+    if (m_deviceInfo.provider != "scorbitron" && m_deviceInfo.provider != "vscorbitron") {
+        if (m_deviceInfo.machineId == 0) {
+            ERR("Machine ID not set");
+            // TODO: Set an appropriate error status
+            return;
+        }
+    }
 
     // Parse UUID to if it's in correct format
     if (!m_deviceInfo.uuid.empty()) {
@@ -145,6 +167,30 @@ void Net::sendHeartbeat()
     if (!m_isHeartbeatInQueue.exchange(true)) {
         m_worker.postHeartbeatQueue(createHeartbeatTask());
     }
+}
+
+string Net::getMachineUuid() const
+{
+    return m_deviceInfo.uuid;
+}
+
+string Net::getPairDeeplink() const
+{
+    return fmt::format(PAIRING_DEEPLINK, fmt::arg("manufacturer_prefix", m_deviceInfo.provider),
+                       fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
+                       fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
+}
+
+string Net::getClaimDeeplink(int player) const
+{
+    if (m_vmInfo.venuemachineId == 0 || m_vmInfo.opdbId.empty()) {
+        DBG("Venue machine ID or OPDB ID is not set, make sure that the device is authenticated "
+            "and paired");
+        return {};
+    }
+
+    return fmt::format(CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
+                       fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
 }
 
 Net::task_t Net::createAuthenticateTask()
@@ -264,7 +310,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
         }
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            DBG("Before waiting game data");
+            // DBG("Before waiting game data");
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
@@ -354,7 +400,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             auto auth = createAuthenticateTask();
             auth();
         }
-        DBG("On quit game data");
+        // DBG("On quit game data");
     };
 }
 
@@ -362,7 +408,7 @@ Net::task_t Net::createHeartbeatTask()
 {
     return [this] {
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            DBG("Before waiting heartbeat");
+            // DBG("Before waiting heartbeat");
 
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -399,10 +445,23 @@ Net::task_t Net::createHeartbeatTask()
                     if (m_status == AuthStatus::AuthenticatedCheckingPairing) {
                         if (json.contains(JSON_UNPAIRED) && json.at(JSON_UNPAIRED).as_bool()) {
                             m_status = AuthStatus::AuthenticatedUnpaired;
+                            m_vmInfo.venuemachineId = 0;
+                            m_vmInfo.opdbId.clear();
                         } else {
                             m_status = AuthStatus::AuthenticatedPaired;
                         }
+
                         m_authCV.notify_all();
+
+                        if (const auto venuemachineId = json.if_contains("venuemachine_id")) {
+                            m_vmInfo.venuemachineId = venuemachineId->as_int64();
+                        }
+
+                        if (const auto config = json.if_contains("config")) {
+                            if (const auto opdbId = config->as_object().if_contains("opdb_id")) {
+                                m_vmInfo.opdbId = opdbId->as_string();
+                            }
+                        }
                     }
                 }
                 break;
@@ -421,7 +480,7 @@ Net::task_t Net::createHeartbeatTask()
         }
 
         m_isHeartbeatInQueue = false;
-        DBG("On quit heartbeat");
+        // DBG("On quit heartbeat");
     };
 }
 
