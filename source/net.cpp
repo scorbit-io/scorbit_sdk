@@ -155,8 +155,10 @@ void Net::sendGameData(const detail::GameData &data)
         m_gameSessions[data.sessionUuid].gameData = data;
     }
 
-    // Ensure that only single task in the queue (while another can be running)
-    if (!m_isGameDataInQueue.exchange(true)) {
+    // Ensure that only single task in the queue (while another can be running).
+    // However, if game session is finished (not active), post task anyway, because this is the last
+    // task for that game session.
+    if (!data.isGameActive || !m_isGameDataInQueue.exchange(true)) {
         m_worker.postGameDataQueue(createGameDataTask(data.sessionUuid));
     }
 }
@@ -306,11 +308,19 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
         int sessionCounter;
         {
             std::lock_guard lock(m_gameSessionsMutex);
+            if (m_gameSessions.count(sessionUuid) == 0) {
+                // Nothing to do, session is already finished and removed
+                return;
+            }
+
             sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
         }
 
+        GameSession session;
+
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting game data");
+
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
@@ -323,7 +333,6 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
                 break;
             }
 
-            GameSession session;
             {
                 std::lock_guard lock(m_gameSessionsMutex);
                 session = m_gameSessions[sessionUuid];
@@ -400,6 +409,15 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             auto auth = createAuthenticateTask();
             auth();
         }
+
+        // Clear the game data if the game is finished
+        if (!session.gameData.isGameActive) {
+            std::lock_guard lock(m_gameSessionsMutex);
+            if (m_gameSessions.erase(sessionUuid) > 0) {
+                INF("Game session {} finished", sessionUuid);
+            }
+        }
+
         // DBG("On quit game data");
     };
 }
