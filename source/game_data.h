@@ -16,7 +16,7 @@ namespace scorbit {
 namespace detail {
 
 struct GameData {
-    bool isGameStarted {false};
+    bool isGameActive {false};
 
     sb_ball_t ball {0};
     sb_player_t activePlayer {0};
@@ -27,7 +27,7 @@ struct GameData {
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
 {
-    return lhs.isGameStarted == rhs.isGameStarted && lhs.ball == rhs.ball
+    return lhs.isGameActive == rhs.isGameActive && lhs.ball == rhs.ball
         && lhs.activePlayer == rhs.activePlayer && lhs.modes == rhs.modes
         && lhs.players == rhs.players && lhs.sessionUuid == rhs.sessionUuid;
 }

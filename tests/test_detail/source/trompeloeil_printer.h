@@ -17,7 +17,7 @@ struct printer<scorbit::detail::GameData> {
     static void print(std::ostream &os, const scorbit::detail::GameData &g)
     {
         os << "GameData { "
-           << "isGameStarted: " << g.isGameStarted << ", "
+           << "isGameStarted: " << g.isGameActive << ", "
            << "ball: " << g.ball << ", "
            << "activePlayer: " << g.activePlayer << ", "
            << "players: {";

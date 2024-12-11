@@ -23,7 +23,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
 
 void GameStateImpl::setGameStarted()
 {
-    if (m_data.isGameStarted) {
+    if (m_data.isGameActive) {
         DBG("Game is already active, ignore starting game");
         return;
     }
@@ -31,7 +31,7 @@ void GameStateImpl::setGameStarted()
     // Reset game data
     m_prevData = m_data = GameData {};
 
-    m_data.isGameStarted = true;
+    m_data.isGameActive = true;
     m_data.sessionUuid = boost::uuids::to_string(boost::uuids::random_generator()());
     setCurrentBall(1);
     setActivePlayer(1);
@@ -39,7 +39,7 @@ void GameStateImpl::setGameStarted()
 
 void GameStateImpl::setGameFinished()
 {
-    m_data.isGameStarted = false;
+    m_data.isGameActive = false;
     sendGameData();
 
     // Reset game data
@@ -101,7 +101,7 @@ void GameStateImpl::clearModes()
 
 void GameStateImpl::commit()
 {
-    if (m_data.isGameStarted) {
+    if (m_data.isGameActive) {
         sendGameData();
     }
 }

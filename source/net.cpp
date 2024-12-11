@@ -336,7 +336,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             cpr::Payload payload {
                     {"session_uuid", data.sessionUuid},
                     {"session_time", std::to_string(elapsedMilliseconds)},
-                    {"active", data.isGameStarted ? "true" : "false"},
+                    {"active", data.isGameActive ? "true" : "false"},
                     {"session_sequence", to_string(sessionCounter)},
             };
 

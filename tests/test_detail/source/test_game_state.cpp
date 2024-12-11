@@ -50,14 +50,14 @@ struct GameDataMatcher {
         } catch (...) {
             FAIL("Invalid UUID: '" << actual.sessionUuid << "'");
         }
-        return actual.isGameStarted == expected.isGameStarted && actual.ball == expected.ball
+        return actual.isGameActive == expected.isGameActive && actual.ball == expected.ball
             && actual.activePlayer == expected.activePlayer && actual.players == expected.players
             && actual.modes == expected.modes;
     }
 
     friend std::ostream &operator<<(std::ostream &os, const GameDataMatcher &matcher)
     {
-        os << "GameData { isGameStarted: " << matcher.expected.isGameStarted
+        os << "GameData { isGameActive: " << matcher.expected.isGameActive
            << ", ball: " << matcher.expected.ball
            << ", activePlayer: " << matcher.expected.activePlayer
            << ", num of players: " << matcher.expected.players.size()
@@ -78,7 +78,7 @@ TEST_CASE("setGameStarted functionality")
     GameState gameState(std::move(mockNet));
 
     GameData expected;
-    expected.isGameStarted = true;
+    expected.isGameActive = true;
     expected.ball = 1;
     expected.activePlayer = 1;
     expected.players.insert(std::make_pair(1, PlayerState {1}));
@@ -136,7 +136,7 @@ TEST_CASE("setGameFinished functionality")
     SECTION("Marks the game as finished and commits changes")
     {
         GameData expected;
-        expected.isGameStarted = false;
+        expected.isGameActive = false;
         expected.ball = 3;
         expected.activePlayer = 2;
         expected.players.insert(std::make_pair(1, PlayerState {1, 2000}));
@@ -144,7 +144,7 @@ TEST_CASE("setGameFinished functionality")
 
         // First call will be when game is started
         REQUIRE_CALL(mockNetRef, sendGameData(_))
-                .WITH(_1.isGameStarted == true)
+                .WITH(_1.isGameActive == true)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
