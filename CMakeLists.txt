@@ -80,8 +80,8 @@ CPMAddPackage(
 # Boost -----------
 
 set(TRY_BOOST_VERSION 1.86.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread json)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
 
 include(cmake/boost.cmake)
 

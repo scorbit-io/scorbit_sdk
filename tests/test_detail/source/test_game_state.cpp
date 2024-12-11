@@ -45,7 +45,8 @@ struct GameDataMatcher {
     {
         // sessionUuid should be parsed ok, otherwise it will throw an exception
         try {
-            boost::uuids::uuid actualUuid = boost::uuids::string_generator()(actual.sessionUuid);
+            boost::uuids::uuid actualUuid =
+                    boost::uuids::string_generator()(actual.sessionUuid.get());
             (void)actualUuid;
         } catch (...) {
             FAIL("Invalid UUID: '" << actual.sessionUuid << "'");

@@ -89,7 +89,7 @@ private:
 
     DeviceInfo m_deviceInfo;
     VenueMachineInfo m_vmInfo;
-    std::map<std::string, GameSession> m_gameSessions;
+    std::map<std::string, GameSession> m_gameSessions; // key: session uuid
     Worker m_worker;
 };
 

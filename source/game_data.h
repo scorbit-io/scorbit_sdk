@@ -10,6 +10,7 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "player_state.h"
 #include "modes.h"
+#include <boost/flyweight.hpp>
 #include <map>
 
 namespace scorbit {
@@ -22,7 +23,7 @@ struct GameData {
     sb_player_t activePlayer {0};
     Modes modes;
     std::map<sb_player_t, PlayerState> players;
-    std::string sessionUuid;
+    boost::flyweight<std::string> sessionUuid;
 };
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)

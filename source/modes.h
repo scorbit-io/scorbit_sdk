@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <boost/flyweight.hpp>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -28,7 +29,7 @@ public:
     std::string str() const;
 
 private:
-    std::vector<std::string> m_modes;
+    std::vector<boost::flyweight<std::string>> m_modes;
 
     // Declare friend for operator==
     friend bool operator==(const Modes &, const Modes &);
