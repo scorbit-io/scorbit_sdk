@@ -34,7 +34,9 @@ bool isGameActive(int i)
 
 int player1Score(int i)
 {
-    return 1000 + i * 10;
+    if (i == 1)
+        return 0;
+    return 1000 + i * 500;
 }
 
 bool hasPlayer2()
@@ -235,7 +237,7 @@ int main()
         // the commit will be ignored, avoiding unnecessary uploads.
         gs.commit();
 
-        std::this_thread::sleep_for(100ms);
+        std::this_thread::sleep_for(1000ms);
     }
 
     cout << "Example finished" << endl;

@@ -31,7 +31,9 @@ int isGameActive(int i)
 
 int player1Score(int i)
 {
-    return 1000 + i * 10;
+    if (i == 1)
+        return 0;
+    return 1010 + i * 500;
 }
 
 int hasPlayer2(void)
@@ -102,6 +104,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     switch (level) {
     case SB_DEBUG:
         levelStr = "DBG";
+        return; // Skip debug messages
         break;
     case SB_INFO:
         levelStr = "INF";
@@ -240,7 +243,7 @@ int main(void)
         // the commit will be ignored, avoiding unnecessary uploads.
         sb_commit(gs);
 
-        usleep(100 * 1000); // Sleep for 100 ms
+        usleep(1000 * 1000); // Sleep for 1000 ms
     }
 
     // Cleanup
