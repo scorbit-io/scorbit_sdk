@@ -21,9 +21,11 @@ struct GameData {
 
     sb_ball_t ball {0};
     sb_player_t activePlayer {0};
-    Modes modes;
     std::map<sb_player_t, PlayerState> players;
+    Modes modes;
+
     boost::flyweight<std::string> sessionUuid;
+    std::chrono::time_point<std::chrono::system_clock> timestamp;
 };
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
@@ -37,6 +39,8 @@ inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::deta
 {
     return !(lhs == rhs);
 }
+
+using GameHistory = std::vector<GameData>;
 
 } // namespace detail
 } // namespace scorbit

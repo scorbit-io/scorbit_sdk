@@ -31,6 +31,7 @@ constexpr auto STOKEN_URL = "stoken/";
 constexpr auto INSTALLED_URL = "installed/";
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
+constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
 constexpr auto REST_TOKEN {"SToken"};
@@ -152,7 +153,9 @@ void Net::sendGameData(const detail::GameData &data)
 {
     {
         std::lock_guard lock(m_gameSessionsMutex);
-        m_gameSessions[data.sessionUuid].gameData = data;
+        auto &session = m_gameSessions[data.sessionUuid];
+        session.gameData = data;
+        session.history.push_back(data);
     }
 
     // Ensure that only single task in the queue (while another can be running).
@@ -412,9 +415,21 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
         // Clear the game data if the game is finished
         if (!session.gameData.isGameActive) {
-            std::lock_guard lock(m_gameSessionsMutex);
-            if (m_gameSessions.erase(sessionUuid) > 0) {
-                INF("Game session {} finished", sessionUuid);
+            GameHistory history;
+            bool isFinished = false;
+
+            {
+                std::lock_guard lock(m_gameSessionsMutex);
+                if (m_gameSessions.count(sessionUuid) > 0) {
+                    history = std::move(m_gameSessions[sessionUuid].history);
+                    m_gameSessions.erase(sessionUuid);
+                    isFinished = true;
+                    INF("Game session {} finished", sessionUuid);
+                }
+            }
+
+            if (isFinished) {
+                postUploadHistoryTask(history);
             }
         }
 
@@ -499,6 +514,56 @@ Net::task_t Net::createHeartbeatTask()
 
         m_isHeartbeatInQueue = false;
         // DBG("On quit heartbeat");
+    };
+}
+
+
+void Net::postUploadHistoryTask(const GameHistory &history)
+{
+    m_worker.postQueue(createUploadHistoryTask(history));
+}
+
+Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
+{
+    const auto sessionUuid = history.front().sessionUuid;
+    const auto filename = fmt::format("{}.csv", sessionUuid.get());
+    const auto csv = gameHistoryToCsv(history);
+    const auto multipart = cpr::Multipart {
+            {"uuid", sessionUuid},
+            {"log_file", cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
+    };
+
+    return createUploadTask(SESSION_CSV_URL, filename, multipart);
+}
+
+Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
+                                  const cpr::Multipart &multipart)
+{
+    return [this, endpoint, filename, multipart] {
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            if (m_status == AuthStatus::AuthenticationFailed) {
+                DBG("API can't upload {}, authentication failed!", filename);
+                break;
+            }
+
+            INF("API upload to backend started: {} to {}", filename, endpoint);
+            auto r = cpr::Post(cpr::Url {m_hostname + API + endpoint}, multipart, authHeader());
+
+            if (r.status_code == 200) {
+                INF("API upload to backend finished: ok! {} to {}", filename, endpoint);
+                break;
+            }
+
+            ERR("API try {} out of {} upload to backend failed! {} to {}, code={}, "
+                          "error message: {}",
+                          i + 1, NUM_RETRIES, filename, endpoint, r.status_code, r.error.message);
+            ERR("{}", r.text);
+        }
     };
 }
 

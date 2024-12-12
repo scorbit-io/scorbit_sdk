@@ -12,6 +12,7 @@
 
 using namespace scorbit;
 using namespace scorbit::detail;
+using namespace std::chrono_literals;
 
 TEST_CASE("Valid HTTPS URL with port", "[exctractHostAndPort]")
 {
@@ -119,4 +120,38 @@ TEST_CASE("Parse incorrect UUID returns empty string", "[parseUuid]")
 {
     const auto uuid = parseUuid("f4de2fc0");
     CHECK(uuid == "");
+}
+
+// Creating test case for gameHistoryToCsv
+TEST_CASE("Game history to csv", "[gameHistoryToCsv]")
+{
+    GameHistory history;
+
+    GameData data;
+    data.isGameActive = true;
+    data.ball = 1;
+    data.activePlayer = 1;
+    data.players.insert(std::make_pair(1, PlayerState {1, 100}));
+    data.timestamp = std::chrono::system_clock::time_point(10s);
+    history.push_back(data);
+
+    data.players.at(1).setScore(200, 0);
+    data.timestamp = std::chrono::system_clock::time_point(15s);
+    history.push_back(data);
+
+    data.isGameActive = false;
+    data.ball = 3;
+    data.activePlayer = 2;
+    data.players.insert(std::make_pair(2, PlayerState {2, 1000}));
+    data.timestamp = std::chrono::system_clock::time_point(20s);
+    data.modes.addMode("MB:Multiball");
+    data.modes.addMode("MB:Multiball2");
+    history.push_back(data);
+
+    std::string csv = gameHistoryToCsv(history);
+    std::string expectedCsv = "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes\n"
+                              "10,100,,,,,,1,1,\n"
+                              "15,200,,,,,,1,1,\n"
+                              "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\"\n";
+    CHECK(csv == expectedCsv);
 }

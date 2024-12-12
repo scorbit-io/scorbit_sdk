@@ -6,11 +6,14 @@
  ****************************************************************************/
 
 #include "net_util.h"
+#include "fmt/format.h"
 #include <boost/uuid.hpp>
 #include <regex>
 
 namespace scorbit {
 namespace detail {
+
+constexpr auto ABSOLUTE_MAX_PLAYERS_NUM = 6;
 
 // Function to extract protocol, hostname, and port
 UrlInfo exctractHostAndPort(const std::string &url)
@@ -68,6 +71,45 @@ std::string parseUuid(const std::string &str)
     }
 
     return to_string(u1);
+}
+
+std::string gameHistoryToCsv(const GameHistory &history)
+{
+    std::string rv;
+    rv.reserve(50 * 1024);
+
+
+    // CSV header: "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes\n";
+    rv.append("time");
+    for (sb_player_t playerNum = 1; playerNum <= ABSOLUTE_MAX_PLAYERS_NUM; ++playerNum) {
+        rv.append(fmt::format(",p{}", playerNum));
+    }
+    rv.append(",player,ball,game_modes\n");
+
+    // CSV body
+    for (const auto &data : history) {
+        auto timestamp =
+                std::chrono::duration_cast<std::chrono::seconds>(data.timestamp.time_since_epoch())
+                        .count();
+
+        std::string scores;
+        for (sb_player_t playerNum = 1; playerNum <= ABSOLUTE_MAX_PLAYERS_NUM; ++playerNum) {
+            if (data.players.count(playerNum) && data.players.at(playerNum).score() >= 0) {
+                scores.append(fmt::format("{}", data.players.at(playerNum).score()));
+            }
+            scores.append(",");
+        }
+
+        std::string modes;
+        if (!data.modes.isEmpty()) {
+            modes = fmt::format("\"{}\"", data.modes.str());
+        }
+
+        rv.append(fmt::format("{},{}{},{},{}\n", timestamp, scores, data.activePlayer, data.ball,
+                              modes));
+    }
+
+    return rv;
 }
 
 } // namespace detail

@@ -41,6 +41,7 @@ class Net : public NetBase
         GameData gameData;
         std::chrono::time_point<std::chrono::steady_clock> startedTime {
                 std::chrono::steady_clock::now()};
+        GameHistory history;
     };
 
     struct VenueMachineInfo {
@@ -70,6 +71,12 @@ private:
     task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
     task_t createGameDataTask(const std::string &sessionUuid);
     task_t createHeartbeatTask();
+
+    void postUploadHistoryTask(const GameHistory &history);
+    task_t createUploadHistoryTask(const GameHistory &history);
+
+    task_t createUploadTask(const std::string &endpoint, const std::string &name,
+                            const cpr::Multipart &multipart);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;

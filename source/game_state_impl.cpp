@@ -135,6 +135,7 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
 void GameStateImpl::sendGameData()
 {
     if (isChanged()) {
+        m_data.timestamp = std::chrono::system_clock::now();
         m_net->sendGameData(m_data);
         m_prevData = m_data;
     }
