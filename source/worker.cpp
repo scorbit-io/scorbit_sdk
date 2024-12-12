@@ -61,5 +61,15 @@ void Worker::postHeartbeatQueue(std::function<void()> func)
     boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
+void Worker::runTimer(std::chrono::steady_clock::duration delay, std::function<void()> func)
+{
+    m_heartbeatTimer.expires_after(delay);
+    m_heartbeatTimer.async_wait([func = std::move(func)](const boost::system::error_code &ec) {
+        if (!ec) {
+            func();
+        }
+    });
+}
+
 } // namespace detail
 } // namespace scorbit

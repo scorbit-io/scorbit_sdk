@@ -51,6 +51,7 @@ class Net : public NetBase
 
 public:
     Net(SignerCallback signer, DeviceInfo deviceInfo);
+    ~Net() override;
 
     std::string hostname() const;
     void setHostname(std::string hostname);
@@ -72,6 +73,8 @@ private:
     task_t createGameDataTask(const std::string &sessionUuid);
     task_t createHeartbeatTask();
 
+    void startHeartbeatTimer();
+
     void postUploadHistoryTask(const GameHistory &history);
     task_t createUploadHistoryTask(const GameHistory &history);
 
@@ -90,6 +93,7 @@ private:
     std::mutex m_gameSessionsMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
+    std::atomic_bool m_stopHeartbeatTimer {false};
 
     std::string m_hostname;
     std::string m_stoken;

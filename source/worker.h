@@ -9,8 +9,10 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/thread.hpp>
 #include <atomic>
+#include <chrono>
 
 namespace scorbit {
 namespace detail {
@@ -30,6 +32,8 @@ public:
     void postGameDataQueue(std::function<void()> func);
     void postHeartbeatQueue(std::function<void()> func);
 
+    void runTimer(std::chrono::steady_clock::duration delay, std::function<void()> func);
+
 private:
     void run();
 
@@ -47,6 +51,8 @@ private:
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
 
     boost::thread_group m_threads;
+
+    boost::asio::steady_timer m_heartbeatTimer {m_ioc};
 };
 
 } // namespace detail

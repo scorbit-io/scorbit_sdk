@@ -46,6 +46,7 @@ constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venu
 
 using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
+constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
@@ -114,6 +115,11 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     m_deviceInfo.uuid = removeSymbols(m_deviceInfo.uuid, "-{}");
 
     m_worker.start();
+}
+
+Net::~Net()
+{
+    m_stopHeartbeatTimer = true;
 }
 
 std::string Net::hostname() const
@@ -257,6 +263,7 @@ Net::task_t Net::createAuthenticateTask()
         m_authCV.notify_all();
 
         sendHeartbeat(); // To check if it's paired
+        startHeartbeatTimer();
     };
 }
 
@@ -460,11 +467,17 @@ Net::task_t Net::createHeartbeatTask()
                 break;
             }
 
-            bool isActiveSession = false; // FIXME
+            bool isActiveSession;
+            {
+                std::lock_guard lock(m_gameSessionsMutex);
+                isActiveSession = !m_gameSessions.empty();
+            }
             const auto parameters =
                     cpr::Parameters {{"session_active", isActiveSession ? "true" : "false"}};
 
             // TODO: sentry
+
+            INF("API sending heartbeat with session_active: {}", isActiveSession);
 
             const auto r = cpr::Get(cpr::Url {m_hostname + API + HEARTBEAT_URL}, parameters,
                                     authHeader(), cpr::Timeout {NET_TIMEOUT});
@@ -517,6 +530,15 @@ Net::task_t Net::createHeartbeatTask()
     };
 }
 
+void Net::startHeartbeatTimer()
+{
+    if (!m_stopHeartbeatTimer) {
+        m_worker.runTimer(HEARTBEAT_TIME, [this] {
+            startHeartbeatTimer();
+            sendHeartbeat();
+        });
+    }
+}
 
 void Net::postUploadHistoryTask(const GameHistory &history)
 {
@@ -560,8 +582,8 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
             }
 
             ERR("API try {} out of {} upload to backend failed! {} to {}, code={}, "
-                          "error message: {}",
-                          i + 1, NUM_RETRIES, filename, endpoint, r.status_code, r.error.message);
+                "error message: {}",
+                i + 1, NUM_RETRIES, filename, endpoint, r.status_code, r.error.message);
             ERR("{}", r.text);
         }
     };
