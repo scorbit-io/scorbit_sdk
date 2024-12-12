@@ -24,17 +24,17 @@ bool isGameFinished(int i)
 
 bool isGameJustStarted(int i)
 {
-    return i == 1;
+    return i == 5;
 }
 
 bool isGameActive(int i)
 {
-    return i >= 1 && i < 99;
+    return i >= 5 && i < 99;
 }
 
 int player1Score(int i)
 {
-    if (i == 1)
+    if (i == 5)
         return 0;
     return 1000 + i * 500;
 }
@@ -141,6 +141,9 @@ scorbit::GameState setupGameState()
     info.machineId = 4419;            // This is required, set to your machine id
     info.hostname = "staging";        // Optional, if not set, it will be "production"
     // Another example: info.hostname = "https://api.scorbit.io";
+
+    info.gameCodeVersion = "0.1.0"; // game version
+    info.clientVersion = "0.1.0";   // client version
 
     // If not set, will be 0, however, it there is serial number attached to the device, set it here
     // info.serialNumber = 12345;

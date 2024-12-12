@@ -21,17 +21,17 @@ int isGameFinished(int i)
 
 int isGameJustStarted(int i)
 {
-    return i == 1;
+    return i == 5;
 }
 
 int isGameActive(int i)
 {
-    return i >= 1 && i < 99;
+    return i >= 5 && i < 99;
 }
 
 int player1Score(int i)
 {
-    if (i == 1)
+    if (i == 5)
         return 0;
     return 1010 + i * 500;
 }
@@ -148,7 +148,10 @@ sb_game_handle_t setup_game_state(void)
     sb_device_info_t device_info = {
             .provider = "dilshodpinball", // This is required, set to your provider name
             .machine_id = 4419,
-            .hostname = "staging", // Optional, if NULL, it will be production
+            .game_code_version = "0.1.0", // game version
+            .client_version = "0.1.0",    // client version
+            .hostname = "staging",        // Optional, if NULL, it will be production
+
             // UUID is optional, if NULL, will be automatically derived from device's mac address
             // However, if there is known uuid attached to the device, set it here:
             .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
@@ -157,10 +160,11 @@ sb_game_handle_t setup_game_state(void)
 
     // Another example with default values:
     sb_device_info_t device_info2 = {
-            .provider = "vscorbitron", // This is required, set to your provider name
-            .hostname = NULL,          // NULL, it will be production, or can set to "production"
-            .uuid = NULL,              // NULL, will be automatically derived from device
-            .serial_number = 0,        // no serial number available, set to 0
+            .provider = "vscorbitron",    // This is required, set to your provider name
+            .game_code_version = "0.1.0", // game version
+            .hostname = NULL,             // NULL, it will be production, or can set to "production"
+            .uuid = NULL,                 // NULL, will be automatically derived from device
+            .serial_number = 0,           // no serial number available, set to 0
     };
     (void)device_info2;
 
@@ -226,7 +230,7 @@ int main(void)
             if (i % 10 == 0) {
                 sb_add_mode(gs, "MB:Multiball");
             } else {
-                sb_remove_mode(gs,  "MB:Multiball");
+                sb_remove_mode(gs, "MB:Multiball");
             }
             // sb_add_mode(gs, "MB:Multiball");
             // sb_add_mode(gs, "NA:SomeMode");
