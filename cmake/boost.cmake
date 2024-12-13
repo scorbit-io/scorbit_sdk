@@ -13,7 +13,10 @@ set(Boost_USE_RELEASE_LIBS ON) # only find release libs
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 
-cmake_policy(SET CMP0167 NEW)
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.30")
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 CPMAddPackage(
     NAME Boost
     URL ${BOOST_URL}
