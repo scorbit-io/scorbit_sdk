@@ -1,18 +1,18 @@
 /****************************************************************************
  *
  * @author Dilshod Mukhtarov <dilshodm(at)gmail.com>
- * Aug 2024
+ * Dec 2024
  *
  ****************************************************************************/
 
 #pragma once
 
+#include <string>
+
 namespace scorbit {
+namespace detail {
 
-class net
-{
-public:
-    net();
-};
+std::string getMacAddress();
 
+} // namespace detail
 } // namespace scorbit

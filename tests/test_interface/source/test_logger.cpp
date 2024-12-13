@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_vector.hpp>
+#include <catch2/trompeloeil.hpp>
 #include <thread>
 #include <random>
 
@@ -20,7 +21,7 @@ using namespace scorbit;
 struct CallbackHelper {
     std::string msg;
     scorbit::LogLevel level;
-    std::string file;
+    std::string fileName;
     int line;
 };
 
@@ -30,11 +31,11 @@ TEST_CASE("logger using functor object callback")
         void operator()(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
                         void *user)
         {
-            (void)user;
-            data.level = level;
-            data.file = file;
-            data.line = line;
             data.msg = msg;
+            data.level = level;
+            data.fileName = file;
+            data.line = line;
+            (void)user;
         }
 
         CallbackHelper data;
@@ -42,29 +43,23 @@ TEST_CASE("logger using functor object callback")
 
     loggerFunctor l;
 
-    SECTION("registerLogger")
+    SECTION("add logger")
     {
         // We have to use std::ref to pass the reference to the object, otherwise we can't reach
         // the object's data as the object will be copied
-        scorbit::registerLogger(std::ref(l));
+        scorbit::addLoggerCallback(std::ref(l));
         INF("Hello");
         int line = __LINE__ - 1;
         const char *file = __FILE__;
         CHECK(l.data.msg == "Hello");
         CHECK(l.data.level == scorbit::LogLevel::Info);
-        CHECK(l.data.file == file + std::string_view(file).find_last_of("/\\") + 1);
-        CHECK(l.data.line == line);
-
-        // After unregister log it does no longer log (in the function object it's still old values)
-        scorbit::unregisterLogger();
-        INF("new logs");
-        CHECK(l.data.msg == "Hello");
+        CHECK(l.data.fileName == file + std::string_view(file).find_last_of("/\\") + 1);
         CHECK(l.data.line == line);
     }
 
     SECTION("Log levels")
     {
-        scorbit::registerLogger(std::ref(l));
+        scorbit::addLoggerCallback(std::ref(l));
         DBG("Debug");
         CHECK(l.data.level == scorbit::LogLevel::Debug);
 
@@ -77,6 +72,35 @@ TEST_CASE("logger using functor object callback")
         ERR("Error");
         CHECK(l.data.level == scorbit::LogLevel::Error);
     }
+
+    resetLogger();
+}
+
+struct MockCallback {
+    MAKE_MOCK5(callbackFunc, void(std::string_view, scorbit::LogLevel, const char *, int, void *));
+} mockCallback;
+
+void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
+                  void *user)
+{
+    mockCallback.callbackFunc(msg, level, file, line, user);
+}
+
+TEST_CASE("Logger with function callback using trompeloeil")
+{
+    using namespace trompeloeil;
+    using namespace scorbit;
+
+    SECTION("SectionName")
+    {
+        REQUIRE_CALL(mockCallback, callbackFunc(eq<std::string_view>("Hello"), eq(LogLevel::Info),
+                                                _, _, eq(nullptr)));
+
+        scorbit::addLoggerCallback(callbackFunc);
+        INF("Hello");
+    }
+
+    resetLogger();
 }
 
 static void callback(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
@@ -84,7 +108,7 @@ static void callback(std::string_view msg, scorbit::LogLevel level, const char *
 {
     auto &userData = *static_cast<CallbackHelper *>(user);
     userData.level = level;
-    userData.file = file;
+    userData.fileName = file;
     userData.line = line;
     userData.msg = msg;
 }
@@ -93,31 +117,27 @@ TEST_CASE("logger using function callback")
 {
     static CallbackHelper userData;
 
-    scorbit::registerLogger(callback, &userData);
+    scorbit::addLoggerCallback(callback, &userData);
     INF("Hello");
     int line = __LINE__ - 1;
     const char *file = __FILE__;
     CHECK(userData.msg == "Hello");
     CHECK(userData.level == scorbit::LogLevel::Info);
-    CHECK(userData.file == file + std::string_view(file).find_last_of("/\\") + 1);
+    CHECK(userData.fileName == file + std::string_view(file).find_last_of("/\\") + 1);
     CHECK(userData.line == line);
 
-    // After unregister log it does no longer log (in the function object it's still old values)
-    scorbit::unregisterLogger();
-    INF("new logs");
-    CHECK(userData.msg == "Hello");
-    CHECK(userData.line == line);
+    resetLogger();
 }
 
 TEST_CASE("logger using lambda callback")
 {
     CallbackHelper userData;
 
-    scorbit::registerLogger([&userData](std::string_view msg, scorbit::LogLevel level,
+    scorbit::addLoggerCallback([&userData](std::string_view msg, scorbit::LogLevel level,
                                         const char *file, int line, void *user) {
         (void)user;
         userData.level = level;
-        userData.file = file;
+        userData.fileName = file;
         userData.line = line;
         userData.msg = msg;
     });
@@ -126,41 +146,33 @@ TEST_CASE("logger using lambda callback")
     const char *file = __FILE__;
     CHECK(userData.msg == "Hello");
     CHECK(userData.level == scorbit::LogLevel::Info);
-    CHECK(userData.file == file + std::string_view(file).find_last_of("/\\") + 1);
+    CHECK(userData.fileName == file + std::string_view(file).find_last_of("/\\") + 1);
     CHECK(userData.line == line);
 
-    // After unregister log it does no longer log (in the function object it's still old values)
-    scorbit::unregisterLogger();
-    INF("new logs");
-    CHECK(userData.msg == "Hello");
-    CHECK(userData.line == line);
+    resetLogger();
 }
 
 TEST_CASE("logger using bind callback")
 {
     CallbackHelper userData;
 
-    scorbit::registerLogger(std::bind(callback, std::placeholders::_1, std::placeholders::_2,
+    scorbit::addLoggerCallback(std::bind(callback, std::placeholders::_1, std::placeholders::_2,
                                       std::placeholders::_3, std::placeholders::_4, &userData));
     INF("Hello");
     int line = __LINE__ - 1;
     const char *file = __FILE__;
     CHECK(userData.msg == "Hello");
     CHECK(userData.level == scorbit::LogLevel::Info);
-    CHECK(userData.file == file + std::string_view(file).find_last_of("/\\") + 1);
+    CHECK(userData.fileName == file + std::string_view(file).find_last_of("/\\") + 1);
     CHECK(userData.line == line);
 
-    // After unregister log it does no longer log (in the function object it's still old values)
-    scorbit::unregisterLogger();
-    INF("new logs");
-    CHECK(userData.msg == "Hello");
-    CHECK(userData.line == line);
+    resetLogger();
 }
 
 TEST_CASE("logger multithread")
 {
     std::vector<std::string> logs;
-    scorbit::registerLogger([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
+    scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
                                     void *) { logs.emplace_back(msg); });
 
     // Set up the random number generator
@@ -190,4 +202,6 @@ TEST_CASE("logger multithread")
 
     using namespace Catch::Matchers;
     CHECK_THAT(logs, UnorderedEquals(testLogs));
+
+    resetLogger();
 }

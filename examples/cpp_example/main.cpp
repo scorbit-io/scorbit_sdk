@@ -1,0 +1,248 @@
+/****************************************************************************
+ *
+ * @author Dilshod Mukhtarov <dilshodm(at)gmail.com>
+ * Oct 2024
+ *
+ ****************************************************************************/
+
+#include <scorbit_sdk/scorbit_sdk.h>
+#include "../signer_function/scorbit_crypt.h"
+
+#include <iostream>
+#include <iomanip>
+#include <chrono>
+#include <ctime>
+#include <thread>
+
+using namespace std;
+
+// ------------ Dummy functions to simulate game state just to get file compiled  --------------
+bool isGameFinished(int i)
+{
+    return i == 99;
+}
+
+bool isGameJustStarted(int i)
+{
+    return i == 5;
+}
+
+bool isGameActive(int i)
+{
+    return i >= 5 && i < 99;
+}
+
+int player1Score(int i)
+{
+    if (i == 5)
+        return 0;
+    return 1000 + i * 500;
+}
+
+bool hasPlayer2()
+{
+    return false;
+}
+
+int player2Score()
+{
+    return 2000;
+}
+
+bool hasPlayer3()
+{
+    return false;
+}
+
+int player3Score()
+{
+    return 3000;
+}
+
+bool hasPlayer4()
+{
+    return false;
+}
+
+int player4Score()
+{
+    return 4000;
+}
+
+int currentPlayer()
+{
+    return 1;
+}
+
+int currentBall(int i)
+{
+    return i / 33 + 1;
+}
+
+bool timeToClearModes()
+{
+    return false;
+}
+
+// --------------- Example of logger callback ------------------
+
+// This callback will be called in a thread-safe manner, so we don't worry about thread-safety
+void loggerCallback(const std::string &message, scorbit::LogLevel level, const char *file, int line,
+                    void *userData)
+{
+    (void)userData;
+    (void)file;
+    (void)line;
+
+    const std::time_t ct = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    // Format currentTime to string like [2024-10-01 12:34:56]
+    std::cout << '[' << std::put_time(std::localtime(&ct), "%Y-%m-%d %H:%M:%S") << "] [";
+
+    switch (level) {
+    case scorbit::LogLevel::Debug:
+        std::cout << "DBG";
+        break;
+    case scorbit::LogLevel::Info:
+        std::cout << "INF";
+        break;
+    case scorbit::LogLevel::Warn:
+        std::cout << "WRN";
+        break;
+    case scorbit::LogLevel::Error:
+        std::cout << "ERR";
+        break;
+    }
+
+    std::cout << "] " << message << '\n';
+    std::cout.flush(); // Maybe we should not flush buffer, so it will not slow down the program
+}
+
+// --------------- Implementation of signer callback ------------------
+// Signer callback can be free function or lambda, or class member, in this example we use free
+// function
+bool signerCallback(scorbit::Signature &signature, size_t &signatureLen,
+                    const scorbit::Digest &digest)
+{
+    // Private key, it's better if stored as garbled and decoded before use.
+    // Here, for simplicity we keep it as is.
+    // WARNING: This is key for test manufacturer (dilshodpinball)
+    scorbit::Key key = {0xd6, 0x7b, 0x36, 0xc6, 0xaf, 0x1a, 0x6b, 0xe0, 0x9d, 0xef, 0xe8,
+                        0xbb, 0x1b, 0x61, 0xd2, 0xd8, 0x25, 0x68, 0xa1, 0xca, 0xa9, 0xfe,
+                        0xae, 0xf7, 0x98, 0xa4, 0xca, 0xbe, 0x30, 0xdd, 0x8a, 0x91};
+
+    return SIGN_OK == scorbit_sign(signature.data(), &signatureLen, digest.data(), key.data());
+}
+
+scorbit::GameState setupGameState()
+{
+    scorbit::DeviceInfo info;
+
+    info.provider = "dilshodpinball"; // This is required, set to your provider name
+    info.machineId = 4419;            // This is required, set to your machine id
+    info.hostname = "staging";        // Optional, if not set, it will be "production"
+    // Another example: info.hostname = "https://api.scorbit.io";
+
+    info.gameCodeVersion = "0.1.0"; // game version
+    info.clientVersion = "0.1.0";   // client version
+
+    // If not set, will be 0, however, it there is serial number attached to the device, set it here
+    // info.serialNumber = 12345;
+
+    // UUID is optional, if not set will be automatically derived from device's mac address
+    // However, if there is known uuid attached to the device, set it here:
+    info.uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"; // dilshodpinball test machine
+
+    // Create game state object. Normally, device info will be copied.
+    // However, it can be moved, because we don't need this struct anymore.
+    return scorbit::createGameState(signerCallback, std::move(info));
+}
+
+using namespace std::chrono_literals;
+
+int main()
+{
+    cout << "Simple example of Scorbit SDK usage" << endl;
+
+    // Setup logger
+    scorbit::addLoggerCallback(loggerCallback);
+
+    // Create game state object
+    scorbit::GameState gs = setupGameState();
+
+    // std::this_thread::sleep_for(1000ms);
+
+    cout << "Deeplink for pairing " << gs.getPairDeeplink() << endl;
+
+    // Main loop which is typically an infinite loop, but this example runs for 10 cycles
+    for (int i = 0; i < 100; ++i) {
+        // Next game cycle started. First check if game is finished, because it might happen,
+        // that in the same cycle one game finished and started new game
+        if (isGameFinished(i)) {
+            // This will close current active session and do commit.
+            gs.setGameFinished();
+        }
+
+        if (i == 50) {
+            cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
+        }
+
+        if (isGameJustStarted(i)) {
+            // This will start new game session with player1 score 0 and current ball 1.
+
+            // In the same game cycle before commit it can be set new score, active player, etc.
+            // So, player1's initial score will be not 0, but the one set in the current cycle
+            gs.setGameStarted();
+        }
+
+        if (isGameActive(i)) {
+            // Set player1 score, no problem, if it was not changed in the current cycle
+            gs.setScore(1, player1Score(i));
+
+            if (hasPlayer2()) {
+                // Set player2 score if player2 is present
+                gs.setScore(2, player2Score());
+            }
+
+            if (hasPlayer3()) {
+                // Set player3 score if player3 is present
+                gs.setScore(3, player3Score());
+            }
+
+            if (hasPlayer4()) {
+                // Set player4 score if player4 is present
+                gs.setScore(4, player4Score());
+            }
+
+            // Set active player
+            gs.setActivePlayer(currentPlayer());
+
+            // Set current ball
+            gs.setCurrentBall(currentBall(i));
+
+            // Add/remove game modes:
+            if (i % 10 == 0) {
+                gs.addMode("MB:Multiball");
+            } else {
+                gs.removeMode("MB:Multiball");
+            }
+            // gs.addMode("MB:Multiball");
+            // gs.addMode("NA:SomeMode");
+            // gs.removeMode("NA:AnotherMode");
+
+            // Sometimes we might need to clear all modes
+            if (timeToClearModes()) {
+                gs.clearModes();
+            }
+        }
+
+        // Commit game state at the end of each cycle. This ensures that any changes
+        // in the game state are captured and sent to the cloud. If no changes occurred,
+        // the commit will be ignored, avoiding unnecessary uploads.
+        gs.commit();
+
+        std::this_thread::sleep_for(1000ms);
+    }
+
+    cout << "Example finished" << endl;
+    return 0;
+}

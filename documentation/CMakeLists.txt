@@ -6,7 +6,7 @@ project(scorbit_sdk_docs)
 
 include(../cmake/CPM.cmake)
 
-CPMAddPackage("gh:mosra/m.css#0e5161ff17ebf3550bbc0cc99ef81ad7b7d8f80e")
+CPMAddPackage("gh:mosra/m.css#083c7a87dcca80027a4bc9c5e6db3bab4babffb0")
 CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
 
 # ---- Doxygen variables ----
@@ -22,9 +22,9 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/Doxyfile ${CMAKE_CURRENT_BINARY_DIR}/Do
 configure_file(${CMAKE_CURRENT_LIST_DIR}/conf.py ${CMAKE_CURRENT_BINARY_DIR}/conf.py)
 
 add_custom_target(
-  GenerateDocs
-  ${CMAKE_COMMAND} -E make_directory "${DOXYGEN_OUTPUT_DIRECTORY}"
-  COMMAND "${m.css_SOURCE_DIR}/documentation/doxygen.py" "${CMAKE_CURRENT_BINARY_DIR}/conf.py"
-  COMMAND echo "Docs written to: ${DOXYGEN_OUTPUT_DIRECTORY}"
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    GenerateDocs
+    ${CMAKE_COMMAND} -E make_directory "${DOXYGEN_OUTPUT_DIRECTORY}"
+    COMMAND "${m.css_SOURCE_DIR}/documentation/doxygen.py" "${CMAKE_CURRENT_BINARY_DIR}/conf.py"
+    COMMAND echo "Docs written to: ${DOXYGEN_OUTPUT_DIRECTORY}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )

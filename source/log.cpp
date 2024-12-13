@@ -5,19 +5,19 @@
  *
  ****************************************************************************/
 
-#include "scorbit_sdk/log.h"
+#include <scorbit_sdk/log.h>
 #include "logger.h"
 
 namespace scorbit {
 
-void registerLogger(logger_callback_t &&loggerFunction, void *userData)
+void addLoggerCallback(LoggerCallback &&callback, void *userData)
 {
-    logger()->registerLogger(std::move(loggerFunction), userData);
+    detail::Logger::instance()->addCallback(std::move(callback), userData);
 }
 
-void unregisterLogger()
+void resetLogger()
 {
-    logger()->unregisterLogger();
+    detail::Logger::instance()->clear();
 }
 
 } // namespace scorbit
