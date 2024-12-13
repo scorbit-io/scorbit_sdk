@@ -52,7 +52,7 @@ constexpr auto NUM_RETRIES = 3;
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
 {
-    ByteArray message(uuid);
+    ByteArray message(removeSymbols(uuid, "-{}"));
     ByteArray timestampBytes(timestamp.cbegin(), timestamp.cend());
     message.insert(message.end(), timestampBytes.cbegin(), timestampBytes.cend());
 
@@ -103,16 +103,11 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
             // TODO: set error status
             return;
         }
-    }
-
-    if (m_deviceInfo.uuid.empty()) {
+    } else {
         const auto macAddress = getMacAddress();
         m_deviceInfo.uuid = deriveUuid(macAddress);
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
-
-    // Cleanup UUID
-    m_deviceInfo.uuid = removeSymbols(m_deviceInfo.uuid, "-{}");
 
     m_worker.start();
 }
