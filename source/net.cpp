@@ -105,7 +105,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
         }
     } else {
         const auto macAddress = getMacAddress();
-        m_deviceInfo.uuid = deriveUuid(macAddress);
+        m_deviceInfo.uuid = deriveUuid(fmt::format("{}|{}", m_deviceInfo.provider, macAddress));
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
