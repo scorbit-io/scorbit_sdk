@@ -13,7 +13,7 @@
 BUILD_DIR=build-buildroot-release
 DOCKER_IMAGE=dilshodm/sdk-builder-buildroot-arm64:1
 
-CMD="cmake -DCMAKE_TOOLCHAIN_FILE=/toolchain/toolchain.cmake -DSCORBIT_SDK_INSTALL_PREFIX=/usr/lib -G Ninja -B '$BUILD_DIR' . && cmake --build '$BUILD_DIR' --config Release && cd '$BUILD_DIR' && cpack -G STGZ"
+CMD="cmake -DCMAKE_TOOLCHAIN_FILE=/toolchain/toolchain.cmake -DSCORBIT_SDK_INSTALL_PREFIX=/usr/lib -G Ninja -B '$BUILD_DIR' . && cmake --build '$BUILD_DIR' --config Release && cd '$BUILD_DIR' && cpack -G STGZ && cpack -G TGZ"
 echo $CMD
 
 docker container run --rm -it -v $(pwd):/src --workdir /src --user $(id -u):$(id -g) --platform linux/amd64 $DOCKER_IMAGE bash -c "$CMD"
