@@ -417,23 +417,21 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             auth();
         }
 
-        // Clear the game data if the game is finished
+        // Clear the session if the game is finished
         if (session && !session->gameData.isGameActive) {
-            GameHistory history;
-            bool isFinished = false;
+            std::optional<GameHistory> finishedSessionHistory;
 
             {
                 std::lock_guard lock(m_gameSessionsMutex);
                 if (m_gameSessions.count(sessionUuid) > 0) {
-                    history = std::move(m_gameSessions[sessionUuid].history);
+                    finishedSessionHistory = std::move(m_gameSessions[sessionUuid].history);
                     m_gameSessions.erase(sessionUuid);
-                    isFinished = true;
                     INF("Game session {} finished", sessionUuid);
                 }
             }
 
-            if (isFinished) {
-                postUploadHistoryTask(history);
+            if (finishedSessionHistory) {
+                postUploadHistoryTask(*finishedSessionHistory);
             }
         }
 
