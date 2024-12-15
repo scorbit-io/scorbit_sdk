@@ -565,8 +565,8 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
             });
 
-            if (m_status == AuthStatus::AuthenticationFailed) {
-                DBG("API can't upload {}, authentication failed!", filename);
+            if (m_status != AuthStatus::AuthenticatedPaired) {
+                DBG("Can't upload {}, device is not paired or authentication failed!", filename);
                 break;
             }
 
