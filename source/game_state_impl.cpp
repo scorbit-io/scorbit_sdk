@@ -35,6 +35,7 @@ void GameStateImpl::setGameStarted()
     m_data.sessionUuid = boost::uuids::to_string(boost::uuids::random_generator()());
     setCurrentBall(1);
     setActivePlayer(1);
+    INF("New game session started: {}", m_data.sessionUuid.get());
 }
 
 void GameStateImpl::setGameFinished()
