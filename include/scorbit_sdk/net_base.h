@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "net_types.h"
 #include <string>
 
 namespace scorbit {
@@ -30,6 +31,8 @@ public:
     virtual std::string getMachineUuid() const = 0;
     virtual std::string getPairDeeplink() const = 0;
     virtual std::string getClaimDeeplink(int player) const = 0;
+
+    virtual const DeviceInfo &deviceInfo() const = 0;
 };
 
 } // namespace detail

@@ -18,7 +18,11 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
 {
     m_net->authenticate();
+
+    const auto &deviceInfo = m_net->deviceInfo();
     // m_net->sendInstalled("sdk", SCORBIT_SDK_VERSION, true);
+    m_net->sendInstalled("score_detector", deviceInfo.clientVersion, true);
+    m_net->sendInstalled("provider", deviceInfo.gameCodeVersion, true);
 }
 
 void GameStateImpl::setGameStarted()

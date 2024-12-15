@@ -200,6 +200,11 @@ string Net::getClaimDeeplink(int player) const
                        fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
 }
 
+const DeviceInfo &Net::deviceInfo() const
+{
+    return m_deviceInfo;
+}
+
 Net::task_t Net::createAuthenticateTask()
 {
     return [this] {

@@ -67,6 +67,8 @@ public:
     std::string getPairDeeplink() const override;
     std::string getClaimDeeplink(int player) const override;
 
+    const DeviceInfo &deviceInfo() const override;
+
 private:
     task_t createAuthenticateTask();
     task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
