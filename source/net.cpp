@@ -16,6 +16,7 @@
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
 #include <boost/json.hpp>
+#include <optional>
 
 using namespace std;
 
@@ -321,7 +322,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
         }
 
-        GameSession session;
+        std::optional<GameSession> session;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting game data");
@@ -343,10 +344,11 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
                 session = m_gameSessions[sessionUuid];
             }
 
-            int64_t elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                  chrono::steady_clock::now() - session.startedTime)
-                                                  .count();
-            auto &data = session.gameData;
+            int64_t elapsedMilliseconds =
+                    chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                                - session->startedTime)
+                            .count();
+            auto &data = session->gameData;
             cpr::Payload payload {
                     {"session_uuid", data.sessionUuid},
                     {"session_time", std::to_string(elapsedMilliseconds)},
@@ -416,7 +418,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
         }
 
         // Clear the game data if the game is finished
-        if (!session.gameData.isGameActive) {
+        if (session && !session->gameData.isGameActive) {
             GameHistory history;
             bool isFinished = false;
 
