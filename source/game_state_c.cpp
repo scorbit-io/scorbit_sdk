@@ -39,9 +39,6 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         if (device_info->game_code_version) {
             deviceInfo.gameCodeVersion = device_info->game_code_version;
         }
-        if (device_info->client_version) {
-            deviceInfo.clientVersion = device_info->client_version;
-        }
         if (device_info->hostname) {
             deviceInfo.hostname = device_info->hostname;
         }

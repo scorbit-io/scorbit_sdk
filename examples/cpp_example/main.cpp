@@ -143,7 +143,6 @@ scorbit::GameState setupGameState()
     // Another example: info.hostname = "https://api.scorbit.io";
 
     info.gameCodeVersion = "0.1.0"; // game version
-    info.clientVersion = "0.1.0";   // client version
 
     // If not set, will be 0, however, it there is serial number attached to the device, set it here
     // info.serialNumber = 12345;

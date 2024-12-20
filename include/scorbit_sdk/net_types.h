@@ -31,13 +31,6 @@ struct DeviceInfo {
     std::string gameCodeVersion;
 
     /**
-     * Mandatory. The client version, e.g., "1.0.0". The client version may match the game code
-     * version if they are managed as a single codebase. However, they should be separate if updates
-     * are handled independently.
-     */
-    std::string clientVersion;
-
-    /**
      * Optional. The hostname of the server to connect to.
      * If not set, the default `"production"` hostname will be used. The two standard options
      * are `"production"` and `"staging"`, each mapped to pre-defined URLs. To use a custom URL,

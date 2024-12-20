@@ -30,7 +30,6 @@ public:
     const DeviceInfo &deviceInfo() const override
     {
         static DeviceInfo info;
-        info.clientVersion = "0.1.2";
         info.gameCodeVersion = "1.2.3";
         return info;
     };
@@ -705,9 +704,6 @@ TEST_CASE("Sending version of score_detector and provider")
     sequence seq;
 
     REQUIRE_CALL(mockNetRef, authenticate()).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("score_detector", "0.1.2", true))
-            .IN_SEQUENCE(seq)
-            .TIMES(1);
     REQUIRE_CALL(mockNetRef, sendInstalled("provider", "1.2.3", true)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase

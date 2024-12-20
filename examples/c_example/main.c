@@ -149,7 +149,6 @@ sb_game_handle_t setup_game_state(void)
             .provider = "dilshodpinball", // This is required, set to your provider name
             .machine_id = 4419,
             .game_code_version = "0.1.0", // game version
-            .client_version = "0.1.0",    // client version
             .hostname = "staging",        // Optional, if NULL, it will be production
 
             // UUID is optional, if NULL, will be automatically derived from device's mac address
