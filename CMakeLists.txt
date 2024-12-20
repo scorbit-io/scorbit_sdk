@@ -180,13 +180,22 @@ if(BBB_BUILD)
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )
+endif()
 
+if(BBB_BUILD OR UBUNTU_BUILD)
     install(
         DIRECTORY "/usr/local/include/openssl"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )
 endif()
+
+# Detect architecture
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
+
+# Set package file name to include architecture
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
+
 
 packageProject(
     NAME ${PROJECT_NAME}
