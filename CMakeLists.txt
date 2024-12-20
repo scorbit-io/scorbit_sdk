@@ -8,8 +8,10 @@ project(scorbit_sdk VERSION 1.0.0 LANGUAGES CXX)
 # ---- Options ----
 
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
-option(SCORBIT_SDK_INSTALL_PREFIX "Install prefix" "/usr/local")
 option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
+option(UBUNTU_BUILD "Build library for Ubuntu packaging" OFF)
+
+set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
 
 # ---- Include guards ----
 
