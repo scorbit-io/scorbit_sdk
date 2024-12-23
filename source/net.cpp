@@ -27,7 +27,7 @@ constexpr auto PRODUCTION_LABEL = "production";
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
-constexpr auto API = "/api/";
+constexpr auto API = "api";
 constexpr auto STOKEN_URL = "stoken/";
 constexpr auto INSTALLED_URL = "installed/";
 constexpr auto ENTRY_URL = "entry/";
@@ -207,7 +207,7 @@ const DeviceInfo &Net::deviceInfo() const
 
 Net::task_t Net::createAuthenticateTask()
 {
-    return [this] {
+    return [this]() {
         std::lock_guard lock(m_authMutex);
 
         if (m_status != AuthStatus::NotAuthenticated) {
@@ -232,7 +232,7 @@ Net::task_t Net::createAuthenticateTask()
                 {"sign", signature},
         };
 
-        auto r = cpr::Post(cpr::Url {m_hostname + API + STOKEN_URL}, payload);
+        auto r = cpr::Post(url(STOKEN_URL), payload);
 
         if (r.status_code != 200) {
             m_status = AuthStatus::AuthenticationFailed;
@@ -271,7 +271,7 @@ Net::task_t Net::createAuthenticateTask()
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
                                      bool success)
 {
-    return [this, type, version, success] {
+    return [this, type, version, success]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -291,8 +291,8 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
 
             // TODO: Sentry
 
-            const auto r = cpr::Post(cpr::Url {m_hostname + API + INSTALLED_URL}, payload,
-                                     authHeader(), cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Post(url(INSTALLED_URL), payload, authHeader(),
+                                     cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API installed response: {}", r.text);
@@ -397,8 +397,8 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             // TODO: sentry
 
-            const auto r = cpr::Post(cpr::Url {m_hostname + API + ENTRY_URL}, payload, authHeader(),
-                                     cpr::Timeout {NET_TIMEOUT});
+            const auto r =
+                    cpr::Post(url(ENTRY_URL), payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
@@ -446,7 +446,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
 Net::task_t Net::createHeartbeatTask()
 {
-    return [this] {
+    return [this]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting heartbeat");
 
@@ -479,8 +479,8 @@ Net::task_t Net::createHeartbeatTask()
 
             INF("API sending heartbeat with session_active: {}", isActiveSession);
 
-            const auto r = cpr::Get(cpr::Url {m_hostname + API + HEARTBEAT_URL}, parameters,
-                                    authHeader(), cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Get(url(HEARTBEAT_URL), parameters, authHeader(),
+                                    cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API heartbeat: ok, {}", r.text);
@@ -561,7 +561,7 @@ Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
 Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
                                   const cpr::Multipart &multipart)
 {
-    return [this, endpoint, filename, multipart] {
+    return [this, endpoint, filename, multipart]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -574,7 +574,7 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
             }
 
             INF("API upload to backend started: {} to {}", filename, endpoint);
-            auto r = cpr::Post(cpr::Url {m_hostname + API + endpoint}, multipart, authHeader());
+            auto r = cpr::Post(url(endpoint), multipart, authHeader());
 
             if (r.status_code == 200) {
                 INF("API upload to backend finished: ok! {} to {}", filename, endpoint);
@@ -599,6 +599,11 @@ cpr::Header Net::authHeader() const
     auto h = header();
     h["Authorization"] = fmt::format("{} {}", REST_TOKEN, m_stoken);
     return h;
+}
+
+cpr::Url Net::url(std::string_view endpoint) const
+{
+    return cpr::Url {fmt::format("{}/{}/{}", m_hostname, API, endpoint)};
 }
 
 } // namespace detail

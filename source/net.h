@@ -86,6 +86,8 @@ private:
     cpr::Header header() const;
     cpr::Header authHeader() const;
 
+    cpr::Url url(std::string_view endpoint) const;
+
 private:
     SignerCallback m_signer;
 
