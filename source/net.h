@@ -88,13 +88,18 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             const cpr::Multipart &multipart);
 
-    task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup);
-    task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup);
+    task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
+                                std::vector<AuthStatus> allowedStatuses = {
+                                        AuthStatus::AuthenticatedPaired});
+    task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+                                 std::vector<AuthStatus> allowedStatuses = {
+                                         AuthStatus::AuthenticatedPaired});
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
 
     cpr::Url url(std::string_view endpoint) const;
+    bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
 
 private:
     SignerCallback m_signer;

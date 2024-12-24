@@ -23,10 +23,11 @@ enum {
 
 // IMPORTANT: always add new error codes at the end of the list and sync with scorbit::Error
 typedef enum {
-    SB_EC_SUCCESS = 0,    // Success
-    SB_EC_UNKNOWN = 1,    // Unknown error
-    SB_EC_NOT_PAIRED = 2, // Device is not paired
-    SB_EC_API_ERROR = 3,  // API call error (e.g., HTTP error code != 200)
+    SB_EC_SUCCESS = 0,     // Success
+    SB_EC_UNKNOWN = 1,     // Unknown error
+    SB_EC_AUTH_FAILED = 2, // Authentication failed
+    SB_EC_NOT_PAIRED = 3,  // Device is not paired
+    SB_EC_API_ERROR = 4,   // API call error (e.g., HTTP error code != 200)
 } sb_error_t;
 
 typedef struct {

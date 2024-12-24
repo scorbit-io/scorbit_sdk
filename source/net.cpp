@@ -181,19 +181,21 @@ void Net::sendHeartbeat()
 
 void Net::requestPairCode(StringCallback callback)
 {
+    // Return cached short code if available
     if (!m_cachedShortCode.empty()) {
         callback(Error::Success, m_cachedShortCode);
         return;
     }
 
     m_worker.postQueue(createPostRequestTask(
-            [callback = std::move(callback)](Error error, std::string reply) {
+            [this, callback = std::move(callback)](Error error, std::string reply) {
                 // Parse short code and return it in callback
                 if (error == Error::Success) {
                     boost::system::error_code ec;
                     boost::json::object json = boost::json::parse(reply, ec).as_object();
                     if (!ec && json.contains("shortcode")) {
                         reply = json.at("shortcode").as_string();
+                        m_cachedShortCode = reply;
                     } else {
                         WRN("API can't parse short code: {}", reply);
                         error = Error::ApiError;
@@ -208,7 +210,8 @@ void Net::requestPairCode(StringCallback callback)
                 cpr::Payload payload = {{"unpaired", JSON_UNPAIRED}};
 
                 return make_tuple(endpoint, payload);
-            }));
+            },
+            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
 }
 
 string Net::getMachineUuid() const
@@ -640,9 +643,11 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
 }
 
 Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
-                                      deferred_get_setup_t deferredSetup)
+                                      deferred_get_setup_t deferredSetup,
+                                      std::vector<AuthStatus> allowedStatuses)
 {
-    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup)]() {
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
+            allowedStatuses = std::move(allowedStatuses)]() {
         Error error {Error::ApiError};
         std::string reply;
 
@@ -652,13 +657,18 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
             });
 
-            if (m_status != AuthStatus::AuthenticatedPaired) {
-                DBG("Can't send GET request, device is not paired or authentication failed!");
-                error = Error::NotPaired;
+            auto [url, parameters] = deferredSetup();
+
+            if (!checkAllowedStatuses(allowedStatuses)) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send GET request to {}, authentication failed!", url.str());
+                    error = Error::AuthFailed;
+                } else {
+                    DBG("Can't send GET request to {}, not paired!", url.str());
+                    error = Error::NotPaired;
+                }
                 break;
             }
-
-            auto [url, parameters] = deferredSetup();
 
             INF("API GET request: {}", url.str());
 
@@ -690,9 +700,11 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
 }
 
 Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
-                                       deferred_post_setup_t deferredSetup)
+                                       deferred_post_setup_t deferredSetup,
+                                       std::vector<AuthStatus> allowedStatuses)
 {
-    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup)]() {
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
+            allowedStatuses = std::move(allowedStatuses)]() {
         Error error {Error::ApiError};
         std::string reply;
 
@@ -702,14 +714,18 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
             });
 
-            if (m_status != AuthStatus::AuthenticatedPaired
-                && m_status != AuthStatus::AuthenticatedUnpaired) {
-                DBG("Can't send POST request, authentication failed!");
-                error = Error::NotPaired;
+            auto [url, payload] = deferredSetup();
+
+            if (!checkAllowedStatuses(allowedStatuses)) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send POST request to {}, authentication failed!", url.str());
+                    error = Error::AuthFailed;
+                } else {
+                    DBG("Can't send POST request to {}, not paired!", url.str());
+                    error = Error::NotPaired;
+                }
                 break;
             }
-
-            auto [url, payload] = deferredSetup();
 
             INF("API POST request: {}", url.str());
 
@@ -755,6 +771,12 @@ cpr::Header Net::authHeader() const
 cpr::Url Net::url(std::string_view endpoint) const
 {
     return cpr::Url {fmt::format("{}/{}/{}", m_hostname, API, endpoint)};
+}
+
+bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
+{
+    return std::any_of(begin(allowedStatuses), end(allowedStatuses),
+                       [this](AuthStatus status) { return status == m_status; });
 }
 
 } // namespace detail

@@ -22,10 +22,11 @@ constexpr auto KEY_LENGTH = SB_KEY_LENGTH;
 
 // IMPORTANT: always add new error codes at the end of the list and sync with sb_error_t
 enum class Error {
-    Success = SB_EC_SUCCESS,      // Success
-    Unknown = SB_EC_UNKNOWN,      // Unknown error
-    NotPaired = SB_EC_NOT_PAIRED, // Device is not paired
-    ApiError = SB_EC_API_ERROR,   // API call error (e.g., HTTP error code != 200)
+    Success = SB_EC_SUCCESS,        // Success
+    Unknown = SB_EC_UNKNOWN,        // Unknown error
+    AuthFailed = SB_EC_AUTH_FAILED, // Authentication failed
+    NotPaired = SB_EC_NOT_PAIRED,   // Device is not paired
+    ApiError = SB_EC_API_ERROR,     // API call error (e.g., HTTP error code != 200)
 };
 
 struct DeviceInfo {
