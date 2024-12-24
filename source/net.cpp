@@ -209,20 +209,16 @@ const DeviceInfo &Net::deviceInfo() const
 
 void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
-    if (m_vmInfo.venuemachineId == 0) {
-        WRN("Venue machine ID is not set, make sure that the device is authenticated and paired");
-        return ;
-    }
+    m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
+        const auto endpoint = url(fmt::format(
+                LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId)));
+        cpr::Parameters parameters;
+        if (scoreFilter > 0) {
+            parameters.Add({"score", fmt::format("{}", scoreFilter)});
+        }
 
-    cpr::Parameters parameters;
-    if (scoreFilter > 0) {
-        parameters.Add({"score", fmt::format("{}", scoreFilter)});
-    }
-
-    m_worker.postQueue(createGetRequestTask(
-            url(fmt::format(LOCAL_TOP_SCORES_URL,
-                            fmt::arg("venuemachine_id", m_vmInfo.venuemachineId))),
-            parameters, std::move(callback)));
+        return make_tuple(endpoint, parameters);
+    }));
 }
 
 Net::task_t Net::createAuthenticateTask()
@@ -589,7 +585,8 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
             });
 
             if (m_status != AuthStatus::AuthenticatedPaired) {
-                DBG("Can't upload {}, device is not paired or authentication failed!", filename);
+                DBG("API can't upload {}, device is not paired or authentication failed!",
+                    filename);
                 break;
             }
 
@@ -609,11 +606,14 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
     };
 }
 
-Net::task_t Net::createGetRequestTask(cpr::Url url, cpr::Parameters parameters,
-                                     StringCallback callback)
+Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
+                                      deferred_setup_callback_t deferredSetupCallback)
 {
-    return [this, url = std::move(url), parameters = std::move(parameters),
-            callback = std::move(callback)]() {
+    return [this, callback = std::move(replyCallback),
+            deferredSetupCallback = std::move(deferredSetupCallback)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -622,22 +622,37 @@ Net::task_t Net::createGetRequestTask(cpr::Url url, cpr::Parameters parameters,
 
             if (m_status != AuthStatus::AuthenticatedPaired) {
                 DBG("Can't send GET request, device is not paired or authentication failed!");
+                error = Error::NotPaired;
                 break;
             }
+
+            auto [url, parameters] = deferredSetupCallback();
 
             INF("API get request: {}", url.str());
+
             auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            reply = std::move(r.text);
 
             if (r.status_code == 200) {
-                INF("API get request: ok, {}", r.text);
-                if (callback) {
-                    callback(std::move(r.text));
-                }
+                INF("API get request: ok, {}", reply);
+                error = Error::Success;
                 break;
             }
 
-            ERR("API get request failed: code={}, {}", r.status_code, r.error.message);
-            ERR("{}", r.text);
+            ERR("API get request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
+                reply);
+
+            if (r.status_code != 401) {
+                break;
+            }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
+        }
+
+        if (callback) {
+            callback(error, std::move(reply));
         }
     };
 }

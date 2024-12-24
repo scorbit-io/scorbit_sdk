@@ -21,6 +21,14 @@ enum {
     SB_KEY_LENGTH = 32,           // ECDSA key length for P-256
 };
 
+// IMPORTANT: always add new error codes at the end of the list and sync with scorbit::Error
+typedef enum {
+    SB_EC_SUCCESS = 0,    // Success
+    SB_EC_UNKNOWN = 1,    // Unknown error
+    SB_EC_NOT_PAIRED = 2, // Device is not paired
+    SB_EC_API_ERROR = 3,  // API call error (e.g., HTTP error code != 200)
+} sb_error_t;
+
 typedef struct {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;
@@ -74,7 +82,7 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
                                     size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
                                     void *user_data);
 
-typedef void (*sb_string_callback_t)(const char *reply, void *user_data);
+typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
 #ifdef __cplusplus
 }

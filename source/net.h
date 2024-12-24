@@ -35,6 +35,7 @@ enum class AuthStatus {
 class Net : public NetBase
 {
     using task_t = std::function<void()>;
+    using deferred_setup_callback_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
 
     struct GameSession {
         int sessionCounter {0};
@@ -85,7 +86,8 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             const cpr::Multipart &multipart);
 
-    task_t createGetRequestTask(cpr::Url url, cpr::Parameters parameters, StringCallback callback);
+    task_t createGetRequestTask(StringCallback replyCallback,
+                                deferred_setup_callback_t deferredSetupCallback);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;

@@ -20,6 +20,14 @@ constexpr auto UUID_LENGTH = SB_UUID_LENGTH;
 constexpr auto SIGNATURE_MAX_LENGTH = SB_SIGNATURE_MAX_LENGTH;
 constexpr auto KEY_LENGTH = SB_KEY_LENGTH;
 
+// IMPORTANT: always add new error codes at the end of the list and sync with sb_error_t
+enum class Error {
+    Success = SB_EC_SUCCESS,      // Success
+    Unknown = SB_EC_UNKNOWN,      // Unknown error
+    NotPaired = SB_EC_NOT_PAIRED, // Device is not paired
+    ApiError = SB_EC_API_ERROR,   // API call error (e.g., HTTP error code != 200)
+};
+
 struct DeviceInfo {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;
@@ -61,6 +69,6 @@ using Key = std::array<uint8_t, KEY_LENGTH>;
 using SignerCallback =
         std::function<bool(Signature &signature, size_t &signatureLen, const Digest &digest)>;
 
-using StringCallback = std::function<void(std::string)>;
+using StringCallback = std::function<void(Error error, std::string reply)>;
 
 } // namespace scorbit

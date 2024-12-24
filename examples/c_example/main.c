@@ -171,15 +171,37 @@ sb_game_handle_t setup_game_state(void)
     return sb_create_game_state(signer_callback, NULL, &device_info);
 }
 
+void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
+{
+    (void)user_data;
+
+    switch (error) {
+    case SB_EC_SUCCESS:
+        printf("Top scores: %s\n", reply);
+        break;
+    case SB_EC_NOT_PAIRED:
+        printf("Device is not paired\n");
+        break;
+    case SB_EC_API_ERROR:
+        printf("API error: %s\n", reply);
+        return;
+    default:
+        printf("Error: %d\n", error);
+        break;
+    }
+}
+
 int main(void)
 {
-
     printf("Simple example of Scorbit SDK usage\n");
 
     // Setup logger
     sb_add_logger_callback(loggerCallback, NULL);
 
     sb_game_handle_t gs = setup_game_state();
+
+    // Request top scores
+    sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
 

@@ -224,7 +224,10 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
  * @param score_filter A score value used to filter the leaderboard results. If a score is provided,
  * the function retrieves the ten scores above and ten scores below the specified value, allowing
  * the user to view their score in the leaderboard context. Set to 0 to disable the score filter.
- * @param callback A callback function that receives the top scores in JSON format as a string.
+ * @param callback A callback function of @ref sb_string_callback_t that receives the top scores in
+ * JSON format as a string. Returns @ref SB_EC_SUCCESS if the request was successful.
+ * Otherwise, it returns an error codes: @ref SB_EC_NOT_PAIRED if machine is not paired, or @ref
+ * SB_EC_API_ERROR if the API call failed.
  * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
  */
 SCORBIT_SDK_EXPORT

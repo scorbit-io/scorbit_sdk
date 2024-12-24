@@ -167,6 +167,21 @@ int main()
 
     // Create game state object
     scorbit::GameState gs = setupGameState();
+    gs.requestTopScores(0, [](scorbit::Error error, std::string reply) {
+        switch (error) {
+        case scorbit::Error::Success:
+            cout << "Top scores: " << reply << endl;
+            break;
+        case scorbit::Error::NotPaired:
+            cout << "Device is not paired" << endl;
+            break;
+        case scorbit::Error::ApiError:
+            cout << "API error: " << reply << endl;
+            break;
+        default:
+            cout << "Error: " << static_cast<int> (error) << endl;
+        }
+    });
 
     // std::this_thread::sleep_for(1000ms);
 
@@ -183,7 +198,6 @@ int main()
 
         if (i == 50) {
             cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
-            gs.requestTopScores(0, [](std::string reply) { cout << "Top scores: " << reply << endl; });
         }
 
         if (isGameJustStarted(i)) {
