@@ -167,6 +167,14 @@ int main()
 
     // Create game state object
     scorbit::GameState gs = setupGameState();
+    gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
+        if (error == scorbit::Error::Success) {
+            cout << "Pairing short code: " << shortCode << endl;
+        } else {
+            cout << "Error: " << static_cast<int>(error) << endl;
+        }
+    });
+
     gs.requestTopScores(0, [](scorbit::Error error, std::string reply) {
         switch (error) {
         case scorbit::Error::Success:
@@ -252,9 +260,10 @@ int main()
         // Commit game state at the end of each cycle. This ensures that any changes
         // in the game state are captured and sent to the cloud. If no changes occurred,
         // the commit will be ignored, avoiding unnecessary uploads.
+        std::cout << "Commit cycle " << i << std::endl;
         gs.commit();
 
-        std::this_thread::sleep_for(1000ms);
+        std::this_thread::sleep_for(200ms);
     }
 
     cout << "Example finished" << endl;

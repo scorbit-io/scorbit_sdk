@@ -41,6 +41,8 @@ public:
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 
+    void requestPairCode(StringCallback cb) const;
+
 private:
     void addNewPlayer(sb_player_t player);
     void sendGameData();

@@ -191,6 +191,23 @@ void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
     }
 }
 
+void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data)
+{
+    (void)user_data;
+
+    switch (error) {
+    case SB_EC_SUCCESS:
+        printf("Pairing short code: %s\n", shortcode);
+        break;
+    case SB_EC_API_ERROR:
+        printf("API error: %s\n", shortcode);
+        break;
+    default:
+        printf("Error: %d\n", error);
+        break;
+    }
+}
+
 int main(void)
 {
     printf("Simple example of Scorbit SDK usage\n");
@@ -203,7 +220,11 @@ int main(void)
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
+    // Request deep link for pairing. This is useful if machine can display QR code.
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
+
+    // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
+    sb_request_pair_code(gs, &shortcode_callback, NULL);
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 100; ++i) {

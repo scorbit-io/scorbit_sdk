@@ -130,6 +130,11 @@ void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback call
     m_net->requestTopScores(scoreFilter, std::move(callback));
 }
 
+void GameStateImpl::requestPairCode(StringCallback cb) const
+{
+    m_net->requestPairCode(std::move(cb));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

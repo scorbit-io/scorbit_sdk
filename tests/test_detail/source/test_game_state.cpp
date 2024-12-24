@@ -24,6 +24,7 @@ class MockNetBase : public NetBase
 {
 public:
     void sendHeartbeat() override { };
+    void requestPairCode(StringCallback) override { };
     std::string getMachineUuid() const override { return {}; };
     std::string getPairDeeplink() const override { return {}; };
     std::string getClaimDeeplink(int) const override { return {}; };

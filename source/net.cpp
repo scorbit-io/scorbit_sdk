@@ -34,6 +34,7 @@ constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
+constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
@@ -176,6 +177,38 @@ void Net::sendHeartbeat()
     if (!m_isHeartbeatInQueue.exchange(true)) {
         m_worker.postHeartbeatQueue(createHeartbeatTask());
     }
+}
+
+void Net::requestPairCode(StringCallback callback)
+{
+    if (!m_cachedShortCode.empty()) {
+        callback(Error::Success, m_cachedShortCode);
+        return;
+    }
+
+    m_worker.postQueue(createPostRequestTask(
+            [callback = std::move(callback)](Error error, std::string reply) {
+                // Parse short code and return it in callback
+                if (error == Error::Success) {
+                    boost::system::error_code ec;
+                    boost::json::object json = boost::json::parse(reply, ec).as_object();
+                    if (!ec && json.contains("shortcode")) {
+                        reply = json.at("shortcode").as_string();
+                    } else {
+                        WRN("API can't parse short code: {}", reply);
+                        error = Error::ApiError;
+                    }
+                }
+                callback(error, reply);
+            },
+            [this]() {
+                // Deferred setup
+                const auto endpoint = url(fmt::format(
+                        REQUEST_PAIR_CODE_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
+                cpr::Payload payload = {{"unpaired", JSON_UNPAIRED}};
+
+                return make_tuple(endpoint, payload);
+            }));
 }
 
 string Net::getMachineUuid() const
@@ -607,10 +640,9 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
 }
 
 Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
-                                      deferred_setup_callback_t deferredSetupCallback)
+                                      deferred_get_setup_t deferredSetup)
 {
-    return [this, callback = std::move(replyCallback),
-            deferredSetupCallback = std::move(deferredSetupCallback)]() {
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup)]() {
         Error error {Error::ApiError};
         std::string reply;
 
@@ -626,20 +658,71 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
                 break;
             }
 
-            auto [url, parameters] = deferredSetupCallback();
+            auto [url, parameters] = deferredSetup();
 
-            INF("API get request: {}", url.str());
+            INF("API GET request: {}", url.str());
 
             auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
             reply = std::move(r.text);
 
             if (r.status_code == 200) {
-                INF("API get request: ok, {}", reply);
+                INF("API GET request: ok, {}", reply);
                 error = Error::Success;
                 break;
             }
 
-            ERR("API get request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
+            ERR("API GET request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
+                reply);
+
+            if (r.status_code != 401) {
+                break;
+            }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
+        }
+
+        if (callback) {
+            callback(error, std::move(reply));
+        }
+    };
+}
+
+Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
+                                       deferred_post_setup_t deferredSetup)
+{
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            if (m_status != AuthStatus::AuthenticatedPaired
+                && m_status != AuthStatus::AuthenticatedUnpaired) {
+                DBG("Can't send POST request, authentication failed!");
+                error = Error::NotPaired;
+                break;
+            }
+
+            auto [url, payload] = deferredSetup();
+
+            INF("API POST request: {}", url.str());
+
+            auto r = cpr::Post(url, payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            reply = std::move(r.text);
+
+            if (r.status_code == 200) {
+                INF("API POST request: ok, {}", reply);
+                error = Error::Success;
+                break;
+            }
+
+            ERR("API POST request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
                 reply);
 
             if (r.status_code != 401) {

@@ -218,7 +218,8 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
  * @brief Retrieves the top scores from the leaderboard.
  *
  * @note The callback function is invoked asynchronously when the top scores are received, running
- * in a separate thread from the main calling thread.
+ * in a separate thread from the main calling thread. It's advised to use necessary locks (mutex)
+ * when accessing shared data.
  *
  * @param handle The game handle created using @ref sb_create_game_state.
  * @param score_filter A score value used to filter the leaderboard results. If a score is provided,
@@ -233,6 +234,26 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
 SCORBIT_SDK_EXPORT
 void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
                            sb_string_callback_t callback, void *user_data);
+
+/**
+ * @brief Request a pairing short code (6 alphanumeric characters).
+ *
+ * Requests a pairing short code from the server. The short code is used to pair the device with
+ * the Scorbit service where on machines which can display only aplhanumric characters. This is
+ * alternative to @ref sb_get_pair_deeplink.
+ *
+ * @note The callback function is invoked asynchronously when the top scores are received, running
+ * in a separate thread from the main calling thread. It's advised to use necessary locks (mutex)
+ * when accessing shared data.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param callback A callback function of @ref sb_string_callback_t that receives the short code.
+ * Returns @ref SB_EC_SUCCESS if the request was successful. Otherwise, it returns an error code:
+ * @ref SB_EC_API_ERROR if the API call failed.
+ * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
+ */
+SCORBIT_SDK_EXPORT
+void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data);
 
 #ifdef __cplusplus
 }

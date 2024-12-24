@@ -80,4 +80,9 @@ void GameState::requestTopScores(sb_score_t scoreFilter, StringCallback callback
     p->requestTopScores(scoreFilter, std::move(callback));
 }
 
+void GameState::requestPairCode(StringCallback cb) const
+{
+    p->requestPairCode(std::move(cb));
+}
+
 } // namespace scorbit

@@ -35,7 +35,8 @@ enum class AuthStatus {
 class Net : public NetBase
 {
     using task_t = std::function<void()>;
-    using deferred_setup_callback_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
+    using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
+    using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
 
     struct GameSession {
         int sessionCounter {0};
@@ -63,6 +64,7 @@ public:
                        bool success = true) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
+    void requestPairCode(StringCallback callback) override;
 
     std::string getMachineUuid() const override;
     std::string getPairDeeplink() const override;
@@ -86,8 +88,8 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             const cpr::Multipart &multipart);
 
-    task_t createGetRequestTask(StringCallback replyCallback,
-                                deferred_setup_callback_t deferredSetupCallback);
+    task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup);
+    task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
@@ -107,6 +109,7 @@ private:
 
     std::string m_hostname;
     std::string m_stoken;
+    std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
 
     DeviceInfo m_deviceInfo;
     VenueMachineInfo m_vmInfo;

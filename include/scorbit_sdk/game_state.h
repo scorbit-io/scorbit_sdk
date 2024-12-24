@@ -15,6 +15,7 @@
 
 #include <string>
 #include <memory>
+#include <functional>
 
 namespace scorbit {
 
@@ -201,6 +202,22 @@ public:
      * Error::ApiError if the API call failed.
      */
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+
+    /**
+     * @brief Request a pairing short code (6 alphanumeric characters).
+     *
+     * Requests a pairing short code from the server. The short code is used to pair the device with
+     * the Scorbit service where on machines which can display only aplhanumric characters. This is
+     * alternative to @ref getPairDeeplink.
+     *
+     * @note The callback function is invoked asynchronously when the short code is received,
+     * running in a separate thread from the main calling thread.
+     *
+     * @param callback A callback function of @ref StringCallbak that receives the short code.
+     * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
+     * code: @ref Error::ApiError if the API call failed.
+     */
+    void requestPairCode(StringCallback cb) const;
 
 private:
     spimpl::unique_impl_ptr<detail::GameStateImpl> p;
