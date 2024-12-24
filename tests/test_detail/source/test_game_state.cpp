@@ -33,6 +33,7 @@ public:
         info.gameCodeVersion = "1.2.3";
         return info;
     };
+    void requestTopScores(sb_score_t, StringCallback) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
     MAKE_MOCK3(sendInstalled, void(const std::string &, const std::string &, bool), override);

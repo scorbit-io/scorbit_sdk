@@ -184,6 +184,20 @@ public:
      */
     std::string getClaimDeeplink(int player) const;
 
+    /**
+     * @brief Retrieves the top scores from the leaderboard.
+     *
+     * @note The callback function is invoked asynchronously when the top scores are received,
+     * running in a separate thread from the main calling thread.
+     *
+     * @param scoreFilter A score value used to filter the leaderboard results. If a score is
+     * provided, the function retrieves the ten scores above and ten scores below the specified
+     * value, allowing the user to view their score in the leaderboard context. Set to 0 to disable
+     * the score filter.
+     * @param callback A callback function that receives the top scores in JSON format as a string.
+     */
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+
 private:
     spimpl::unique_impl_ptr<detail::GameStateImpl> p;
 };

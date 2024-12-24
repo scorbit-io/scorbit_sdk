@@ -75,4 +75,9 @@ std::string GameState::getClaimDeeplink(int player) const
     return p->getClaimDeeplink(player);
 }
 
+void GameState::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    p->requestTopScores(scoreFilter, std::move(callback));
+}
+
 } // namespace scorbit

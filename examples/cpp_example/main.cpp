@@ -183,6 +183,7 @@ int main()
 
         if (i == 50) {
             cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
+            gs.requestTopScores(0, [](std::string reply) { cout << "Top scores: " << reply << endl; });
         }
 
         if (isGameJustStarted(i)) {

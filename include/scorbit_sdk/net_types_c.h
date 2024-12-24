@@ -74,6 +74,8 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
                                     size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
                                     void *user_data);
 
+typedef void (*sb_string_callback_t)(const char *reply, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

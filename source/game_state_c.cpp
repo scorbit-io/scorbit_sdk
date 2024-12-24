@@ -120,3 +120,12 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
     handle->claimDeeplinks[player] = handle->gameState.getClaimDeeplink(player);
     return handle->claimDeeplinks[player].c_str();
 }
+
+void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
+                           sb_string_callback_t callback, void *user_data)
+{
+    handle->gameState.requestTopScores(score_filter,
+                                       [callback, user_data](const std::string &reply) {
+                                           return callback(reply.c_str(), user_data);
+                                       });
+}

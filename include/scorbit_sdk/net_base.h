@@ -8,6 +8,7 @@
 #pragma once
 
 #include "net_types.h"
+#include "common_types_c.h"
 #include <string>
 
 namespace scorbit {
@@ -33,6 +34,8 @@ public:
     virtual std::string getClaimDeeplink(int player) const = 0;
 
     virtual const DeviceInfo &deviceInfo() const = 0;
+
+    virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
 };
 
 } // namespace detail

@@ -69,6 +69,8 @@ public:
 
     const DeviceInfo &deviceInfo() const override;
 
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
+
 private:
     task_t createAuthenticateTask();
     task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
@@ -82,6 +84,8 @@ private:
 
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             const cpr::Multipart &multipart);
+
+    task_t createGetRequestTask(cpr::Url url, cpr::Parameters parameters, StringCallback callback);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;

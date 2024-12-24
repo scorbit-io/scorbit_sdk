@@ -61,4 +61,6 @@ using Key = std::array<uint8_t, KEY_LENGTH>;
 using SignerCallback =
         std::function<bool(Signature &signature, size_t &signatureLen, const Digest &digest)>;
 
+using StringCallback = std::function<void(std::string)>;
+
 } // namespace scorbit

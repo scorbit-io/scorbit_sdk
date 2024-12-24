@@ -33,6 +33,8 @@ constexpr auto INSTALLED_URL = "installed/";
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
+constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
+
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
 constexpr auto REST_TOKEN {"SToken"};
@@ -203,6 +205,24 @@ string Net::getClaimDeeplink(int player) const
 const DeviceInfo &Net::deviceInfo() const
 {
     return m_deviceInfo;
+}
+
+void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    if (m_vmInfo.venuemachineId == 0) {
+        WRN("Venue machine ID is not set, make sure that the device is authenticated and paired");
+        return ;
+    }
+
+    cpr::Parameters parameters;
+    if (scoreFilter > 0) {
+        parameters.Add({"score", fmt::format("{}", scoreFilter)});
+    }
+
+    m_worker.postQueue(createGetRequestTask(
+            url(fmt::format(LOCAL_TOP_SCORES_URL,
+                            fmt::arg("venuemachine_id", m_vmInfo.venuemachineId))),
+            parameters, std::move(callback)));
 }
 
 Net::task_t Net::createAuthenticateTask()
@@ -584,6 +604,39 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
             ERR("API try {} out of {} upload to backend failed! {} to {}, code={}, "
                 "error message: {}",
                 i + 1, NUM_RETRIES, filename, endpoint, r.status_code, r.error.message);
+            ERR("{}", r.text);
+        }
+    };
+}
+
+Net::task_t Net::createGetRequestTask(cpr::Url url, cpr::Parameters parameters,
+                                     StringCallback callback)
+{
+    return [this, url = std::move(url), parameters = std::move(parameters),
+            callback = std::move(callback)]() {
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            if (m_status != AuthStatus::AuthenticatedPaired) {
+                DBG("Can't send GET request, device is not paired or authentication failed!");
+                break;
+            }
+
+            INF("API get request: {}", url.str());
+            auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
+
+            if (r.status_code == 200) {
+                INF("API get request: ok, {}", r.text);
+                if (callback) {
+                    callback(std::move(r.text));
+                }
+                break;
+            }
+
+            ERR("API get request failed: code={}, {}", r.status_code, r.error.message);
             ERR("{}", r.text);
         }
     };

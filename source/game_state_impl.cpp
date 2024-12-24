@@ -125,6 +125,11 @@ std::string GameStateImpl::getClaimDeeplink(int player) const
     return m_net->getClaimDeeplink(player);
 }
 
+void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    m_net->requestTopScores(scoreFilter, std::move(callback));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

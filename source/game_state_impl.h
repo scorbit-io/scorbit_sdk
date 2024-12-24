@@ -39,6 +39,8 @@ public:
     std::string getPairDeeplink() const;
     std::string getClaimDeeplink(int player) const;
 
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+
 private:
     void addNewPlayer(sb_player_t player);
     void sendGameData();

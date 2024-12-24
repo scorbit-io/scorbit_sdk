@@ -214,6 +214,23 @@ const char *sb_get_pair_deeplink(sb_game_handle_t handle);
 SCORBIT_SDK_EXPORT
 const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
 
+/**
+ * @brief Retrieves the top scores from the leaderboard.
+ *
+ * @note The callback function is invoked asynchronously when the top scores are received, running
+ * in a separate thread from the main calling thread.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param score_filter A score value used to filter the leaderboard results. If a score is provided,
+ * the function retrieves the ten scores above and ten scores below the specified value, allowing
+ * the user to view their score in the leaderboard context. Set to 0 to disable the score filter.
+ * @param callback A callback function that receives the top scores in JSON format as a string.
+ * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
+ */
+SCORBIT_SDK_EXPORT
+void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
+                           sb_string_callback_t callback, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif
