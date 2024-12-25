@@ -173,6 +173,22 @@ void sb_clear_modes(sb_game_handle_t handle);
 SCORBIT_SDK_EXPORT
 void sb_commit(sb_game_handle_t handle);
 
+// ----------------------------------------------------------------
+
+/**
+ * @brief Retrieves the current authentication status.
+ *  * Key statuses to consider:
+ * - @ref SB_NET_AUTHENTICATED_UNPAIRED: Authentication succeeded, but pairing is not
+ * established.
+ * - @ref SB_NET_AUTHENTICATED_PAIRED: Authentication succeeded, and pairing is established.
+ * - @ref SB_NET_AUTHENTICATTION_FAILED: The authentication process failed, indicating a
+ * signing error.
+ *
+ *  * @return The current authentication status as an @ref sb_auth_status_t value.
+ */
+SCORBIT_SDK_EXPORT
+sb_auth_status_t sb_get_status(sb_game_handle_t handle);
+
 /**
  * @brief Retrieve the machine's UUID.
  *

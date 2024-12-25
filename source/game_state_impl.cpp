@@ -110,6 +110,11 @@ void GameStateImpl::commit()
     }
 }
 
+AuthStatus GameStateImpl::getStatus() const
+{
+    return m_net->status();
+}
+
 std::string GameStateImpl::getMachineUuid() const
 {
     return m_net->getMachineUuid();

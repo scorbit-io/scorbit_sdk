@@ -30,6 +30,15 @@ typedef enum {
     SB_EC_API_ERROR = 4,   // API call error (e.g., HTTP error code != 200)
 } sb_error_t;
 
+typedef enum {
+    SB_NET_NOT_AUTHENTICATED = 0,              // NotAuthenticated,
+    SB_NET_AUTHENTICATING = 1,                 // Authenticating,
+    SB_NET_AUTHENTICATED_CHECKING_PAIRING = 2, // AuthenticatedCheckingPairing,
+    SB_NET_AUTHENTICATED_UNPAIRED = 3,         // AuthenticatedUnpaired,
+    SB_NET_AUTHENTICATED_PAIRED = 4,           // AuthenticatedPaired,
+    SB_NET_AUTHENTICATTION_FAILED = 5,          // AuthenticationFailed,
+} sb_auth_status_t;
+
 typedef struct {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;

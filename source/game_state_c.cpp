@@ -136,3 +136,8 @@ void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback
         return callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
     });
 }
+
+sb_auth_status_t sb_get_status(sb_game_handle_t handle)
+{
+    return static_cast<sb_auth_status_t>(handle->gameState.getStatus());
+}

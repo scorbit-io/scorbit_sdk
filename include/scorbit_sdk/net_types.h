@@ -29,6 +29,15 @@ enum class Error {
     ApiError = SB_EC_API_ERROR,     // API call error (e.g., HTTP error code != 200)
 };
 
+enum class AuthStatus {
+    NotAuthenticated = SB_NET_NOT_AUTHENTICATED,
+    Authenticating = SB_NET_AUTHENTICATING,
+    AuthenticatedCheckingPairing = SB_NET_AUTHENTICATED_CHECKING_PAIRING,
+    AuthenticatedUnpaired = SB_NET_AUTHENTICATED_UNPAIRED,
+    AuthenticatedPaired = SB_NET_AUTHENTICATED_PAIRED,
+    AuthenticationFailed = SB_NET_AUTHENTICATTION_FAILED,
+};
+
 struct DeviceInfo {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;

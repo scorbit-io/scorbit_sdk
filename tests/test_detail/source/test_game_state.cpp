@@ -23,6 +23,7 @@ using namespace trompeloeil;
 class MockNetBase : public NetBase
 {
 public:
+    AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override { };
     std::string getMachineUuid() const override { return {}; };

@@ -60,6 +60,11 @@ void GameState::commit()
     p->commit();
 }
 
+AuthStatus GameState::getStatus() const
+{
+    return p->getStatus();
+}
+
 std::string GameState::getMachineUuid() const
 {
     return p->getMachineUuid();

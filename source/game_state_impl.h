@@ -35,6 +35,8 @@ public:
 
     void commit();
 
+    AuthStatus getStatus() const;
+
     std::string getMachineUuid() const;
     std::string getPairDeeplink() const;
     std::string getClaimDeeplink(int player) const;

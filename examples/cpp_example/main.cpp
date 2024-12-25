@@ -197,6 +197,12 @@ int main()
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 100; ++i) {
+        // Check the auth (networking) status. It's not necessary, just for demo
+        if (i % 10 == 0) {
+            auto status = gs.getStatus();
+            cout << "Networking status: " << static_cast<int>(status) << endl;
+        }
+
         // Next game cycle started. First check if game is finished, because it might happen,
         // that in the same cycle one game finished and started new game
         if (isGameFinished(i)) {

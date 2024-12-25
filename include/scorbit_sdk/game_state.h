@@ -154,6 +154,21 @@ public:
     // ----------------------------------------------------------------
 
     /**
+     * @brief Retrieves the current authentication status.
+     *
+     * Key statuses to consider:
+     * - @ref AuthStatus::AuthenticatedUnpaired: Authentication succeeded, but pairing is not
+     * established.
+     * - @ref AuthStatus::AuthenticatedPaired: Authentication succeeded, and pairing is established.
+     * - @ref AuthStatus::AuthenticationFailed: The authentication process failed, indicating a
+     * signing error.
+     *
+     * @return The current authentication status as an @ref AuthStatus value.
+     */
+    AuthStatus getStatus() const;
+
+
+    /**
      * @brief Retrieve the machine's UUID.
      *
      * If machine UUID was not provided and it was derived from MAC address

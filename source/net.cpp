@@ -121,6 +121,11 @@ Net::~Net()
     m_stopHeartbeatTimer = true;
 }
 
+AuthStatus Net::status() const
+{
+    return m_status;
+}
+
 std::string Net::hostname() const
 {
     return m_hostname;

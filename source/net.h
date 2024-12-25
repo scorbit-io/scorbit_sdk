@@ -23,15 +23,6 @@ namespace detail {
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 
-enum class AuthStatus {
-    NotAuthenticated,
-    Authenticating,
-    AuthenticatedCheckingPairing,
-    AuthenticatedUnpaired,
-    AuthenticatedPaired,
-    AuthenticationFailed,
-};
-
 class Net : public NetBase
 {
     using task_t = std::function<void()>;
@@ -54,6 +45,8 @@ class Net : public NetBase
 public:
     Net(SignerCallback signer, DeviceInfo deviceInfo);
     ~Net() override;
+
+    AuthStatus status() const override;
 
     std::string hostname() const;
     void setHostname(std::string hostname);

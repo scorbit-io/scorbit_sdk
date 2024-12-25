@@ -22,6 +22,8 @@ public:
     NetBase() = default;
     virtual ~NetBase() = default;
 
+    virtual AuthStatus status() const = 0;
+
     virtual void authenticate() = 0;
 
     virtual void sendInstalled(const std::string &type, const std::string &version,
