@@ -149,7 +149,6 @@ sb_game_handle_t setup_game_state(void)
             .provider = "dilshodpinball", // This is required, set to your provider name
             .machine_id = 4419,
             .game_code_version = "0.1.0", // game version
-            .client_version = "0.1.0",    // client version
             .hostname = "staging",        // Optional, if NULL, it will be production
 
             // UUID is optional, if NULL, will be automatically derived from device's mac address
@@ -172,9 +171,45 @@ sb_game_handle_t setup_game_state(void)
     return sb_create_game_state(signer_callback, NULL, &device_info);
 }
 
+void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
+{
+    (void)user_data;
+
+    switch (error) {
+    case SB_EC_SUCCESS:
+        printf("Top scores: %s\n", reply);
+        break;
+    case SB_EC_NOT_PAIRED:
+        printf("Device is not paired\n");
+        break;
+    case SB_EC_API_ERROR:
+        printf("API error: %s\n", reply);
+        return;
+    default:
+        printf("Error: %d\n", error);
+        break;
+    }
+}
+
+void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data)
+{
+    (void)user_data;
+
+    switch (error) {
+    case SB_EC_SUCCESS:
+        printf("Pairing short code: %s\n", shortcode);
+        break;
+    case SB_EC_API_ERROR:
+        printf("API error: %s\n", shortcode);
+        break;
+    default:
+        printf("Error: %d\n", error);
+        break;
+    }
+}
+
 int main(void)
 {
-
     printf("Simple example of Scorbit SDK usage\n");
 
     // Setup logger
@@ -182,10 +217,23 @@ int main(void)
 
     sb_game_handle_t gs = setup_game_state();
 
+    // Request top scores
+    sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
+
+    // Request deep link for pairing. This is useful if machine can display QR code.
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
+
+    // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
+    sb_request_pair_code(gs, &shortcode_callback, NULL);
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 100; ++i) {
+        // Check the auth (networking) status. It's not necessary, just for demo
+        if (i % 10 == 0) {
+            sb_auth_status_t status = sb_get_status(gs);
+            printf("Networking status: %d\n", status);
+        }
+
         // Next game cycle started. First check if game is finished, because it might happen,
         // that in the same cycle one game finished and started new game
         if (isGameFinished(i)) {

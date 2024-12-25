@@ -23,13 +23,22 @@ using namespace trompeloeil;
 class MockNetBase : public NetBase
 {
 public:
-    void authenticate() override { };
-    void sendInstalled(const std::string &, const std::string &, bool = true) override { };
+    AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
+    void requestPairCode(StringCallback) override { };
     std::string getMachineUuid() const override { return {}; };
     std::string getPairDeeplink() const override { return {}; };
     std::string getClaimDeeplink(int) const override { return {}; };
+    const DeviceInfo &deviceInfo() const override
+    {
+        static DeviceInfo info;
+        info.gameCodeVersion = "1.2.3";
+        return info;
+    };
+    void requestTopScores(sb_score_t, StringCallback) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
+    MAKE_MOCK0(authenticate, void(), override);
+    MAKE_MOCK3(sendInstalled, void(const std::string &, const std::string &, bool), override);
 };
 
 // We need custom GameDataMatcher, because sessionUuid is randomly generated
@@ -74,6 +83,9 @@ TEST_CASE("setGameStarted functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     // Create GameState object with mocked NetBase
     GameState gameState(std::move(mockNet));
@@ -130,6 +142,9 @@ TEST_CASE("setGameFinished functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     // Create GameState object with mocked NetBase
     GameState gameState(std::move(mockNet));
@@ -193,6 +208,9 @@ TEST_CASE("setCurrentBall functionality")
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
 
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
+
     // Create GameState object with mocked NetBase
     GameState gameState(std::move(mockNet));
     gameState.setGameStarted();
@@ -239,6 +257,9 @@ TEST_CASE("setActivePlayer functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     // Create GameState object with mocked NetBase
     GameState gameState(std::move(mockNet));
@@ -319,6 +340,9 @@ TEST_CASE("setScore functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_))
             .WITH(_1.players.at(1).score() == 0)
@@ -429,6 +453,9 @@ TEST_CASE("addMode functionality")
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
 
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
+
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
@@ -484,6 +511,9 @@ TEST_CASE("removeMode functionality")
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
 
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
+
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
@@ -530,6 +560,9 @@ TEST_CASE("clearModes functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -578,6 +611,9 @@ TEST_CASE("commit functionality")
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -662,4 +698,17 @@ TEST_CASE("commit functionality")
         // Act: Call commit to apply changes
         gameState.commit();
     }
+}
+
+TEST_CASE("Sending version of score_detector and provider")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    REQUIRE_CALL(mockNetRef, authenticate()).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendInstalled("provider", "1.2.3", true)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameState gameState(std::move(mockNet));
 }

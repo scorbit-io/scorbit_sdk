@@ -16,6 +16,7 @@
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
 #include <boost/json.hpp>
+#include <optional>
 
 using namespace std;
 
@@ -26,12 +27,15 @@ constexpr auto PRODUCTION_LABEL = "production";
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
-constexpr auto API = "/api/";
+constexpr auto API = "api";
 constexpr auto STOKEN_URL = "stoken/";
 constexpr auto INSTALLED_URL = "installed/";
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
+constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
+constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
+
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
 constexpr auto REST_TOKEN {"SToken"};
@@ -117,6 +121,11 @@ Net::~Net()
     m_stopHeartbeatTimer = true;
 }
 
+AuthStatus Net::status() const
+{
+    return m_status;
+}
+
 std::string Net::hostname() const
 {
     return m_hostname;
@@ -175,6 +184,41 @@ void Net::sendHeartbeat()
     }
 }
 
+void Net::requestPairCode(StringCallback callback)
+{
+    // Return cached short code if available
+    if (!m_cachedShortCode.empty()) {
+        callback(Error::Success, m_cachedShortCode);
+        return;
+    }
+
+    m_worker.postQueue(createPostRequestTask(
+            [this, callback = std::move(callback)](Error error, std::string reply) {
+                // Parse short code and return it in callback
+                if (error == Error::Success) {
+                    boost::system::error_code ec;
+                    boost::json::object json = boost::json::parse(reply, ec).as_object();
+                    if (!ec && json.contains("shortcode")) {
+                        reply = json.at("shortcode").as_string();
+                        m_cachedShortCode = reply;
+                    } else {
+                        WRN("API can't parse short code: {}", reply);
+                        error = Error::ApiError;
+                    }
+                }
+                callback(error, reply);
+            },
+            [this]() {
+                // Deferred setup
+                const auto endpoint = url(fmt::format(
+                        REQUEST_PAIR_CODE_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
+                cpr::Payload payload = {{"unpaired", JSON_UNPAIRED}};
+
+                return make_tuple(endpoint, payload);
+            },
+            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
+}
+
 string Net::getMachineUuid() const
 {
     return m_deviceInfo.uuid;
@@ -199,9 +243,28 @@ string Net::getClaimDeeplink(int player) const
                        fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
 }
 
+const DeviceInfo &Net::deviceInfo() const
+{
+    return m_deviceInfo;
+}
+
+void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
+        const auto endpoint = url(fmt::format(
+                LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId)));
+        cpr::Parameters parameters;
+        if (scoreFilter > 0) {
+            parameters.Add({"score", fmt::format("{}", scoreFilter)});
+        }
+
+        return make_tuple(endpoint, parameters);
+    }));
+}
+
 Net::task_t Net::createAuthenticateTask()
 {
-    return [this] {
+    return [this]() {
         std::lock_guard lock(m_authMutex);
 
         if (m_status != AuthStatus::NotAuthenticated) {
@@ -226,7 +289,7 @@ Net::task_t Net::createAuthenticateTask()
                 {"sign", signature},
         };
 
-        auto r = cpr::Post(cpr::Url {m_hostname + API + STOKEN_URL}, payload);
+        auto r = cpr::Post(url(STOKEN_URL), payload);
 
         if (r.status_code != 200) {
             m_status = AuthStatus::AuthenticationFailed;
@@ -265,7 +328,7 @@ Net::task_t Net::createAuthenticateTask()
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
                                      bool success)
 {
-    return [this, type, version, success] {
+    return [this, type, version, success]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -285,8 +348,8 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
 
             // TODO: Sentry
 
-            const auto r = cpr::Post(cpr::Url {m_hostname + API + INSTALLED_URL}, payload,
-                                     authHeader(), cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Post(url(INSTALLED_URL), payload, authHeader(),
+                                     cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API installed response: {}", r.text);
@@ -321,7 +384,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
         }
 
-        GameSession session;
+        std::optional<GameSession> session;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting game data");
@@ -343,10 +406,11 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
                 session = m_gameSessions[sessionUuid];
             }
 
-            int64_t elapsedMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                  chrono::steady_clock::now() - session.startedTime)
-                                                  .count();
-            auto &data = session.gameData;
+            int64_t elapsedMilliseconds =
+                    chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                                - session->startedTime)
+                            .count();
+            auto &data = session->gameData;
             cpr::Payload payload {
                     {"session_uuid", data.sessionUuid},
                     {"session_time", std::to_string(elapsedMilliseconds)},
@@ -390,8 +454,8 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             // TODO: sentry
 
-            const auto r = cpr::Post(cpr::Url {m_hostname + API + ENTRY_URL}, payload, authHeader(),
-                                     cpr::Timeout {NET_TIMEOUT});
+            const auto r =
+                    cpr::Post(url(ENTRY_URL), payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
@@ -415,23 +479,21 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             auth();
         }
 
-        // Clear the game data if the game is finished
-        if (!session.gameData.isGameActive) {
-            GameHistory history;
-            bool isFinished = false;
+        // Clear the session if the game is finished
+        if (session && !session->gameData.isGameActive) {
+            std::optional<GameHistory> finishedSessionHistory;
 
             {
                 std::lock_guard lock(m_gameSessionsMutex);
                 if (m_gameSessions.count(sessionUuid) > 0) {
-                    history = std::move(m_gameSessions[sessionUuid].history);
+                    finishedSessionHistory = std::move(m_gameSessions[sessionUuid].history);
                     m_gameSessions.erase(sessionUuid);
-                    isFinished = true;
                     INF("Game session {} finished", sessionUuid);
                 }
             }
 
-            if (isFinished) {
-                postUploadHistoryTask(history);
+            if (finishedSessionHistory) {
+                postUploadHistoryTask(*finishedSessionHistory);
             }
         }
 
@@ -441,7 +503,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
 Net::task_t Net::createHeartbeatTask()
 {
-    return [this] {
+    return [this]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting heartbeat");
 
@@ -474,8 +536,8 @@ Net::task_t Net::createHeartbeatTask()
 
             INF("API sending heartbeat with session_active: {}", isActiveSession);
 
-            const auto r = cpr::Get(cpr::Url {m_hostname + API + HEARTBEAT_URL}, parameters,
-                                    authHeader(), cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Get(url(HEARTBEAT_URL), parameters, authHeader(),
+                                    cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API heartbeat: ok, {}", r.text);
@@ -556,20 +618,21 @@ Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
 Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
                                   const cpr::Multipart &multipart)
 {
-    return [this, endpoint, filename, multipart] {
+    return [this, endpoint, filename, multipart]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
                 return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
             });
 
-            if (m_status == AuthStatus::AuthenticationFailed) {
-                DBG("API can't upload {}, authentication failed!", filename);
+            if (m_status != AuthStatus::AuthenticatedPaired) {
+                DBG("API can't upload {}, device is not paired or authentication failed!",
+                    filename);
                 break;
             }
 
             INF("API upload to backend started: {} to {}", filename, endpoint);
-            auto r = cpr::Post(cpr::Url {m_hostname + API + endpoint}, multipart, authHeader());
+            auto r = cpr::Post(url(endpoint), multipart, authHeader());
 
             if (r.status_code == 200) {
                 INF("API upload to backend finished: ok! {} to {}", filename, endpoint);
@@ -584,6 +647,120 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
     };
 }
 
+Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
+                                      deferred_get_setup_t deferredSetup,
+                                      std::vector<AuthStatus> allowedStatuses)
+{
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
+            allowedStatuses = std::move(allowedStatuses)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            auto [url, parameters] = deferredSetup();
+
+            if (!checkAllowedStatuses(allowedStatuses)) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send GET request to {}, authentication failed!", url.str());
+                    error = Error::AuthFailed;
+                } else {
+                    DBG("Can't send GET request to {}, not paired!", url.str());
+                    error = Error::NotPaired;
+                }
+                break;
+            }
+
+            INF("API GET request: {}", url.str());
+
+            auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            reply = std::move(r.text);
+
+            if (r.status_code == 200) {
+                INF("API GET request: ok, {}", reply);
+                error = Error::Success;
+                break;
+            }
+
+            ERR("API GET request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
+                reply);
+
+            if (r.status_code != 401) {
+                break;
+            }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
+        }
+
+        if (callback) {
+            callback(error, std::move(reply));
+        }
+    };
+}
+
+Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
+                                       deferred_post_setup_t deferredSetup,
+                                       std::vector<AuthStatus> allowedStatuses)
+{
+    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
+            allowedStatuses = std::move(allowedStatuses)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+            });
+
+            auto [url, payload] = deferredSetup();
+
+            if (!checkAllowedStatuses(allowedStatuses)) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send POST request to {}, authentication failed!", url.str());
+                    error = Error::AuthFailed;
+                } else {
+                    DBG("Can't send POST request to {}, not paired!", url.str());
+                    error = Error::NotPaired;
+                }
+                break;
+            }
+
+            INF("API POST request: {}", url.str());
+
+            auto r = cpr::Post(url, payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            reply = std::move(r.text);
+
+            if (r.status_code == 200) {
+                INF("API POST request: ok, {}", reply);
+                error = Error::Success;
+                break;
+            }
+
+            ERR("API POST request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
+                reply);
+
+            if (r.status_code != 401) {
+                break;
+            }
+
+            m_status = AuthStatus::NotAuthenticated;
+            auto auth = createAuthenticateTask();
+            auth();
+        }
+
+        if (callback) {
+            callback(error, std::move(reply));
+        }
+    };
+}
+
 cpr::Header Net::header() const
 {
     return cpr::Header {{"Cache-Control", "no-cache"}};
@@ -594,6 +771,17 @@ cpr::Header Net::authHeader() const
     auto h = header();
     h["Authorization"] = fmt::format("{} {}", REST_TOKEN, m_stoken);
     return h;
+}
+
+cpr::Url Net::url(std::string_view endpoint) const
+{
+    return cpr::Url {fmt::format("{}/{}/{}", m_hostname, API, endpoint)};
+}
+
+bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
+{
+    return std::any_of(begin(allowedStatuses), end(allowedStatuses),
+                       [this](AuthStatus status) { return status == m_status; });
 }
 
 } // namespace detail

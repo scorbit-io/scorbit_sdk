@@ -35,9 +35,15 @@ public:
 
     void commit();
 
+    AuthStatus getStatus() const;
+
     std::string getMachineUuid() const;
     std::string getPairDeeplink() const;
     std::string getClaimDeeplink(int player) const;
+
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+
+    void requestPairCode(StringCallback cb) const;
 
 private:
     void addNewPlayer(sb_player_t player);

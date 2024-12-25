@@ -21,6 +21,24 @@ enum {
     SB_KEY_LENGTH = 32,           // ECDSA key length for P-256
 };
 
+// IMPORTANT: always add new error codes at the end of the list and sync with scorbit::Error
+typedef enum {
+    SB_EC_SUCCESS = 0,     // Success
+    SB_EC_UNKNOWN = 1,     // Unknown error
+    SB_EC_AUTH_FAILED = 2, // Authentication failed
+    SB_EC_NOT_PAIRED = 3,  // Device is not paired
+    SB_EC_API_ERROR = 4,   // API call error (e.g., HTTP error code != 200)
+} sb_error_t;
+
+typedef enum {
+    SB_NET_NOT_AUTHENTICATED = 0,              // NotAuthenticated,
+    SB_NET_AUTHENTICATING = 1,                 // Authenticating,
+    SB_NET_AUTHENTICATED_CHECKING_PAIRING = 2, // AuthenticatedCheckingPairing,
+    SB_NET_AUTHENTICATED_UNPAIRED = 3,         // AuthenticatedUnpaired,
+    SB_NET_AUTHENTICATED_PAIRED = 4,           // AuthenticatedPaired,
+    SB_NET_AUTHENTICATTION_FAILED = 5,          // AuthenticationFailed,
+} sb_auth_status_t;
+
 typedef struct {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;
@@ -30,13 +48,6 @@ typedef struct {
 
     /** Mandatory. The game code version, e.g., "1.12.3". */
     const char *game_code_version;
-
-    /**
-     * Mandatory. The client version, e.g., "1.0.0". The client version may match the game code
-     * version if they are managed as a single codebase. However, they should be separate if updates
-     * are handled independently.
-     */
-    const char *client_version;
 
     /**
      * Optional. The hostname of the server to connect to.
@@ -80,6 +91,8 @@ typedef struct {
 typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
                                     size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
                                     void *user_data);
+
+typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
 #ifdef __cplusplus
 }

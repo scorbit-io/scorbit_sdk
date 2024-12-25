@@ -173,6 +173,22 @@ void sb_clear_modes(sb_game_handle_t handle);
 SCORBIT_SDK_EXPORT
 void sb_commit(sb_game_handle_t handle);
 
+// ----------------------------------------------------------------
+
+/**
+ * @brief Retrieves the current authentication status.
+ *  * Key statuses to consider:
+ * - @ref SB_NET_AUTHENTICATED_UNPAIRED: Authentication succeeded, but pairing is not
+ * established.
+ * - @ref SB_NET_AUTHENTICATED_PAIRED: Authentication succeeded, and pairing is established.
+ * - @ref SB_NET_AUTHENTICATTION_FAILED: The authentication process failed, indicating a
+ * signing error.
+ *
+ *  * @return The current authentication status as an @ref sb_auth_status_t value.
+ */
+SCORBIT_SDK_EXPORT
+sb_auth_status_t sb_get_status(sb_game_handle_t handle);
+
 /**
  * @brief Retrieve the machine's UUID.
  *
@@ -213,6 +229,47 @@ const char *sb_get_pair_deeplink(sb_game_handle_t handle);
  */
 SCORBIT_SDK_EXPORT
 const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
+
+/**
+ * @brief Retrieves the top scores from the leaderboard.
+ *
+ * @note The callback function is invoked asynchronously when the top scores are received, running
+ * in a separate thread from the main calling thread. It's advised to use necessary locks (mutex)
+ * when accessing shared data.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param score_filter A score value used to filter the leaderboard results. If a score is provided,
+ * the function retrieves the ten scores above and ten scores below the specified value, allowing
+ * the user to view their score in the leaderboard context. Set to 0 to disable the score filter.
+ * @param callback A callback function of @ref sb_string_callback_t that receives the top scores in
+ * JSON format as a string. Returns @ref SB_EC_SUCCESS if the request was successful.
+ * Otherwise, it returns an error codes: @ref SB_EC_NOT_PAIRED if machine is not paired, or @ref
+ * SB_EC_API_ERROR if the API call failed.
+ * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
+ */
+SCORBIT_SDK_EXPORT
+void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
+                           sb_string_callback_t callback, void *user_data);
+
+/**
+ * @brief Request a pairing short code (6 alphanumeric characters).
+ *
+ * Requests a pairing short code from the server. The short code is used to pair the device with
+ * the Scorbit service where on machines which can display only aplhanumric characters. This is
+ * alternative to @ref sb_get_pair_deeplink.
+ *
+ * @note The callback function is invoked asynchronously when the top scores are received, running
+ * in a separate thread from the main calling thread. It's advised to use necessary locks (mutex)
+ * when accessing shared data.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param callback A callback function of @ref sb_string_callback_t that receives the short code.
+ * Returns @ref SB_EC_SUCCESS if the request was successful. Otherwise, it returns an error code:
+ * @ref SB_EC_API_ERROR if the API call failed.
+ * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
+ */
+SCORBIT_SDK_EXPORT
+void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data);
 
 #ifdef __cplusplus
 }

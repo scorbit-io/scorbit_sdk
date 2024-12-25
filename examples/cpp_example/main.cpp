@@ -143,7 +143,6 @@ scorbit::GameState setupGameState()
     // Another example: info.hostname = "https://api.scorbit.io";
 
     info.gameCodeVersion = "0.1.0"; // game version
-    info.clientVersion = "0.1.0";   // client version
 
     // If not set, will be 0, however, it there is serial number attached to the device, set it here
     // info.serialNumber = 12345;
@@ -168,6 +167,29 @@ int main()
 
     // Create game state object
     scorbit::GameState gs = setupGameState();
+    gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
+        if (error == scorbit::Error::Success) {
+            cout << "Pairing short code: " << shortCode << endl;
+        } else {
+            cout << "Error: " << static_cast<int>(error) << endl;
+        }
+    });
+
+    gs.requestTopScores(0, [](scorbit::Error error, std::string reply) {
+        switch (error) {
+        case scorbit::Error::Success:
+            cout << "Top scores: " << reply << endl;
+            break;
+        case scorbit::Error::NotPaired:
+            cout << "Device is not paired" << endl;
+            break;
+        case scorbit::Error::ApiError:
+            cout << "API error: " << reply << endl;
+            break;
+        default:
+            cout << "Error: " << static_cast<int> (error) << endl;
+        }
+    });
 
     // std::this_thread::sleep_for(1000ms);
 
@@ -175,6 +197,12 @@ int main()
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
     for (int i = 0; i < 100; ++i) {
+        // Check the auth (networking) status. It's not necessary, just for demo
+        if (i % 10 == 0) {
+            auto status = gs.getStatus();
+            cout << "Networking status: " << static_cast<int>(status) << endl;
+        }
+
         // Next game cycle started. First check if game is finished, because it might happen,
         // that in the same cycle one game finished and started new game
         if (isGameFinished(i)) {
@@ -238,9 +266,10 @@ int main()
         // Commit game state at the end of each cycle. This ensures that any changes
         // in the game state are captured and sent to the cloud. If no changes occurred,
         // the commit will be ignored, avoiding unnecessary uploads.
+        std::cout << "Commit cycle " << i << std::endl;
         gs.commit();
 
-        std::this_thread::sleep_for(1000ms);
+        std::this_thread::sleep_for(200ms);
     }
 
     cout << "Example finished" << endl;

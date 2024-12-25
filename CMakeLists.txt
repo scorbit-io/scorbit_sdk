@@ -8,8 +8,10 @@ project(scorbit_sdk VERSION 1.0.0 LANGUAGES CXX)
 # ---- Options ----
 
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
-option(SCORBIT_SDK_INSTALL_PREFIX "Install prefix" "/usr/local")
 option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
+option(UBUNTU_BUILD "Build library for Ubuntu packaging" OFF)
+
+set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
 
 # ---- Include guards ----
 
@@ -79,7 +81,7 @@ CPMAddPackage(
 
 # Boost -----------
 
-set(TRY_BOOST_VERSION 1.86.0)
+set(TRY_BOOST_VERSION 1.87.0)
 set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
 set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
 
@@ -178,13 +180,27 @@ if(BBB_BUILD)
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )
+endif()
 
+if(BBB_BUILD OR UBUNTU_BUILD)
     install(
         DIRECTORY "/usr/local/include/openssl"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )
 endif()
+
+# Detect architecture
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
+
+# Map armv7l to armhf for package naming consistency
+if(ARCHITECTURE STREQUAL "armv7l")
+    set(ARCHITECTURE "armhf")
+endif()
+
+# Set package file name to include architecture
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
+
 
 packageProject(
     NAME ${PROJECT_NAME}

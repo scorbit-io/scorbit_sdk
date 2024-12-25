@@ -15,6 +15,7 @@
 
 #include <string>
 #include <memory>
+#include <functional>
 
 namespace scorbit {
 
@@ -153,6 +154,21 @@ public:
     // ----------------------------------------------------------------
 
     /**
+     * @brief Retrieves the current authentication status.
+     *
+     * Key statuses to consider:
+     * - @ref AuthStatus::AuthenticatedUnpaired: Authentication succeeded, but pairing is not
+     * established.
+     * - @ref AuthStatus::AuthenticatedPaired: Authentication succeeded, and pairing is established.
+     * - @ref AuthStatus::AuthenticationFailed: The authentication process failed, indicating a
+     * signing error.
+     *
+     * @return The current authentication status as an @ref AuthStatus value.
+     */
+    AuthStatus getStatus() const;
+
+
+    /**
      * @brief Retrieve the machine's UUID.
      *
      * If machine UUID was not provided and it was derived from MAC address
@@ -183,6 +199,40 @@ public:
      * authenticated, an empty string is returned.
      */
     std::string getClaimDeeplink(int player) const;
+
+    /**
+     * @brief Retrieves the top scores from the leaderboard.
+     *
+     * @note The callback function is invoked asynchronously when the top scores are received,
+     * running in a separate thread from the main calling thread. It's advised to use necessary
+     * locks (mutex) when accessing shared data.
+     *
+     * @param scoreFilter A score value used to filter the leaderboard results. If a score is
+     * provided, the function retrieves the ten scores above and ten scores below the specified
+     * value, allowing the user to view their score in the leaderboard context. Set to 0 to disable
+     * the score filter.
+     * @param callback A callback function of type @ref StringCallback that receives the top scores
+     * in JSON format as a string. Returns @ref Error::Success if the request was successful.
+     * Otherwise, it returns an error codes: @ref Error::NotPaired if machine is not paired, or @ref
+     * Error::ApiError if the API call failed.
+     */
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+
+    /**
+     * @brief Request a pairing short code (6 alphanumeric characters).
+     *
+     * Requests a pairing short code from the server. The short code is used to pair the device with
+     * the Scorbit service where on machines which can display only aplhanumric characters. This is
+     * alternative to @ref getPairDeeplink.
+     *
+     * @note The callback function is invoked asynchronously when the short code is received,
+     * running in a separate thread from the main calling thread.
+     *
+     * @param callback A callback function of @ref StringCallbak that receives the short code.
+     * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
+     * code: @ref Error::ApiError if the API call failed.
+     */
+    void requestPairCode(StringCallback cb) const;
 
 private:
     spimpl::unique_impl_ptr<detail::GameStateImpl> p;

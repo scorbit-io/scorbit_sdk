@@ -18,7 +18,10 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
 {
     m_net->authenticate();
+
+    const auto &deviceInfo = m_net->deviceInfo();
     // m_net->sendInstalled("sdk", SCORBIT_SDK_VERSION, true);
+    m_net->sendInstalled("provider", deviceInfo.gameCodeVersion, true);
 }
 
 void GameStateImpl::setGameStarted()
@@ -35,6 +38,7 @@ void GameStateImpl::setGameStarted()
     m_data.sessionUuid = boost::uuids::to_string(boost::uuids::random_generator()());
     setCurrentBall(1);
     setActivePlayer(1);
+    INF("New game session started: {}", m_data.sessionUuid.get());
 }
 
 void GameStateImpl::setGameFinished()
@@ -106,6 +110,11 @@ void GameStateImpl::commit()
     }
 }
 
+AuthStatus GameStateImpl::getStatus() const
+{
+    return m_net->status();
+}
+
 std::string GameStateImpl::getMachineUuid() const
 {
     return m_net->getMachineUuid();
@@ -119,6 +128,16 @@ std::string GameStateImpl::getPairDeeplink() const
 std::string GameStateImpl::getClaimDeeplink(int player) const
 {
     return m_net->getClaimDeeplink(player);
+}
+
+void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    m_net->requestTopScores(scoreFilter, std::move(callback));
+}
+
+void GameStateImpl::requestPairCode(StringCallback cb) const
+{
+    m_net->requestPairCode(std::move(cb));
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)

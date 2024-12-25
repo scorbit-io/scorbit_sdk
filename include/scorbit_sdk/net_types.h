@@ -20,6 +20,24 @@ constexpr auto UUID_LENGTH = SB_UUID_LENGTH;
 constexpr auto SIGNATURE_MAX_LENGTH = SB_SIGNATURE_MAX_LENGTH;
 constexpr auto KEY_LENGTH = SB_KEY_LENGTH;
 
+// IMPORTANT: always add new error codes at the end of the list and sync with sb_error_t
+enum class Error {
+    Success = SB_EC_SUCCESS,        // Success
+    Unknown = SB_EC_UNKNOWN,        // Unknown error
+    AuthFailed = SB_EC_AUTH_FAILED, // Authentication failed
+    NotPaired = SB_EC_NOT_PAIRED,   // Device is not paired
+    ApiError = SB_EC_API_ERROR,     // API call error (e.g., HTTP error code != 200)
+};
+
+enum class AuthStatus {
+    NotAuthenticated = SB_NET_NOT_AUTHENTICATED,
+    Authenticating = SB_NET_AUTHENTICATING,
+    AuthenticatedCheckingPairing = SB_NET_AUTHENTICATED_CHECKING_PAIRING,
+    AuthenticatedUnpaired = SB_NET_AUTHENTICATED_UNPAIRED,
+    AuthenticatedPaired = SB_NET_AUTHENTICATED_PAIRED,
+    AuthenticationFailed = SB_NET_AUTHENTICATTION_FAILED,
+};
+
 struct DeviceInfo {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;
@@ -29,13 +47,6 @@ struct DeviceInfo {
 
     /** Mandatory. The game code version, e.g., "1.12.3". */
     std::string gameCodeVersion;
-
-    /**
-     * Mandatory. The client version, e.g., "1.0.0". The client version may match the game code
-     * version if they are managed as a single codebase. However, they should be separate if updates
-     * are handled independently.
-     */
-    std::string clientVersion;
 
     /**
      * Optional. The hostname of the server to connect to.
@@ -67,5 +78,7 @@ using Key = std::array<uint8_t, KEY_LENGTH>;
 
 using SignerCallback =
         std::function<bool(Signature &signature, size_t &signatureLen, const Digest &digest)>;
+
+using StringCallback = std::function<void(Error error, std::string reply)>;
 
 } // namespace scorbit

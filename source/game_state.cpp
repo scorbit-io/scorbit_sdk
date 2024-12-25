@@ -60,6 +60,11 @@ void GameState::commit()
     p->commit();
 }
 
+AuthStatus GameState::getStatus() const
+{
+    return p->getStatus();
+}
+
 std::string GameState::getMachineUuid() const
 {
     return p->getMachineUuid();
@@ -73,6 +78,16 @@ std::string GameState::getPairDeeplink() const
 std::string GameState::getClaimDeeplink(int player) const
 {
     return p->getClaimDeeplink(player);
+}
+
+void GameState::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+{
+    p->requestTopScores(scoreFilter, std::move(callback));
+}
+
+void GameState::requestPairCode(StringCallback cb) const
+{
+    p->requestPairCode(std::move(cb));
 }
 
 } // namespace scorbit
