@@ -193,9 +193,13 @@ endif()
 # Detect architecture
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
 
-# Map armv7l to armhf for package naming consistency
+# Map architecture identifiers to standardized suffixes used in packaging
 if(ARCHITECTURE STREQUAL "armv7l")
     set(ARCHITECTURE "armhf")
+elseif(ARCHITECTURE STREQUAL "aarch64")
+    set(ARCHITECTURE "arm64")
+elseif(ARCHITECTURE STREQUAL "x86_64")
+    set(ARCHITECTURE "amd64")
 endif()
 
 # Set package file name to include architecture
