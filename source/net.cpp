@@ -35,6 +35,7 @@ constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
+constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
@@ -260,6 +261,25 @@ void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 
         return make_tuple(endpoint, parameters);
     }));
+}
+
+void Net::requestUnpair(StringCallback callback)
+{
+    m_worker.postQueue(createPostRequestTask(
+            [this, callback = std::move(callback)](Error error, std::string reply) {
+                if (error == Error::Success || error == Error::NotPaired) {
+                    m_status = AuthStatus::AuthenticatedUnpaired;
+                    error = Error::Success;
+                }
+                callback(error, reply);
+            },
+            [this]() {
+                const auto endpoint = url(fmt::format(
+                        REQUEST_UNPAIR_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
+                cpr::Payload payload = {{"unpaired", "true"}};
+
+                return make_tuple(endpoint, payload);
+            }));
 }
 
 Net::task_t Net::createAuthenticateTask()

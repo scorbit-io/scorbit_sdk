@@ -84,6 +84,11 @@ bool timeToClearModes()
     return false;
 }
 
+bool isUnpairTriggeredByUser()
+{
+    return false;
+}
+
 // --------------- Example of logger callback ------------------
 
 // This callback will be called in a thread-safe manner, so we don't worry about thread-safety
@@ -212,6 +217,25 @@ int main()
 
         if (i == 50) {
             cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
+        }
+
+        if (isUnpairTriggeredByUser()) {
+            // Request unpairing
+            gs.requestUnpair([](scorbit::Error error, std::string reply) {
+                switch (error) {
+                case scorbit::Error::Success:
+                    cout << "Unpairing successful" << endl;
+                    break;
+                case scorbit::Error::NotPaired:
+                    cout << "Device is not paired" << endl;
+                    break;
+                case scorbit::Error::ApiError:
+                    cout << "API error: " << reply << endl;
+                    break;
+                default:
+                    cout << "Error: " << static_cast<int> (error) << endl;
+                }
+            });
         }
 
         if (isGameJustStarted(i)) {

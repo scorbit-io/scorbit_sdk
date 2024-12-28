@@ -135,9 +135,14 @@ void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback call
     m_net->requestTopScores(scoreFilter, std::move(callback));
 }
 
-void GameStateImpl::requestPairCode(StringCallback cb) const
+void GameStateImpl::requestPairCode(StringCallback callback) const
 {
-    m_net->requestPairCode(std::move(cb));
+    m_net->requestPairCode(std::move(callback));
+}
+
+void GameStateImpl::requestUnpair(StringCallback callback) const
+{
+    m_net->requestUnpair(std::move(callback));
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)
