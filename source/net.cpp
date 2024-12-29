@@ -42,7 +42,6 @@ constexpr auto PLAYER_SCORE_TAIL {"_score"};
 constexpr auto REST_TOKEN {"SToken"};
 constexpr auto RETURNED_TOKEN_NAME {"stoken"};
 
-constexpr auto JSON_UNPAIRED {"unpaired"};
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
@@ -213,9 +212,8 @@ void Net::requestPairCode(StringCallback callback)
                 // Deferred setup
                 const auto endpoint = url(fmt::format(
                         REQUEST_PAIR_CODE_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-                cpr::Payload payload = {{"unpaired", JSON_UNPAIRED}};
 
-                return make_tuple(endpoint, payload);
+                return make_tuple(endpoint, cpr::Payload {});
             },
             {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
 }
@@ -566,7 +564,7 @@ Net::task_t Net::createHeartbeatTask()
                 boost::json::object json = boost::json::parse(r.text, ec).as_object();
                 if (!ec) {
                     if (m_status == AuthStatus::AuthenticatedCheckingPairing) {
-                        if (json.contains(JSON_UNPAIRED) && json.at(JSON_UNPAIRED).as_bool()) {
+                        if (json.contains("unpaired") && json.at("unpaired").as_bool()) {
                             m_status = AuthStatus::AuthenticatedUnpaired;
                             m_vmInfo.venuemachineId = 0;
                             m_vmInfo.opdbId.clear();
