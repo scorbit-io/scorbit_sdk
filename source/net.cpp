@@ -391,6 +391,8 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
 Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 {
     return [this, sessionUuid]() {
+        m_isGameDataInQueue = false;
+
         int sessionCounter;
         {
             std::lock_guard lock(m_gameSessionsMutex);
@@ -563,26 +565,26 @@ Net::task_t Net::createHeartbeatTask()
                 boost::system::error_code ec;
                 boost::json::object json = boost::json::parse(r.text, ec).as_object();
                 if (!ec) {
-                    if (m_status == AuthStatus::AuthenticatedCheckingPairing) {
-                        if (json.contains("unpaired") && json.at("unpaired").as_bool()) {
-                            m_status = AuthStatus::AuthenticatedUnpaired;
-                            m_vmInfo.venuemachineId = 0;
-                            m_vmInfo.opdbId.clear();
-                        } else {
-                            m_status = AuthStatus::AuthenticatedPaired;
-                        }
+                    AuthStatus status {AuthStatus::AuthenticatedPaired};
+                    if (json.contains("unpaired") && json.at("unpaired").as_bool()) {
+                        status = AuthStatus::AuthenticatedUnpaired;
+                        m_vmInfo.venuemachineId = 0;
+                        m_vmInfo.opdbId.clear();
+                    }
 
+                    if (const auto venuemachineId = json.if_contains("venuemachine_id")) {
+                        m_vmInfo.venuemachineId = venuemachineId->as_int64();
+                    }
+
+                    if (const auto config = json.if_contains("config")) {
+                        if (const auto opdbId = config->as_object().if_contains("opdb_id")) {
+                            m_vmInfo.opdbId = opdbId->as_string();
+                        }
+                    }
+
+                    if (m_status != status) {
+                        m_status = status;
                         m_authCV.notify_all();
-
-                        if (const auto venuemachineId = json.if_contains("venuemachine_id")) {
-                            m_vmInfo.venuemachineId = venuemachineId->as_int64();
-                        }
-
-                        if (const auto config = json.if_contains("config")) {
-                            if (const auto opdbId = config->as_object().if_contains("opdb_id")) {
-                                m_vmInfo.opdbId = opdbId->as_string();
-                            }
-                        }
                     }
                 }
                 break;
