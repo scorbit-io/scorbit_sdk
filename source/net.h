@@ -66,6 +66,7 @@ public:
     const DeviceInfo &deviceInfo() const override;
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
+    void requestUnpair(StringCallback callback) override;
 
 private:
     task_t createAuthenticateTask();

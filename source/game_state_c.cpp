@@ -126,18 +126,31 @@ void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
 {
     handle->gameState.requestTopScores(
             score_filter, [callback, user_data](Error error, const std::string &reply) {
-                return callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                if (callback) {
+                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                }
             });
 }
 
 void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
     handle->gameState.requestPairCode([callback, user_data](Error error, const std::string &reply) {
-        return callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+        if (callback) {
+            callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+        }
     });
 }
 
 sb_auth_status_t sb_get_status(sb_game_handle_t handle)
 {
     return static_cast<sb_auth_status_t>(handle->gameState.getStatus());
+}
+
+void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
+{
+    handle->gameState.requestUnpair([callback, user_data](Error error, const std::string &reply) {
+        if (callback) {
+            callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+        }
+    });
 }

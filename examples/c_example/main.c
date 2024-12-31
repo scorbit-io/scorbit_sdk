@@ -81,6 +81,11 @@ int timeToClearModes(void)
     return 0;
 }
 
+int isUnpairTriggeredByUser(void)
+{
+    return 0;
+}
+
 // --------------- Example of logger callback ------------------
 
 // This callback will be called in a thread-safe manner, so we don't worry about thread-safety
@@ -191,6 +196,17 @@ void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
     }
 }
 
+void unpair_callback(sb_error_t error, const char *reply, void *user_data)
+{
+    (void)user_data;
+
+    if (error == SB_EC_SUCCESS) {
+        printf("Unpairing successful\n");
+    } else {
+        printf("Unpairing failed: %s\n", reply);
+    }
+}
+
 void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data)
 {
     (void)user_data;
@@ -295,7 +311,11 @@ int main(void)
         // the commit will be ignored, avoiding unnecessary uploads.
         sb_commit(gs);
 
-        usleep(1000 * 1000); // Sleep for 1000 ms
+        usleep(300 * 1000); // Sleep for 300 ms
+    }
+
+    if (isUnpairTriggeredByUser()) {
+        sb_request_unpair(gs, &unpair_callback, NULL);
     }
 
     // Cleanup

@@ -36,6 +36,7 @@ public:
         return info;
     };
     void requestTopScores(sb_score_t, StringCallback) override { };
+    void requestUnpair(StringCallback) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
     MAKE_MOCK3(sendInstalled, void(const std::string &, const std::string &, bool), override);

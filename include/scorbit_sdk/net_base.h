@@ -39,6 +39,7 @@ public:
     virtual const DeviceInfo &deviceInfo() const = 0;
 
     virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
+    virtual void requestUnpair(StringCallback callback) = 0;
 };
 
 } // namespace detail

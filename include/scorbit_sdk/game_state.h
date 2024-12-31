@@ -203,9 +203,9 @@ public:
     /**
      * @brief Retrieves the top scores from the leaderboard.
      *
-     * @note The callback function is invoked asynchronously when the top scores are received,
-     * running in a separate thread from the main calling thread. It's advised to use necessary
-     * locks (mutex) when accessing shared data.
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread. It is recommended to use appropriate locks
+     * (e.g., a mutex) when accessing shared data.
      *
      * @param scoreFilter A score value used to filter the leaderboard results. If a score is
      * provided, the function retrieves the ten scores above and ten scores below the specified
@@ -225,14 +225,34 @@ public:
      * the Scorbit service where on machines which can display only aplhanumric characters. This is
      * alternative to @ref getPairDeeplink.
      *
-     * @note The callback function is invoked asynchronously when the short code is received,
-     * running in a separate thread from the main calling thread.
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread. It is recommended to use appropriate locks
+     * (e.g., a mutex) when accessing shared data.
      *
      * @param callback A callback function of @ref StringCallbak that receives the short code.
      * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
      * code: @ref Error::ApiError if the API call failed.
      */
-    void requestPairCode(StringCallback cb) const;
+    void requestPairCode(StringCallback callback) const;
+
+    /**
+     * @brief Request to unpair a device.
+     *
+     * Sends a request to unpair the device from the Scorbit service. This function should be called
+     * when the device is being reset by a (new) owner.
+     *
+     * The returned data string is the raw reply from the API and can be safely ignored. On a
+     * successful unpairing, it will return @ref SB_EC_SUCCESS.
+     *
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread. It is recommended to use appropriate locks
+     * (e.g., a mutex) when accessing shared data.
+     *
+     * @param callback A callback function of @ref StringCallbak that receives the error code.
+     * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
+     * code: @ref Error::ApiError if the API call failed.
+     */
+    void requestUnpair(StringCallback callback) const;
 
 private:
     spimpl::unique_impl_ptr<detail::GameStateImpl> p;
