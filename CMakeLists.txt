@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 # ---- Project ----
 
 # Note: update this to your new project's name and version
-project(scorbit_sdk VERSION 1.0.0 LANGUAGES CXX)
+project(scorbit_sdk VERSION 1.0.1 LANGUAGES CXX)
 
 # ---- Options ----
 
