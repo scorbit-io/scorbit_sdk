@@ -50,8 +50,7 @@ set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
 include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
-# CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.12.0")
-CPMAddPackage("gh:dilshodm/PackageProject.cmake@1.13.0")
+CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 
 CPMAddPackage(
     NAME fmt
