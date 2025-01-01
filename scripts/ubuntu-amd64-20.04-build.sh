@@ -15,7 +15,7 @@ REL=1
 BUILD_DIR=build-ubuntu-amd64-20.04
 DOCKER_IMAGE=dilshodm/ubuntu-builder-amd64:20.04_${REL}
 
-CMD="cmake -G Ninja -B '$BUILD_DIR' -D UBUNTU_BUILD=ON . && cmake --build '$BUILD_DIR' --config Release && cd '$BUILD_DIR' && cpack -G DEB -G TGZ"
+CMD="cmake -G Ninja -B '$BUILD_DIR' -D UBUNTU_BUILD=ON . && cmake --build '$BUILD_DIR' --config Release && cd '$BUILD_DIR' && cpack -G DEB && cpack -G TGZ"
 echo $CMD
 
 docker container run --rm -it -v $(pwd):/src --workdir /src --user $(id -u):$(id -g) --platform linux/amd64 $DOCKER_IMAGE bash -c "$CMD"
