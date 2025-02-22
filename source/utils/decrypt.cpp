@@ -5,6 +5,8 @@
  *
  ****************************************************************************/
 
+#include "bytearray.h"
+
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
@@ -12,6 +14,10 @@
 #include <cstring>
 #include <openssl/buffer.h>
 #include <openssl/kdf.h>
+
+
+namespace scorbit {
+namespace detail {
 
 constexpr int AES_KEY_SIZE = 32; // AES-256
 constexpr int AES_IV_SIZE = 12;
@@ -34,12 +40,12 @@ std::vector<uint8_t> base64Decode(const std::string &encoded)
     return buffer;
 }
 
-std::string decryptSecret(const std::string &encryptedData, const std::string &password)
+std::vector<uint8_t> decryptSecret(const std::string &encryptedData, const std::string &password)
 {
     auto data = base64Decode(encryptedData);
 
     if (data.size() < 16 + AES_IV_SIZE + TAG_SIZE) {
-        return std::string {};
+        return {};
     }
 
     // Extract salt, IV, ciphertext, and tag
@@ -54,22 +60,26 @@ std::string decryptSecret(const std::string &encryptedData, const std::string &p
 
     // Initialize decryption context
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    std::vector<uint8_t> plaintext(ciphertext.size());
+    std::vector<uint8_t> result(ciphertext.size());
     int len = 0;
 
     EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, key.data(), iv.data());
-    EVP_DecryptUpdate(ctx, plaintext.data(), &len, ciphertext.data(), ciphertext.size());
+    EVP_DecryptUpdate(ctx, result.data(), &len, ciphertext.data(), ciphertext.size());
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_SIZE, tag.data());
 
     // Finalize decryption
-    if (EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len) <= 0) {
+    if (EVP_DecryptFinal_ex(ctx, result.data() + len, &len) <= 0) {
         EVP_CIPHER_CTX_free(ctx);
-        return std::string {};
+        return {};
     }
     EVP_CIPHER_CTX_free(ctx);
 
-    return std::string(plaintext.begin(), plaintext.end());
+    return result;
 }
+
+
+} // namespace detail
+} // namespace scorbit
 
 // int main(int argc, char *argv[])
 // {

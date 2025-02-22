@@ -51,7 +51,8 @@ find_package(OpenSSL REQUIRED)
 
 # ---- Create binary ----
 
-add_executable(${PROJECT_NAME})
+add_executable(${PROJECT_NAME}
+    )
 
 target_sources(
     test_detail
@@ -79,6 +80,9 @@ target_sources(
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp
+        ../../source/utils/decrypt.h
+        ../../source/utils/decrypt.cpp
+        source/test_decrypt.cpp
 )
 
 target_link_libraries(

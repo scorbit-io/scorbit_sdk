@@ -140,6 +140,8 @@ target_sources(
         source/worker.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
+        source/utils/decrypt.h
+        source/utils/decrypt.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
