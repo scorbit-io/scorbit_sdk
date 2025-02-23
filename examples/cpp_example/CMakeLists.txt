@@ -19,7 +19,5 @@ find_package(OpenSSL REQUIRED)
 add_executable(
     ${PROJECT_NAME}
     main.cpp
-    ../signer_function/scorbit_crypt.c
-    ../signer_function/scorbit_crypt.h
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE scorbit_sdk::scorbit_sdk OpenSSL::Crypto)

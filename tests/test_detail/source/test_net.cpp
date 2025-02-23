@@ -18,25 +18,24 @@ using namespace trompeloeil;
 
 // Using this indirection to mock free function
 struct {
-    MAKE_MOCK3(signer, void(Signature &signature, size_t &signatureLen, const Digest &digest));
+    MAKE_MOCK1(signer, Signature(const Digest &digest));
 } Signer;
 
-bool signer(Signature &signature, size_t &signatureLen, const Digest &digest)
+Signature signer(const Digest &digest)
 {
-    Signer.signer(signature, signatureLen, digest);
-    return true;
+    return Signer.signer(digest);
 }
 
 TEST_CASE("Net constructor")
 {
-    ALLOW_CALL(Signer, signer(_, _, _));
+    ALLOW_CALL(Signer, signer(_)).RETURN(Signature {});
     DeviceInfo info;
     Net net {signer, std::move(info)};
 }
 
 TEST_CASE("Net hostname")
 {
-    ALLOW_CALL(Signer, signer(_, _, _));
+    ALLOW_CALL(Signer, signer(_)).RETURN(Signature {});
 
     DeviceInfo info;
     Net net {signer, std::move(info)};
@@ -85,7 +84,7 @@ TEST_CASE("getSignature calls signer with correct digest")
                              0x98, 0xb5, 0xdf, 0x89, 0xab, 0x6b, 0xf2, 0xa6, 0xd5, 0xb7};
 
     // Expect the mock signer to be called with the correct digest
-    REQUIRE_CALL(Signer, signer(_, _, _)).WITH(_3 == expectedDigest).TIMES(1);
+    REQUIRE_CALL(Signer, signer(_)).WITH(_1 == expectedDigest).RETURN(Signature{}).TIMES(1);
 
     // Invoke the method
     getSignature(signer, uuid, timestamp);

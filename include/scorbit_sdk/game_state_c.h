@@ -22,6 +22,13 @@ extern "C" {
  * When the application terminates, call @ref sb_destroy_game_state to release the allocated
  * resources.
  *
+ * There are two versions: first version is @ref sb_create_game_state, which requires a signer
+ * callback function and device information. The second version is @ref sb_create_game_state2,
+ * which requires an encrypted key instead of a signer callback.
+ *
+ * @note The first version with a signer callback is intended for machines that use TPM for signing.
+ * The second version is recommended for machines that do not use TPM.
+ *
  * @note Normally, one game state per application is sufficient.
  *
  * @param signer The callback function to sign the game state. The function should have the
@@ -34,6 +41,10 @@ extern "C" {
 SCORBIT_SDK_EXPORT
 sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
                                       const sb_device_info_t *device_info);
+
+SCORBIT_SDK_EXPORT
+sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
+                                       const sb_device_info_t *device_info);
 
 /**
  * @brief Destroy the game state.

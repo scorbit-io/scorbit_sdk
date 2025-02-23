@@ -72,12 +72,10 @@ struct DeviceInfo {
     uint64_t serialNumber {0};
 };
 
-using Signature = std::array<uint8_t, SIGNATURE_MAX_LENGTH>;
+using Signature = std::vector<uint8_t>;
 using Digest = std::array<uint8_t, DIGEST_LENGTH>;
-using Key = std::array<uint8_t, KEY_LENGTH>;
 
-using SignerCallback =
-        std::function<bool(Signature &signature, size_t &signatureLen, const Digest &digest)>;
+using SignerCallback = std::function<Signature(const Digest &digest)>;
 
 using StringCallback = std::function<void(Error error, std::string reply)>;
 

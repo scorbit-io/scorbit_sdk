@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 # ---- Project ----
 
 # Note: update this to your new project's name and version
-project(encrypt_tool LANGUAGES CXX)
+project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 
 # ---- Include guards ----
 
@@ -57,6 +57,11 @@ target_compile_definitions(
 # Link dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto)
 
+install(
+    TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
 
@@ -75,7 +80,7 @@ endif()
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
 
-set(CPACK_GENERATOR DEB)
+set(CPACK_GENERATOR TGZ)
 
 set(CPACK_PACKAGE_VENDOR "scorbit.io")
 set(CPACK_PACKAGE_CONTACT "Dilshod Mukhtarov <dilshodm@gmail.com>")
@@ -84,11 +89,6 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "encrypt_tool")
 set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
-
-# Generate Deb dependencies
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-
-set(CPACK_DEBIAN_PACKAGE_SECTION "General")
 
 set(CPACK_STRIP_FILES TRUE)
 
