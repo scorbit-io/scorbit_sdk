@@ -49,6 +49,51 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 
+# ---- Special build encrypt_tool with SCORBIT_SDK_ENCRYPT_SECRET env var ----
+
+# Define the test key, provider and secret
+set(TEST_KEY "07D54D8B3B2743550071639FDA6F5ED7BB0407C479FDA3A5CDBD22B09870DCF9")
+set(TEST_PROVIDER "test")
+set(TEST_SECRET "secret")
+
+# Set the environment variable for building encrypt_tool
+set(ENCRYPT_TOOL_TEST_BUILD_PATH "${CMAKE_CURRENT_BINARY_DIR}/encrypt_tool_test")
+
+# Configure encrypt_tool with env var SCORBIT_SDK_ENCRYPT_SECRET
+execute_process(
+    COMMAND
+        ${CMAKE_COMMAND} -E env SCORBIT_SDK_ENCRYPT_SECRET=${TEST_SECRET} ${CMAKE_COMMAND} -B
+        ${ENCRYPT_TOOL_TEST_BUILD_PATH} -S ${CMAKE_CURRENT_SOURCE_DIR}/../../encrypt_tool
+        -D SCORBIT_SDK_PRODUCTION=OFF
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMAND_ERROR_IS_FATAL ANY
+)
+
+# Build encrypt_tool
+execute_process(
+    COMMAND ${CMAKE_COMMAND} --build ${ENCRYPT_TOOL_TEST_BUILD_PATH} --parallel
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMAND_ERROR_IS_FATAL ANY
+)
+
+# Define the correct executable path
+if(WIN32)
+    set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/$<CONFIG>/encrypt_tool.exe")
+else()
+    set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/encrypt_tool")
+endif()
+
+# Run encrypt_tool to obtain the encrypted key
+execute_process(
+    COMMAND ${TEST_ENCRYPT_TOOL_EXECUTABLE} ${TEST_KEY} ${TEST_PROVIDER}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    OUTPUT_VARIABLE TEST_ENCRYPTED_KEY
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    COMMAND_ERROR_IS_FATAL ANY
+)
+
+message(STATUS "Encrypted secret for tests: ${TEST_ENCRYPTED_KEY}")
+
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
@@ -79,6 +124,9 @@ target_sources(
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp
+        ../../source/utils/decrypt.h
+        ../../source/utils/decrypt.cpp
+        source/test_decrypt.cpp
 )
 
 target_link_libraries(
@@ -104,6 +152,16 @@ if(NOT TEST_INSTALLED_VERSION)
         target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
     endif()
 endif()
+
+# Pass compile definitions
+target_compile_definitions(
+    ${PROJECT_NAME}
+    PRIVATE
+        TEST_ENCRYPTED_KEY="${TEST_ENCRYPTED_KEY}"
+        TEST_KEY="${TEST_KEY}"
+        TEST_PROVIDER="${TEST_PROVIDER}"
+        TEST_SECRET="${TEST_SECRET}"
+)
 
 # ---- Add Tests ----
 

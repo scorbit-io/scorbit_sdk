@@ -23,14 +23,10 @@ struct sb_game_state_struct {
     std::map<int, std::string> claimDeeplinks;
 };
 
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
-                                      const sb_device_info_t *device_info)
-{
-    SignerCallback cb = [signer, signer_user_data](Signature &signature, size_t &signatureLen,
-                                                   const Digest &digest) {
-        return 0 == signer(signature.data(), &signatureLen, digest.data(), signer_user_data);
-    };
+namespace {
 
+DeviceInfo createDeviceInfo(const sb_device_info_t *device_info)
+{
     DeviceInfo deviceInfo;
 
     if (device_info) {
@@ -48,8 +44,34 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         deviceInfo.serialNumber = device_info->serial_number;
     }
 
+    return deviceInfo;
+}
+
+}
+
+sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
+                                      const sb_device_info_t *device_info)
+{
+    SignerCallback cb = [signer, signer_user_data](const Digest &digest) {
+        Signature signature(SIGNATURE_MAX_LENGTH);
+        size_t signatureLength = 0;
+        if (0 == signer(signature.data(), &signatureLength, digest.data(), signer_user_data)) {
+            signature.resize(signatureLength);
+        } else {
+            signature.clear();
+        }
+        return signature;
+    };
+
     return new sb_game_state_struct {
-            createGameState(std::move(cb), std::move(deviceInfo)), {}, {}, {}};
+            createGameState(std::move(cb), createDeviceInfo(device_info)), {}, {}, {}};
+}
+
+sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
+                                       const sb_device_info_t *device_info)
+{
+    return new sb_game_state_struct {
+            createGameState(encrypted_key, createDeviceInfo(device_info)), {}, {}, {}};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

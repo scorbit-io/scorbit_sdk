@@ -63,14 +63,13 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
     Digest digest;
     SHA256(message.data(), message.size(), digest.data());
 
-    Signature signature;
-    size_t signatureLen = 0;
-    if (!signer(signature, signatureLen, digest)) {
+    Signature signature = signer(digest);
+    if (signature.empty()) {
         ERR("Can't sign message, signer callback returned error");
         return string {};
     }
 
-    return ByteArray(signature.data(), signatureLen).hex();
+    return ByteArray(signature).hex();
 }
 
 // --------------------------------------------------------------------------------

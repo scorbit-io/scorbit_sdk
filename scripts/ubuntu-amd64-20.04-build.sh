@@ -15,7 +15,36 @@ REL=1
 BUILD_DIR=build-ubuntu-amd64-20.04
 DOCKER_IMAGE=dilshodm/ubuntu-builder-amd64:20.04_${REL}
 
-CMD="cmake -G Ninja -B '$BUILD_DIR' -D UBUNTU_BUILD=ON . && cmake --build '$BUILD_DIR' --config Release && cd '$BUILD_DIR' && cpack -G DEB && cpack -G TGZ"
-echo $CMD
+CMD="
+    cmake \
+        -D UBUNTU_BUILD=ON \
+        -D SCORBIT_SDK_PRODUCTION=ON \
+        -G Ninja  \
+        -B '$BUILD_DIR' \
+        -S . \
+    && cmake --build '$BUILD_DIR' --config Release \
+    && cd '$BUILD_DIR' \
+    && cpack -G DEB \
+    && cpack -G TGZ \
+    \
+    && cd .. \
+    && cmake \
+        -D UBUNTU_BUILD=ON \
+        -D SCORBIT_SDK_PRODUCTION=ON \
+        -G Ninja \
+        -B '$BUILD_DIR'/encrypt_tool \
+        -S encrypt_tool \
+    && cmake --build '$BUILD_DIR'/encrypt_tool --config Release \
+    && cd '$BUILD_DIR'/encrypt_tool \
+    && cpack -G TGZ
+"
 
-docker container run --rm -it -v $(pwd):/src --workdir /src --user $(id -u):$(id -g) --platform linux/amd64 $DOCKER_IMAGE bash -c "$CMD"
+echo "$CMD"
+
+docker container run --rm -it \
+    -v $(pwd):/src \
+    --workdir /src \
+    --user $(id -u):$(id -g) \
+    --platform linux/amd64 \
+    -e SCORBIT_SDK_ENCRYPT_SECRET \
+    $DOCKER_IMAGE bash -c "$CMD"

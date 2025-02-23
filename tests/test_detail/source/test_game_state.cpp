@@ -7,6 +7,7 @@
 
 #include "scorbit_sdk/game_state.h"
 #include "scorbit_sdk/net_base.h"
+#include <scorbit_sdk/version.h>
 #include "game_data.h"
 #include "trompeloeil_printer.h"
 
@@ -701,14 +702,15 @@ TEST_CASE("commit functionality")
     }
 }
 
-TEST_CASE("Sending version of score_detector and provider")
+TEST_CASE("Sending version of sdk and game_code")
 {
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
     sequence seq;
 
     REQUIRE_CALL(mockNetRef, authenticate()).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("provider", "1.2.3", true)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendInstalled("game_code", "1.2.3", true)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendInstalled("sdk", SCORBIT_SDK_VERSION, true)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameState gameState(std::move(mockNet));

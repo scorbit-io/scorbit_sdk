@@ -7,6 +7,7 @@ project(scorbit_sdk VERSION 1.0.1 LANGUAGES CXX)
 
 # ---- Options ----
 
+option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
 option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
 option(UBUNTU_BUILD "Build library for Ubuntu packaging" OFF)
@@ -140,6 +141,9 @@ target_sources(
         source/worker.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
+        source/utils/decrypt.h
+        source/utils/decrypt.cpp
+        source/utils/signer.h
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
@@ -155,7 +159,14 @@ target_link_libraries(
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    PRIVATE 3rd/obfuscate
     # $<INSTALL_INTERFACE:include>
+)
+
+include(cmake/encrypt.cmake)
+target_compile_definitions(
+    ${PROJECT_NAME}
+    PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
 )
 
 # ---- Create an installable target ----
@@ -206,7 +217,6 @@ endif()
 
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
-
 
 packageProject(
     NAME ${PROJECT_NAME}

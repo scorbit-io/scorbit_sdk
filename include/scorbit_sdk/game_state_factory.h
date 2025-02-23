@@ -33,4 +33,7 @@ class GameState;
 SCORBIT_SDK_EXPORT
 GameState createGameState(scorbit::SignerCallback signer, const DeviceInfo &deviceInfo);
 
+SCORBIT_SDK_EXPORT
+GameState createGameState(std::string encryptedKey, const DeviceInfo &deviceInfo);
+
 } // namespace scorbit

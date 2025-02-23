@@ -6,7 +6,6 @@
  ****************************************************************************/
 
 #include <scorbit_sdk/scorbit_sdk_c.h>
-#include "../signer_function/scorbit_crypt.h"
 
 #include <stdio.h>
 #include <time.h>
@@ -129,24 +128,6 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
-// --------------- Implementation of signer callback ------------------
-// Signer callback can be free function or lambda, or class member, in this example we use free
-// function
-int signer_callback(uint8_t signature[SB_SIGNATURE_MAX_LENGTH], size_t *signature_len,
-                    const uint8_t digest[SB_DIGEST_LENGTH], void *user_data)
-{
-    (void)user_data; // Unused here. But it can be used to store some context, like public key, etc.
-
-    // Private key, it's better if stored as garbled and decoded before use.
-    // Here, for simplicity we keep it as is.
-    // WARNING: This is key for test manufacturer (dilshodpinball)
-    const uint8_t key[] = {0xd6, 0x7b, 0x36, 0xc6, 0xaf, 0x1a, 0x6b, 0xe0, 0x9d, 0xef, 0xe8,
-                           0xbb, 0x1b, 0x61, 0xd2, 0xd8, 0x25, 0x68, 0xa1, 0xca, 0xa9, 0xfe,
-                           0xae, 0xf7, 0x98, 0xa4, 0xca, 0xbe, 0x30, 0xdd, 0x8a, 0x91};
-
-    return scorbit_sign(signature, signature_len, digest, key);
-}
-
 sb_game_handle_t setup_game_state(void)
 {
     // Setup device info
@@ -172,8 +153,11 @@ sb_game_handle_t setup_game_state(void)
     };
     (void)device_info2;
 
+    // Setup encrypted key
+    const char *encrypted_key = "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
+
     // Create game state object. Device info will be copied, so it's safe to create it in the stack
-    return sb_create_game_state(signer_callback, NULL, &device_info);
+    return sb_create_game_state2(encrypted_key, &device_info);
 }
 
 void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
