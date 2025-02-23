@@ -5,11 +5,6 @@ cmake_minimum_required(VERSION 3.28)
 # Note: update this to your new project's name and version
 project(encrypt_tool LANGUAGES CXX)
 
-# ---- Options ----
-
-option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
-option(UBUNTU_BUILD "Build library for Ubuntu packaging" OFF)
-
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -17,11 +12,6 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
         FATAL_ERROR
         "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
     )
-endif()
-
-# Read the SCORBIT_SDK_ENCRYPT_SECRET environment variable
-if(NOT DEFINED ENV{SCORBIT_SDK_ENCRYPT_SECRET})
-    message(FATAL_ERROR "SCORBIT_SDK_ENCRYPT_SECRET environment variable is not set")
 endif()
 
 include(GNUInstallDirs)
@@ -50,22 +40,22 @@ set_target_properties(
 
 target_sources(${PROJECT_NAME} PRIVATE source/main.cpp)
 
+target_include_directories(
+    ${PROJECT_NAME}
+    PRIVATE ../3rd/obfuscate
+)
+
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
+include(../cmake/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
-    PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="$ENV{SCORBIT_SDK_ENCRYPT_SECRET}"
+    PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
 )
 
 # Link dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto)
-
-target_include_directories(
-    ${PROJECT_NAME}
-    PRIVATE $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    # $<INSTALL_INTERFACE:include>
-)
 
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.

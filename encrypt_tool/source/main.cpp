@@ -5,7 +5,7 @@
  *
  ****************************************************************************/
 
-#include "obfuscate.h"
+#include <obfuscate.h>
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -15,8 +15,6 @@
 #include <cstring>
 #include <openssl/buffer.h>
 #include <openssl/kdf.h>
-
-#define OBF(x) AY_OBFUSCATE(x)
 
 constexpr int AES_KEY_SIZE = 32; // AES-256
 constexpr int AES_IV_SIZE = 12;
@@ -116,7 +114,7 @@ int main(int argc, char *argv[])
 
     try {
         const auto secret = hex2bytes(argv[1]);
-        std::string provider = argv[2] + std::string(OBF(SCORBIT_SDK_ENCRYPT_SECRET));
+        std::string provider = argv[2] + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET));
 
         std::string encrypted = encryptSecret(secret, provider);
         std::cout << encrypted << std::endl;
