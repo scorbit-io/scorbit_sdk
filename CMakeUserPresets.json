@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "configurePresets": [
+        {
+            "name": "sibling-build-dir",
+            "hidden": true,
+            "binaryDir": "${sourceParentDir}/build/${sourceDirName}"
+        },
+        {
+            "name": "ninja",
+            "inherits": [
+                "sibling-build-dir",
+                "ci-enable-all"
+            ],
+            "displayName": "Ninja Debug",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        }
+    ]
+}

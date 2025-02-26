@@ -1,0 +1,29 @@
+{
+    "version": 1,
+    "configurePresets": [
+        {
+            "name": "ci-enable-all",
+            "hidden": true,
+            "binaryDir": "build",
+            "cacheVariables": {
+                "MYPROJ_FEATURE_X": true,
+                "MYPROJ_FEATURE_Y": true
+            }
+        },
+        {
+            "name": "ci-linux",
+            "inherits": "ci-enable-all",
+            "displayName": "Linux continuous integration setup",
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "ci-macos",
+            "inherits": "ci-enable-all",
+            "displayName": "macOS continuous integration setup",
+            "generator": "Xcode"
+        }
+    ]
+}

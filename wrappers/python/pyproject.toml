@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.11.0", "pybind11", "pybind11-stubgen>=2.5.3"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "scorbit"
+version = "1.0.1"
+description = "Scorbit SDK"
+authors = [
+    { name = "Dilshod Mukhtarov", email = "dilshodm@scorbit.io" },
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+]
+
+[tool.scikit-build]
+# build-dir = "build-scikit"
+wheel.expand-macos-universal-tags = true
+minimum-version = "build-system.requires"
+cmake.args = ["-D SCORBIT_SDK_PRODUCTION=ON"]
