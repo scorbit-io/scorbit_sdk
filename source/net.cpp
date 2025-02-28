@@ -296,6 +296,8 @@ Net::task_t Net::createAuthenticateTask()
         const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
         if (signature.empty()) {
             ERR("Can't authenticate, signature is empty");
+            m_status = AuthStatus::AuthenticationFailed;
+            m_authCV.notify_all();
             return;
         }
 
@@ -316,6 +318,7 @@ Net::task_t Net::createAuthenticateTask()
             ERR("{}", r.text);
             // TODO: Sentry
             // SentryManager::message(msg);
+            m_authCV.notify_all();
             return;
         }
 
