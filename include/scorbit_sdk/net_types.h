@@ -11,7 +11,7 @@
 #include <array>
 #include <functional>
 #include <string>
-#include <cstddef>
+#include <vector>
 
 namespace scorbit {
 
@@ -61,7 +61,8 @@ struct DeviceInfo {
 
     /**
      * Optional. The device's UUID.
-     * If not set, the UUID will be derived from the device's MAC address.
+     * If not set, the UUID will be derived from the device's MAC address. This is the preferred way
+     * to set the UUID for machines without TPM. If you have a known UUID, you can set it here.
      *
      * Examples: `"f0b188f8-9f2d-4f8d-abe4-c3107516e7ce"`, `"f0b188f89f2d4f8dabe4c3107516e7ce"`,
      * `"F0B188F8-9F2D-4F8D-ABE4-C3107516E7CE"`, `"F0B188F89F2D4F8DABE4C3107516E7CE"`

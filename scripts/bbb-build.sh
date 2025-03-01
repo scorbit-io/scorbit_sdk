@@ -28,7 +28,7 @@ CMD="
     && cpack -G DEB \
     \
     && cd .. \
-    && cmake
+    && cmake \
         -D BBB_BUILD=ON \
         -D SCORBIT_SDK_PRODUCTION=ON \
         -G Ninja \

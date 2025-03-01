@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <string>
+#include <cstdint>
 
 namespace scorbit {
 namespace detail {
