@@ -40,6 +40,14 @@ CPMAddPackage(
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
 
+# Boost -----------
+
+set(TRY_BOOST_VERSION 1.87.0)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
+
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
@@ -132,6 +140,7 @@ target_sources(
 target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
+        ${BOOST_LIBS}
         scorbit_sdk::scorbit_sdk
         Catch2::Catch2WithMain
         trompeloeil::trompeloeil
