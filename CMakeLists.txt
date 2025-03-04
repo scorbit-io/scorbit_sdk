@@ -151,6 +151,16 @@ target_sources(
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
+# target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+
+# To exclude symbols from other static libraries
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--exclude-libs,ALL")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-dead_strip")
+elseif(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
+endif()
 
 # Link dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto)
