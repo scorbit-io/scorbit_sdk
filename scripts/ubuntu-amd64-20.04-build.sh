@@ -10,7 +10,7 @@
 #    exit 1
 #fi
 
-REL=1
+REL=2
 
 BUILD_DIR=build-ubuntu-amd64-20.04
 DOCKER_IMAGE=dilshodm/ubuntu-builder-amd64:20.04_${REL}
