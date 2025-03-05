@@ -192,13 +192,6 @@ if(BBB_BUILD)
         FILES
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
-            "/usr/local/lib/libssl.so"
-            "/usr/local/lib/libssl.so.3"
-            "/usr/local/lib/libcrypto.so"
-            "/usr/local/lib/libcrypto.so.3"
-            "/usr/local/lib/libcurl.so"
-            "/usr/local/lib/libcurl.so.4"
-            "/usr/local/lib/libcurl.so.4.8.0"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )

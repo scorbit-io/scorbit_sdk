@@ -26,7 +26,7 @@ file(
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
 )
-set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
+set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir} "/usr/local/lib")
 
 # ---- Add dependencies ----
 

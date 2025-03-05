@@ -5,12 +5,14 @@
 # from https://medium.com/redbubble/running-a-docker-container-as-a-non-root-user-7d2e00f8ee15
 # and https://jtreminio.com/blog/running-docker-containers-as-current-host-user/
 
+REL=2
+
 if [ "$1" = "release" ]; then
     BUILD_DIR=build-bbb-release
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04
+    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}
 elif [ "$1" = "devel" ]; then
     BUILD_DIR=build-bbb-devel
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04-devel
+    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}-devel
 else
     echo "Usage: $0 [release|devel]"
     exit 1

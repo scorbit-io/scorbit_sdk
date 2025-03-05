@@ -28,19 +28,21 @@ RUN \
 RUN apt-get install -y cpanminus \
     && cpanm List::Util Text::Template
 
-#ARG ZLIB=zlib-1.3.1
-#RUN wget https://zlib.net/$ZLIB.tar.gz \
-#    && tar xvf $ZLIB.tar.gz && rm $ZLIB.tar.gz && cd $ZLIB \
-#    && ./configure --static && make -j $(nproc) && make install \
-#    && cd .. && rm -rf $ZLIB
+ARG ZLIB=zlib-1.3.1
+RUN wget --no-check-certificate https://zlib.net/$ZLIB.tar.gz \
+    && tar xvf $ZLIB.tar.gz && rm $ZLIB.tar.gz && cd $ZLIB \
+    && CFLAGS="-fPIC" ./configure --static \
+    && make -j$(nproc) \
+    && make install \
+    && cd .. && rm -rf $ZLIB
 
-RUN apt-get install -y zlib1g-dev
-
-ARG OPENSSL=openssl-3.3.2
+ARG OPENSSL=openssl-3.4.1
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xvf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
-    && ./config --openssldir=/usr/lib/ssl no-apps shared zlib ${OPENSSL_CONFIG_ARGS} \
+    && ./config --openssldir=/usr/lib/ssl --prefix=/usr/local --libdir=/usr/local/lib \
+                no-apps no-shared no-pinshared zlib \
+                ${OPENSSL_CONFIG_ARGS} \
     && make -j $(nproc) && make install_sw \
     && cd .. && rm -rf $OPENSSL
 
@@ -50,13 +52,14 @@ RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VER
     && sh cmake-$CMAKE_VERSION-Linux-armv7l.sh --skip-license --prefix=/usr \
     && rm cmake-$CMAKE_VERSION-Linux-armv7l.sh
 
-ARG CURL=curl-8.10.1
-ARG CURL_VER=8_10_1
+ARG CURL=curl-8.11.1
+ARG CURL_VER=8_11_1
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
             -D CMAKE_BUILD_TYPE=Release \
-            -D BUILD_SHARED_LIBS=ON \
+            -D CMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -D BUILD_SHARED_LIBS=OFF \
             -D BUILD_CURL_EXE=OFF \
             -D BUILD_TESTING=OFF \
             -D SSL_ENABLED=ON \
