@@ -1,10 +1,10 @@
 # Compiler and flags
 CC = gcc
-CFLAGS = -std=c11 -Wall -I../.. -I/usr/local/include
-LDFLAGS = -L/usr/local/lib -lcrypto -lscorbit_sdk
+CFLAGS = -std=c99 -Wall -I../.. -I/usr/local/include
+LDFLAGS = -L/usr/local/lib -lscorbit_sdk
 
 # Source files
-SRC = main.c ../signer_function/scorbit_crypt.c
+SRC = main.c
 
 # Output binary
 OUT = c_example
