@@ -4,7 +4,7 @@
 
 REL=2
 
-BUILD_DIR=build-ubuntu-amd64-20.04
+BUILD_DIR=build/ubuntu-amd64-20.04
 DOCKER_IMAGE=dilshodm/ubuntu-builder-amd64:20.04_${REL}
 PLATFORM=linux/amd64
 
@@ -16,20 +16,21 @@ CMD="
         -B '$BUILD_DIR' \
         -S . \
     && cmake --build '$BUILD_DIR' --config Release \
-    && cd '$BUILD_DIR' \
+    && pushd '$BUILD_DIR' \
     && cpack -G DEB \
     && cpack -G TGZ \
+    && popd \
     \
-    && cd .. \
     && cmake \
         -D UBUNTU_BUILD=ON \
         -D SCORBIT_SDK_PRODUCTION=ON \
         -G Ninja \
-        -B '$BUILD_DIR'/encrypt_tool \
+        -B '$BUILD_DIR/encrypt_tool' \
         -S encrypt_tool \
-    && cmake --build '$BUILD_DIR'/encrypt_tool --config Release \
-    && cd '$BUILD_DIR'/encrypt_tool \
-    && cpack -G TGZ
+    && cmake --build '$BUILD_DIR/encrypt_tool' --config Release \
+    && pushd '$BUILD_DIR/encrypt_tool' \
+    && cpack -G TGZ \
+    && popd
 "
 
 # Get the directory of the script and source the common functions

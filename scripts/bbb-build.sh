@@ -7,10 +7,10 @@ REL=2
 PLATFORM=linux/arm/v7
 
 if [ "$1" = "release" ]; then
-    BUILD_DIR=build-bbb-release
+    BUILD_DIR=build/bbb-release
     DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}
 elif [ "$1" = "devel" ]; then
-    BUILD_DIR=build-bbb-devel
+    BUILD_DIR=build/bbb-devel
     DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}-devel
 else
     echo "Usage: $0 [release|devel]"
@@ -25,19 +25,20 @@ CMD="
         -B '$BUILD_DIR' \
         -S . \
     && cmake --build '$BUILD_DIR' --config Release \
-    && cd '$BUILD_DIR' \
+    && pushd '$BUILD_DIR' \
     && cpack -G DEB \
+    && popd \
     \
-    && cd .. \
     && cmake \
         -D BBB_BUILD=ON \
         -D SCORBIT_SDK_PRODUCTION=ON \
         -G Ninja \
-        -B '$BUILD_DIR'/encrypt_tool \
+        -B '$BUILD_DIR/encrypt_tool' \
         -S encrypt_tool \
     && cmake --build '$BUILD_DIR'/encrypt_tool --config Release \
-    && cd '$BUILD_DIR'/encrypt_tool \
-    && cpack -G TGZ
+    && pushd '$BUILD_DIR/encrypt_tool' \
+    && cpack -G TGZ \
+    && popd
 "
 
 

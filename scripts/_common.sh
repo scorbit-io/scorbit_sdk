@@ -17,13 +17,17 @@ docker_build() {
     DOCKER_IMAGE=$2
     PLATFORM=$3
 
+    echo "Build dir is: $BUILD_DIR"
+
     echo $CMD
     docker container run --rm -it \
         -v $(pwd):/src \
+        -v $(pwd)/build/_cache:/cache \
         --workdir /src \
         --user $(id -u):$(id -g) \
         --platform $PLATFORM \
         -e SCORBIT_SDK_ENCRYPT_SECRET \
+        -e CPM_SOURCE_CACHE="/cache" \
         $DOCKER_IMAGE bash -c "$CMD"
 }
 

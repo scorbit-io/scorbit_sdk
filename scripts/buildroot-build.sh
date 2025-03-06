@@ -4,7 +4,7 @@
 
 REL=1
 
-BUILD_DIR=build-buildroot-release
+BUILD_DIR=build/buildroot-release
 DOCKER_IMAGE=dilshodm/sdk-builder-buildroot-arm64:${REL}
 PLATFORM=linux/amd64
 
@@ -17,9 +17,10 @@ CMD="
         -B '$BUILD_DIR' \
         -S . \
     && cmake --build '$BUILD_DIR' --config Release \
-    && cd '$BUILD_DIR' \
+    && pushd '$BUILD_DIR' \
     && cpack -G STGZ \
-    && cpack -G TGZ
+    && cpack -G TGZ \
+    && popd
 "
 
 # Get the directory of the script and source the common functions
