@@ -13,7 +13,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
 option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
-option(UBUNTU_BUILD "Build library for Ubuntu packaging" OFF)
 
 set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
 
