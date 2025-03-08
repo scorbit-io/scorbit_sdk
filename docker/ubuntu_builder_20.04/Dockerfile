@@ -6,6 +6,7 @@
 
 FROM ubuntu:20.04
 
+ARG TARGETPLATFORM
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies
@@ -42,10 +43,11 @@ RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.
     && cd .. && rm -rf $OPENSSL
 
 # Install CMake
-ARG CMAKE_VERSION=3.30.3
-RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-x86_64.sh \
-    && sh cmake-$CMAKE_VERSION-Linux-x86_64.sh --skip-license --prefix=/usr \
-    && rm cmake-$CMAKE_VERSION-Linux-x86_64.sh
+ARG CMAKE_VERSION=3.31.5
+RUN ARCH=$(uname -m) \
+    && wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-$ARCH.sh \
+    && sh cmake-$CMAKE_VERSION-Linux-$ARCH.sh --skip-license --prefix=/usr \
+    && rm cmake-$CMAKE_VERSION-Linux-$ARCH.sh
 
 ARG CURL=curl-8.11.1
 ARG CURL_VER=8_11_1
@@ -64,3 +66,14 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
     && cmake --build build --parallel \
     && cmake --build build --target install \
     && cd ../.. && rm -rf $CURL
+
+# Install Python versions and create virtual environments
+RUN add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt update \
+    &&  for ver in 3.8 3.9 3.10 3.11 3.12 3.13; do \
+            apt install -y python$ver python$ver-dev python$ver-venv && \
+            python$ver -m venv /opt/venv$ver && \
+            . /opt/venv$ver/bin/activate && \
+            python$ver -m pip install --upgrade pip build && \
+            deactivate \
+        ; done

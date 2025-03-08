@@ -5,6 +5,7 @@
 REL=1
 
 BUILD_DIR=build/buildroot-release
+DIST_DIR=build/dist/buildroot
 DOCKER_IMAGE=dilshodm/sdk-builder-buildroot-arm64:${REL}
 PLATFORM=linux/amd64
 
@@ -29,3 +30,7 @@ source "$SCRIPT_DIR/_common.sh"
 
 cleanup_build_files "$BUILD_DIR"
 docker_build "$CMD" "$DOCKER_IMAGE" "$PLATFORM"
+
+# Move artifacts to dist directory
+mkdir -p "$DIST_DIR"
+mv $BUILD_DIR/*.sh $BUILD_DIR/*.tar.gz $DIST_DIR
