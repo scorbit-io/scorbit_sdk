@@ -10,10 +10,9 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+#include <openssl/buffer.h>
 #include <vector>
 #include <cstring>
-#include <openssl/buffer.h>
-#include <openssl/kdf.h>
 
 
 namespace scorbit {
@@ -80,19 +79,3 @@ std::vector<uint8_t> decryptSecret(const std::string &encryptedData, const std::
 
 } // namespace detail
 } // namespace scorbit
-
-// int main(int argc, char *argv[])
-// {
-//     if (argc != 3) {
-//         std::cerr << "Usage: " << argv[0] << " <encrypted> <password>\n";
-//         return 1;
-//     }
-
-//     std::string encrypted = argv[1];
-//     std::string password = argv[2];
-
-//     std::string decrypted = decryptSecret(encrypted, password);
-//     std::cout << "Decrypted: " << decrypted << std::endl;
-
-//     return 0;
-// }

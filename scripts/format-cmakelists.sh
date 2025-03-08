@@ -14,4 +14,3 @@ for file in $cmake_files; do
     echo "Formatting $file"
     gersemi -i "$file"
 done
-

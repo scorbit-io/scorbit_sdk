@@ -5,6 +5,9 @@ cmake_minimum_required(VERSION 3.28)
 # Note: update this to your new project's name and version
 project(scorbit_sdk VERSION 1.0.1 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # ---- Options ----
 
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
@@ -148,13 +151,19 @@ target_sources(
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
+# target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
+
+# To exclude symbols from other static libraries
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--exclude-libs,ALL")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-dead_strip")
+elseif(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
+endif()
 
 # Link dependencies
-target_link_libraries(
-    ${PROJECT_NAME}
-    PUBLIC ${BOOST_LIBS}
-    PRIVATE fmt::fmt OpenSSL::Crypto cpr::cpr
-)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto)
 
 target_include_directories(
     ${PROJECT_NAME}
@@ -183,22 +192,7 @@ if(BBB_BUILD)
         FILES
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
-            "/usr/local/lib/libssl.so"
-            "/usr/local/lib/libssl.so.3"
-            "/usr/local/lib/libcrypto.so"
-            "/usr/local/lib/libcrypto.so.3"
-            "/usr/local/lib/libcurl.so"
-            "/usr/local/lib/libcurl.so.4"
-            "/usr/local/lib/libcurl.so.4.8.0"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
-        COMPONENT "${PROJECT_NAME}_Development"
-    )
-endif()
-
-if(BBB_BUILD OR UBUNTU_BUILD)
-    install(
-        DIRECTORY "/usr/local/include/openssl"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/"
         COMPONENT "${PROJECT_NAME}_Development"
     )
 endif()

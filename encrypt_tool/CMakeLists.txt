@@ -5,6 +5,9 @@ cmake_minimum_required(VERSION 3.28)
 # Note: update this to your new project's name and version
 project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -23,7 +26,7 @@ file(
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
 )
-set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
+set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir} "/usr/local/lib")
 
 # ---- Add dependencies ----
 
@@ -42,20 +45,29 @@ target_sources(${PROJECT_NAME} PRIVATE source/main.cpp)
 
 target_include_directories(
     ${PROJECT_NAME}
-    PRIVATE ../3rd/obfuscate
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../3rd/obfuscate
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 
-include(../cmake/encrypt.cmake)
+# To exclude symbols from other static libraries
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--exclude-libs,ALL")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-dead_strip")
+elseif(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
+endif()
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
 )
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto z)
 
 install(
     TARGETS ${PROJECT_NAME}
