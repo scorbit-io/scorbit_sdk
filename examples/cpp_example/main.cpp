@@ -182,8 +182,6 @@ int main()
         }
     });
 
-    // std::this_thread::sleep_for(1000ms);
-
     cout << "Deeplink for pairing " << gs.getPairDeeplink() << endl;
 
     // Main loop which is typically an infinite loop, but this example runs for 10 cycles
@@ -263,9 +261,9 @@ int main()
             } else {
                 gs.removeMode("MB:Multiball");
             }
-            // gs.addMode("MB:Multiball");
-            // gs.addMode("NA:SomeMode");
-            // gs.removeMode("NA:AnotherMode");
+            gs.addMode("MB:Multiball");
+            gs.addMode("NA:SomeMode");
+            gs.removeMode("NA:AnotherMode");
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {

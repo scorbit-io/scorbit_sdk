@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.28)
 # ---- Project ----
 
 # Note: update this to your new project's name and version
-project(scorbit_sdk VERSION 1.0.1 LANGUAGES CXX)
+project(scorbit_sdk VERSION 1.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -192,7 +192,7 @@ if(BBB_BUILD)
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
-        COMPONENT "${PROJECT_NAME}_Development"
+        COMPONENT "${PROJECT_NAME}_Runtime"
     )
 endif()
 

@@ -703,7 +703,7 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
             reply = std::move(r.text);
 
             if (r.status_code == 200) {
-                INF("API GET request: ok, {}", reply);
+                DBG("API GET request: ok, {}", reply);
                 error = Error::Success;
                 break;
             }
@@ -760,7 +760,7 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
             reply = std::move(r.text);
 
             if (r.status_code == 200) {
-                INF("API POST request: ok, {}", reply);
+                DBG("API POST request: ok, {}", reply);
                 error = Error::Success;
                 break;
             }

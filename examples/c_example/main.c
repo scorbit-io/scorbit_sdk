@@ -280,9 +280,9 @@ int main(void)
             } else {
                 sb_remove_mode(gs, "MB:Multiball");
             }
-            // sb_add_mode(gs, "MB:Multiball");
-            // sb_add_mode(gs, "NA:SomeMode");
-            // sb_remove_mode(gs, "NA:AnotherMode");
+            sb_add_mode(gs, "MB:Multiball");
+            sb_add_mode(gs, "NA:SomeMode");
+            sb_remove_mode(gs, "NA:AnotherMode");
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {
