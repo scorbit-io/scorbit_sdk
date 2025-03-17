@@ -192,7 +192,7 @@ if(BBB_BUILD)
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
-        COMPONENT "${PROJECT_NAME}_Development"
+        COMPONENT "${PROJECT_NAME}_Runtime"
     )
 endif()
 
