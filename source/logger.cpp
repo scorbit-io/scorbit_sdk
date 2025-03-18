@@ -22,9 +22,11 @@ constexpr size_t MAX_LOG_MESSAGE_LENGTH = 512;
 std::string cutLongString(const std::string &str, size_t maxLength)
 {
     auto shortStr = str;
-    const auto halfSize = maxLength / 2;
+    constexpr const char *ELIDE_STRING = " ... ";
+    constexpr std::size_t ELIDE_STRING_LENGTH = std::char_traits<char>::length(ELIDE_STRING);
+    const auto halfSize = (maxLength - ELIDE_STRING_LENGTH) / 2;
     if (shortStr.size() > maxLength) {
-        shortStr = fmt::format("{} ... {}", shortStr.substr(0, halfSize),
+        shortStr = fmt::format("{}{}{}", shortStr.substr(0, halfSize), ELIDE_STRING,
                                shortStr.substr(shortStr.length() - halfSize));
     }
 
@@ -59,7 +61,7 @@ void Logger::log(const std::string &message, LogLevel level, const char *file, i
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto &item : m_callbacks) {
         if (item.callback) {
-            if (LIKELY(message.length() < MAX_LOG_MESSAGE_LENGTH)) {
+            if (LIKELY(message.length() <= MAX_LOG_MESSAGE_LENGTH)) {
                 item.callback(message, level, file, line, item.userData);
             } else {
                 item.callback(cutLongString(message, MAX_LOG_MESSAGE_LENGTH), level, file, line,
