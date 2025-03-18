@@ -9,7 +9,7 @@
 
 namespace {
 
-constexpr size_t MAX_LOG_MESSAGE_LENGTH = 512;
+constexpr size_t MAX_LOG_MESSAGE_LENGTH = 511;
 
 #if defined(__GNUC__) || defined(__clang__)
 #    define LIKELY(x) __builtin_expect(!!(x), 1)
