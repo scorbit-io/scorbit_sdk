@@ -126,7 +126,7 @@ scorbit::GameState setupGameState()
     scorbit::DeviceInfo info;
 
     info.provider = "dilshodpinball"; // This is required, set to your provider name
-    info.machineId = 4419;            // This is required, set to your machine id
+    info.machineId = 4379;            // This is required, set to your machine id
     info.hostname = "staging";        // Optional, if not set, it will be "production"
     // Another example: info.hostname = "https://api.scorbit.io";
 

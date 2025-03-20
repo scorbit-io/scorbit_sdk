@@ -133,7 +133,7 @@ sb_game_handle_t setup_game_state(void)
     // Setup device info
     sb_device_info_t device_info = {
             .provider = "dilshodpinball", // This is required, set to your provider name
-            .machine_id = 4419,
+            .machine_id = 4379,
             .game_code_version = "0.1.0", // game version
             .hostname = "staging",        // Optional, if NULL, it will be production
 

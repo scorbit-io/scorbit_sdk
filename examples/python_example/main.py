@@ -54,7 +54,7 @@ def logger_callback(message, level, file, line):
 def setup_game_state():
     info = scorbit.DeviceInfo()
     info.provider = "dilshodpinball"
-    info.machine_id = 4419
+    info.machine_id = 4379
     info.hostname = "staging"   # staging, production, or specific url
     info.game_code_version = "0.1.0"
     info.uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab" # don't set it, then it will be generated automatically
