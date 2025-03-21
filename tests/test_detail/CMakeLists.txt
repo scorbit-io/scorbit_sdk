@@ -135,6 +135,9 @@ target_sources(
         ../../source/utils/decrypt.h
         ../../source/utils/decrypt.cpp
         source/test_decrypt.cpp
+        ../../source/utils/date_time_parser.h
+        ../../source/utils/date_time_parser.cpp
+        source/test_date_time_parser.cpp
 )
 
 target_link_libraries(
