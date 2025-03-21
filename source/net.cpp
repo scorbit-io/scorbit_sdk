@@ -11,6 +11,7 @@
 #include "scorbit_sdk/net_types.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
+#include "utils/date_time_parser.h"
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
@@ -290,58 +291,67 @@ Net::task_t Net::createAuthenticateTask()
 
         m_stoken.clear();
         m_status = AuthStatus::Authenticating;
-        const auto timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
+        std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
         ByteArray message(m_deviceInfo.uuid);
 
-        const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
-        if (signature.empty()) {
-            ERR("Can't authenticate, signature is empty");
-            m_status = AuthStatus::AuthenticationFailed;
-            m_authCV.notify_all();
-            return;
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
+            if (signature.empty()) {
+                ERR("Can't authenticate, signature is empty");
+                m_status = AuthStatus::AuthenticationFailed;
+                m_authCV.notify_all();
+                return;
+            }
+
+            auto payload = cpr::Payload {
+                    {"provider", m_deviceInfo.provider},
+                    {"uuid", m_deviceInfo.uuid},
+                    {"timestamp", timestamp},
+                    {"sign", signature},
+            };
+
+            auto r = cpr::Post(url(STOKEN_URL), payload);
+
+            if (r.status_code == 200) {
+                boost::system::error_code ec;
+                boost::json::object json = boost::json::parse(r.text, ec).as_object();
+
+                if (ec || !json.contains(RETURNED_TOKEN_NAME)) {
+                    const auto msg =
+                            fmt::format("No token, authentication failed, got reply: {}", r.text);
+                    ERR(msg);
+                    // SentryManager::message(msg);
+                    // TODO: retry later with exponential timing
+                    return;
+                }
+
+                m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
+
+                m_status = AuthStatus::AuthenticatedCheckingPairing;
+                INF("API authentication successful! Checking pairing status...");
+
+                m_authCV.notify_all();
+
+                sendHeartbeat(); // To check if it's paired
+                startHeartbeatTimer();
+                break;
+            } else if (r.status_code == 400) {
+                // Retry with new timestamp parsed from reply header
+                INF("API authentication failed: code {}, {}, will retry with new timestamp",
+                    r.status_code, r.error.message);
+                timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
+            } else {
+                m_status = AuthStatus::AuthenticationFailed;
+                const auto msg = fmt::format("API authentication failed: code {}, {}",
+                                             r.status_code, r.error.message);
+                ERR("{}", msg);
+                ERR("{}", r.text);
+                // TODO: Sentry
+                // SentryManager::message(msg);
+                m_authCV.notify_all();
+                break;
+            }
         }
-
-        auto payload = cpr::Payload {
-                {"provider", m_deviceInfo.provider},
-                {"uuid", m_deviceInfo.uuid},
-                {"timestamp", timestamp},
-                {"sign", signature},
-        };
-
-        auto r = cpr::Post(url(STOKEN_URL), payload);
-
-        if (r.status_code != 200) {
-            m_status = AuthStatus::AuthenticationFailed;
-            const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
-                                         r.error.message);
-            ERR("{}", msg);
-            ERR("{}", r.text);
-            // TODO: Sentry
-            // SentryManager::message(msg);
-            m_authCV.notify_all();
-            return;
-        }
-
-        boost::system::error_code ec;
-        boost::json::object json = boost::json::parse(r.text, ec).as_object();
-
-        if (ec || !json.contains(RETURNED_TOKEN_NAME)) {
-            const auto msg = fmt::format("No token, authentication failed, got reply: {}", r.text);
-            ERR(msg);
-            // SentryManager::message(msg);
-            // TODO: retry later with exponential timing
-            return;
-        }
-
-        m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
-
-        m_status = AuthStatus::AuthenticatedCheckingPairing;
-        INF("API authentication successful! Checking pairing status...");
-
-        m_authCV.notify_all();
-
-        sendHeartbeat(); // To check if it's paired
-        startHeartbeatTimer();
     };
 }
 
