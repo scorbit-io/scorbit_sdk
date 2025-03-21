@@ -146,6 +146,8 @@ target_sources(
         source/utils/decrypt.h
         source/utils/decrypt.cpp
         source/utils/signer.h
+        source/utils/date_time_parser.h
+        source/utils/date_time_parser.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
