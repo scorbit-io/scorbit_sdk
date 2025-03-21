@@ -104,6 +104,7 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
 
     switch (level) {
     case scorbit::LogLevel::Debug:
+        return; // Don't print debug messages
         std::cout << "DBG";
         break;
     case scorbit::LogLevel::Info:
