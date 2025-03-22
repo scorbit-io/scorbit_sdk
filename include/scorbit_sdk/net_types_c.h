@@ -36,7 +36,7 @@ typedef enum {
     SB_NET_AUTHENTICATED_CHECKING_PAIRING = 2, // AuthenticatedCheckingPairing,
     SB_NET_AUTHENTICATED_UNPAIRED = 3,         // AuthenticatedUnpaired,
     SB_NET_AUTHENTICATED_PAIRED = 4,           // AuthenticatedPaired,
-    SB_NET_AUTHENTICATTION_FAILED = 5,          // AuthenticationFailed,
+    SB_NET_AUTHENTICATION_FAILED = 5,          // AuthenticationFailed,
 } sb_auth_status_t;
 
 typedef struct {

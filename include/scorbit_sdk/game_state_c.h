@@ -192,7 +192,7 @@ void sb_commit(sb_game_handle_t handle);
  * - @ref SB_NET_AUTHENTICATED_UNPAIRED: Authentication succeeded, but pairing is not
  * established.
  * - @ref SB_NET_AUTHENTICATED_PAIRED: Authentication succeeded, and pairing is established.
- * - @ref SB_NET_AUTHENTICATTION_FAILED: The authentication process failed, indicating a
+ * - @ref SB_NET_AUTHENTICATION_FAILED: The authentication process failed, indicating a
  * signing error.
  *
  *  * @return The current authentication status as an @ref sb_auth_status_t value.
