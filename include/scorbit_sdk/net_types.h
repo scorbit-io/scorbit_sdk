@@ -35,7 +35,7 @@ enum class AuthStatus {
     AuthenticatedCheckingPairing = SB_NET_AUTHENTICATED_CHECKING_PAIRING,
     AuthenticatedUnpaired = SB_NET_AUTHENTICATED_UNPAIRED,
     AuthenticatedPaired = SB_NET_AUTHENTICATED_PAIRED,
-    AuthenticationFailed = SB_NET_AUTHENTICATTION_FAILED,
+    AuthenticationFailed = SB_NET_AUTHENTICATION_FAILED,
 };
 
 struct DeviceInfo {
