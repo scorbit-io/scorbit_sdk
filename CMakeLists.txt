@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
 
+# Read version from VERSION file
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" VERSION_FROM_FILE)
+string(STRIP "${VERSION_FROM_FILE}" VERSION_FROM_FILE) # Remove any leading/trailing whitespace
+
 # ---- Project ----
 
-# Note: update this to your new project's name and version
-project(scorbit_sdk VERSION 1.0.3 LANGUAGES CXX)
+project(scorbit_sdk VERSION ${VERSION_FROM_FILE} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -114,6 +117,7 @@ set_target_properties(
 target_sources(
     scorbit_sdk
     PRIVATE
+        VERSION
         source/net.cpp
         source/logger.cpp
         source/logger.h
