@@ -8,6 +8,8 @@
 #include <utils/date_time_parser.h>
 #include <catch2/catch_test_macros.hpp>
 
+using namespace scorbit::detail;
+
 TEST_CASE("parseHttpDateToUnixTimestamp - Valid Dates") {
     CHECK(parseHttpDateToUnixTimestamp("Fri, 21 Mar 2025 12:34:56 GMT") == 1742560496);
     CHECK(parseHttpDateToUnixTimestamp("Wed, 01 Jan 2020 00:00:00 GMT") == 1577836800);
