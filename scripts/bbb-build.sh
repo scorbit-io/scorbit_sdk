@@ -2,7 +2,7 @@
 
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Oct 2024
 
-REL=2
+REL=4
 
 DIST_DIR=build/dist/bbb
 PLATFORM=linux/arm/v7

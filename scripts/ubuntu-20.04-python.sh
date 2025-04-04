@@ -2,7 +2,7 @@
 
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Mar 2025
 
-REL=3
+REL=4
 
 set -e
 
@@ -37,6 +37,6 @@ run_build amd64 linux/amd64 3.8
 run_build amd64 linux/amd64 3.10
 run_build amd64 linux/amd64 3.11
 
-#run_build arm64 linux/arm64 3.8
+run_build arm64 linux/arm64 3.12
 
 #run_build arm   linux/arm/v7 3.10
