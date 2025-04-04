@@ -2,7 +2,7 @@
 
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Oct 2024
 
-REL=3
+REL=4
 
 set -e
 

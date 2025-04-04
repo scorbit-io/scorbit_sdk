@@ -14,7 +14,7 @@ RUN \
         wget \
         software-properties-common \
         python-software-properties \
-        \
+        pkg-config \
         ninja-build \
         perl \
         linux-headers-3.2.0-150 \
@@ -69,3 +69,13 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
     && cmake --build build --parallel \
     && cmake --build build --target install \
     && cd ../.. && rm -rf $CURL
+
+ARG LIBARCHIVE_VER=3.7.9
+ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
+RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
+    && tar xvf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \
+    && LDFLAGS="-L/usr/local/lib -lcrypto -lssl -ldl -lpthread" \
+       ./configure --with-openssl --disable-shared \
+    && make -j$(nproc) \
+    && make install \
+    && cd ../.. && rm -rf $LIBARCHIVE
