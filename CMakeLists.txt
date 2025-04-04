@@ -83,11 +83,21 @@ CPMAddPackage(
     GIT_SHALLOW TRUE
 )
 
+if(APPLE AND NOT DEFINED LibArchive_ROOT)
+    set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
+endif()
+find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
+
 # Boost -----------
 
 set(TRY_BOOST_VERSION 1.87.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED
+    asio
+    uuid
+    json
+    flyweight
+)
 
 if(WIN32)
     set(BOOST_COMPONENTS
@@ -160,6 +170,8 @@ target_sources(
         source/utils/signer.h
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
+        source/utils/archiver.h
+        source/utils/archiver.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
@@ -174,7 +186,10 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 endif()
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto)
+target_link_libraries(
+    ${PROJECT_NAME}
+    PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto LibArchive::LibArchive
+)
 
 target_include_directories(
     ${PROJECT_NAME}
