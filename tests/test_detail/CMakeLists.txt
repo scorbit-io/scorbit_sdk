@@ -40,11 +40,16 @@ CPMAddPackage(
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
 
+if(APPLE AND NOT DEFINED LibArchive_ROOT)
+    set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
+endif()
+find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
+
 # Boost -----------
 
 set(TRY_BOOST_VERSION 1.87.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight dll)
 
 if(WIN32)
     set(BOOST_COMPONENTS
@@ -139,6 +144,10 @@ target_sources(
         source/test_game_state.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
+        ../../source/utils/updater.h
+        ../../source/utils/updater.cpp
+        ../../source/utils/archiver.h
+        ../../source/utils/archiver.cpp
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
@@ -171,6 +180,7 @@ target_link_libraries(
         fmt::fmt
         OpenSSL::Crypto
         cpr::cpr
+        LibArchive::LibArchive
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
