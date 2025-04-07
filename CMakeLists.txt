@@ -97,6 +97,7 @@ set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED
     uuid
     json
     flyweight
+    dll
 )
 
 if(WIN32)
@@ -172,6 +173,8 @@ target_sources(
         source/utils/date_time_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
+        source/utils/updater.h
+        source/utils/updater.cpp
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
