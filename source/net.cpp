@@ -434,7 +434,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             }
 
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::lock_guard lockGameSession(m_gameSessionsMutex);
                 session = m_gameSessions[sessionUuid];
             }
 
@@ -558,7 +558,7 @@ Net::task_t Net::createHeartbeatTask()
 
             bool isActiveSession;
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::lock_guard lockGameSession(m_gameSessionsMutex);
                 isActiveSession = !m_gameSessions.empty();
             }
             const auto parameters =
