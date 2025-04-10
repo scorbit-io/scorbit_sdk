@@ -10,8 +10,7 @@
 #include <openssl/sha.h>
 #include <openssl/buffer.h>
 #include <vector>
-#include <cstring>
-
+#include <string>
 
 namespace scorbit {
 namespace detail {
