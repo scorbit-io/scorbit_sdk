@@ -46,7 +46,16 @@ set(TRY_BOOST_VERSION 1.87.0)
 set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
 set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
+if(WIN32)
+    set(BOOST_COMPONENTS
+        ${BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
+        ${BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
+    )
+    find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+    set(BOOST_LIBS ${Boost_LIBRARIES})
+else()
+    include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
+endif()
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
