@@ -8,9 +8,7 @@ project(scorbit_sdk VERSION 1.0.3 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(MSVC)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
+include(cmake/tools.cmake)
 
 # ---- Options ----
 
@@ -52,9 +50,6 @@ file(
 set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
 
 # ---- Add dependencies via CPM ----
-# see https://github.com/TheLartians/CPM.cmake for more info
-
-include(cmake/CPM.cmake)
 
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")

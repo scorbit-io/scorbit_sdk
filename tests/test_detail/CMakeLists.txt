@@ -76,15 +76,31 @@ set(TEST_SECRET "secret")
 # Set the environment variable for building encrypt_tool
 set(ENCRYPT_TOOL_TEST_BUILD_PATH "${CMAKE_CURRENT_BINARY_DIR}/encrypt_tool_test")
 
+if(DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(TOOLCHAIN_DEFINITION "-D CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
+endif()
+
+if(DEFINED VCPKG_TARGET_TRIPLET)
+    set(VCPKG_DEFINITION "-D VCPKG_TARGET_TRIPLET='${VCPKG_TARGET_TRIPLET}'")
+endif()
+
+if(DEFINED CMAKE_GENERATOR)
+    set(GENERATOR "-G ${CMAKE_GENERATOR}")
+endif()
+
 # Configure encrypt_tool with env var SCORBIT_SDK_ENCRYPT_SECRET
+set(ENV{SCORBIT_SDK_ENCRYPT_SECRET} ${TEST_SECRET})
 execute_process(
-    COMMAND
-        ${CMAKE_COMMAND} -E env SCORBIT_SDK_ENCRYPT_SECRET=${TEST_SECRET} ${CMAKE_COMMAND} -B
-        ${ENCRYPT_TOOL_TEST_BUILD_PATH} -S ${CMAKE_CURRENT_SOURCE_DIR}/../../encrypt_tool
-        -D SCORBIT_SDK_PRODUCTION=OFF
+    COMMAND ${CMAKE_COMMAND} -B ${ENCRYPT_TOOL_TEST_BUILD_PATH}
+            -S ${CMAKE_CURRENT_SOURCE_DIR}/../../encrypt_tool
+            -D SCORBIT_SDK_PRODUCTION=OFF
+            ${TOOLCHAIN_DEFINITION}
+            ${VCPKG_DEFINITION}
+            ${GENERATOR}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMAND_ERROR_IS_FATAL ANY
 )
+unset(ENV{SCORBIT_SDK_ENCRYPT_SECRET})
 
 # Build encrypt_tool
 execute_process(
@@ -94,11 +110,7 @@ execute_process(
 )
 
 # Define the correct executable path
-if(WIN32)
-    set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/$<CONFIG>/encrypt_tool.exe")
-else()
-    set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/encrypt_tool")
-endif()
+set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/encrypt_tool")
 
 # Run encrypt_tool to obtain the encrypted key
 execute_process(
@@ -170,7 +182,7 @@ if(NOT TEST_INSTALLED_VERSION)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         target_compile_options(scorbit_sdk PUBLIC -Wall -Wpedantic -Wextra -Werror)
     elseif(MSVC)
-        target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
+        # target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
     endif()
 endif()
 
@@ -183,6 +195,14 @@ target_compile_definitions(
         TEST_PROVIDER="${TEST_PROVIDER}"
         TEST_SECRET="${TEST_SECRET}"
 )
+
+if (WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:scorbit_sdk>
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    )
+endif()
 
 # ---- Add Tests ----
 

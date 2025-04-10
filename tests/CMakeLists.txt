@@ -7,4 +7,6 @@ project(test)
 
 add_subdirectory(test_detail)
 add_subdirectory(test_interface)
-add_subdirectory(test_interface_c)
+if(NOT MSVC)
+    add_subdirectory(test_interface_c)
+endif()

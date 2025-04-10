@@ -13,6 +13,7 @@
 #include <iostream>
 #include <vector>
 #include <cstring>
+#include <string>
 #include <openssl/buffer.h>
 #include <openssl/kdf.h>
 
