@@ -12,6 +12,7 @@
 #include "modes.h"
 #include <boost/flyweight.hpp>
 #include <map>
+#include <chrono>
 
 namespace scorbit {
 namespace detail {

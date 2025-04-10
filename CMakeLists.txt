@@ -8,6 +8,10 @@ project(scorbit_sdk VERSION 1.0.3 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # ---- Options ----
 
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
@@ -87,7 +91,16 @@ set(TRY_BOOST_VERSION 1.87.0)
 set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
 set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
 
-include(cmake/boost.cmake)
+if(WIN32)
+    set(BOOST_COMPONENTS
+        ${BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
+        ${BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
+    )
+    find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+    set(BOOST_LIBS ${Boost_LIBRARIES})
+else()
+    include(cmake/boost.cmake)
+endif()
 
 # ---- Create library ----
 
@@ -159,8 +172,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,--exclude-libs,ALL")
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-dead_strip")
-elseif(MSVC)
-    target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
 endif()
 
 # Link dependencies
