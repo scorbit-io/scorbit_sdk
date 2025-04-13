@@ -115,17 +115,17 @@ AuthStatus GameStateImpl::getStatus() const
     return m_net->status();
 }
 
-std::string GameStateImpl::getMachineUuid() const
+const std::string &GameStateImpl::getMachineUuid() const
 {
     return m_net->getMachineUuid();
 }
 
-std::string GameStateImpl::getPairDeeplink() const
+const std::string &GameStateImpl::getPairDeeplink() const
 {
     return m_net->getPairDeeplink();
 }
 
-std::string GameStateImpl::getClaimDeeplink(int player) const
+const std::string &GameStateImpl::getClaimDeeplink(int player) const
 {
     return m_net->getClaimDeeplink(player);
 }

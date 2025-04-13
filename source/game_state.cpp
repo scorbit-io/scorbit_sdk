@@ -27,22 +27,22 @@ void GameState::setGameFinished()
 
 void GameState::setCurrentBall(sb_ball_t ball)
 {
-    p->setCurrentBall(std::move(ball));
+    p->setCurrentBall(ball);
 }
 
 void GameState::setActivePlayer(sb_player_t player)
 {
-    p->setActivePlayer(std::move(player));
+    p->setActivePlayer(player);
 }
 
 void GameState::setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature)
 {
-    p->setScore(std::move(player), std::move(score), std::move(feature));
+    p->setScore(player, score, feature);
 }
 
-void GameState::addMode(std::string mode)
+void GameState::addMode(const std::string &mode)
 {
-    p->addMode(std::move(mode));
+    p->addMode(mode);
 }
 
 void GameState::removeMode(const std::string &mode)
@@ -65,17 +65,17 @@ AuthStatus GameState::getStatus() const
     return p->getStatus();
 }
 
-std::string GameState::getMachineUuid() const
+const std::string &GameState::getMachineUuid() const
 {
     return p->getMachineUuid();
 }
 
-std::string GameState::getPairDeeplink() const
+const std::string &GameState::getPairDeeplink()
 {
     return p->getPairDeeplink();
 }
 
-std::string GameState::getClaimDeeplink(int player) const
+const std::string &GameState::getClaimDeeplink(int player)
 {
     return p->getClaimDeeplink(player);
 }

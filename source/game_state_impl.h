@@ -37,9 +37,9 @@ public:
 
     AuthStatus getStatus() const;
 
-    std::string getMachineUuid() const;
-    std::string getPairDeeplink() const;
-    std::string getClaimDeeplink(int player) const;
+    const std::string &getMachineUuid() const;
+    const std::string &getPairDeeplink() const;
+    const std::string &getClaimDeeplink(int player) const;
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 

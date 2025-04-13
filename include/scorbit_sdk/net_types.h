@@ -78,6 +78,6 @@ using Digest = std::array<uint8_t, DIGEST_LENGTH>;
 
 using SignerCallback = std::function<Signature(const Digest &digest)>;
 
-using StringCallback = std::function<void(Error error, std::string reply)>;
+using StringCallback = std::function<void(Error error, const std::string &reply)>;
 
 } // namespace scorbit

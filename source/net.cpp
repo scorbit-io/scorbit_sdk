@@ -126,7 +126,7 @@ AuthStatus Net::status() const
     return m_status;
 }
 
-std::string Net::hostname() const
+const string &Net::hostname() const
 {
     return m_hostname;
 }
@@ -218,28 +218,33 @@ void Net::requestPairCode(StringCallback callback)
             {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
 }
 
-string Net::getMachineUuid() const
+const string &Net::getMachineUuid() const
 {
     return m_deviceInfo.uuid;
 }
 
-string Net::getPairDeeplink() const
+const string &Net::getPairDeeplink() const
 {
-    return fmt::format(PAIRING_DEEPLINK, fmt::arg("manufacturer_prefix", m_deviceInfo.provider),
-                       fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
-                       fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
+    m_cachedPairDeeplink =
+            fmt::format(PAIRING_DEEPLINK, fmt::arg("manufacturer_prefix", m_deviceInfo.provider),
+                        fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
+                        fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
+    return m_cachedPairDeeplink;
 }
 
-string Net::getClaimDeeplink(int player) const
+const string &Net::getClaimDeeplink(int player) const
 {
     if (m_vmInfo.venuemachineId == 0 || m_vmInfo.opdbId.empty()) {
         DBG("Venue machine ID or OPDB ID is not set, make sure that the device is authenticated "
             "and paired");
-        return {};
+        m_cachedCclaimDeeplink.clear();
+    } else {
+        m_cachedCclaimDeeplink = fmt::format(
+                CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
+                fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
     }
 
-    return fmt::format(CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
-                       fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
+    return m_cachedCclaimDeeplink;
 }
 
 const DeviceInfo &Net::deviceInfo() const

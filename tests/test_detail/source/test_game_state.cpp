@@ -27,9 +27,9 @@ public:
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override { };
-    std::string getMachineUuid() const override { return {}; };
-    std::string getPairDeeplink() const override { return {}; };
-    std::string getClaimDeeplink(int) const override { return {}; };
+    const std::string &getMachineUuid() const override { static std::string rv; return rv; };
+    const std::string &getPairDeeplink() const override { static std::string rv; return rv; };
+    const std::string &getClaimDeeplink(int) const override { static std::string rv; return rv; };
     const DeviceInfo &deviceInfo() const override
     {
         static DeviceInfo info;

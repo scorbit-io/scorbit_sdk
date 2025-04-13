@@ -119,7 +119,7 @@ public:
      *
      * @param mode The mode to add (e.g., "MB:Multiball").
      */
-    void addMode(std::string mode);
+    void addMode(const std::string &mode);
 
     /**
      * @brief Remove a mode from the game.
@@ -174,7 +174,7 @@ public:
      *
      * @return The machine UUID.
      */
-    std::string getMachineUuid() const;
+    const std::string &getMachineUuid() const;
 
     /**
      * @brief Retrieve the pairing deeplink.
@@ -185,7 +185,7 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    std::string getPairDeeplink() const;
+    const std::string &getPairDeeplink();
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -197,7 +197,7 @@ public:
      * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    std::string getClaimDeeplink(int player) const;
+    const std::string &getClaimDeeplink(int player);
 
     /**
      * @brief Retrieves the top scores from the leaderboard.
