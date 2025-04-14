@@ -10,7 +10,12 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 int isGameFinished(int i)
@@ -295,7 +300,12 @@ int main(void)
         // the commit will be ignored, avoiding unnecessary uploads.
         sb_commit(gs);
 
-        usleep(300 * 1000); // Sleep for 300 ms
+        const int sleep_ms = 300;
+#ifdef _WIN32
+        Sleep(sleep_ms);
+#else
+        usleep(sleep_ms * 1000);
+#endif
     }
 
     if (isUnpairTriggeredByUser()) {

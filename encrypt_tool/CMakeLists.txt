@@ -8,6 +8,8 @@ project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(../cmake/tools.cmake)
+
 # ---- Include guards ----
 
 if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
@@ -29,8 +31,9 @@ file(
 set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir} "/usr/local/lib")
 
 # ---- Add dependencies ----
-
 find_package(OpenSSL REQUIRED)
+
+find_package(ZLIB)
 
 # ---- Create executable ----
 
@@ -67,7 +70,7 @@ target_compile_definitions(
 )
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto z)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
 
 install(
     TARGETS ${PROJECT_NAME}

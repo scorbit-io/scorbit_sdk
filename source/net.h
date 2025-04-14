@@ -48,7 +48,7 @@ public:
 
     AuthStatus status() const override;
 
-    std::string hostname() const;
+    const std::string &hostname() const;
     void setHostname(std::string hostname);
     bool isAuthenticated() const;
 
@@ -59,9 +59,9 @@ public:
     void sendHeartbeat() override;
     void requestPairCode(StringCallback callback) override;
 
-    std::string getMachineUuid() const override;
-    std::string getPairDeeplink() const override;
-    std::string getClaimDeeplink(int player) const override;
+    const std::string &getMachineUuid() const override;
+    const std::string &getPairDeeplink() const override;
+    const std::string &getClaimDeeplink(int player) const override;
 
     const DeviceInfo &deviceInfo() const override;
 
@@ -109,6 +109,8 @@ private:
     std::string m_hostname;
     std::string m_stoken;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
+    mutable std::string m_cachedPairDeeplink;
+    mutable std::string m_cachedCclaimDeeplink;
 
     DeviceInfo m_deviceInfo;
     VenueMachineInfo m_vmInfo;

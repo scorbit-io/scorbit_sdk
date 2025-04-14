@@ -8,12 +8,19 @@
 #include "mac_address.h"
 
 #ifdef _WIN32
+#    ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+
 // Windows
+#    include <winsock2.h>
+#    include <windows.h>
+#    include <iphlpapi.h>
 
 #    include <iostream>
-#    include <iphlpapi.h>
 #    include <iomanip>
 #    include <regex>
+#    include <sstream>
 
 #    pragma comment(lib, "iphlpapi.lib")
 

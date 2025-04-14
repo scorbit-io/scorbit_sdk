@@ -35,6 +35,7 @@ run_build() {
 
 run_build amd64 linux/amd64 3.8
 run_build amd64 linux/amd64 3.10
+run_build amd64 linux/amd64 3.11
 
 #run_build arm64 linux/arm64 3.8
 

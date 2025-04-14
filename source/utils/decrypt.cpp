@@ -5,15 +5,12 @@
  *
  ****************************************************************************/
 
-#include "bytearray.h"
-
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/buffer.h>
 #include <vector>
-#include <cstring>
-
+#include <string>
 
 namespace scorbit {
 namespace detail {

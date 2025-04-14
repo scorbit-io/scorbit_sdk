@@ -126,7 +126,7 @@ AuthStatus Net::status() const
     return m_status;
 }
 
-std::string Net::hostname() const
+const string &Net::hostname() const
 {
     return m_hostname;
 }
@@ -196,17 +196,16 @@ void Net::requestPairCode(StringCallback callback)
             [this, callback = std::move(callback)](Error error, std::string reply) {
                 // Parse short code and return it in callback
                 if (error == Error::Success) {
-                    boost::system::error_code ec;
-                    boost::json::object json = boost::json::parse(reply, ec).as_object();
-                    if (!ec && json.contains("shortcode")) {
-                        reply = json.at("shortcode").as_string();
-                        m_cachedShortCode = reply;
-                    } else {
-                        WRN("API can't parse short code: {}", reply);
+                    m_cachedShortCode.clear();
+                    try {
+                        const auto json = boost::json::parse(reply).as_object();
+                        m_cachedShortCode = json.at("shortcode").as_string();
+                    } catch (std::exception const &e) {
                         error = Error::ApiError;
+                        WRN("Error parsing pair code reply: {}", e.what());
                     }
+                    callback(error, m_cachedShortCode);
                 }
-                callback(error, reply);
             },
             [this]() {
                 // Deferred setup
@@ -218,28 +217,33 @@ void Net::requestPairCode(StringCallback callback)
             {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
 }
 
-string Net::getMachineUuid() const
+const string &Net::getMachineUuid() const
 {
     return m_deviceInfo.uuid;
 }
 
-string Net::getPairDeeplink() const
+const string &Net::getPairDeeplink() const
 {
-    return fmt::format(PAIRING_DEEPLINK, fmt::arg("manufacturer_prefix", m_deviceInfo.provider),
-                       fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
-                       fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
+    m_cachedPairDeeplink =
+            fmt::format(PAIRING_DEEPLINK, fmt::arg("manufacturer_prefix", m_deviceInfo.provider),
+                        fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
+                        fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
+    return m_cachedPairDeeplink;
 }
 
-string Net::getClaimDeeplink(int player) const
+const string &Net::getClaimDeeplink(int player) const
 {
-    if (m_vmInfo.venuemachineId == 0 || m_vmInfo.opdbId.empty()) {
-        DBG("Venue machine ID or OPDB ID is not set, make sure that the device is authenticated "
+    if (m_vmInfo.venuemachineId == 0) {
+        DBG("Venue machine ID is not set, make sure that the device is authenticated "
             "and paired");
-        return {};
+        m_cachedCclaimDeeplink.clear();
+    } else {
+        m_cachedCclaimDeeplink = fmt::format(
+                CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
+                fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
     }
 
-    return fmt::format(CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
-                       fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
+    return m_cachedCclaimDeeplink;
 }
 
 const DeviceInfo &Net::deviceInfo() const
@@ -313,28 +317,25 @@ Net::task_t Net::createAuthenticateTask()
             auto r = cpr::Post(url(STOKEN_URL), payload);
 
             if (r.status_code == 200) {
-                boost::system::error_code ec;
-                boost::json::object json = boost::json::parse(r.text, ec).as_object();
+                try {
+                    boost::json::object json = boost::json::parse(r.text).as_object();
 
-                if (ec || !json.contains(RETURNED_TOKEN_NAME)) {
-                    const auto msg =
-                            fmt::format("No token, authentication failed, got reply: {}", r.text);
-                    ERR(msg);
-                    // SentryManager::message(msg);
-                    // TODO: retry later with exponential timing
+                    m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
+
+                    m_status = AuthStatus::AuthenticatedCheckingPairing;
+                    INF("API authentication successful! Checking pairing status...");
+
+                    m_authCV.notify_all();
+
+                    sendHeartbeat(); // To check if it's paired
+                    startHeartbeatTimer();
+                    break;
+                } catch (const std::exception &e) {
+                    ERR("Error parsing authentication reply: {}", e.what());
+                    m_status = AuthStatus::AuthenticationFailed;
+                    m_authCV.notify_all();
                     return;
                 }
-
-                m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
-
-                m_status = AuthStatus::AuthenticatedCheckingPairing;
-                INF("API authentication successful! Checking pairing status...");
-
-                m_authCV.notify_all();
-
-                sendHeartbeat(); // To check if it's paired
-                startHeartbeatTimer();
-                break;
             } else if (r.status_code == 400) {
                 // Retry with new timestamp parsed from reply header
                 INF("API authentication failed: code {}, {}, will retry with new timestamp",
@@ -434,7 +435,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
             }
 
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::lock_guard lockGameSession(m_gameSessionsMutex);
                 session = m_gameSessions[sessionUuid];
             }
 
@@ -558,7 +559,7 @@ Net::task_t Net::createHeartbeatTask()
 
             bool isActiveSession;
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::lock_guard lockGameSession(m_gameSessionsMutex);
                 isActiveSession = !m_gameSessions.empty();
             }
             const auto parameters =
@@ -574,9 +575,8 @@ Net::task_t Net::createHeartbeatTask()
             if (r.status_code == 200) {
                 INF("API heartbeat: ok, {}", r.text);
 
-                boost::system::error_code ec;
-                boost::json::object json = boost::json::parse(r.text, ec).as_object();
-                if (!ec) {
+                try {
+                    boost::json::object json = boost::json::parse(r.text).as_object();
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
                     if (json.contains("unpaired") && json.at("unpaired").as_bool()) {
                         status = AuthStatus::AuthenticatedUnpaired;
@@ -584,12 +584,15 @@ Net::task_t Net::createHeartbeatTask()
                         m_vmInfo.opdbId.clear();
                     }
 
-                    if (const auto venuemachineId = json.if_contains("venuemachine_id")) {
+                    if (const auto venuemachineId = json.if_contains("venuemachine_id");
+                        venuemachineId && venuemachineId->is_int64()) {
                         m_vmInfo.venuemachineId = venuemachineId->as_int64();
                     }
 
-                    if (const auto config = json.if_contains("config")) {
-                        if (const auto opdbId = config->as_object().if_contains("opdb_id")) {
+                    if (const auto config = json.if_contains("config");
+                        config && config->is_object()) {
+                        if (const auto opdbId = config->as_object().if_contains("opdb_id");
+                            opdbId && opdbId->is_string()) {
                             m_vmInfo.opdbId = opdbId->as_string();
                         }
                     }
@@ -598,6 +601,8 @@ Net::task_t Net::createHeartbeatTask()
                         m_status = status;
                         m_authCV.notify_all();
                     }
+                } catch (const std::exception &e) {
+                    ERR("Error parsing heartbeat reply: {}", e.what());
                 }
                 break;
             }

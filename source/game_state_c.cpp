@@ -17,10 +17,6 @@ using namespace scorbit;
 
 struct sb_game_state_struct {
     GameState gameState;
-
-    std::string machineUuid;
-    std::string pairDeeplink;
-    std::map<int, std::string> claimDeeplinks;
 };
 
 namespace {
@@ -63,15 +59,13 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         return signature;
     };
 
-    return new sb_game_state_struct {
-            createGameState(std::move(cb), createDeviceInfo(device_info)), {}, {}, {}};
+    return new sb_game_state_struct {createGameState(std::move(cb), createDeviceInfo(device_info))};
 }
 
 sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
                                        const sb_device_info_t *device_info)
 {
-    return new sb_game_state_struct {
-            createGameState(encrypted_key, createDeviceInfo(device_info)), {}, {}, {}};
+    return new sb_game_state_struct {createGameState(encrypted_key, createDeviceInfo(device_info))};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)
@@ -127,20 +121,17 @@ void sb_commit(sb_game_handle_t handle)
 
 const char *sb_get_machine_uuid(sb_game_handle_t handle)
 {
-    handle->machineUuid = handle->gameState.getMachineUuid();
-    return handle->machineUuid.c_str();
+    return handle->gameState.getMachineUuid().c_str();
 }
 
 const char *sb_get_pair_deeplink(sb_game_handle_t handle)
 {
-    handle->pairDeeplink = handle->gameState.getPairDeeplink();
-    return handle->pairDeeplink.c_str();
+    return handle->gameState.getPairDeeplink().c_str();
 }
 
 const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
 {
-    handle->claimDeeplinks[player] = handle->gameState.getClaimDeeplink(player);
-    return handle->claimDeeplinks[player].c_str();
+    return handle->gameState.getClaimDeeplink(player).c_str();
 }
 
 void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,

@@ -6,6 +6,15 @@ if(NOT PROJECT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
   return()
 endif()
 
+# Build with /MD in MSVC
+if(MSVC AND NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+if(MSVC)
+  add_definitions(-D_WIN32_WINNT=0x0601)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
 # enables sanitizers support using the the `USE_SANITIZER` flag available values are: Address,

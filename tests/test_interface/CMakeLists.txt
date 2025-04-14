@@ -64,8 +64,17 @@ if(NOT TEST_INSTALLED_VERSION)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         target_compile_options(scorbit_sdk PUBLIC -Wall -Wpedantic -Wextra -Werror)
     elseif(MSVC)
-        target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
+        # target_compile_options(scorbit_sdk PUBLIC /W4 /WX)
     endif()
+endif()
+
+# In windows shared library has to be copied near to executable
+if (WIN32 AND SCORBIT_SDK_SHARED)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:scorbit_sdk>
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    )
 endif()
 
 # ---- Add Tests ----

@@ -32,9 +32,9 @@ public:
     virtual void sendHeartbeat() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;
 
-    virtual std::string getMachineUuid() const = 0;
-    virtual std::string getPairDeeplink() const = 0;
-    virtual std::string getClaimDeeplink(int player) const = 0;
+    virtual const std::string &getMachineUuid() const = 0;
+    virtual const std::string &getPairDeeplink() const = 0;
+    virtual const std::string &getClaimDeeplink(int player) const = 0;
 
     virtual const DeviceInfo &deviceInfo() const = 0;
 
