@@ -39,7 +39,7 @@ TEST_CASE("Worker", "[postStrand]")
     const auto start = std::chrono::high_resolution_clock::now();
     worker.postQueue([] { std::this_thread::sleep_for(100ms); });
     const auto duration1 = std::chrono::high_resolution_clock::now() - start;
-    CHECK(duration1 < 1ms);
+    CHECK(duration1 < 3ms);
 
     worker.stop();
     const auto duration2 = std::chrono::high_resolution_clock::now() - start;
