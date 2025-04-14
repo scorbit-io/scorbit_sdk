@@ -70,12 +70,12 @@ const std::string &GameState::getMachineUuid() const
     return p->getMachineUuid();
 }
 
-const std::string &GameState::getPairDeeplink()
+const std::string &GameState::getPairDeeplink() const
 {
     return p->getPairDeeplink();
 }
 
-const std::string &GameState::getClaimDeeplink(int player)
+const std::string &GameState::getClaimDeeplink(int player) const
 {
     return p->getClaimDeeplink(player);
 }

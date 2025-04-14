@@ -185,7 +185,7 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    const std::string &getPairDeeplink();
+    const std::string &getPairDeeplink() const;
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -197,7 +197,7 @@ public:
      * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    const std::string &getClaimDeeplink(int player);
+    const std::string &getClaimDeeplink(int player) const;
 
     /**
      * @brief Retrieves the top scores from the leaderboard.
