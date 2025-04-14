@@ -233,8 +233,8 @@ const string &Net::getPairDeeplink() const
 
 const string &Net::getClaimDeeplink(int player) const
 {
-    if (m_vmInfo.venuemachineId == 0 || m_vmInfo.opdbId.empty()) {
-        DBG("Venue machine ID or OPDB ID is not set, make sure that the device is authenticated "
+    if (m_vmInfo.venuemachineId == 0) {
+        DBG("Venue machine ID is not set, make sure that the device is authenticated "
             "and paired");
         m_cachedCclaimDeeplink.clear();
     } else {
