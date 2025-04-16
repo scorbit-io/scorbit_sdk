@@ -98,13 +98,17 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     (void)file;
     (void)line;
 
+    // Ignore debug messages
+    if (level == scorbit::LogLevel::Debug) {
+        return;
+    }
+
     const std::time_t ct = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     // Format currentTime to string like [2024-10-01 12:34:56]
     std::cout << '[' << std::put_time(std::localtime(&ct), "%Y-%m-%d %H:%M:%S") << "] [";
 
     switch (level) {
     case scorbit::LogLevel::Debug:
-        return; // Don't print debug messages
         std::cout << "DBG";
         break;
     case scorbit::LogLevel::Info:
@@ -278,7 +282,7 @@ int main()
         std::cout << "Commit cycle " << i << std::endl;
         gs.commit();
 
-        std::this_thread::sleep_for(200ms);
+        std::this_thread::sleep_for(500ms);
     }
 
     cout << "Example finished" << endl;
