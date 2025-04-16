@@ -7,10 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(scorbit_sdk)
 
+# set(SCORBIT_SDK_SHARED OFF)
+
 if(scorbit_sdk_FOUND)
     message(STATUS "scorbit_sdk found")
 else()
     message(STATUS "scorbit_sdk not found, using CPM to add it")
+    include(../../cmake/CPM.cmake)
     CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
 
