@@ -6,8 +6,11 @@
  ****************************************************************************/
 
 #include "mac_address.h"
+#include <boost/predef.h>
 
-#ifdef _WIN32
+#if BOOST_OS_WINDOWS
+#include "../logger.h"
+
 #    ifndef WIN32_LEAN_AND_MEAN
 #        define WIN32_LEAN_AND_MEAN
 #    endif
@@ -17,66 +20,13 @@
 #    include <windows.h>
 #    include <iphlpapi.h>
 
-#    include <iostream>
 #    include <iomanip>
 #    include <regex>
 #    include <sstream>
+#    include <vector>
 
 #    pragma comment(lib, "iphlpapi.lib")
-
-namespace scorbit {
-namespace detail {
-
-bool isVirtualAdapter(const std::wstring &adapterName)
-{
-    // Check for known virtual interface patterns
-    static const std::wregex virtualPatterns(LR"((^isatap|^teredo|^loopback|^vEthernet|^TAP|^tun))",
-                                             std::regex_constants::icase);
-    return std::regex_search(adapterName, virtualPatterns);
-}
-
-std::string getMacAddress()
-{
-    ULONG bufferSize = 0;
-    GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &bufferSize);
-
-    auto adapterAddresses = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(new char[bufferSize]);
-    if (GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapterAddresses, &bufferSize) != NO_ERROR) {
-        delete[] adapterAddresses;
-        return {};
-    }
-
-    std::string macAddress;
-    for (IP_ADAPTER_ADDRESSES *adapter = adapterAddresses; adapter; adapter = adapter->Next) {
-        // Exclude virtual adapters by name
-        if (isVirtualAdapter(adapter->FriendlyName)) {
-            continue;
-        }
-
-        if (adapter->PhysicalAddressLength == 6) { // MAC address length
-            std::ostringstream mac;
-            for (int i = 0; i < 6; ++i) {
-                mac << std::hex << std::setw(2) << std::setfill('0')
-                    << (int)adapter->PhysicalAddress[i];
-                if (i != 5) {
-                    mac << ":";
-                }
-            }
-            macAddress = mac.str();
-            break; // Use the first valid adapter's MAC address
-        }
-    }
-    delete[] adapterAddresses;
-    return macAddress;
-}
-
-} // namespace detail
-} // namespace scorbit
-
 #else
-// Unix
-
-#    include <iostream>
 #    include <ifaddrs.h>
 #    include <cstring>
 #    include <iomanip>
@@ -85,14 +35,66 @@ std::string getMacAddress()
 #    include <net/if.h>
 #    include <regex>
 
-#    ifdef __linux__
+#    if BOOS_OS_LINUX
 #        include <netpacket/packet.h>
-#    elif defined(__APPLE__)
+#    elif BOOST_OS_MACOS
 #        include <net/if_dl.h> // For sockaddr_dl and LLADDR
 #    endif
+#endif
 
 namespace scorbit {
 namespace detail {
+
+#if BOOST_OS_WINDOWS
+bool isVirtualAdapter(const std::wstring &adapterName)
+{
+    static const std::wregex virtualPatterns(LR"((^isatap|^teredo|^loopback|^vEthernet|^TAP|^tun))",
+                                             std::regex_constants::icase);
+    return std::regex_search(adapterName, virtualPatterns);
+}
+
+std::string getMacAddress()
+{
+    ULONG bufferSize = 0;
+    DWORD result = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &bufferSize);
+
+    if (result != ERROR_BUFFER_OVERFLOW) {
+        ERR("Failed to determine buffer size for adapter addresses. Error code: {}", result);
+        return {};
+    }
+
+    std::vector<char> buffer(bufferSize);
+    auto adapterAddresses = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
+
+    result = GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapterAddresses, &bufferSize);
+    if (result != NO_ERROR) {
+        ERR("GetAdaptersAddresses failed. Error code: {}", result);
+        return {};
+    }
+
+    for (IP_ADAPTER_ADDRESSES *adapter = adapterAddresses; adapter; adapter = adapter->Next) {
+        if (isVirtualAdapter(adapter->FriendlyName)) {
+            continue;
+        }
+
+        if (adapter->PhysicalAddressLength == 6) {
+            std::ostringstream mac;
+            for (int i = 0; i < 6; ++i) {
+                mac << std::hex << std::setw(2) << std::setfill('0')
+                    << static_cast<int>(adapter->PhysicalAddress[i]);
+                if (i != 5) {
+                    mac << ":";
+                }
+            }
+            return mac.str(); // First valid MAC found
+        }
+    }
+
+    return {}; // No valid MAC found
+}
+
+#else
+// Unix
 
 // Check if the interface name matches common virtual interface patterns
 bool isVirtualInterface(const std::string &interfaceName)
@@ -123,7 +125,7 @@ std::string getMacAddress()
             continue;
         }
 
-#    ifdef __linux__
+#    if BOOS_OS_LINUX
         if (ifa->ifa_addr->sa_family != AF_PACKET)
             continue;
 
@@ -139,7 +141,7 @@ std::string getMacAddress()
             macAddress = mac.str();
             break;
         }
-#    elif defined(__APPLE__)
+#    elif BOOST_OS_MACOS
         if (ifa->ifa_addr->sa_family != AF_LINK)
             continue;
 
@@ -162,8 +164,7 @@ std::string getMacAddress()
     freeifaddrs(ifaddr);
     return macAddress;
 }
+#endif
 
 } // namespace detail
 } // namespace scorbit
-
-#endif
