@@ -14,14 +14,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(cmake/tools.cmake)
+include(cmake/ArchDetect.cmake)
 
 # ---- Options ----
 
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
-option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
+set(SCORBIT_SDK_ABI "unknown" CACHE STRING "ABI tag for self update")
 
 set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
+set(SCORBIT_SDK_PLATFORM_ID "${TARGET_ARCH}_${SCORBIT_SDK_ABI}")
 
 # ---- Include guards ----
 
@@ -29,6 +31,13 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
     message(
         FATAL_ERROR
         "In-source builds not allowed. Please make a new directory (called a build directory) and run CMake from there."
+    )
+endif()
+
+if(SCORBIT_SDK_PRODUCTION AND SCORBIT_SDK_ABI STREQUAL "unknown")
+    message(
+        FATAL_ERROR
+        "Production build requires SCORBIT_SDK_ABI to be set. Use -DSCORBIT_SDK_ABI=<abi>"
     )
 endif()
 
@@ -218,7 +227,7 @@ string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
 # BeableBone Black (BBB) requires installing extra libs
-if(BBB_BUILD)
+if(SCORBIT_SDK_ABI STREQUAL "u12")
     install(
         FILES
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
@@ -229,19 +238,10 @@ if(BBB_BUILD)
 endif()
 
 # Detect architecture
-string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
 
-# Map architecture identifiers to standardized suffixes used in packaging
-if(ARCHITECTURE STREQUAL "armv7l")
-    set(ARCHITECTURE "armhf")
-elseif(ARCHITECTURE STREQUAL "aarch64")
-    set(ARCHITECTURE "arm64")
-elseif(ARCHITECTURE STREQUAL "x86_64")
-    set(ARCHITECTURE "amd64")
-endif()
 
 # Set package file name to include architecture
-set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")
 
 packageProject(
     NAME ${PROJECT_NAME}
@@ -266,7 +266,7 @@ set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 
 # Generate Deb dependencies
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 # set(CPACK_DEBIAN_PACKAGE_DEPENDS "unzip, coreutils, wget, sed, grep, apt, bash")
 
 set(CPACK_DEBIAN_PACKAGE_SECTION "General")

@@ -46,6 +46,57 @@ absolute_path() {
     echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 }
 
+# Read version from VERSION file
+get_version() {
+    FILENAME=$1
+    local v=$(<$FILENAME)
+    v="${v//[$'\t\r\n ']}"
+    echo "$v"
+}
+
+build_using_docker() {
+    ARCH=$1
+    PLATFORM=$2
+    VERSION=$3
+    ABI=$4
+    DOCKER_IMAGE=$5
+    echo "!!! Building arch: $ARCH, platform: $PLATFORM, ABI: $ABI, version: $VERSION !!!"
+
+    BUILD_DIR="build/${ARCH}_${ABI}"
+    DIST_DIR=build/dist/$VERSION
+
+    CMD="
+        cmake \
+            -D SCORBIT_SDK_PRODUCTION=ON \
+            -D SCORBIT_SDK_ABI='$SCORBIT_SDK_ABI' \
+            -G Ninja  \
+            -B '$BUILD_DIR' \
+            -S . \
+        && cmake --build '$BUILD_DIR' --config Release \
+        && pushd '$BUILD_DIR' \
+        && cpack -G DEB \
+        && cpack -G TGZ \
+        && popd \
+        \
+        && cmake \
+            -D SCORBIT_SDK_PRODUCTION=ON \
+            -G Ninja \
+            -B '$BUILD_DIR/encrypt_tool' \
+            -S encrypt_tool \
+        && cmake --build '$BUILD_DIR/encrypt_tool' --config Release \
+        && pushd '$BUILD_DIR/encrypt_tool' \
+        && cpack -G TGZ \
+        && popd
+    "
+
+    cleanup_build_files "$BUILD_DIR" || true
+    docker_build "$CMD" "$DOCKER_IMAGE" "$PLATFORM"
+
+    # Move artifacts to dist directory
+    mkdir -p "$DIST_DIR"
+    mv $BUILD_DIR/*.deb $BUILD_DIR/*.tar.gz $BUILD_DIR/encrypt_tool/*.tar.gz $DIST_DIR
+}
+
 # Example usage (only runs when sourced interactively)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     echo "This script is meant to be sourced, not executed directly."

@@ -3,53 +3,22 @@
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Oct 2024
 
 REL=4
+SCORBIT_SDK_ABI=u12
 
-DIST_DIR=build/dist/bbb
-PLATFORM=linux/arm/v7
-
-if [ "$1" = "release" ]; then
-    BUILD_DIR=build/bbb-release
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}
-elif [ "$1" = "devel" ]; then
-    BUILD_DIR=build/bbb-devel
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-arm:12.04_${REL}-devel
-else
-    echo "Usage: $0 [release|devel]"
-    exit 1
-fi
-
-CMD="
-    cmake \
-        -D BBB_BUILD=ON \
-        -D SCORBIT_SDK_PRODUCTION=ON \
-        -G Ninja \
-        -B '$BUILD_DIR' \
-        -S . \
-    && cmake --build '$BUILD_DIR' --config Release \
-    && pushd '$BUILD_DIR' \
-    && cpack -G DEB \
-    && popd \
-    \
-    && cmake \
-        -D BBB_BUILD=ON \
-        -D SCORBIT_SDK_PRODUCTION=ON \
-        -G Ninja \
-        -B '$BUILD_DIR/encrypt_tool' \
-        -S encrypt_tool \
-    && cmake --build '$BUILD_DIR'/encrypt_tool --config Release \
-    && pushd '$BUILD_DIR/encrypt_tool' \
-    && cpack -G TGZ \
-    && popd
-"
-
+set -e
 
 # Get the directory of the script and source the common functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
-cleanup_build_files "$BUILD_DIR"
-docker_build "$CMD" "$DOCKER_IMAGE" "$PLATFORM"
+VERSION=$(get_version "$SCRIPT_DIR/../VERSION")
 
-# Move artifacts to dist directory
-mkdir -p "$DIST_DIR"
-mv $BUILD_DIR/*.deb $BUILD_DIR/encrypt_tool/*.tar.gz $DIST_DIR
+run_build() {
+    ARCH=$1
+    PLATFORM=$2
+
+    DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:12.04_${REL}-devel
+    build_using_docker "$ARCH" "$PLATFORM" "$VERSION" "$SCORBIT_SDK_ABI" "$DOCKER_IMAGE"
+}
+
+run_build arm linux/arm/v7
