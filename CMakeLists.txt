@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.28)
 
 # Read version from VERSION file
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" VERSION_FROM_FILE)
-string(STRIP "${VERSION_FROM_FILE}" VERSION_FROM_FILE) # Remove any leading/trailing whitespace
+string(STRIP "${VERSION_FROM_FILE}" VERSION_FROM_FILE)
 
 # ---- Project ----
 
