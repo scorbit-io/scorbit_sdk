@@ -74,7 +74,8 @@ ARG LIBARCHIVE_VER=3.7.9
 ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
 RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
     && tar xvf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \
-    && LDFLAGS="-L/usr/local/lib -lcrypto -lssl -ldl -lpthread" \
+    && CFLAGS="-fPIC" CXXFLAGS="-fPIC" \
+       LDFLAGS="-L/usr/local/lib -lcrypto -lssl -ldl -lpthread" \
        ./configure --with-openssl --disable-shared \
     && make -j$(nproc) \
     && make install \
