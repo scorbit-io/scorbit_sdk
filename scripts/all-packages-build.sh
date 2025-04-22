@@ -6,8 +6,6 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"$SCRIPT_DIR"/bbb-build.sh release
-"$SCRIPT_DIR"/bbb-build.sh devel
-"$SCRIPT_DIR"/buildroot-build.sh
-"$SCRIPT_DIR"/ubuntu-20.04-build.sh
-"$SCRIPT_DIR"/ubuntu-20.04-python.sh
+"$SCRIPT_DIR"/u12-build.sh
+"$SCRIPT_DIR"/u20-build.sh
+"$SCRIPT_DIR"/u20-python-build.sh
