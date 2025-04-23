@@ -188,6 +188,13 @@ target_sources(
         source/utils/updater.cpp
 )
 
+# Generate the header from the template
+configure_file(
+    source/platform_id.h.in
+    "${CMAKE_BINARY_DIR}/platform_id.h"
+    @ONLY
+)
+
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
 # target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
@@ -208,7 +215,7 @@ target_link_libraries(
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    PRIVATE 3rd/obfuscate
+    PRIVATE 3rd/obfuscate "${CMAKE_BINARY_DIR}"
     # $<INSTALL_INTERFACE:include>
 )
 

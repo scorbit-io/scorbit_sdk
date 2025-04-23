@@ -183,7 +183,7 @@ target_link_libraries(
         LibArchive::LibArchive
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
+target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source "${CMAKE_BINARY_DIR}")
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
