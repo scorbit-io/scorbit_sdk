@@ -66,7 +66,10 @@ endif()
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
 else()
-    CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+    CPMAddPackage(
+        NAME scorbit_sdk
+        SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..
+    )
 endif()
 
 find_package(OpenSSL REQUIRED)
@@ -168,6 +171,8 @@ target_sources(
         ../../source/utils/date_time_parser.h
         ../../source/utils/date_time_parser.cpp
         source/test_date_time_parser.cpp
+        source/platform_id.h
+        source/test_updater.cpp
 )
 
 target_link_libraries(
@@ -183,7 +188,7 @@ target_link_libraries(
         LibArchive::LibArchive
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source "${CMAKE_BINARY_DIR}")
+target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source "${CMAKE_CURRENT_SOURCE_DIR}/source")
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 

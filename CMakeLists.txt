@@ -1,14 +1,16 @@
 cmake_minimum_required(VERSION 3.28)
 
 # Read version from VERSION file
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" VERSION_FROM_FILE)
-string(STRIP "${VERSION_FROM_FILE}" VERSION_FROM_FILE)
+if(NOT DEFINED SCORBIT_SDK_VERSION)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SCORBIT_SDK_VERSION)
+    string(STRIP "${SCORBIT_SDK_VERSION}" SCORBIT_SDK_VERSION)
+endif()
 
 # ---- Project ----
 
-project(scorbit_sdk VERSION ${VERSION_FROM_FILE} LANGUAGES CXX)
+project(scorbit_sdk VERSION ${SCORBIT_SDK_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -191,7 +193,7 @@ target_sources(
 # Generate the header from the template
 configure_file(
     source/platform_id.h.in
-    "${CMAKE_BINARY_DIR}/platform_id.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/platform_id.h"
     @ONLY
 )
 
@@ -215,7 +217,7 @@ target_link_libraries(
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    PRIVATE 3rd/obfuscate "${CMAKE_BINARY_DIR}"
+    PRIVATE 3rd/obfuscate "${CMAKE_CURRENT_BINARY_DIR}"
     # $<INSTALL_INTERFACE:include>
 )
 

@@ -8,20 +8,29 @@
 #include "updater.h"
 #include "archiver.h"
 #include "../logger.h"
+#include <platform_id.h>
+#include <scorbit_sdk/version.h>
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/predef.h>
 #include <boost/filesystem.hpp>
 #include <regex>
+#include <string_view>
 
 namespace {
 
 constexpr auto UPDATE_DIR = "scorbit_sdk_update";
 constexpr auto LIBRARY_PATTERN = R"(^(lib)?scorbit_sdk\.(so(\.\d+)*|(\d+\.)*dylib|dll)$)";
+constexpr auto URL_PATTERN = R"(^.*scorbit_sdk-((\d+\.?)+)-(\w+)\.(tar\.gz|tgz)$)";
 
 namespace fs = boost::filesystem;
 using namespace scorbit;
 using namespace detail;
+
+constexpr bool isValidPlatformId(std::string_view id)
+{
+    return !id.empty() && id.find("unknown") == std::string_view::npos;
+}
 
 bool replaceLibrary(const std::string &libPath, const std::string &newLibPath)
 {
@@ -96,6 +105,47 @@ fs::path findFile(const fs::path &dir, const std::regex &pattern)
 
 namespace scorbit {
 namespace detail {
+
+std::string getUpdateUrl(const boost::json::value &sdkVal)
+{
+    // Make sure that platform id is correct
+    if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID))
+        return {};
+
+    try {
+        const auto sdk = sdkVal.as_object();
+        const auto version = sdk.at("version").as_string();
+        const auto assets = sdk.at("assets_json").as_array();
+        if (assets.empty()) {
+            DBG("No updates available");
+            return {};
+        }
+
+        // Find the first asset with the correct platform
+        for (const auto &asset : assets) {
+            const auto url = asset.as_string();
+            static const std::regex re(URL_PATTERN);
+            std::cmatch match;
+            if (!std::regex_match(url.c_str(), match, re)) {
+                continue;
+            }
+            const auto url_version = match[1].str();
+            if (url_version != version) {
+                continue;
+            }
+            const auto platformId = match[3].str();
+            if (platformId == SCORBIT_SDK_PLATFORM_ID) {
+                return url.c_str();
+            }
+        }
+        INF("Update not found in the list of assets");
+    } catch (const std::exception &e) {
+        ERR("Error parsing update SDK: {}, json: {}", e.what(),
+            boost::json::serialize(sdkVal).c_str());
+    }
+
+    return {};
+}
 
 bool update(const std::string &archive)
 {
