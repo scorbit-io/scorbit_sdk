@@ -154,13 +154,13 @@ target_sources(
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
         include/scorbit_sdk/scorbit_sdk_c.h
-        include/scorbit_sdk/net_base.h
-        source/net.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
         include/scorbit_sdk/log_types_c.h
         include/scorbit_sdk/log_c.h
+        source/net_base.h
+        source/net.h
         source/log_c.cpp
         source/player_state.h
         source/player_state.cpp

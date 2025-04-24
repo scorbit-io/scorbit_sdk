@@ -9,8 +9,8 @@
 
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
-#include "net_base.h"
 
+#include "net_types.h"
 #include "spimpl/spimpl.h"
 
 #include <string>
@@ -20,6 +20,7 @@ namespace scorbit {
 
 namespace detail {
 class GameStateImpl;
+class NetBase;
 }
 
 /**

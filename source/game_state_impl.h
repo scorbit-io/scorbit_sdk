@@ -8,7 +8,7 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
-#include "scorbit_sdk/net_base.h"
+#include "net_base.h"
 #include "game_data.h"
 #include <string>
 #include <memory>

@@ -6,7 +6,7 @@
  ****************************************************************************/
 
 #include "scorbit_sdk/game_state.h"
-#include "scorbit_sdk/net_base.h"
+#include "net_base.h"
 #include <scorbit_sdk/version.h>
 #include "game_data.h"
 #include "trompeloeil_printer.h"

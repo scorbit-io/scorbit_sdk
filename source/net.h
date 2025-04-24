@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "scorbit_sdk/net_types.h"
-#include "scorbit_sdk/net_base.h"
+#include <scorbit_sdk/net_types.h>
+#include "net_base.h"
 #include "game_data.h"
 #include "worker.h"
 #include <cpr/cpr.h>

@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "net_types.h"
-#include "common_types_c.h"
+#include <scorbit_sdk/net_types.h>
+#include <scorbit_sdk/common_types_c.h>
 #include <string>
 
 namespace scorbit {
