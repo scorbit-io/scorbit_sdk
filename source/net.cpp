@@ -154,7 +154,8 @@ void Net::authenticate()
     m_worker.postQueue(createAuthenticateTask());
 }
 
-void Net::sendInstalled(const std::string &type, const std::string &version, bool success)
+void Net::sendInstalled(const std::string &type, const std::string &version,
+                        std::optional<bool> success)
 {
     m_worker.postQueue(createInstalledTask(type, version, success));
 }
@@ -357,7 +358,7 @@ Net::task_t Net::createAuthenticateTask()
 }
 
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                     bool success)
+                                     std::optional<bool> success)
 {
     return [this, type, version, success]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
@@ -371,11 +372,16 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                 break;
             }
 
-            auto payload = cpr::Payload {{"installed", success ? "true" : "false"}};
-            payload.Add({"type", type});
-            payload.Add({"version", version});
+            const auto successStr =
+                    success.has_value() ? (success.value() ? "true" : "false") : "null";
 
-            INF("API send installed: type={}, version={}, installed={}", type, version, success);
+            auto payload = cpr::Payload {
+                    {"version", version},
+                    {"type", type},
+                    {"installed", successStr},
+            };
+
+            INF("API send installed: type={}, version={}, installed={}", type, version, successStr);
 
             // TODO: Sentry
 

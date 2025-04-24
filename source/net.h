@@ -54,7 +54,7 @@ public:
 
     void authenticate() override;
     void sendInstalled(const std::string &type, const std::string &version,
-                       bool success = true) override;
+                       std::optional<bool> success) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
     void requestPairCode(StringCallback callback) override;
@@ -70,7 +70,8 @@ public:
 
 private:
     task_t createAuthenticateTask();
-    task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
+    task_t createInstalledTask(const std::string &type, const std::string &version,
+                               std::optional<bool> success);
     task_t createGameDataTask(const std::string &sessionUuid);
     task_t createHeartbeatTask();
 
