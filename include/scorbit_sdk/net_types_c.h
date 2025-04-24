@@ -28,6 +28,7 @@ typedef enum {
     SB_EC_AUTH_FAILED = 2, // Authentication failed
     SB_EC_NOT_PAIRED = 3,  // Device is not paired
     SB_EC_API_ERROR = 4,   // API call error (e.g., HTTP error code != 200)
+    SB_EC_FILE_ERROR = 5,  // File error (e.g., can't open file)
 } sb_error_t;
 
 typedef enum {

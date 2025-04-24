@@ -60,6 +60,15 @@ int copy_data(struct archive *ar, struct archive *aw)
     }
 }
 
+std::string archiveErrorString(archive *a)
+{
+    const char *msg = archive_error_string(a);
+    if (msg) {
+        return msg;
+    }
+    return "Unknown error";
+}
+
 } // namespace
 
 namespace scorbit {
@@ -95,7 +104,7 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
 
     if (archive_read_open_filename(reader.get(), archivePath.c_str(), READ_BLOCK_SIZE)
         != ARCHIVE_OK) {
-        ERR("Failed to open archive '{}': {}", archivePath, archive_error_string(reader.get()));
+        ERR("Failed to open archive '{}': {}", archivePath, archiveErrorString(reader.get()));
         return false;
     }
 
@@ -111,23 +120,23 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
         // Write header and content
         r = archive_write_header(writer.get(), entry);
         if (r < ARCHIVE_OK) {
-            ERR("Failed to write header: {}", archive_error_string(writer.get()));
+            ERR("Failed to write header: {}", archiveErrorString(writer.get()));
         } else if (archive_entry_size(entry) > 0) {
             r = copy_data(reader.get(), writer.get());
             if (r < ARCHIVE_OK) {
-                ERR("Data copy error: {}", archive_error_string(writer.get()));
+                ERR("Data copy error: {}", archiveErrorString(writer.get()));
             }
         }
 
         r = archive_write_finish_entry(writer.get());
         if (r < ARCHIVE_OK) {
-            ERR("Failed to finish entry: {}", archive_error_string(writer.get()));
+            ERR("Failed to finish entry: {}", archiveErrorString(writer.get()));
             break;
         }
     }
 
     if (r != ARCHIVE_EOF) {
-        ERR("Archive read error: {}", archive_error_string(reader.get()));
+        ERR("Archive read error: {}", archiveErrorString(reader.get()));
     }
 
     return r == ARCHIVE_EOF;

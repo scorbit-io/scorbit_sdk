@@ -8,18 +8,22 @@
 #include "net.h"
 #include "net_util.h"
 #include "logger.h"
-#include "scorbit_sdk/net_types.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
 #include "utils/date_time_parser.h"
+#include "utils/updater.h"
+#include <scorbit_sdk/net_types.h>
+#include <scorbit_sdk/version.h>
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
 #include <boost/json.hpp>
+#include <boost/filesystem.hpp>
 #include <optional>
 
 using namespace std;
+namespace fs = boost::filesystem;
 
 namespace scorbit {
 namespace detail {
@@ -603,6 +607,8 @@ Net::task_t Net::createHeartbeatTask()
                         }
                     }
 
+                    checkUpdate(json);
+
                     if (m_status != status) {
                         m_status = status;
                         m_authCV.notify_all();
@@ -804,6 +810,48 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
     };
 }
 
+Net::task_t Net::createDownloadTask(StringCallback replyCallback, std::string url,
+                                    std::string filename)
+{
+    return [callback = std::move(replyCallback), url = std::move(url),
+            filename = std::move(filename)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
+        std::ofstream file(filename, std::ios::binary);
+        if (!file.is_open()) {
+            ERR("Can't open file for writing: {}", filename);
+            error = Error::FileError;
+        } else {
+            for (int i = 0; i < NUM_RETRIES; ++i) {
+                INF("Download: {}", url);
+
+                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT});
+                reply = std::move(r.text);
+
+                if (r.status_code == 200) {
+                    DBG("API download: ok, {}", reply);
+                    error = Error::Success;
+                    break;
+                }
+
+                error = Error::ApiError;
+                ERR("API download failed: code={}, message: {}, reply: {}", r.status_code,
+                    r.error.message, reply);
+
+                if (r.status_code >= 400) {
+                    break;
+                }
+            }
+        }
+        file.close();
+
+        if (callback) {
+            callback(error, filename);
+        }
+    };
+}
+
 cpr::Header Net::header() const
 {
     return cpr::Header {{"Cache-Control", "no-cache"}};
@@ -825,6 +873,53 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
 {
     return std::any_of(begin(allowedStatuses), end(allowedStatuses),
                        [this](AuthStatus status) { return status == m_status; });
+}
+
+void Net::checkUpdate(const boost::json::object &json)
+{
+    if (m_updateInProgress)
+        return;
+
+    if (const auto sdk = json.if_contains("sdk")) {
+        m_updateInProgress = true;
+        try {
+            const auto updateUrl = getUpdateUrl(*sdk);
+            if (!updateUrl.empty()) {
+                auto tempFile = fs::temp_directory_path() / fs::unique_path();
+                tempFile.replace_extension(".tar.gz");
+
+                m_worker.postQueue(createDownloadTask(
+                        [this](Error error, const std::string &filename) {
+                            if (error == Error::Success) {
+                                INF("Update downloaded successfully: {}", filename);
+                                update(filename);
+
+                                // Cleanup downloaded archive
+                                boost::system::error_code ec;
+                                fs::remove(filename, ec);
+                                if (ec) {
+                                    ERR("Update: failed to remove temp file: {}, {}", filename, ec.message());
+                                }
+                            } else {
+                                ERR("Update download failed: {}, {}", static_cast<int>(error),
+                                    filename);
+                            }
+                            m_updateInProgress = false;
+                        },
+                        updateUrl, tempFile.string()));
+            } else {
+                INF("Cant' update the library");
+                m_updateInProgress = false;
+            }
+
+        } catch (const std::exception &e) {
+            ERR("checkUpdate error: {}", e.what());
+            m_updateInProgress = false;
+        }
+
+        // clear version in API
+        sendInstalled("sdk", SCORBIT_SDK_VERSION, std::nullopt);
+    }
 }
 
 } // namespace detail

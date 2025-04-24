@@ -27,6 +27,7 @@ enum class Error {
     AuthFailed = SB_EC_AUTH_FAILED, // Authentication failed
     NotPaired = SB_EC_NOT_PAIRED,   // Device is not paired
     ApiError = SB_EC_API_ERROR,     // API call error (e.g., HTTP error code != 200)
+    FileError = SB_EC_FILE_ERROR,   // File error (e.g., file not found)
 };
 
 enum class AuthStatus {

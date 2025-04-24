@@ -12,6 +12,7 @@
 #include "game_data.h"
 #include "worker.h"
 #include <cpr/cpr.h>
+#include <boost/json.hpp>
 #include <string>
 #include <functional>
 #include <chrono>
@@ -89,12 +90,15 @@ private:
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
+    task_t createDownloadTask(StringCallback replyCallback, std::string url,
+                              std::string filename);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
+    void checkUpdate(const boost::json::object &json);
 
 private:
     SignerCallback m_signer;
@@ -106,6 +110,7 @@ private:
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stopHeartbeatTimer {false};
+    std::atomic_bool m_updateInProgress {false};
 
     std::string m_hostname;
     std::string m_stoken;
