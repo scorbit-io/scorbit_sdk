@@ -28,7 +28,7 @@ public:
     virtual void authenticate() = 0;
 
     virtual void sendInstalled(const std::string &type, const std::string &version,
-                               std::optional<bool> success,
+                               std::optional<bool> installed,
                                std::optional<std::string> log = std::nullopt) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;

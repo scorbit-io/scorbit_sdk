@@ -159,9 +159,9 @@ void Net::authenticate()
 }
 
 void Net::sendInstalled(const std::string &type, const std::string &version,
-                        std::optional<bool> success, std::optional<string> log)
+                        std::optional<bool> installed, std::optional<string> log)
 {
-    m_worker.postQueue(createInstalledTask(type, version, std::move(success), std::move(log)));
+    m_worker.postQueue(createInstalledTask(type, version, std::move(installed), std::move(log)));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -362,9 +362,9 @@ Net::task_t Net::createAuthenticateTask()
 }
 
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                     std::optional<bool> success, std::optional<std::string> log)
+                                     std::optional<bool> installed, std::optional<std::string> log)
 {
-    return [this, type, version, success = std::move(success), log = std::move(log)]() {
+    return [this, type, version, installed = std::move(installed), log = std::move(log)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -376,20 +376,22 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                 break;
             }
 
-            const auto successStr =
-                    success.has_value() ? (success.value() ? "true" : "false") : "null";
-
             auto payload = cpr::Payload {
                     {"version", version},
                     {"type", type},
-                    {"installed", successStr},
             };
+
+            const auto installedStr = installed ? (installed.value() ? "true" : "false") : "none";
+            if (installed) {
+                payload.Add({"installed", installedStr});
+            }
 
             if (log) {
                 payload.Add({"log", log.value()});
             }
 
-            INF("API send installed: type={}, version={}, installed={}", type, version, successStr);
+            INF("API send installed: type={}, version={}, installed={}, log: {}", type, version,
+                installedStr, log.value_or("none"));
 
             // TODO: Sentry
 
