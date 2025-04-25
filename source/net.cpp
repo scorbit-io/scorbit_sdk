@@ -159,9 +159,9 @@ void Net::authenticate()
 }
 
 void Net::sendInstalled(const std::string &type, const std::string &version,
-                        std::optional<bool> success)
+                        std::optional<bool> success, std::optional<string> log)
 {
-    m_worker.postQueue(createInstalledTask(type, version, success));
+    m_worker.postQueue(createInstalledTask(type, version, std::move(success), std::move(log)));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -362,9 +362,9 @@ Net::task_t Net::createAuthenticateTask()
 }
 
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                     std::optional<bool> success)
+                                     std::optional<bool> success, std::optional<std::string> log)
 {
-    return [this, type, version, success]() {
+    return [this, type, version, success = std::move(success), log = std::move(log)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -384,6 +384,10 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                     {"type", type},
                     {"installed", successStr},
             };
+
+            if (log) {
+                payload.Add({"log", log.value()});
+            }
 
             INF("API send installed: type={}, version={}, installed={}", type, version, successStr);
 
