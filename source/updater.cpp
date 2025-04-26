@@ -6,8 +6,8 @@
  ****************************************************************************/
 
 #include "updater.h"
-#include "archiver.h"
-#include "../logger.h"
+#include "logger.h"
+#include "utils/archiver.h"
 #include <platform_id.h>
 #include <scorbit_sdk/version.h>
 

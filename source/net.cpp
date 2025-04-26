@@ -8,10 +8,10 @@
 #include "net.h"
 #include "net_util.h"
 #include "logger.h"
+#include "updater.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
 #include "utils/date_time_parser.h"
-#include "utils/updater.h"
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
 #include <fmt/format.h>

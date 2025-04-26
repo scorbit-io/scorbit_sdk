@@ -5,7 +5,7 @@
  *
  ****************************************************************************/
 
-#include <utils/updater.h>
+#include <updater.h>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace scorbit::detail;

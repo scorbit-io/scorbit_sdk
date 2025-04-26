@@ -177,6 +177,8 @@ target_sources(
         source/utils/bytearray.h
         source/worker.h
         source/worker.cpp
+        source/updater.h
+        source/updater.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
         source/utils/decrypt.h
@@ -186,8 +188,6 @@ target_sources(
         source/utils/date_time_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
-        source/utils/updater.h
-        source/utils/updater.cpp
 )
 
 # Generate the header from the template

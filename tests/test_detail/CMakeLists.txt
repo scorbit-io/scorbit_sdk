@@ -147,8 +147,8 @@ target_sources(
         source/test_game_state.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
-        ../../source/utils/updater.h
-        ../../source/utils/updater.cpp
+        ../../source/updater.h
+        ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
         ../../source/net.h
