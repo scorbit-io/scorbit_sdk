@@ -42,6 +42,9 @@ public:
 
     virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
     virtual void requestUnpair(StringCallback callback) = 0;
+
+    virtual void download(StringCallback callback, const std::string &url,
+                          const std::string &filename) = 0;
 };
 
 } // namespace detail

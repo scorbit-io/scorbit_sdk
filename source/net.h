@@ -11,6 +11,7 @@
 #include "net_base.h"
 #include "game_data.h"
 #include "worker.h"
+#include "updater.h"
 #include <cpr/cpr.h>
 #include <boost/json.hpp>
 #include <string>
@@ -70,6 +71,8 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
+    void download(StringCallback callback, const std::string &url, const std::string &filename) override;
+
 private:
     task_t createAuthenticateTask();
     task_t createInstalledTask(const std::string &type, const std::string &version,
@@ -99,7 +102,6 @@ private:
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
-    void checkUpdate(const boost::json::object &json);
 
 private:
     SignerCallback m_signer;
@@ -111,7 +113,6 @@ private:
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stopHeartbeatTimer {false};
-    std::atomic_bool m_updateInProgress {false};
 
     std::string m_hostname;
     std::string m_stoken;
@@ -123,6 +124,7 @@ private:
     VenueMachineInfo m_vmInfo;
     std::map<std::string, GameSession> m_gameSessions; // key: session uuid
     Worker m_worker;
+    Updater m_updater;
 };
 
 } // namespace detail

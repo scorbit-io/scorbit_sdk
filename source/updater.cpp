@@ -32,7 +32,205 @@ constexpr bool isValidPlatformId(std::string_view id)
     return !id.empty() && id.find("unknown") == std::string_view::npos;
 }
 
-bool replaceLibrary(const std::string &libPath, const std::string &newLibPath)
+fs::path getLibraryPath()
+{
+    // Get the current library path, but if it's symlink, follow it to find the real path
+    return fs::canonical(boost::dll::this_line_location());
+}
+
+fs::path findFile(const fs::path &dir, const std::regex &pattern)
+{
+    for (const auto &entry : fs::recursive_directory_iterator(dir)) {
+        if (entry.is_regular_file()
+            && std::regex_search(entry.path().filename().string(), pattern)) {
+            return entry.path().string();
+        }
+    }
+
+    return {};
+}
+
+} // namespace
+
+namespace scorbit {
+namespace detail {
+
+Updater::Updater(NetBase &net)
+    : m_net {net}
+{
+}
+
+void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
+{
+    if (m_updateInProgress)
+        return;
+
+    if (const auto sdk = json.if_contains("sdk")) {
+        m_updateInProgress = true;
+        try {
+            parseUrl(*sdk);
+            if (!m_url.empty()) {
+                auto tempFile = fs::temp_directory_path() / fs::unique_path();
+                tempFile.replace_extension(".tar.gz");
+
+                m_net.download(
+                        [this](Error error, const std::string &filename) {
+                            bool success = false;
+                            if (error == Error::Success) {
+                                INF("Updater: downloaded successfully: {}", filename);
+                                success = update(filename);
+                                if (success) {
+                                    m_feedback =
+                                            fmt::format("Updated successfully, ver: {}", m_version);
+                                    INF("Updater: {}", m_feedback);
+                                }
+
+                                // Cleanup downloaded archive
+                                boost::system::error_code ec;
+                                fs::remove(filename, ec);
+                                if (ec) {
+                                    ERR("Updater: failed to remove temp file: {}, {}", filename,
+                                        ec.message());
+                                }
+                            } else {
+                                m_feedback = fmt::format("Updater: download failed: {}, {}",
+                                                         static_cast<int>(error), filename);
+                                ERR("Updater: download failed: {}, {}", m_feedback);
+                            }
+
+                            m_updateInProgress = false;
+                            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
+                        },
+                        m_url, tempFile.string());
+            } else {
+                INF("Cant' update the library");
+                m_updateInProgress = false;
+            }
+        } catch (const std::exception &e) {
+            m_feedback = fmt::format("Updater: error: {} {}", e.what(), m_feedback);
+            ERR("Updater: {}", m_feedback);
+            m_updateInProgress = false;
+        }
+
+        // Some error happened and update in progress cleared
+        if (!m_updateInProgress) {
+            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
+        }
+    }
+}
+
+void Updater::parseUrl(const boost::json::value &sdkVal)
+{
+    // Make sure that platform id is correct
+    if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID)) {
+        m_feedback = fmt::format("Invalid platform ID: {}", SCORBIT_SDK_PLATFORM_ID);
+        ERR("Updater: {}", m_feedback);
+        return;
+    }
+
+    m_version.clear();
+    m_url.clear();
+    m_feedback.clear();
+
+    try {
+        const auto sdk = sdkVal.as_object();
+        m_version = sdk.at("version").as_string();
+        const auto assets = sdk.at("assets_json").as_array();
+        if (assets.empty()) {
+            m_feedback = fmt::format("Assets list empty");
+            ERR("Updater: {}", m_feedback);
+            return;
+        }
+
+        // Find the first asset with the correct platform
+        for (const auto &asset : assets) {
+            const auto url = asset.as_string();
+            static const std::regex re(URL_PATTERN);
+            std::cmatch match;
+            if (!std::regex_match(url.c_str(), match, re)) {
+                continue;
+            }
+            const auto url_version = match[1].str();
+            if (url_version != m_version) {
+                continue;
+            }
+            const auto platformId = match[3].str();
+            if (platformId == SCORBIT_SDK_PLATFORM_ID) {
+                m_url = url.c_str();
+                return;
+            }
+        }
+        m_feedback = fmt::format("Couldn't find update file in assets for the platform: {}",
+                                 SCORBIT_SDK_PLATFORM_ID);
+        ERR("Updater: {}", m_feedback);
+
+    } catch (const std::exception &e) {
+        m_feedback = fmt::format("Error parsing 'sdk': {}, in json: {}", e.what(),
+                                 boost::json::serialize(sdkVal).c_str());
+        ERR("Updater: {}", m_feedback);
+    }
+}
+
+bool Updater::update(const std::string &archive)
+{
+    bool rv = false;
+    const auto tempDir = fs::temp_directory_path() / UPDATE_DIR;
+
+    try {
+        const static std::regex pattern(LIBRARY_PATTERN);
+        const auto libPath = getLibraryPath();
+        if (libPath.empty()) {
+            m_feedback = fmt::format("Library path is empty");
+            ERR("Updater: {}", m_feedback);
+            return false;
+        }
+
+        // Make sure that this is shared library and matches the pattern
+        if (!std::regex_search(libPath.filename().string(), pattern)) {
+            m_feedback =
+                    fmt::format("Library path doesn't match the pattern, path: {}, pattern: {}",
+                                libPath.string(), LIBRARY_PATTERN);
+            ERR("Updater: {}", m_feedback);
+            return false;
+        }
+
+        // update from tgz archive
+        const auto archivePath = fs::path {archive};
+
+        // Extract the archive to a temporary directory
+        if (!extract(archivePath.string(), tempDir.string())) {
+            m_feedback = fmt::format("Failed to extract archive: {}", archivePath.string());
+            ERR("Updater: {}", m_feedback);
+            return false;
+        }
+
+        const auto candidatePath = findFile(tempDir, pattern);
+        if (candidatePath.empty()) {
+            m_feedback = fmt::format("Library not found in the archive");
+            ERR("Updater: {}", m_feedback);
+            return false;
+        }
+        const auto newLibPath = fs::canonical(candidatePath);
+
+        // Replace the library with the new one
+        INF("Updater: replacing current library: {} by: {}", libPath.string(), newLibPath.string());
+        rv = replaceLibrary(libPath.string(), newLibPath.string());
+
+    } catch (fs::filesystem_error &e) {
+        m_feedback = fmt::format("Error occurred while updating library: {}", e.what());
+        ERR("Updater: {}", m_feedback);
+    }
+
+    // cleanup extract dir
+    boost::system::error_code ec;
+    fs::remove_all(tempDir, ec);
+    if (ec) {
+        ERR("Updater: error removing temp update directory: {}", ec.message());
+    }
+    return rv;
+}
+
+bool Updater::replaceLibrary(const std::string &libPath, const std::string &newLibPath)
 {
     try {
         std::string backupPath = libPath + ".old";
@@ -67,7 +265,8 @@ bool replaceLibrary(const std::string &libPath, const std::string &newLibPath)
                 fs::remove(backupPath);          // Remove backup on success
                 return true;
             } catch (const fs::filesystem_error &e) {
-                ERR("Error occurred while replacing library: {}", e.what());
+                m_feedback = fmt::format("Error occurred while replacing library: {}", e.what());
+                ERR("Updater: {}", m_feedback);
                 fs::rename(backupPath, libPath); // Restore original
                 return false;
             }
@@ -78,124 +277,10 @@ bool replaceLibrary(const std::string &libPath, const std::string &newLibPath)
         }
 #endif
     } catch (const fs::filesystem_error &e) {
+        m_feedback = fmt::format("Error occurred while replacing library: {}", e.what());
         ERR("Error occurred while replacing library: {}", e.what());
         return false;
     }
-}
-
-fs::path getLibraryPath()
-{
-    // Get the current library path, but if it's symlink, follow it to find the real path
-    return fs::canonical(boost::dll::this_line_location());
-}
-
-fs::path findFile(const fs::path &dir, const std::regex &pattern)
-{
-    for (const auto &entry : fs::recursive_directory_iterator(dir)) {
-        if (entry.is_regular_file()
-            && std::regex_search(entry.path().filename().string(), pattern)) {
-            return entry.path().string();
-        }
-    }
-
-    return {};
-}
-
-} // namespace
-
-namespace scorbit {
-namespace detail {
-
-std::string getUpdateUrl(const boost::json::value &sdkVal)
-{
-    // Make sure that platform id is correct
-    if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID))
-        return {};
-
-    try {
-        const auto sdk = sdkVal.as_object();
-        const auto version = sdk.at("version").as_string();
-        const auto assets = sdk.at("assets_json").as_array();
-        if (assets.empty()) {
-            DBG("No updates available");
-            return {};
-        }
-
-        // Find the first asset with the correct platform
-        for (const auto &asset : assets) {
-            const auto url = asset.as_string();
-            static const std::regex re(URL_PATTERN);
-            std::cmatch match;
-            if (!std::regex_match(url.c_str(), match, re)) {
-                continue;
-            }
-            const auto url_version = match[1].str();
-            if (url_version != version) {
-                continue;
-            }
-            const auto platformId = match[3].str();
-            if (platformId == SCORBIT_SDK_PLATFORM_ID) {
-                return url.c_str();
-            }
-        }
-        INF("Update not found in the list of assets");
-    } catch (const std::exception &e) {
-        ERR("Error parsing update SDK: {}, json: {}", e.what(),
-            boost::json::serialize(sdkVal).c_str());
-    }
-
-    return {};
-}
-
-bool update(const std::string &archive)
-{
-    bool rv = false;
-    const auto tempDir = fs::temp_directory_path() / UPDATE_DIR;
-
-    try {
-        const static std::regex pattern(LIBRARY_PATTERN);
-        const auto libPath = getLibraryPath();
-        if (libPath.empty()) {
-            ERR("Update: library path is empty");
-            return false;
-        }
-
-        // Make sure that this is shared library and matches the pattern
-        if (!std::regex_search(libPath.filename().string(), pattern)) {
-            return false;
-        }
-
-        // update from tgz archive
-        const auto archivePath = fs::path {archive};
-
-        // Extract the archive to a temporary directory
-        if (!extract(archivePath.string(), tempDir.string())) {
-            ERR("Update: failed to extract archive");
-            return false;
-        }
-
-        const auto candidatePath = findFile(tempDir, pattern);
-        if (candidatePath.empty()) {
-            ERR("Update: library not found in the archive");
-            return false;
-        }
-        const auto newLibPath = fs::canonical(candidatePath);
-
-        // Replace the library with the new one
-        INF("Update: replacing current library: {} by: {}", libPath.string(), newLibPath.string());
-        rv = replaceLibrary(libPath.string(), newLibPath.string());
-
-    } catch (fs::filesystem_error &e) {
-        ERR("Couldn't self-update: {}", e.what());
-    }
-
-    // cleanup extract dir
-    boost::system::error_code ec;
-    fs::remove_all(tempDir, ec);
-    if (ec) {
-        ERR("Update: error removing temp update directory: {}", ec.message());
-    }
-    return rv;
 }
 
 } // namespace detail

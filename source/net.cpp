@@ -82,6 +82,7 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
+    , m_updater(*this)
 {
     setHostname(m_deviceInfo.hostname);
 
@@ -287,6 +288,11 @@ void Net::requestUnpair(StringCallback callback)
 
                 return make_tuple(endpoint, payload);
             }));
+}
+
+void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
+{
+    m_worker.postQueue(createDownloadTask(std::move(callback), url, filename));
 }
 
 Net::task_t Net::createAuthenticateTask()
@@ -613,7 +619,7 @@ Net::task_t Net::createHeartbeatTask()
                         }
                     }
 
-                    checkUpdate(json);
+                    m_updater.checkNewVersionAndUpdate(json);
 
                     if (m_status != status) {
                         m_status = status;
@@ -879,53 +885,6 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
 {
     return std::any_of(begin(allowedStatuses), end(allowedStatuses),
                        [this](AuthStatus status) { return status == m_status; });
-}
-
-void Net::checkUpdate(const boost::json::object &json)
-{
-    if (m_updateInProgress)
-        return;
-
-    if (const auto sdk = json.if_contains("sdk")) {
-        m_updateInProgress = true;
-        try {
-            const auto updateUrl = getUpdateUrl(*sdk);
-            if (!updateUrl.empty()) {
-                auto tempFile = fs::temp_directory_path() / fs::unique_path();
-                tempFile.replace_extension(".tar.gz");
-
-                m_worker.postQueue(createDownloadTask(
-                        [this](Error error, const std::string &filename) {
-                            if (error == Error::Success) {
-                                INF("Update downloaded successfully: {}", filename);
-                                update(filename);
-
-                                // Cleanup downloaded archive
-                                boost::system::error_code ec;
-                                fs::remove(filename, ec);
-                                if (ec) {
-                                    ERR("Update: failed to remove temp file: {}, {}", filename, ec.message());
-                                }
-                            } else {
-                                ERR("Update download failed: {}, {}", static_cast<int>(error),
-                                    filename);
-                            }
-                            m_updateInProgress = false;
-                        },
-                        updateUrl, tempFile.string()));
-            } else {
-                INF("Cant' update the library");
-                m_updateInProgress = false;
-            }
-
-        } catch (const std::exception &e) {
-            ERR("checkUpdate error: {}", e.what());
-            m_updateInProgress = false;
-        }
-
-        // clear version in API
-        sendInstalled("sdk", SCORBIT_SDK_VERSION, std::nullopt);
-    }
 }
 
 } // namespace detail

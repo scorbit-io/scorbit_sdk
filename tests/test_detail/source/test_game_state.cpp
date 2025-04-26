@@ -44,6 +44,7 @@ public:
                void(const std::string &, const std::string &, std::optional<bool>,
                     std::optional<std::string>),
                override);
+    void download(StringCallback, const std::string &, const std::string &) override { };
 };
 
 // We need custom GameDataMatcher, because sessionUuid is randomly generated
