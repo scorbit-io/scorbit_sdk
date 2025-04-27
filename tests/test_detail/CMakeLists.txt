@@ -138,8 +138,14 @@ add_executable(${PROJECT_NAME})
 target_sources(
     test_detail
     PRIVATE
+        ../../source/logger.h
+        ../../source/logger.cpp
         ../../source/player_state.h
         ../../source/player_state.cpp
+        ../../include/scorbit_sdk/game_state.h
+        ../../source/game_state.cpp
+        ../../source/game_state_impl.h
+        ../../source/game_state_impl.cpp
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp
@@ -179,7 +185,6 @@ target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
         ${BOOST_LIBS}
-        scorbit_sdk::scorbit_sdk
         Catch2::Catch2WithMain
         trompeloeil::trompeloeil
         fmt::fmt
@@ -188,7 +193,13 @@ target_link_libraries(
         LibArchive::LibArchive
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source "${CMAKE_CURRENT_SOURCE_DIR}/source")
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/source"
+        "${scorbit_sdk_SOURCE_DIR}/include"
+        "${scorbit_sdk_SOURCE_DIR}/source"
+        "${scorbit_sdk_BINARY_DIR}/PackageProjectInclude"
+)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 

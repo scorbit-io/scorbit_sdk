@@ -21,6 +21,8 @@ using namespace scorbit;
 using namespace scorbit::detail;
 using namespace trompeloeil;
 
+namespace {
+
 class MockNetBase : public NetBase
 {
 public:
@@ -46,6 +48,8 @@ public:
                override);
     void download(StringCallback, const std::string &, const std::string &) override { };
 };
+
+} // namespace
 
 // We need custom GameDataMatcher, because sessionUuid is randomly generated
 struct GameDataMatcher {
