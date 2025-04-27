@@ -192,6 +192,9 @@ target_link_libraries(
         cpr::cpr
         LibArchive::LibArchive
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE dl)
+endif()
 
 target_include_directories(${PROJECT_NAME}
     PRIVATE

@@ -54,6 +54,9 @@ target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE scorbit_sdk::scorbit_sdk Catch2::Catch2WithMain trompeloeil::trompeloeil fmt::fmt
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE pthread)
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
 

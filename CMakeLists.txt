@@ -213,6 +213,9 @@ target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto LibArchive::LibArchive
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PUBLIC dl)
+endif()
 
 target_include_directories(
     ${PROJECT_NAME}
