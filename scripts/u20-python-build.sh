@@ -32,7 +32,7 @@ run_build() {
         && deactivate \
     "
 
-    cleanup_build_files "$BUILD_DIR" || true
+#    cleanup_build_files "$BUILD_DIR" || true
     docker_build "$CMD" "$DOCKER_IMAGE" "$PLATFORM"
 
     # Artifacts automatically created at $BUILD_DIR
