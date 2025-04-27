@@ -95,7 +95,7 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
                             } else {
                                 m_feedback = fmt::format("Updater: download failed: {}, {}",
                                                          static_cast<int>(error), filename);
-                                ERR("Updater: download failed: {}, {}", m_feedback);
+                                ERR("Updater: download failed: {}", m_feedback);
                             }
 
                             m_updateInProgress = false;
