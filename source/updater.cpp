@@ -67,6 +67,7 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
 
     if (const auto sdk = json.if_contains("sdk")) {
         m_updateInProgress = true;
+        bool ok = true;
         try {
             parseUrl(*sdk);
             if (!m_url.empty()) {
@@ -104,16 +105,17 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
                         m_url, tempFile.string());
             } else {
                 INF("Cant' update the library");
-                m_updateInProgress = false;
+                ok = false;
             }
         } catch (const std::exception &e) {
             m_feedback = fmt::format("Updater: error: {} {}", e.what(), m_feedback);
             ERR("Updater: {}", m_feedback);
-            m_updateInProgress = false;
+            ok = false;
         }
 
-        // Some error happened and update in progress cleared
-        if (!m_updateInProgress) {
+        // Some error happened, update in progress cleared
+        if (!ok) {
+            m_updateInProgress = false;
             m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
         }
     }
