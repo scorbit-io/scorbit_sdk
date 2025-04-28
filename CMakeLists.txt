@@ -47,7 +47,6 @@ endif()
 
 if(SCORBIT_SDK_SHARED)
     set(BUILD_TYPE SHARED)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     message("Building shared library")
 else()
     set(BUILD_TYPE STATIC)

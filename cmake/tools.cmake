@@ -15,6 +15,8 @@ if(MSVC)
   add_definitions(-D_WIN32_WINNT=0x0601)
 endif()
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
 # enables sanitizers support using the the `USE_SANITIZER` flag available values are: Address,
