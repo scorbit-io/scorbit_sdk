@@ -35,7 +35,7 @@
 #    include <net/if.h>
 #    include <regex>
 
-#    if BOOS_OS_LINUX
+#    if BOOST_OS_LINUX
 #        include <netpacket/packet.h>
 #    elif BOOST_OS_MACOS
 #        include <net/if_dl.h> // For sockaddr_dl and LLADDR
@@ -125,7 +125,7 @@ std::string getMacAddress()
             continue;
         }
 
-#    if BOOS_OS_LINUX
+#    if BOOST_OS_LINUX
         if (ifa->ifa_addr->sa_family != AF_PACKET)
             continue;
 
