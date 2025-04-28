@@ -10,6 +10,9 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/date_time/time_facet.hpp>
 
+namespace scorbit {
+namespace detail {
+
 // Function to parse HTTP date header and convert it to Unix timestamp
 int64_t parseHttpDateToUnixTimestamp(const std::string &httpDate)
 {
@@ -32,3 +35,6 @@ int64_t parseHttpDateToUnixTimestamp(const std::string &httpDate)
     time_duration diff = pt - epoch;
     return diff.total_seconds();
 }
+
+} // namespace detail
+} // namespace scorbit

@@ -7,9 +7,10 @@
 
 #pragma once
 
-#include "net_types.h"
-#include "common_types_c.h"
+#include <scorbit_sdk/net_types.h>
+#include <scorbit_sdk/common_types_c.h>
 #include <string>
+#include <optional>
 
 namespace scorbit {
 namespace detail {
@@ -27,7 +28,8 @@ public:
     virtual void authenticate() = 0;
 
     virtual void sendInstalled(const std::string &type, const std::string &version,
-                               bool success = true) = 0;
+                               std::optional<bool> installed,
+                               std::optional<std::string> log = std::nullopt) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;
@@ -40,6 +42,9 @@ public:
 
     virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
     virtual void requestUnpair(StringCallback callback) = 0;
+
+    virtual void download(StringCallback callback, const std::string &url,
+                          const std::string &filename) = 0;
 };
 
 } // namespace detail

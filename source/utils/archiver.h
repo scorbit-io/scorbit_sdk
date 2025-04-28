@@ -1,21 +1,18 @@
 /****************************************************************************
  *
  * @author Dilshod Mukhtarov <dilshodm(at)gmail.com>
- * Mar 2025
+ * Apr 2025
  *
  ****************************************************************************/
 
 #pragma once
 
 #include <string>
-#include <cstdint>
 
 namespace scorbit {
 namespace detail {
 
-// Function to parse HTTP date header and convert it to Unix timestamp
-// E.g. Wed, 21 Oct 2037 07:28:00 GMT
-int64_t parseHttpDateToUnixTimestamp(const std::string &httpDate);
+bool extract(const std::string &archivePath, const std::string &outputDir);
 
 } // namespace detail
 } // namespace scorbit

@@ -40,11 +40,16 @@ CPMAddPackage(
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
 
+if(APPLE AND NOT DEFINED LibArchive_ROOT)
+    set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
+endif()
+find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
+
 # Boost -----------
 
 set(TRY_BOOST_VERSION 1.87.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight dll)
 
 if(WIN32)
     set(BOOST_COMPONENTS
@@ -61,7 +66,10 @@ endif()
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
 else()
-    CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+    CPMAddPackage(
+        NAME scorbit_sdk
+        SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..
+    )
 endif()
 
 find_package(OpenSSL REQUIRED)
@@ -130,8 +138,14 @@ add_executable(${PROJECT_NAME})
 target_sources(
     test_detail
     PRIVATE
+        ../../source/logger.h
+        ../../source/logger.cpp
         ../../source/player_state.h
         ../../source/player_state.cpp
+        ../../include/scorbit_sdk/game_state.h
+        ../../source/game_state.cpp
+        ../../source/game_state_impl.h
+        ../../source/game_state_impl.cpp
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp
@@ -139,6 +153,10 @@ target_sources(
         source/test_game_state.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
+        ../../source/updater.h
+        ../../source/updater.cpp
+        ../../source/utils/archiver.h
+        ../../source/utils/archiver.cpp
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
@@ -159,21 +177,32 @@ target_sources(
         ../../source/utils/date_time_parser.h
         ../../source/utils/date_time_parser.cpp
         source/test_date_time_parser.cpp
+        source/platform_id.h
+        source/test_updater.cpp
 )
 
 target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
         ${BOOST_LIBS}
-        scorbit_sdk::scorbit_sdk
         Catch2::Catch2WithMain
         trompeloeil::trompeloeil
         fmt::fmt
         OpenSSL::Crypto
         cpr::cpr
+        LibArchive::LibArchive
 )
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE dl)
+endif()
 
-target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
+target_include_directories(${PROJECT_NAME}
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/source"
+        "${scorbit_sdk_SOURCE_DIR}/include"
+        "${scorbit_sdk_SOURCE_DIR}/source"
+        "${scorbit_sdk_BINARY_DIR}/PackageProjectInclude"
+)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 
@@ -224,4 +253,6 @@ catch_discover_tests(${PROJECT_NAME})
 if(ENABLE_TEST_COVERAGE)
     target_compile_options(scorbit_sdk PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
     target_link_options(scorbit_sdk PUBLIC -fprofile-arcs -ftest-coverage)
+    target_compile_options(${PROJECT_NAME} PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
+    target_link_options(${PROJECT_NAME} PUBLIC -fprofile-arcs -ftest-coverage)
 endif()

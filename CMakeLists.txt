@@ -1,22 +1,31 @@
 cmake_minimum_required(VERSION 3.28)
 
+# Read version from VERSION file
+if(NOT DEFINED SCORBIT_SDK_VERSION)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SCORBIT_SDK_VERSION)
+    string(STRIP "${SCORBIT_SDK_VERSION}" SCORBIT_SDK_VERSION)
+endif()
+
 # ---- Project ----
 
-# Note: update this to your new project's name and version
-project(scorbit_sdk VERSION 1.0.3 LANGUAGES CXX)
+project(scorbit_sdk VERSION ${SCORBIT_SDK_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(cmake/tools.cmake)
+include(cmake/ArchDetect.cmake)
 
 # ---- Options ----
 
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
-option(BBB_BUILD "Build library for BeagleBone Black with packaging extra libs" OFF)
+set(SCORBIT_SDK_ABI "unknown" CACHE STRING "ABI tag for self update")
 
 set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
+set(SCORBIT_SDK_PLATFORM_ID "${TARGET_ARCH}_${SCORBIT_SDK_ABI}")
 
 # ---- Include guards ----
 
@@ -27,11 +36,17 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
     )
 endif()
 
+if(SCORBIT_SDK_PRODUCTION AND SCORBIT_SDK_ABI STREQUAL "unknown")
+    message(
+        FATAL_ERROR
+        "Production build requires SCORBIT_SDK_ABI to be set. Use -DSCORBIT_SDK_ABI=<abi>"
+    )
+endif()
+
 # ---- Project settings ----
 
 if(SCORBIT_SDK_SHARED)
     set(BUILD_TYPE SHARED)
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     message("Building shared library")
 else()
     set(BUILD_TYPE STATIC)
@@ -80,11 +95,22 @@ CPMAddPackage(
     GIT_SHALLOW TRUE
 )
 
+if(APPLE AND NOT DEFINED LibArchive_ROOT)
+    set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
+endif()
+find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
+
 # Boost -----------
 
 set(TRY_BOOST_VERSION 1.87.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED thread)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight)
+set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED)
+set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED
+    asio
+    uuid
+    json
+    flyweight
+    dll
+)
 
 if(WIN32)
     set(BOOST_COMPONENTS
@@ -114,6 +140,7 @@ set_target_properties(
 target_sources(
     scorbit_sdk
     PRIVATE
+        VERSION
         source/net.cpp
         source/logger.cpp
         source/logger.h
@@ -126,13 +153,13 @@ target_sources(
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
         include/scorbit_sdk/scorbit_sdk_c.h
-        include/scorbit_sdk/net_base.h
-        source/net.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
         include/scorbit_sdk/log_types_c.h
         include/scorbit_sdk/log_c.h
+        source/net_base.h
+        source/net.h
         source/log_c.cpp
         source/player_state.h
         source/player_state.cpp
@@ -149,6 +176,8 @@ target_sources(
         source/utils/bytearray.h
         source/worker.h
         source/worker.cpp
+        source/updater.h
+        source/updater.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
         source/utils/decrypt.h
@@ -156,6 +185,15 @@ target_sources(
         source/utils/signer.h
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
+        source/utils/archiver.h
+        source/utils/archiver.cpp
+)
+
+# Generate the header from the template
+configure_file(
+    source/platform_id.h.in
+    "${CMAKE_CURRENT_BINARY_DIR}/platform_id.h"
+    @ONLY
 )
 
 # being a cross-platform target, we enforce standards conformance on MSVC
@@ -170,12 +208,18 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 endif()
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto)
+target_link_libraries(
+    ${PROJECT_NAME}
+    PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto LibArchive::LibArchive
+)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} PUBLIC dl)
+endif()
 
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-    PRIVATE 3rd/obfuscate
+    PRIVATE 3rd/obfuscate "${CMAKE_CURRENT_BINARY_DIR}"
     # $<INSTALL_INTERFACE:include>
 )
 
@@ -194,7 +238,7 @@ string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
 # BeableBone Black (BBB) requires installing extra libs
-if(BBB_BUILD)
+if(SCORBIT_SDK_ABI STREQUAL "u12")
     install(
         FILES
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
@@ -205,19 +249,10 @@ if(BBB_BUILD)
 endif()
 
 # Detect architecture
-string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
 
-# Map architecture identifiers to standardized suffixes used in packaging
-if(ARCHITECTURE STREQUAL "armv7l")
-    set(ARCHITECTURE "armhf")
-elseif(ARCHITECTURE STREQUAL "aarch64")
-    set(ARCHITECTURE "arm64")
-elseif(ARCHITECTURE STREQUAL "x86_64")
-    set(ARCHITECTURE "amd64")
-endif()
 
 # Set package file name to include architecture
-set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
+set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")
 
 packageProject(
     NAME ${PROJECT_NAME}
@@ -242,7 +277,7 @@ set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 
 # Generate Deb dependencies
-set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 # set(CPACK_DEBIAN_PACKAGE_DEPENDS "unzip, coreutils, wget, sed, grep, apt, bash")
 
 set(CPACK_DEBIAN_PACKAGE_SECTION "General")

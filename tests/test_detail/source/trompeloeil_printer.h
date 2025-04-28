@@ -31,4 +31,28 @@ struct printer<scorbit::detail::GameData> {
         os << "modes: \"" << g.modes.str() << "\"";
     }
 };
+
+template<>
+struct printer<std::optional<bool>> {
+    static void print(std::ostream &os, const std::optional<bool> &o)
+    {
+        if (o) {
+            os << std::boolalpha << *o;
+        } else {
+            os << "nullopt";
+        }
+    }
+};
+
+template<>
+struct printer<std::optional<std::string>> {
+    static void print(std::ostream &os, const std::optional<std::string> &o)
+    {
+        if (o) {
+            os << *o;
+        } else {
+            os << "nullopt";
+        }
+    }
+};
 }

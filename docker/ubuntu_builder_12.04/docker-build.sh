@@ -1,6 +1,6 @@
 #!/bin/sh
 
-REL=2
+REL=4
 
 # Determine the directory of the script
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

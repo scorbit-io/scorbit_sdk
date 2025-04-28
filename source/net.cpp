@@ -8,18 +8,22 @@
 #include "net.h"
 #include "net_util.h"
 #include "logger.h"
-#include "scorbit_sdk/net_types.h"
+#include "updater.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
 #include "utils/date_time_parser.h"
+#include <scorbit_sdk/net_types.h>
+#include <scorbit_sdk/version.h>
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
 #include <boost/json.hpp>
+#include <boost/filesystem.hpp>
 #include <optional>
 
 using namespace std;
+namespace fs = boost::filesystem;
 
 namespace scorbit {
 namespace detail {
@@ -78,6 +82,7 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
+    , m_updater(*this)
 {
     setHostname(m_deviceInfo.hostname);
 
@@ -154,9 +159,10 @@ void Net::authenticate()
     m_worker.postQueue(createAuthenticateTask());
 }
 
-void Net::sendInstalled(const std::string &type, const std::string &version, bool success)
+void Net::sendInstalled(const std::string &type, const std::string &version,
+                        std::optional<bool> installed, std::optional<string> log)
 {
-    m_worker.postQueue(createInstalledTask(type, version, success));
+    m_worker.postQueue(createInstalledTask(type, version, std::move(installed), std::move(log)));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -284,6 +290,11 @@ void Net::requestUnpair(StringCallback callback)
             }));
 }
 
+void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
+{
+    m_worker.postQueue(createDownloadTask(std::move(callback), url, filename));
+}
+
 Net::task_t Net::createAuthenticateTask()
 {
     return [this]() {
@@ -357,9 +368,9 @@ Net::task_t Net::createAuthenticateTask()
 }
 
 Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                     bool success)
+                                     std::optional<bool> installed, std::optional<std::string> log)
 {
-    return [this, type, version, success]() {
+    return [this, type, version, installed = std::move(installed), log = std::move(log)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
@@ -371,11 +382,22 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                 break;
             }
 
-            auto payload = cpr::Payload {{"installed", success ? "true" : "false"}};
-            payload.Add({"type", type});
-            payload.Add({"version", version});
+            auto payload = cpr::Payload {
+                    {"version", version},
+                    {"type", type},
+            };
 
-            INF("API send installed: type={}, version={}, installed={}", type, version, success);
+            const auto installedStr = installed ? (installed.value() ? "true" : "false") : "none";
+            if (installed) {
+                payload.Add({"installed", installedStr});
+            }
+
+            if (log) {
+                payload.Add({"log", log.value()});
+            }
+
+            INF("API send installed: type={}, version={}, installed={}, log: {}", type, version,
+                installedStr, log.value_or("none"));
 
             // TODO: Sentry
 
@@ -597,6 +619,8 @@ Net::task_t Net::createHeartbeatTask()
                         }
                     }
 
+                    m_updater.checkNewVersionAndUpdate(json);
+
                     if (m_status != status) {
                         m_status = status;
                         m_authCV.notify_all();
@@ -794,6 +818,48 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
 
         if (callback) {
             callback(error, std::move(reply));
+        }
+    };
+}
+
+Net::task_t Net::createDownloadTask(StringCallback replyCallback, std::string url,
+                                    std::string filename)
+{
+    return [callback = std::move(replyCallback), url = std::move(url),
+            filename = std::move(filename)]() {
+        Error error {Error::ApiError};
+        std::string reply;
+
+        std::ofstream file(filename, std::ios::binary);
+        if (!file.is_open()) {
+            ERR("Can't open file for writing: {}", filename);
+            error = Error::FileError;
+        } else {
+            for (int i = 0; i < NUM_RETRIES; ++i) {
+                INF("Download: {}", url);
+
+                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT});
+                reply = std::move(r.text);
+
+                if (r.status_code == 200) {
+                    DBG("API download: ok, {}", reply);
+                    error = Error::Success;
+                    break;
+                }
+
+                error = Error::ApiError;
+                ERR("API download failed: code={}, message: {}, reply: {}", r.status_code,
+                    r.error.message, reply);
+
+                if (r.status_code >= 400) {
+                    break;
+                }
+            }
+        }
+        file.close();
+
+        if (callback) {
+            callback(error, filename);
         }
     };
 }

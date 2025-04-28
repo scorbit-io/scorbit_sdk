@@ -7,11 +7,13 @@
 
 #pragma once
 
-#include "scorbit_sdk/net_types.h"
-#include "scorbit_sdk/net_base.h"
+#include <scorbit_sdk/net_types.h>
+#include "net_base.h"
 #include "game_data.h"
 #include "worker.h"
+#include "updater.h"
 #include <cpr/cpr.h>
+#include <boost/json.hpp>
 #include <string>
 #include <functional>
 #include <chrono>
@@ -54,7 +56,8 @@ public:
 
     void authenticate() override;
     void sendInstalled(const std::string &type, const std::string &version,
-                       bool success = true) override;
+                       std::optional<bool> installed,
+                       std::optional<std::string> log = std::nullopt) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
     void requestPairCode(StringCallback callback) override;
@@ -68,9 +71,12 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
+    void download(StringCallback callback, const std::string &url, const std::string &filename) override;
+
 private:
     task_t createAuthenticateTask();
-    task_t createInstalledTask(const std::string &type, const std::string &version, bool success);
+    task_t createInstalledTask(const std::string &type, const std::string &version,
+                               std::optional<bool> installed, std::optional<std::string> log);
     task_t createGameDataTask(const std::string &sessionUuid);
     task_t createHeartbeatTask();
 
@@ -88,6 +94,8 @@ private:
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
+    task_t createDownloadTask(StringCallback replyCallback, std::string url,
+                              std::string filename);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
@@ -116,6 +124,7 @@ private:
     VenueMachineInfo m_vmInfo;
     std::map<std::string, GameSession> m_gameSessions; // key: session uuid
     Worker m_worker;
+    Updater m_updater;
 };
 
 } // namespace detail
