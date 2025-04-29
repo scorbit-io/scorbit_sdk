@@ -127,6 +127,8 @@ add_executable(${PROJECT_NAME})
 target_sources(
     test_detail
     PRIVATE
+        ../../include/scorbit_sdk/log.h
+        ../../source/log.cpp
         ../../source/logger.h
         ../../source/logger.cpp
         ../../source/player_state.h
@@ -168,6 +170,7 @@ target_sources(
         source/test_date_time_parser.cpp
         source/platform_id.h
         source/test_updater.cpp
+        source/test_logger.cpp
 )
 
 target_link_libraries(
@@ -212,6 +215,8 @@ target_compile_definitions(
         TEST_KEY="${TEST_KEY}"
         TEST_PROVIDER="${TEST_PROVIDER}"
         TEST_SECRET="${TEST_SECRET}"
+        # We are building manually source files which will be statically built-in to test main
+        SCORBIT_SDK_STATIC_DEFINE=1
 )
 
 if (WIN32)

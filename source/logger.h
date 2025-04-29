@@ -16,7 +16,7 @@
 namespace scorbit {
 namespace detail {
 
-class SCORBIT_SDK_EXPORT Logger
+class Logger
 {
 public:
     static Logger *instance();
