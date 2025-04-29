@@ -2,7 +2,7 @@
 
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Oct 2024
 
-REL=4
+REL=5
 SCORBIT_SDK_ABI=u12
 
 set -e
@@ -17,7 +17,7 @@ run_build() {
     ARCH=$1
     PLATFORM=$2
 
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:12.04_${REL}-devel
+    DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:12.04_${REL} #-devel
     build_using_docker "$ARCH" "$PLATFORM" "$VERSION" "$SCORBIT_SDK_ABI" "$DOCKER_IMAGE"
 }
 

@@ -26,16 +26,16 @@ RUN \
 
 ARG ZLIB=zlib-1.3.1
 RUN wget --no-check-certificate https://zlib.net/$ZLIB.tar.gz \
-    && tar xvf $ZLIB.tar.gz && rm $ZLIB.tar.gz && cd $ZLIB \
+    && tar xf $ZLIB.tar.gz && rm $ZLIB.tar.gz && cd $ZLIB \
     && CFLAGS="-fPIC" ./configure --static \
     && make -j$(nproc) \
     && make install \
     && cd .. && rm -rf $ZLIB
 
-ARG OPENSSL=openssl-3.4.1
+ARG OPENSSL=openssl-3.5.0
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
-    && tar xvf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
+    && tar xf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
     && ./config --openssldir=/usr/lib/ssl --prefix=/usr/local --libdir=/usr/local/lib \
                 no-apps no-shared no-pinshared zlib \
                 ${OPENSSL_CONFIG_ARGS} \
@@ -43,14 +43,25 @@ RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.
     && cd .. && rm -rf $OPENSSL
 
 # Install CMake
-ARG CMAKE_VERSION=3.31.5
+ARG CMAKE_VERSION=4.0.1
 RUN ARCH=$(uname -m) \
     && wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-$ARCH.sh \
     && sh cmake-$CMAKE_VERSION-Linux-$ARCH.sh --skip-license --prefix=/usr \
     && rm cmake-$CMAKE_VERSION-Linux-$ARCH.sh
 
-ARG CURL=curl-8.11.1
-ARG CURL_VER=8_11_1
+# libspl needed for curl
+ARG LIBPSL_VER=0.21.5
+ARG LIBPSL=libpsl-$LIBPSL_VER
+RUN wget https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/$LIBPSL.tar.gz \
+    && tar xf $LIBPSL.tar.gz && rm $LIBPSL.tar.gz && cd $LIBPSL \
+    && CFLAGS="-fPIC" CXXFLAGS="-fPIC" \
+       ./configure --enable-static --disable-shared \
+    && make -j$(nproc) \
+    && make install \
+    && cd .. && rm -rf $LIBPSL
+
+ARG CURL=curl-8.13.0
+ARG CURL_VER=8_13_0
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
@@ -65,18 +76,25 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
             . \
     && cmake --build build --parallel \
     && cmake --build build --target install \
-    && cd ../.. && rm -rf $CURL
+    && cd .. && rm -rf $CURL
 
 ARG LIBARCHIVE_VER=3.7.9
 ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
 RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
-    && tar xvf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \
+    && tar xf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \
     && CFLAGS="-fPIC" CXXFLAGS="-fPIC" \
        LDFLAGS="-L/usr/local/lib -lcrypto -lssl -ldl -lpthread" \
        ./configure --with-openssl --disable-shared \
     && make -j$(nproc) \
     && make install \
-    && cd ../.. && rm -rf $LIBARCHIVE
+    && cd .. && rm -rf $LIBARCHIVE
+
+ARG BOOST=boost-1.88.0
+RUN wget https://github.com/boostorg/boost/releases/download/$BOOST/$BOOST-b2-nodocs.tar.xz \
+    && tar xf $BOOST-b2-nodocs.tar.xz && rm $BOOST-b2-nodocs.tar.xz && cd $BOOST \
+    && ./bootstrap.sh \
+    && ./b2 -j$(nproc) threading=multi link=static cflags="-fPIC" cxxflags="-fPIC" --without-python install \
+    && cd .. && rm -rf $BOOST
 
 # Install Python versions and create virtual environments
 RUN add-apt-repository -y ppa:deadsnakes/ppa \
@@ -88,4 +106,3 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
             python$ver -m pip install --upgrade pip build && \
             deactivate \
         ; done
-
