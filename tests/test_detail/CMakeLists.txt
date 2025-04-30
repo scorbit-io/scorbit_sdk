@@ -47,20 +47,9 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 # Boost -----------
 
-set(TRY_BOOST_VERSION 1.87.0)
-set(BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED)
-set(BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED asio uuid json flyweight dll)
-
-if(WIN32)
-    set(BOOST_COMPONENTS
-        ${BOOST_NOT_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
-        ${BOOST_HEADER_ONLY_COMPONENTS_THAT_YOU_NEED}
-    )
-    find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})
-    set(BOOST_LIBS ${Boost_LIBRARIES})
-else()
-    include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
-endif()
+set(BOOST_COMPILED_COMPONENTS filesystem json thread )
+set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
@@ -138,6 +127,8 @@ add_executable(${PROJECT_NAME})
 target_sources(
     test_detail
     PRIVATE
+        ../../include/scorbit_sdk/log.h
+        ../../source/log.cpp
         ../../source/logger.h
         ../../source/logger.cpp
         ../../source/player_state.h
@@ -179,6 +170,7 @@ target_sources(
         source/test_date_time_parser.cpp
         source/platform_id.h
         source/test_updater.cpp
+        source/test_logger.cpp
 )
 
 target_link_libraries(
@@ -223,6 +215,8 @@ target_compile_definitions(
         TEST_KEY="${TEST_KEY}"
         TEST_PROVIDER="${TEST_PROVIDER}"
         TEST_SECRET="${TEST_SECRET}"
+        # We are building manually source files which will be statically built-in to test main
+        SCORBIT_SDK_STATIC_DEFINE=1
 )
 
 if (WIN32)

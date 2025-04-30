@@ -1,6 +1,6 @@
 #!/bin/sh
 
-REL=4
+REL=5
 
 set -e
 

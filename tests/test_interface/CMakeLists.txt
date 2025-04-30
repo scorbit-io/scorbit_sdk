@@ -47,7 +47,7 @@ add_executable(${PROJECT_NAME})
 
 target_sources(
     scorbit_sdk_tests
-    PRIVATE source/test_logger.cpp source/test_game_state_c.cpp source/test_version.cpp
+    PRIVATE source/test_game_state_c.cpp source/test_version.cpp
 )
 
 target_link_libraries(
@@ -57,8 +57,6 @@ target_link_libraries(
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE pthread)
 endif()
-
-target_include_directories(${PROJECT_NAME} PRIVATE ${scorbit_sdk_SOURCE_DIR}/source)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 

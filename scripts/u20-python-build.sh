@@ -2,7 +2,7 @@
 
 # Dilshod Mukhtarov <dilshodm@gmail.com>, Mar 2025
 
-REL=4
+REL=5
 SCORBIT_SDK_ABI=u20
 
 set -e

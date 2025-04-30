@@ -95,16 +95,13 @@ TEST_CASE("Updater")
     {
         REQUIRE_CALL(mockNetRef,
                      download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
-                .LR_SIDE_EFFECT(
-                        // _1 is the callback
-                        _1(Error::ApiError, "some_temp_file.tar.gz");)
+                .LR_SIDE_EFFECT(_1(Error::ApiError, "some_temp_file.tar.gz");)
                 .TIMES(1);
 
-        // Expect sendInstalled to be called after successful update
         REQUIRE_CALL(mockNetRef,
-                     sendInstalled(eq("sdk"), eq("1.0.1"), eq(std::optional<bool>(false)),
-                                   eq(std::optional<std::string>(
-                                           "Updater: download failed: 4, some_temp_file.tar.gz"))))
+                     sendInstalled(eq("sdk"), eq("1.0.1"), eq<std::optional<bool>>(false),
+                                   eq<std::optional<std::string>>(
+                                           "Updater: download failed: 4, some_temp_file.tar.gz")))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
@@ -115,7 +112,7 @@ TEST_CASE("Updater")
         json.at("sdk").as_object()["version"] = "1.0.0";
         REQUIRE_CALL(mockNetRef,
                      sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
-                                   eq(std::optional<bool>(false)), ANY(std::optional<std::string>)))
+                                   eq<std::optional<bool>>(false), ANY(std::optional<std::string>)))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
@@ -125,8 +122,8 @@ TEST_CASE("Updater")
     {
         json.at("sdk").as_object()["assets_json"].as_array().clear();
         REQUIRE_CALL(mockNetRef, sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
-                                               eq(std::optional<bool>(false)),
-                                               eq(std::optional<std::string>("Assets list empty"))))
+                                               eq<std::optional<bool>>(false),
+                                               eq<std::optional<std::string>>("Assets list empty")))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
