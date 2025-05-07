@@ -8,6 +8,7 @@
 #include <scorbit_sdk/log_c.h>
 
 #include <munit.h>
+#include <stdio.h>
 
 typedef struct {
     sb_log_level_t level;
@@ -22,8 +23,8 @@ void logCallback(const char *message, sb_log_level_t level, const char *file, in
     UserData *data = (UserData *)userData;
     data->level = level;
     data->line = line;
-    strncpy(data->message, message, 1000);
-    strncpy(data->file, file, 1000);
+    snprintf(data->message, sizeof(data->message), "%s", message);
+    snprintf(data->file, sizeof(data->file), "%s", file);
 }
 
 static MunitResult test_sb_add_logger_callback(const MunitParameter params[], void *user_data)
