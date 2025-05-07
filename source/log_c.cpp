@@ -6,21 +6,22 @@
  ****************************************************************************/
 
 #include <scorbit_sdk/log_c.h>
-#include <scorbit_sdk/log.h>
+#include "logger.h"
 
 using namespace scorbit;
 
 void sb_add_logger_callback(sb_log_callback_t callback, void *userData)
 {
-    addLoggerCallback(
-            [callback](const std::string &message, LogLevel level, const char *file, int line,
-                       void *user) {
-                callback(message.c_str(), static_cast<sb_log_level_t>(level), file, line, user);
+
+    detail::Logger::instance()->addCallback(
+            [callback, userData](const std::string &message, LogLevel level, const char *file,
+                                 int line) {
+                callback(message.c_str(), static_cast<sb_log_level_t>(level), file, line, userData);
             },
             userData);
 }
 
 void sb_reset_logger(void)
 {
-    resetLogger();
+    detail::Logger::instance()->clear();
 }

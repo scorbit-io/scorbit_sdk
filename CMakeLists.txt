@@ -127,7 +127,6 @@ target_sources(
         source/net.cpp
         source/logger.cpp
         source/logger.h
-        source/log.cpp
         source/game_state_c.cpp
         source/game_state_impl.h
         source/game_state_impl.cpp

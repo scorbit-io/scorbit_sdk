@@ -7,8 +7,26 @@
 
 #pragma once
 
+#include "log_c.h"
 #include "log_types.h"
 #include <scorbit_sdk/export.h>
+
+namespace {
+
+std::vector<scorbit::LoggerCallback *> g_callbacks;
+
+// C-style callback that forwards to the C++ function
+void cLogCallback(const char *message, sb_log_level_t level, const char *file, int line,
+                  void *user_data)
+{
+    auto &callback = *static_cast<scorbit::LoggerCallback *>(user_data);
+    if (callback) {
+        // Forward to C++ callback
+        callback(message, static_cast<scorbit::LogLevel>(level), file, line);
+    }
+}
+
+} // anonymous namespace
 
 namespace scorbit {
 
@@ -22,16 +40,23 @@ namespace scorbit {
  *
  * @param callback The logger callback function to be registered. It should have the signature
  * specified by @ref LoggerCallback.
- * @param userData A pointer to user-defined data that will be passed to the logger callback each
- * time it is invoked. This parameter is optional and defaults to `nullptr`.
  *
  * @note The logger function does not need to be thread-safe, as the logging mechanism ensure thread
  * safety internally.
  *
  * @see resetLogger
  */
-SCORBIT_SDK_EXPORT
-void addLoggerCallback(LoggerCallback &&callback, void *userData = nullptr);
+inline void addLoggerCallback(LoggerCallback &&callback)
+{
+    // Store callback in the heap
+    auto *callbackPtr = new LoggerCallback(std::move(callback));
+
+    // Keep track of it so we can delete it later
+    g_callbacks.push_back(callbackPtr);
+
+    // Register with C API
+    sb_add_logger_callback(cLogCallback, callbackPtr);
+}
 
 /**
  * @brief Clears all previously added logger callbacks.
@@ -42,7 +67,14 @@ void addLoggerCallback(LoggerCallback &&callback, void *userData = nullptr);
  *
  * @see addLoggerCallback
  */
-SCORBIT_SDK_EXPORT
-void resetLogger();
+inline void resetLogger()
+{
+    sb_reset_logger();
+
+    for (auto *callback : g_callbacks) {
+        delete callback;
+    }
+    g_callbacks.clear();
+}
 
 } // namespace scorbit

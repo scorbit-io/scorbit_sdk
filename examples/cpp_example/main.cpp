@@ -91,10 +91,8 @@ bool isUnpairTriggeredByUser()
 // --------------- Example of logger callback ------------------
 
 // This callback will be called in a thread-safe manner, so we don't worry about thread-safety
-void loggerCallback(const std::string &message, scorbit::LogLevel level, const char *file, int line,
-                    void *userData)
+void loggerCallback(const std::string &message, scorbit::LogLevel level, const char *file, int line)
 {
-    (void)userData;
     (void)file;
     (void)line;
 

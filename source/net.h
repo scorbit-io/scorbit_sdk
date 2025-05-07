@@ -22,6 +22,11 @@
 namespace scorbit {
 namespace detail {
 
+using Signature = std::vector<uint8_t>;
+using Digest = std::array<uint8_t, DIGEST_LENGTH>;
+
+using SignerCallback = std::function<Signature(const Digest &digest)>;
+
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 

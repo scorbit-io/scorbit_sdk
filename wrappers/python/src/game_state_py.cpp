@@ -87,12 +87,12 @@ PYBIND11_MODULE(scorbit, m)
             [](py::function callback) {
                 auto safe_callback = makeSafeCallback(
                         [callback = std::move(callback)](const std::string &message, LogLevel level,
-                                                         const char *file, int line, void *) {
+                                                         const char *file, int line) {
                             callback(message, level, file, line);
                         });
 
                 // Call the C++ method with our wrapped callback.
-                addLoggerCallback(std::move(safe_callback), nullptr);
+                addLoggerCallback(std::move(safe_callback));
             },
             py::arg("callback"),
             R"doc(

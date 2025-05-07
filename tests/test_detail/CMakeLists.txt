@@ -71,7 +71,8 @@ target_sources(
     test_detail
     PRIVATE
         ../../include/scorbit_sdk/log.h
-        ../../source/log.cpp
+        ../../include/scorbit_sdk/log_c.h
+        ../../source/log_c.cpp
         ../../source/logger.h
         ../../source/logger.cpp
         ../../source/player_state.h

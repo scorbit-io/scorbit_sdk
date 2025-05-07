@@ -62,10 +62,9 @@ void Logger::log(const std::string &message, LogLevel level, const char *file, i
     for (auto &item : m_callbacks) {
         if (item.callback) {
             if (LIKELY(message.length() <= MAX_LOG_MESSAGE_LENGTH)) {
-                item.callback(message, level, file, line, item.userData);
+                item.callback(message, level, file, line);
             } else {
-                item.callback(cutLongString(message, MAX_LOG_MESSAGE_LENGTH), level, file, line,
-                              item.userData);
+                item.callback(cutLongString(message, MAX_LOG_MESSAGE_LENGTH), level, file, line);
             }
         }
     }

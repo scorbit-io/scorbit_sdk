@@ -73,14 +73,15 @@ struct DeviceInfo {
     /** Optional. The serial number of the device. Set to 0 if unavailable. */
     uint64_t serialNumber {0};
 
+    // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
 
     DeviceInfo(const sb_device_info_t &di)
         : provider {di.provider}
         , machineId {di.machine_id}
-        , gameCodeVersion {di.game_code_version ? di.game_code_version : ""}
-        , hostname {di.hostname ? di.hostname : ""}
-        , uuid {di.uuid ? di.uuid : ""}
+        , gameCodeVersion {di.game_code_version ? di.game_code_version : std::string {}}
+        , hostname {di.hostname ? di.hostname : std::string {}}
+        , uuid {di.uuid ? di.uuid : std::string {}}
         , serialNumber {di.serial_number}
     {
     }
@@ -97,11 +98,6 @@ struct DeviceInfo {
         return di;
     }
 };
-
-using Signature = std::vector<uint8_t>;
-using Digest = std::array<uint8_t, DIGEST_LENGTH>;
-
-using SignerCallback = std::function<Signature(const Digest &digest)>;
 
 using StringCallback = std::function<void(Error error, const std::string &reply)>;
 
