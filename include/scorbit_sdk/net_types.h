@@ -72,6 +72,30 @@ struct DeviceInfo {
 
     /** Optional. The serial number of the device. Set to 0 if unavailable. */
     uint64_t serialNumber {0};
+
+    DeviceInfo() = default;
+
+    DeviceInfo(const sb_device_info_t &di)
+        : provider {di.provider}
+        , machineId {di.machine_id}
+        , gameCodeVersion {di.game_code_version ? di.game_code_version : ""}
+        , hostname {di.hostname ? di.hostname : ""}
+        , uuid {di.uuid ? di.uuid : ""}
+        , serialNumber {di.serial_number}
+    {
+    }
+
+    operator sb_device_info_t() const
+    {
+        sb_device_info_t di;
+        di.provider = provider.c_str();
+        di.machine_id = machineId;
+        di.game_code_version = gameCodeVersion.c_str();
+        di.hostname = hostname.c_str();
+        di.uuid = uuid.c_str();
+        di.serial_number = serialNumber;
+        return di;
+    }
 };
 
 using Signature = std::vector<uint8_t>;

@@ -8,11 +8,10 @@
 #pragma once
 
 #include "game_state.h"
+#include "game_state_c.h"
 #include "net_types.h"
 
 namespace scorbit {
-
-class GameState;
 
 /**
  * @brief Create a new game state.
@@ -21,7 +20,9 @@ class GameState;
  * aspects of the game state, including the active player, scores, and active modes.
  *
  * @param signer A callback function that will be used to authenticate to the cloud. It should match
- * the signature specified by @ref SignerCallback.
+ * the signature specified by @ref sb_signer_callback_t.
+ *
+ * @param userData User data that will be passed to the signer callback.
  *
  * @param deviceInfo The device information of type @ref DeviceInfo used to authenticate to the
  * cloud.
@@ -30,10 +31,18 @@ class GameState;
  *
  * @return A new game state object.
  */
-SCORBIT_SDK_EXPORT
-GameState createGameState(scorbit::SignerCallback signer, const DeviceInfo &deviceInfo);
+inline GameState createGameState(sb_signer_callback_t signer, void *userData,
+                                 const DeviceInfo &deviceInfo)
+{
+    sb_device_info_t di = deviceInfo;
+    di.provider = deviceInfo.provider.c_str();
+    return GameState {sb_create_game_state(signer, userData, &di)};
+}
 
-SCORBIT_SDK_EXPORT
-GameState createGameState(std::string encryptedKey, const DeviceInfo &deviceInfo);
+inline GameState createGameState(std::string encryptedKey, const DeviceInfo &deviceInfo)
+{
+    sb_device_info_t di = deviceInfo;
+    return GameState {sb_create_game_state2(encryptedKey.c_str(), &di)};
+}
 
 } // namespace scorbit

@@ -6,41 +6,54 @@
  ****************************************************************************/
 
 #include <scorbit_sdk/game_state_c.h>
-#include <scorbit_sdk/game_state.h>
-#include "scorbit_sdk/net_types.h"
-#include "scorbit_sdk/net_types_c.h"
-#include "scorbit_sdk/game_state_factory.h"
+#include <scorbit_sdk/net_types.h>
+#include <scorbit_sdk/net_types_c.h>
+#include <scorbit_sdk/game_state_factory.h>
+#include "game_state_impl.h"
+#include "net.h"
+#include "logger.h"
+#include "utils/decrypt.h"
+#include "utils/signer.h"
+#include <obfuscate.h>
 #include <string>
-#include <map>
+#include <memory>
 
 using namespace scorbit;
+using namespace detail;
 
 struct sb_game_state_struct {
-    GameState gameState;
+    detail::GameStateImpl gameState;
 };
 
 namespace {
 
-DeviceInfo createDeviceInfo(const sb_device_info_t *device_info)
+GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &deviceInfo)
 {
-    DeviceInfo deviceInfo;
+    auto net = std::make_unique<Net>(std::move(signer), deviceInfo);
+    return GameStateImpl(std::move(net));
+}
 
-    if (device_info) {
-        deviceInfo.provider = device_info->provider;
-        deviceInfo.machineId = device_info->machine_id;
-        if (device_info->game_code_version) {
-            deviceInfo.gameCodeVersion = device_info->game_code_version;
-        }
-        if (device_info->hostname) {
-            deviceInfo.hostname = device_info->hostname;
-        }
-        if (device_info->uuid) {
-            deviceInfo.uuid = device_info->uuid;
-        }
-        deviceInfo.serialNumber = device_info->serial_number;
-    }
+GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &deviceInfo)
+{
+    auto signer = [encryptedKey = std::move(encryptedKey),
+                   provider = deviceInfo.provider](const Digest &digest) {
+        Signature signature;
 
-    return deviceInfo;
+        auto decrypted = decryptSecret(
+                encryptedKey, provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
+        if (!decrypted.empty()) {
+            const auto key = decryptSecret(encryptedKey, provider + SCORBIT_SDK_ENCRYPT_SECRET);
+
+            const auto result = Signer::sign(signature, digest, key);
+            if (result != SignErrorCode::Ok) {
+                ERR("Failed to sign the digest. Error code: {}", static_cast<int>(result));
+                signature.clear();
+            }
+        }
+        return signature;
+    };
+
+    return createGameStateImpl(std::move(signer), deviceInfo);
 }
 
 }
@@ -59,13 +72,13 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         return signature;
     };
 
-    return new sb_game_state_struct {createGameState(std::move(cb), createDeviceInfo(device_info))};
+    return new sb_game_state_struct {createGameStateImpl(std::move(cb), DeviceInfo(*device_info))};
 }
 
 sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
                                        const sb_device_info_t *device_info)
 {
-    return new sb_game_state_struct {createGameState(encrypted_key, createDeviceInfo(device_info))};
+    return new sb_game_state_struct {createGameStateImpl(encrypted_key, DeviceInfo(*device_info))};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

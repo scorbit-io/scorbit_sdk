@@ -11,17 +11,11 @@
 #include "common_types_c.h"
 
 #include "net_types.h"
-#include "spimpl/spimpl.h"
+#include "game_state_c.h"
 
 #include <string>
-#include <memory>
 
 namespace scorbit {
-
-namespace detail {
-class GameStateImpl;
-class NetBase;
-}
 
 /**
  * @brief Game state class.
@@ -44,7 +38,12 @@ class NetBase;
 class SCORBIT_SDK_EXPORT GameState
 {
 public:
-    GameState(std::unique_ptr<detail::NetBase> net);
+    GameState(sb_game_handle_t handle)
+        : m_handle(handle)
+    {
+    }
+
+    ~GameState() { sb_destroy_game_state(m_handle); }
 
     /**
      * @brief Mark the game as started.
@@ -59,7 +58,7 @@ public:
      * modified.
      *
      */
-    void setGameStarted();
+    void setGameStarted() { sb_set_game_started(m_handle); }
 
     /**
      * @brief Mark the game as finished.
@@ -70,7 +69,7 @@ public:
      *
      * @warning After the game is finished, you can't add any modes or change players' scores.
      */
-    void setGameFinished();
+    void setGameFinished() { sb_set_game_finished(m_handle); }
 
     /**
      * @brief Set the current ball number.
@@ -81,7 +80,7 @@ public:
      * @param ball The ball number [1-9]. If the ball number is out of range, the function does
      * nothing.
      */
-    void setCurrentBall(sb_ball_t ball);
+    void setCurrentBall(sb_ball_t ball) { sb_set_current_ball(m_handle, ball); }
 
     /**
      * @brief Set the active player.
@@ -94,7 +93,7 @@ public:
      * @param player The player's number [1-9]. Typically, up to 6 players are supported in
      * pinball. If the player number is out of range, the function does nothing.
      */
-    void setActivePlayer(sb_player_t player);
+    void setActivePlayer(sb_player_t player) { sb_set_active_player(m_handle, player); }
 
     /**
      * @brief Set the player's score.
@@ -109,7 +108,10 @@ public:
      * @param feature The score feature (i.e., what game feature caused the score bump, like
      * spinner, etc.). If the feature is not set, it is 0.
      */
-    void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature = 0);
+    void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature = 0)
+    {
+        sb_set_score(m_handle, player, score, feature);
+    }
 
     /**
      * @brief Add a mode to the game.
@@ -120,7 +122,7 @@ public:
      *
      * @param mode The mode to add (e.g., "MB:Multiball").
      */
-    void addMode(const std::string &mode);
+    void addMode(const std::string &mode) { sb_add_mode(m_handle, mode.c_str()); }
 
     /**
      * @brief Remove a mode from the game.
@@ -131,14 +133,14 @@ public:
      * @param mode The mode to remove (e.g., "MB:Multiball"). If the mode doesn't exist, the
      * function does nothing.
      */
-    void removeMode(const std::string &mode);
+    void removeMode(const std::string &mode) { sb_remove_mode(m_handle, mode.c_str()); }
 
     /**
      * @brief Clear all modes.
      *
      * Removes all modes from the game's active mode list.
      */
-    void clearModes();
+    void clearModes() { sb_clear_modes(m_handle); }
 
     /**
      * @brief Commit changes to the game state.
@@ -149,7 +151,7 @@ public:
      *
      * If nothing was changed, this function does nothing.
      */
-    void commit();
+    void commit() { sb_commit(m_handle); }
 
     // ----------------------------------------------------------------
 
@@ -165,8 +167,7 @@ public:
      *
      * @return The current authentication status as an @ref AuthStatus value.
      */
-    AuthStatus getStatus() const;
-
+    AuthStatus getStatus() const { return static_cast<AuthStatus>(sb_get_status(m_handle)); }
 
     /**
      * @brief Retrieve the machine's UUID.
@@ -175,7 +176,7 @@ public:
      *
      * @return The machine UUID.
      */
-    const std::string &getMachineUuid() const;
+    std::string getMachineUuid() const { return std::string {sb_get_machine_uuid(m_handle)}; }
 
     /**
      * @brief Retrieve the pairing deeplink.
@@ -186,7 +187,7 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    const std::string &getPairDeeplink() const;
+    std::string getPairDeeplink() const { return std::string {sb_get_pair_deeplink(m_handle)}; }
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -198,7 +199,10 @@ public:
      * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    const std::string &getClaimDeeplink(int player) const;
+    std::string getClaimDeeplink(int player) const
+    {
+        return std::string {sb_get_claim_deeplink(m_handle, player)};
+    }
 
     /**
      * @brief Retrieves the top scores from the leaderboard.
@@ -216,7 +220,11 @@ public:
      * Otherwise, it returns an error codes: @ref Error::NotPaired if machine is not paired, or @ref
      * Error::ApiError if the API call failed.
      */
-    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+    void requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+    {
+        auto cbPair = prepareCallback(std::move(callback));
+        sb_request_top_scores(m_handle, scoreFilter, cbPair.first, cbPair.second);
+    }
 
     /**
      * @brief Request a pairing short code (6 alphanumeric characters).
@@ -233,7 +241,11 @@ public:
      * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
      * code: @ref Error::ApiError if the API call failed.
      */
-    void requestPairCode(StringCallback callback) const;
+    void requestPairCode(StringCallback callback) const
+    {
+        auto cbPair = prepareCallback(std::move(callback));
+        sb_request_pair_code(m_handle, cbPair.first, cbPair.second);
+    }
 
     /**
      * @brief Request to unpair a device.
@@ -252,10 +264,30 @@ public:
      * Returns @ref Error::Success if the request was successful. Otherwise, it returns an error
      * code: @ref Error::ApiError if the API call failed.
      */
-    void requestUnpair(StringCallback callback) const;
+    void requestUnpair(StringCallback callback) const
+    {
+        auto cbPair = prepareCallback(std::move(callback));
+        sb_request_unpair(m_handle, cbPair.first, cbPair.second);
+    }
 
 private:
-    spimpl::unique_impl_ptr<detail::GameStateImpl> p;
+    static std::pair<sb_string_callback_t, void *> prepareCallback(StringCallback callback)
+    {
+        auto *userData = new StringCallback(std::move(callback));
+
+        // Define callback as static to get function pointer
+        static sb_string_callback_t cb_c = [](sb_error_t error, const char *reply,
+                                              void *user_data) {
+            auto *cb = static_cast<StringCallback *>(user_data);
+            (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string {});
+            delete cb;
+        };
+
+        return std::make_pair(cb_c, userData);
+    }
+
+private:
+    sb_game_handle_t m_handle {nullptr};
 };
 
 } // namespace scorbit

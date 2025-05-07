@@ -5,7 +5,7 @@
  *
  ****************************************************************************/
 
-#include "scorbit_sdk/game_state.h"
+#include "game_state_impl.h"
 #include "net_base.h"
 #include <scorbit_sdk/version.h>
 #include "game_data.h"
@@ -98,7 +98,7 @@ TEST_CASE("setGameStarted functionality")
     ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
 
     GameData expected;
     expected.isGameActive = true;
@@ -157,7 +157,7 @@ TEST_CASE("setGameFinished functionality")
     ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
 
     SECTION("Marks the game as finished and commits changes")
     {
@@ -222,7 +222,7 @@ TEST_CASE("setCurrentBall functionality")
     ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
 
     SECTION("Sets a valid ball number")
@@ -272,7 +272,7 @@ TEST_CASE("setActivePlayer functionality")
     ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
 
     SECTION("Sets a valid active player")
@@ -360,7 +360,7 @@ TEST_CASE("setScore functionality")
             .TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
     gameState.commit();
 
@@ -469,7 +469,7 @@ TEST_CASE("addMode functionality")
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
     gameState.commit();
 
@@ -527,7 +527,7 @@ TEST_CASE("removeMode functionality")
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
     gameState.commit();
 
@@ -577,7 +577,7 @@ TEST_CASE("clearModes functionality")
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
     gameState.commit();
 
@@ -628,7 +628,7 @@ TEST_CASE("commit functionality")
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
     gameState.setGameStarted();
     gameState.commit(); // Initial commit after starting the game
 
@@ -721,5 +721,5 @@ TEST_CASE("Sending version of sdk and game_code")
     REQUIRE_CALL(mockNetRef, sendInstalled("sdk", SCORBIT_SDK_VERSION, true, std::nullopt)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
-    GameState gameState(std::move(mockNet));
+    GameStateImpl gameState(std::move(mockNet));
 }

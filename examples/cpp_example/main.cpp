@@ -149,6 +149,7 @@ scorbit::GameState setupGameState()
 
     // Create game state object. Normally, device info will be copied.
     // However, it can be moved, because we don't need this struct anymore.
+
     return scorbit::createGameState(encryptedKey, std::move(info));
 }
 

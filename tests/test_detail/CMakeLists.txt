@@ -77,7 +77,6 @@ target_sources(
         ../../source/player_state.h
         ../../source/player_state.cpp
         ../../include/scorbit_sdk/game_state.h
-        ../../source/game_state.cpp
         ../../source/game_state_impl.h
         ../../source/game_state_impl.cpp
         source/test_player_state.cpp
