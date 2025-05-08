@@ -46,7 +46,8 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
 
             const auto result = Signer::sign(signature, digest, key);
             if (result != SignErrorCode::Ok) {
-                ERR("Failed to sign the digest. Error code: {}", static_cast<int>(result));
+                ERR(std::string {AY_OBFUSCATE("Failed to sign the digest. Error: {}")},
+                    static_cast<int>(result));
                 signature.clear();
             }
         }
