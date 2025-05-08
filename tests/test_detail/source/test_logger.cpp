@@ -28,14 +28,12 @@ struct CallbackHelper {
 TEST_CASE("logger using functor object callback")
 {
     struct loggerFunctor {
-        void operator()(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
-                        void *user)
+        void operator()(std::string_view msg, scorbit::LogLevel level, const char *file, int line)
         {
             data.msg = msg;
             data.level = level;
             data.fileName = file;
             data.line = line;
-            (void)user;
         }
 
         CallbackHelper data;
@@ -77,13 +75,12 @@ TEST_CASE("logger using functor object callback")
 }
 
 struct MockCallback {
-    MAKE_MOCK5(callbackFunc, void(std::string_view, scorbit::LogLevel, const char *, int, void *));
+    MAKE_MOCK4(callbackFunc, void(std::string_view, scorbit::LogLevel, const char *, int));
 } mockCallback;
 
-void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
-                  void *user)
+void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line)
 {
-    mockCallback.callbackFunc(msg, level, file, line, user);
+    mockCallback.callbackFunc(msg, level, file, line);
 }
 
 TEST_CASE("Logger with function callback using trompeloeil")
@@ -94,7 +91,7 @@ TEST_CASE("Logger with function callback using trompeloeil")
     SECTION("SectionName")
     {
         REQUIRE_CALL(mockCallback, callbackFunc(eq<std::string_view>("Hello"), eq(LogLevel::Info),
-                                                _, _, eq(nullptr)));
+                                                _, _));
 
         scorbit::addLoggerCallback(callbackFunc);
         INF("Hello");
@@ -113,34 +110,17 @@ static void callback(std::string_view msg, scorbit::LogLevel level, const char *
     userData.msg = msg;
 }
 
-TEST_CASE("logger using function callback")
-{
-    static CallbackHelper userData;
-
-    scorbit::addLoggerCallback(callback, &userData);
-    INF("Hello");
-    int line = __LINE__ - 1;
-    const char *file = __FILE__;
-    CHECK(userData.msg == "Hello");
-    CHECK(userData.level == scorbit::LogLevel::Info);
-    CHECK(userData.fileName == file + std::string_view(file).find_last_of("/\\") + 1);
-    CHECK(userData.line == line);
-
-    resetLogger();
-}
-
 TEST_CASE("logger using lambda callback")
 {
     CallbackHelper userData;
 
-    scorbit::addLoggerCallback([&userData](std::string_view msg, scorbit::LogLevel level,
-                                        const char *file, int line, void *user) {
-        (void)user;
-        userData.level = level;
-        userData.fileName = file;
-        userData.line = line;
-        userData.msg = msg;
-    });
+    scorbit::addLoggerCallback(
+            [&userData](std::string_view msg, scorbit::LogLevel level, const char *file, int line) {
+                userData.level = level;
+                userData.fileName = file;
+                userData.line = line;
+                userData.msg = msg;
+            });
     INF("Hello");
     int line = __LINE__ - 1;
     const char *file = __FILE__;
@@ -172,8 +152,9 @@ TEST_CASE("logger using bind callback")
 TEST_CASE("logger multithread")
 {
     std::vector<std::string> logs;
-    scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
-                                    void *) { logs.emplace_back(msg); });
+    scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int) {
+        logs.emplace_back(msg);
+    });
 
     // Set up the random number generator
     std::random_device rd;

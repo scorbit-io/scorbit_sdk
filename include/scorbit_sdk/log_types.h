@@ -49,6 +49,6 @@ enum class LogLevel {
  *                 can be used to maintain context or state within the callback.
  */
 using LoggerCallback = std::function<void(const std::string &message, LogLevel level,
-                                          const char *file, int line, void *userData)>;
+                                          const char *file, int line)>;
 
 } // namespace scorbit

@@ -63,63 +63,6 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 
-# ---- Special build encrypt_tool with SCORBIT_SDK_ENCRYPT_SECRET env var ----
-
-# Define the test key, provider and secret
-set(TEST_KEY "07D54D8B3B2743550071639FDA6F5ED7BB0407C479FDA3A5CDBD22B09870DCF9")
-set(TEST_PROVIDER "test")
-set(TEST_SECRET "secret")
-
-# Set the environment variable for building encrypt_tool
-set(ENCRYPT_TOOL_TEST_BUILD_PATH "${CMAKE_CURRENT_BINARY_DIR}/encrypt_tool_test")
-
-if(DEFINED CMAKE_TOOLCHAIN_FILE)
-    set(TOOLCHAIN_DEFINITION "-D CMAKE_TOOLCHAIN_FILE='${CMAKE_TOOLCHAIN_FILE}'")
-endif()
-
-if(DEFINED VCPKG_TARGET_TRIPLET)
-    set(VCPKG_DEFINITION "-D VCPKG_TARGET_TRIPLET='${VCPKG_TARGET_TRIPLET}'")
-endif()
-
-if(DEFINED CMAKE_GENERATOR)
-    set(GENERATOR "-G ${CMAKE_GENERATOR}")
-endif()
-
-# Configure encrypt_tool with env var SCORBIT_SDK_ENCRYPT_SECRET
-set(ENV{SCORBIT_SDK_ENCRYPT_SECRET} ${TEST_SECRET})
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -B ${ENCRYPT_TOOL_TEST_BUILD_PATH}
-            -S ${CMAKE_CURRENT_SOURCE_DIR}/../../encrypt_tool
-            -D SCORBIT_SDK_PRODUCTION=OFF
-            ${TOOLCHAIN_DEFINITION}
-            ${VCPKG_DEFINITION}
-            ${GENERATOR}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND_ERROR_IS_FATAL ANY
-)
-unset(ENV{SCORBIT_SDK_ENCRYPT_SECRET})
-
-# Build encrypt_tool
-execute_process(
-    COMMAND ${CMAKE_COMMAND} --build ${ENCRYPT_TOOL_TEST_BUILD_PATH} --parallel
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMAND_ERROR_IS_FATAL ANY
-)
-
-# Define the correct executable path
-set(TEST_ENCRYPT_TOOL_EXECUTABLE "${ENCRYPT_TOOL_TEST_BUILD_PATH}/encrypt_tool")
-
-# Run encrypt_tool to obtain the encrypted key
-execute_process(
-    COMMAND ${TEST_ENCRYPT_TOOL_EXECUTABLE} ${TEST_KEY} ${TEST_PROVIDER}
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    OUTPUT_VARIABLE TEST_ENCRYPTED_KEY
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY
-)
-
-message(STATUS "Encrypted secret for tests: ${TEST_ENCRYPTED_KEY}")
-
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
@@ -128,13 +71,13 @@ target_sources(
     test_detail
     PRIVATE
         ../../include/scorbit_sdk/log.h
-        ../../source/log.cpp
+        ../../include/scorbit_sdk/log_c.h
+        ../../source/log_c.cpp
         ../../source/logger.h
         ../../source/logger.cpp
         ../../source/player_state.h
         ../../source/player_state.cpp
         ../../include/scorbit_sdk/game_state.h
-        ../../source/game_state.cpp
         ../../source/game_state_impl.h
         ../../source/game_state_impl.cpp
         source/test_player_state.cpp
@@ -211,10 +154,6 @@ endif()
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE
-        TEST_ENCRYPTED_KEY="${TEST_ENCRYPTED_KEY}"
-        TEST_KEY="${TEST_KEY}"
-        TEST_PROVIDER="${TEST_PROVIDER}"
-        TEST_SECRET="${TEST_SECRET}"
         # We are building manually source files which will be statically built-in to test main
         SCORBIT_SDK_STATIC_DEFINE=1
 )

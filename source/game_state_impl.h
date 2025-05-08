@@ -27,7 +27,7 @@ public:
     void setCurrentBall(sb_ball_t ball);
 
     void setActivePlayer(sb_player_t player);
-    void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature);
+    void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature = 0);
 
     void addMode(std::string mode);
     void removeMode(const std::string &mode);

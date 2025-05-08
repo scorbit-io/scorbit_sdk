@@ -127,9 +127,7 @@ target_sources(
         source/net.cpp
         source/logger.cpp
         source/logger.h
-        source/log.cpp
         source/game_state_c.cpp
-        source/game_state.cpp
         source/game_state_impl.h
         source/game_state_impl.cpp
         include/scorbit_sdk/game_state_c.h
@@ -154,7 +152,6 @@ target_sources(
         source/net_util.h
         source/net_util.cpp
         include/scorbit_sdk/game_state_factory.h
-        source/game_state_factory.cpp
         source/utils/bytearray.cpp
         source/utils/bytearray.h
         source/worker.h

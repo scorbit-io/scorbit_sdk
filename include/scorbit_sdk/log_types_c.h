@@ -48,7 +48,7 @@ typedef enum {
  *                 can be used to maintain context or state within the callback.
  */
 typedef void (*sb_log_callback_t)(const char *message, sb_log_level_t level, const char *file,
-                                  int line, void *userData);
+                                  int line, void *user_data);
 
 #ifdef __cplusplus
 }
