@@ -215,6 +215,11 @@ void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data
 
 int main(void)
 {
+    // Allocate memory for player names
+    // Assuming max 4 players, each name max 31 chars + null terminator
+    char player_names[4][32];
+    memset(player_names, 0, sizeof(player_names));
+
     printf("Simple example of Scorbit SDK usage\n");
 
     // Setup logger
@@ -255,6 +260,43 @@ int main(void)
         }
 
         if (isGameActive(i)) {
+            // Let's pretend that this players_num is current number of players in the game
+            int players_num = 1;
+
+            // Check if players info was updated
+            if (sb_is_players_info_updated(gs)) {
+                // Get player info for each player
+                for (int j = 1; j <= players_num; ++j) {
+                    // First check if player's info is available
+                    if (sb_has_player_info(gs, j)) {
+                        // Get player's name
+                        const char *name = sb_get_player_preferred_name(gs, j);
+                        // we use it as preferred name, also there are functions
+                        // for initials and name. Preferred name is either initials or name chosen
+                        // by the player.
+                        snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
+
+                        // Get player's picture if available
+                        size_t pic_size;
+                        const uint8_t *picture_data = sb_get_player_picture(gs, j, &pic_size);
+                        // Here using pic_size and picture pointer, copy it to the allocated memory.
+                        // This is jpg image, can be displayed on the screen or saved to file.
+                        (void)picture_data;
+
+                    } else {
+                        // Name is not available, let's clear the name
+                        player_names[j][0] = 0;
+
+                        // And clear allocated picture ...
+                    }
+                }
+            }
+
+            for (int j = 1; j <= players_num; ++j) {
+                // Print player's name
+                printf("Player %d: %s\n", j, player_names[j]);
+            }
+
             // Set player1 score, no problem, if it was not changed in the current cycle
             sb_set_score(gs, 1, player1Score(i), 0);
 
