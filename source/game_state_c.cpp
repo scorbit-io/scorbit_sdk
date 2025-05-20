@@ -181,3 +181,48 @@ void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, v
         }
     });
 }
+
+bool sb_is_players_info_updated(sb_game_handle_t handle)
+{
+    return handle->gameState.isPlayersInfoUpdated();
+}
+
+bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player)
+{
+    return handle->gameState.getPlayerProfile(player) != nullptr;
+}
+
+const char *sb_get_player_preferred_name(sb_game_handle_t handle, sb_player_t player)
+{
+    if (auto profile = handle->gameState.getPlayerProfile(player)) {
+        return profile->preferInitials ? profile->initials.c_str() : profile->name.c_str();
+    }
+    return nullptr;
+}
+
+const char *sb_get_player_name(sb_game_handle_t handle, sb_player_t player)
+{
+    if (auto profile = handle->gameState.getPlayerProfile(player)) {
+        return profile->name.c_str();
+    }
+    return nullptr;
+}
+
+const char *sb_get_player_initials(sb_game_handle_t handle, sb_player_t player)
+{
+    if (auto profile = handle->gameState.getPlayerProfile(player)) {
+        return profile->initials.c_str();
+    }
+    return nullptr;
+}
+
+const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player, size_t *size)
+{
+    const auto &picture = handle->gameState.getPlayerPicture(player);
+    if (!picture.empty()) {
+        *size = picture.size();
+        return picture.data();
+    }
+    *size = 0;
+    return nullptr;
+}
