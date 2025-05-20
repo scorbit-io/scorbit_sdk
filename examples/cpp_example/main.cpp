@@ -12,6 +12,7 @@
 #include <chrono>
 #include <ctime>
 #include <thread>
+#include <map>
 
 using namespace std;
 
@@ -155,6 +156,8 @@ using namespace std::chrono_literals;
 
 int main()
 {
+    std::map<sb_player_t, scorbit::PlayerInfo> players;
+
     cout << "Simple example of Scorbit SDK usage" << endl;
 
     // Setup logger
@@ -235,6 +238,31 @@ int main()
         }
 
         if (isGameActive(i)) {
+            // Let's pretend that this playersNum is current number of players in the game
+            int playersNum = 1;
+
+            // Check if players info was updated and if yes, they will be prepared for retrieval
+            if (gs.isPlayersInfoUpdated()) {
+                // Get players infos
+                for (int j = 1; j <= playersNum; ++j) {
+                    if (gs.hasPlayerInfo(j)) {
+                        players[j] = gs.getPlayerInfo(j);
+                    } else {
+                        players.erase(j);
+                    }
+                }
+            }
+
+            // Display players names / pictures
+            for (const auto &item : players) {
+                const auto &info = item.second;
+                cout << "Player " << item.first << ": " << info.preferredName << endl;
+                if (!info.picture.empty()) {
+                    // Display picture
+                    cout << "Picture size: " << info.picture.size() << endl;
+                }
+            }
+
             // Set player1 score, no problem, if it was not changed in the current cycle
             gs.setScore(1, player1Score(i));
 
