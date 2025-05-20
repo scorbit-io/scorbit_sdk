@@ -130,6 +130,21 @@ const std::string &GameStateImpl::getClaimDeeplink(int player) const
     return m_net->getClaimDeeplink(player);
 }
 
+bool GameStateImpl::isPlayersInfoUpdated()
+{
+    return m_net->playersManager().hasUpdate();
+}
+
+const PlayerProfile *GameStateImpl::getPlayerProfile(sb_player_t player) const
+{
+    return m_net->playersManager().profile(player);
+}
+
+const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
+{
+    return m_net->playersManager().picture(player);
+}
+
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));
