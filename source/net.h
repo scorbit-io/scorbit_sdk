@@ -78,6 +78,8 @@ public:
 
     void download(StringCallback callback, const std::string &url, const std::string &filename) override;
 
+    PlayerProfilesManager &playersManager() override;
+
 private:
     task_t createAuthenticateTask();
     task_t createInstalledTask(const std::string &type, const std::string &version,
@@ -130,6 +132,7 @@ private:
     std::map<std::string, GameSession> m_gameSessions; // key: session uuid
     Worker m_worker;
     Updater m_updater;
+    PlayerProfilesManager m_playersManager;
 };
 
 } // namespace detail

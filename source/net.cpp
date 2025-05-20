@@ -295,6 +295,11 @@ void Net::download(StringCallback callback, const std::string &url, const std::s
     m_worker.postQueue(createDownloadTask(std::move(callback), url, filename));
 }
 
+PlayerProfilesManager &Net::playersManager()
+{
+    return m_playersManager;
+}
+
 Net::task_t Net::createAuthenticateTask()
 {
     return [this]() {
@@ -514,6 +519,17 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             if (r.status_code == 200) {
                 INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
+
+                try {
+                    boost::json::object json = boost::json::parse(r.text).as_object();
+
+                    // Scores array will have players' profiles
+                    if (const auto scoresJson = json.if_contains("scores")) {
+                        m_playersManager.setProfiles(*scoresJson);
+                    }
+                } catch (const std::exception &e) {
+                    ERR("API error parsing game data reply: {}", e.what());
+                }
                 break;
             }
 
