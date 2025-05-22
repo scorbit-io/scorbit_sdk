@@ -47,6 +47,7 @@ public:
                     std::optional<std::string>),
                override);
     void download(StringCallback, const std::string &, const std::string &) override { };
+    void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
 
 private:

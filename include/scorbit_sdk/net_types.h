@@ -8,7 +8,6 @@
 #pragma once
 
 #include "net_types_c.h"
-#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -100,5 +99,6 @@ struct DeviceInfo {
 };
 
 using StringCallback = std::function<void(Error error, const std::string &reply)>;
+using VectorCallback = std::function<void(Error error, const std::vector<uint8_t> &data)>;
 
 } // namespace scorbit

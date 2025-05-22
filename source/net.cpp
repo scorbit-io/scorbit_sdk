@@ -58,6 +58,8 @@ constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 
+constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
+
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
 {
@@ -292,7 +294,12 @@ void Net::requestUnpair(StringCallback callback)
 
 void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
 {
-    m_worker.postQueue(createDownloadTask(std::move(callback), url, filename));
+    m_worker.postQueue(createDownloadFileTask(std::move(callback), url, filename));
+}
+
+void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize)
+{
+    m_worker.postQueue(createDownloadBufferTask(std::move(callback), url, reserveBufferSize));
 }
 
 PlayerProfilesManager &Net::playersManager()
@@ -838,8 +845,8 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
     };
 }
 
-Net::task_t Net::createDownloadTask(StringCallback replyCallback, std::string url,
-                                    std::string filename)
+Net::task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
+                                        std::string filename)
 {
     return [callback = std::move(replyCallback), url = std::move(url),
             filename = std::move(filename)]() {
@@ -852,19 +859,19 @@ Net::task_t Net::createDownloadTask(StringCallback replyCallback, std::string ur
             error = Error::FileError;
         } else {
             for (int i = 0; i < NUM_RETRIES; ++i) {
-                INF("Download: {}", url);
+                INF("Download file: {}", url);
 
                 auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT});
                 reply = std::move(r.text);
 
                 if (r.status_code == 200) {
-                    DBG("API download: ok, {}", reply);
+                    DBG("Download file: ok, {}", reply);
                     error = Error::Success;
                     break;
                 }
 
                 error = Error::ApiError;
-                ERR("API download failed: code={}, message: {}, reply: {}", r.status_code,
+                ERR("Download file failed: code={}, message: {}, reply: {}", r.status_code,
                     r.error.message, reply);
 
                 if (r.status_code >= 400) {
@@ -876,6 +883,53 @@ Net::task_t Net::createDownloadTask(StringCallback replyCallback, std::string ur
 
         if (callback) {
             callback(error, filename);
+        }
+    };
+}
+
+Net::task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
+                                          size_t reserveBufferSize)
+{
+    return [callback = std::move(replyCallback), url = std::move(url), reserveBufferSize]() {
+        Error error {Error::ApiError};
+        std::vector<uint8_t> buffer;
+        if (reserveBufferSize > 0) {
+            buffer.reserve(reserveBufferSize);
+        }
+
+        cpr::Session session;
+        session.SetUrl(cpr::Url {url});
+        session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            INF("Download buffer: {}", url);
+
+            cpr::Response r = session.Download(
+                    cpr::WriteCallback {[&buffer](const std::string_view &data, intptr_t) -> bool {
+                        if (buffer.size() + data.size() > MAX_BUFFER_DOWNLOAD_SIZE) {
+                            ERR("Download buffer: too big, {} bytes", buffer.size() + data.size());
+                            return false;
+                        }
+                        buffer.insert(buffer.end(), data.begin(), data.end());
+                        return true;
+                    }});
+
+            if (r.status_code == 200) {
+                DBG("Download buffer: ok, {} bytes", buffer.size());
+                error = Error::Success;
+                break;
+            }
+
+            error = Error::ApiError;
+            ERR("Download buffer failed: code={}, message: {}", r.status_code, r.error.message);
+
+            if (r.status_code >= 400) {
+                break;
+            }
+        }
+
+        if (callback) {
+            callback(error, std::move(buffer));
         }
     };
 }
