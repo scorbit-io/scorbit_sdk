@@ -28,6 +28,7 @@ public:
 
     bool isRunning() const { return m_running; }
 
+    void post(std::function<void()> func);
     void postQueue(std::function<void()> func);
     void postGameDataQueue(std::function<void()> func);
     void postHeartbeatQueue(std::function<void()> func);
