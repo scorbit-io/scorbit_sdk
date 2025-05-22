@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +73,9 @@ typedef struct {
 
     /** Optional. The serial number of the device. Set to 0 if unavailable. */
     uint64_t serial_number;
+
+    /** If true, the SDK will automatically download players' profile pictures */
+    bool auto_download_player_pics;
 
 } sb_device_info_t;
 

@@ -146,6 +146,7 @@ sb_game_handle_t setup_game_state(void)
             // However, if there is known uuid attached to the device, set it here:
             .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
             .serial_number = 0, // If no serial number available, set to 0
+            .auto_download_player_pics = false, // we don't want to download player's pictures
     };
 
     // Another example with default values:
@@ -155,6 +156,7 @@ sb_game_handle_t setup_game_state(void)
             .hostname = NULL,             // NULL, it will be production, or can set to "production"
             .uuid = NULL,                 // NULL, will be automatically derived from device
             .serial_number = 0,           // no serial number available, set to 0
+            .auto_download_player_pics = true, // players' pictures will be automatically downloaded
     };
     (void)device_info2;
 

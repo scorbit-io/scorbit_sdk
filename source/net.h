@@ -113,6 +113,7 @@ private:
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
+    void processPlayersProfiles(const boost::json::value &val);
 
 private:
     SignerCallback m_signer;
