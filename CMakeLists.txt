@@ -167,6 +167,10 @@ target_sources(
         source/utils/date_time_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
+        include/scorbit_sdk/player_info.h
+        source/player_profiles_manager.h
+        source/player_profiles_manager.cpp
+        source/utils/lru_cache.hpp
 )
 
 # Generate the header from the template

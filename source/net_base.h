@@ -9,6 +9,7 @@
 
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
+#include "player_profiles_manager.h"
 #include <string>
 #include <optional>
 
@@ -45,6 +46,10 @@ public:
 
     virtual void download(StringCallback callback, const std::string &url,
                           const std::string &filename) = 0;
+    virtual void downloadBuffer(VectorCallback callback, const std::string &url,
+                                size_t reserveBufferSize) = 0;
+
+    virtual PlayerProfilesManager &playersManager() = 0;
 };
 
 } // namespace detail

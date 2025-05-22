@@ -77,6 +77,10 @@ public:
     void requestUnpair(StringCallback callback) override;
 
     void download(StringCallback callback, const std::string &url, const std::string &filename) override;
+    void downloadBuffer(VectorCallback callback, const std::string &url,
+                        size_t reserveBufferSize) override;
+
+    PlayerProfilesManager &playersManager() override;
 
 private:
     task_t createAuthenticateTask();
@@ -99,14 +103,17 @@ private:
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
-    task_t createDownloadTask(StringCallback replyCallback, std::string url,
-                              std::string filename);
+    task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
+                                  std::string filename);
+    task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
+                                    size_t reserveBufferSize);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
+    void processPlayersProfiles(const boost::json::value &val);
 
 private:
     SignerCallback m_signer;
@@ -128,8 +135,11 @@ private:
     DeviceInfo m_deviceInfo;
     VenueMachineInfo m_vmInfo;
     std::map<std::string, GameSession> m_gameSessions; // key: session uuid
-    Worker m_worker;
     Updater m_updater;
+    PlayerProfilesManager m_playersManager;
+
+    Worker m_worker; // This must be last element, as it has to be destroyed first, otherwise it
+                     // will try to access already destroyed member variables
 };
 
 } // namespace detail

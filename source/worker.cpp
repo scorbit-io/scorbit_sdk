@@ -11,7 +11,7 @@
 namespace scorbit {
 namespace detail {
 
-constexpr auto NUM_OF_THREADS = 3;
+constexpr auto NUM_OF_THREADS = 4;
 
 Worker::Worker()
 {
@@ -41,9 +41,13 @@ void Worker::stop()
         return;
 
     m_workGuard.reset();
-    // m_ioc.stop();    // TODO: if we want to abrupt the running tasks?
     m_threads.join_all();
     m_running = false;
+}
+
+void Worker::post(std::function<void()> func)
+{
+    boost::asio::post(m_ioc, std::move(func));
 }
 
 void Worker::postQueue(std::function<void()> func)

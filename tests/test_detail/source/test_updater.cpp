@@ -55,6 +55,12 @@ public:
                     std::optional<std::string>),
                override);
     MAKE_MOCK3(download, void(StringCallback, const std::string &, const std::string &), override);
+
+    void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
+    PlayerProfilesManager &playersManager() override { return m_playersManager; };
+
+private:
+    PlayerProfilesManager m_playersManager;
 };
 
 } // namespace

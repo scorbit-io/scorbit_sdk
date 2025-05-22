@@ -114,6 +114,11 @@ target_sources(
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp
+        ../../source/player_profiles_manager.h
+        ../../source/player_profiles_manager.cpp
+        source/test_player_profiles_manager.cpp
+        ../../source/utils/lru_cache.hpp
+        source/test_lru_cache.cpp
 )
 
 target_link_libraries(

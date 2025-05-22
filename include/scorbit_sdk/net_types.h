@@ -8,7 +8,6 @@
 #pragma once
 
 #include "net_types_c.h"
-#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -73,6 +72,11 @@ struct DeviceInfo {
     /** Optional. The serial number of the device. Set to 0 if unavailable. */
     uint64_t serialNumber {0};
 
+    /** If true, the SDK will automatically download players' profile pictures */
+    bool autoDownloadPlayerPics {false};
+
+    // ---------------------------------------------------------------------------
+
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
 
@@ -83,6 +87,7 @@ struct DeviceInfo {
         , hostname {di.hostname ? di.hostname : std::string {}}
         , uuid {di.uuid ? di.uuid : std::string {}}
         , serialNumber {di.serial_number}
+        , autoDownloadPlayerPics {di.auto_download_player_pics}
     {
     }
 
@@ -95,10 +100,12 @@ struct DeviceInfo {
         di.hostname = hostname.c_str();
         di.uuid = uuid.c_str();
         di.serial_number = serialNumber;
+        di.auto_download_player_pics = autoDownloadPlayerPics;
         return di;
     }
 };
 
 using StringCallback = std::function<void(Error error, const std::string &reply)>;
+using VectorCallback = std::function<void(Error error, const std::vector<uint8_t> &data)>;
 
 } // namespace scorbit
