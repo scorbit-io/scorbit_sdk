@@ -173,6 +173,9 @@ PYBIND11_MODULE(scorbit, m)
             .def_readwrite("serial_number", &DeviceInfo::serialNumber,
                            "Optional. The serial number of the device. If not set it will be 0.")
 
+            .def_readwrite("auto_download_player_pics", &DeviceInfo::autoDownloadPlayerPics,
+                           "If true, the SDK will automatically download players' profile pictures.")
+
             .def("__repr__", [](const DeviceInfo &d) {
                 std::stringstream ss;
                 ss << std::hex << std::showbase << reinterpret_cast<std::uintptr_t>(&d);
@@ -181,6 +184,34 @@ PYBIND11_MODULE(scorbit, m)
                      + "', hostname='" + d.hostname + "', uuid='" + d.uuid + "', serial_number="
                      + std::to_string(d.serialNumber) + ", address=" + ss.str() + ">";
             });
+
+    // PlayerInfo struct
+    py::class_<PlayerInfo>(m, "PlayerInfo", R"doc(
+            Player's profile information class.
+
+            This class provides an interface to access the player's profile information, including
+            their preferred name, full name, initials, and profile picture. The profile picture is
+            represented as bytearray (jpg format).
+
+            Note:
+                The profile picture is automatically downloaded if `auto_download_player_pics` is
+                set to true in the `DeviceInfo` class.
+        )doc")
+
+            .def_readonly("preferred_name", &PlayerInfo::preferredName,
+                          "The player's preferred name.")
+
+            .def_readonly("name", &PlayerInfo::name, "The player's full name.")
+
+            .def_readonly("initials", &PlayerInfo::initials, "The player's initials.")
+
+            .def_property_readonly(
+                    "picture",
+                    [](const PlayerInfo &self) {
+                        return py::bytes(reinterpret_cast<const char *>(self.picture.data()),
+                                         self.picture.size());
+                    },
+                    "The player's profile picture in binary format (jpg).");
 
     // GameState
     // By default, pybind11 holds the GIL while destructing objects. However, this can cause a
@@ -470,7 +501,43 @@ PYBIND11_MODULE(scorbit, m)
                                     print(f"Failed to unpair device: {error}")
 
                             game_state.request_unpair(on_unpair_response)
+                    )doc")
+
+            // -------------------------- PLAYER PROFILE INFO --------------------------------------
+
+            .def("is_players_info_updated", &GameState::isPlayersInfoUpdated,
+                 R"doc(
+                        Check if player profiles have been updated.
+
+                        This function checks if any player profiles have been updated since the last call.
+                        If there are updates, use `get_player_info()` to retrieve the updated data.
+
+                        Returns:
+                            bool: True if there are updates to any player profiles; False otherwise.
+                    )doc")
+
+            .def("has_player_info", &GameState::hasPlayerInfo, py::arg("player"),
+                 R"doc(
+                        Check if player information is available.
+
+                        Args:
+                            player (int): The player number (starting from 1).
+
+                        Returns:
+                            bool: True if player information is available; False otherwise.
+                    )doc")
+
+            .def("get_player_info", &GameState::getPlayerInfo, py::arg("player"),
+                 R"doc(
+                        Retrieve player information.
+
+                        Args:
+                            player (int): The player number (starting from 1).
+
+                        Returns:
+                            PlayerInfo: The player's profile information.
                     )doc");
+
 
     // Factory function
     m.def("create_game_state", py::overload_cast<std::string, const DeviceInfo &>(&createGameState),

@@ -59,11 +59,25 @@ def setup_game_state():
     info.game_code_version = "0.1.0"
     info.uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab" # don't set it, then it will be generated automatically
 
+    # Automatically download pictures, will be available in PlayerInfo.picture
+    info.auto_download_player_pics = True
+
     # Use encrypt_tool to generate your encrypted key from your private key
     encrypted_key = '8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA=='
     return scorbit.create_game_state(encrypted_key, info)
 
+def check_players_info(gs, players, players_num):
+    if gs.is_players_info_updated():
+        for j in range(1, players_num + 1):
+            if gs.has_player_info(j):
+                players[j] = gs.get_player_info(j)
+            else:
+                players.pop(j, None)  # Erase player info if it was removed or not found
+    return players
+
 def main():
+    players = {} # Dictionary to hold player information
+
     print(f"Simple example of Scorbit SDK {scorbit.__version__} usage")
 
     # Setup logger
@@ -101,6 +115,19 @@ def main():
             gs.set_game_started()
 
         if is_game_active(i):
+            # Let's pretend that this players_num is current number of players in the game
+            players_num = 1
+
+            check_players_info(gs, players, players_num)
+
+            # Display players names / pictures
+            for player_num, player_info in players.items():
+                print(f"Player {player_num}: name: {player_info.name}, initials: {player_info.initials}, preferred_name: {player_info.preferred_name}")
+                print(f"Picture size: {len(player_info.picture)} bytes")
+                # Print first 32 bytes of picture in hex format
+                if (len(player_info.picture) > 0):
+                    print(f"Player {player_num} picture: {player_info.picture[:32].hex()}")
+
             gs.set_score(1, player1_score(i))
             if has_player2(): gs.set_score(2, player2_score())
             if has_player3(): gs.set_score(3, player3_score())
