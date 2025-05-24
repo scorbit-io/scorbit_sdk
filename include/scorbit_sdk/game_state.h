@@ -40,11 +40,14 @@ class SCORBIT_SDK_EXPORT GameState
 {
 public:
     GameState(sb_game_handle_t handle)
-        : m_handle(handle)
+        : m_handle(handle, sb_destroy_game_state)
     {
     }
 
-    ~GameState() { sb_destroy_game_state(m_handle); }
+    GameState(const GameState &) = delete;
+    GameState &operator=(const GameState &) = delete;
+    GameState(GameState&&) = default;
+    GameState& operator=(GameState&&) = default;
 
     /**
      * @brief Mark the game as started.
@@ -59,7 +62,7 @@ public:
      * modified.
      *
      */
-    void setGameStarted() { sb_set_game_started(m_handle); }
+    void setGameStarted() { sb_set_game_started(m_handle.get()); }
 
     /**
      * @brief Mark the game as finished.
@@ -70,7 +73,7 @@ public:
      *
      * @warning After the game is finished, you can't add any modes or change players' scores.
      */
-    void setGameFinished() { sb_set_game_finished(m_handle); }
+    void setGameFinished() { sb_set_game_finished(m_handle.get()); }
 
     /**
      * @brief Set the current ball number.
@@ -81,7 +84,7 @@ public:
      * @param ball The ball number [1-9]. If the ball number is out of range, the function does
      * nothing.
      */
-    void setCurrentBall(sb_ball_t ball) { sb_set_current_ball(m_handle, ball); }
+    void setCurrentBall(sb_ball_t ball) { sb_set_current_ball(m_handle.get(), ball); }
 
     /**
      * @brief Set the active player.
@@ -94,7 +97,7 @@ public:
      * @param player The player's number [1-9]. Typically, up to 6 players are supported in
      * pinball. If the player number is out of range, the function does nothing.
      */
-    void setActivePlayer(sb_player_t player) { sb_set_active_player(m_handle, player); }
+    void setActivePlayer(sb_player_t player) { sb_set_active_player(m_handle.get(), player); }
 
     /**
      * @brief Set the player's score.
@@ -111,7 +114,7 @@ public:
      */
     void setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature = 0)
     {
-        sb_set_score(m_handle, player, score, feature);
+        sb_set_score(m_handle.get(), player, score, feature);
     }
 
     /**
@@ -123,7 +126,7 @@ public:
      *
      * @param mode The mode to add (e.g., "MB:Multiball").
      */
-    void addMode(const std::string &mode) { sb_add_mode(m_handle, mode.c_str()); }
+    void addMode(const std::string &mode) { sb_add_mode(m_handle.get(), mode.c_str()); }
 
     /**
      * @brief Remove a mode from the game.
@@ -134,14 +137,14 @@ public:
      * @param mode The mode to remove (e.g., "MB:Multiball"). If the mode doesn't exist, the
      * function does nothing.
      */
-    void removeMode(const std::string &mode) { sb_remove_mode(m_handle, mode.c_str()); }
+    void removeMode(const std::string &mode) { sb_remove_mode(m_handle.get(), mode.c_str()); }
 
     /**
      * @brief Clear all modes.
      *
      * Removes all modes from the game's active mode list.
      */
-    void clearModes() { sb_clear_modes(m_handle); }
+    void clearModes() { sb_clear_modes(m_handle.get()); }
 
     /**
      * @brief Commit changes to the game state.
@@ -152,7 +155,7 @@ public:
      *
      * If nothing was changed, this function does nothing.
      */
-    void commit() { sb_commit(m_handle); }
+    void commit() { sb_commit(m_handle.get()); }
 
     // ----------------------------------------------------------------
 
@@ -168,7 +171,7 @@ public:
      *
      * @return The current authentication status as an @ref AuthStatus value.
      */
-    AuthStatus getStatus() const { return static_cast<AuthStatus>(sb_get_status(m_handle)); }
+    AuthStatus getStatus() const { return static_cast<AuthStatus>(sb_get_status(m_handle.get())); }
 
     /**
      * @brief Retrieve the machine's UUID.
@@ -177,7 +180,7 @@ public:
      *
      * @return The machine UUID.
      */
-    std::string getMachineUuid() const { return std::string {sb_get_machine_uuid(m_handle)}; }
+    std::string getMachineUuid() const { return std::string {sb_get_machine_uuid(m_handle.get())}; }
 
     /**
      * @brief Retrieve the pairing deeplink.
@@ -188,7 +191,7 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    std::string getPairDeeplink() const { return std::string {sb_get_pair_deeplink(m_handle)}; }
+    std::string getPairDeeplink() const { return std::string {sb_get_pair_deeplink(m_handle.get())}; }
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -202,7 +205,7 @@ public:
      */
     std::string getClaimDeeplink(int player) const
     {
-        return std::string {sb_get_claim_deeplink(m_handle, player)};
+        return std::string {sb_get_claim_deeplink(m_handle.get(), player)};
     }
 
     /**
@@ -224,7 +227,7 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback)
     {
         auto cbPair = prepareCallback(std::move(callback));
-        sb_request_top_scores(m_handle, scoreFilter, cbPair.first, cbPair.second);
+        sb_request_top_scores(m_handle.get(), scoreFilter, cbPair.first, cbPair.second);
     }
 
     /**
@@ -245,7 +248,7 @@ public:
     void requestPairCode(StringCallback callback) const
     {
         auto cbPair = prepareCallback(std::move(callback));
-        sb_request_pair_code(m_handle, cbPair.first, cbPair.second);
+        sb_request_pair_code(m_handle.get(), cbPair.first, cbPair.second);
     }
 
     /**
@@ -268,7 +271,7 @@ public:
     void requestUnpair(StringCallback callback) const
     {
         auto cbPair = prepareCallback(std::move(callback));
-        sb_request_unpair(m_handle, cbPair.first, cbPair.second);
+        sb_request_unpair(m_handle.get(), cbPair.first, cbPair.second);
     }
 
     // -------------------------- PLAYER PROFILE INFO --------------------------------------
@@ -284,7 +287,7 @@ public:
      *
      * @return true if there are updates to any player profiles; false otherwise.
      */
-    bool isPlayersInfoUpdated() { return sb_is_players_info_updated(m_handle); }
+    bool isPlayersInfoUpdated() { return sb_is_players_info_updated(m_handle.get()); }
 
     /**
      * @brief Checks if player information is available.
@@ -292,7 +295,7 @@ public:
      * @param player The player number (starting from 1).
      * @return true if player information is available; false otherwise.
      */
-    bool hasPlayerInfo(sb_player_t player) { return sb_has_player_info(m_handle, player); }
+    bool hasPlayerInfo(sb_player_t player) { return sb_has_player_info(m_handle.get(), player); }
 
     /**
      * @brief Retrieves the player's profile info (@ref PlayerInfo)
@@ -308,12 +311,12 @@ public:
     {
         PlayerInfo info;
         if (hasPlayerInfo(player)) {
-            info.preferredName = sb_get_player_preferred_name(m_handle, player);
-            info.name = sb_get_player_name(m_handle, player);
-            info.initials = sb_get_player_initials(m_handle, player);
+            info.preferredName = sb_get_player_preferred_name(m_handle.get(), player);
+            info.name = sb_get_player_name(m_handle.get(), player);
+            info.initials = sb_get_player_initials(m_handle.get(), player);
 
             size_t pictureSize;
-            const auto picture = sb_get_player_picture(m_handle, player, &pictureSize);
+            const auto picture = sb_get_player_picture(m_handle.get(), player, &pictureSize);
             if (picture && pictureSize > 0) {
                 info.picture = Picture(picture, picture + pictureSize);
             }
@@ -338,7 +341,7 @@ private:
     }
 
 private:
-    sb_game_handle_t m_handle {nullptr};
+    std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void(*)(sb_game_handle_t)> m_handle;
 };
 
 } // namespace scorbit

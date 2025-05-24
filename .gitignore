@@ -56,3 +56,10 @@ compile_commands.json
 *_qmlcache.qrc
 
 .DS_Store
+
+# Python specific
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pdb
