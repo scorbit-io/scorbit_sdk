@@ -13,6 +13,7 @@
 #include <pybind11/stl.h>
 
 #include <sstream>
+#include <iostream>
 
 namespace py = pybind11;
 
@@ -28,6 +29,12 @@ auto makeSafeCallback(Func &&callback)
     auto callbackPtr = std::shared_ptr<FuncType>(
             new FuncType(std::forward<Func>(callback)),
             [](FuncType *ptr) {
+                if (!Py_IsInitialized() || Py_IsFinalizing()) {
+                    std::cerr << "Skip deleting callback: Python is finalizing" << std::endl;
+                    // We don't delete ptr here, otherwise it will cause deadlock and will never return
+                    return;
+                }
+
                 // Ensure we hold the GIL before deleting, otherwise there will be exception
                 py::gil_scoped_acquire gil;
                 delete ptr;
@@ -35,6 +42,11 @@ auto makeSafeCallback(Func &&callback)
 
     // Return a lambda that will safely call the Python function
     return [callbackPtr](auto &&...args) {
+        if (!Py_IsInitialized() || Py_IsFinalizing()) {
+            std::cerr << "Skip invoking callback: Python is finalizing" << std::endl;
+            return;
+        }
+
         // Get the GIL before calling into Python
         py::gil_scoped_acquire gil;
 
