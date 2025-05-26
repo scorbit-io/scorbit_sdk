@@ -65,6 +65,12 @@ class TestDeviceInfo(unittest.TestCase):
         
         self.device_info.auto_download_player_pics = True
         self.assertTrue(self.device_info.auto_download_player_pics)
+
+        self.device_info.score_features = ["ramp", "left slingshot", "right slingshot"]
+        self.assertEqual(self.device_info.score_features, ["ramp", "left slingshot", "right slingshot"])
+
+        self.device_info.score_features_version = 1;
+        self.assertEqual(self.device_info.score_features_version, 1)
         
     def test_device_info_repr(self):
         """Test DeviceInfo string representation."""

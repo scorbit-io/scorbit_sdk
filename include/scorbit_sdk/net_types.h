@@ -75,7 +75,25 @@ struct DeviceInfo {
     /** If true, the SDK will automatically download players' profile pictures */
     bool autoDownloadPlayerPics {false};
 
-    // ---------------------------------------------------------------------------
+    /**
+     * Optional. An array of score features that help identify what triggered a score increase
+     * (e.g., ramp, spinner, target, etc.).
+     * Leave this vector empty if no specific features are provided.
+     *
+     * Example: info.scoreFeatures = {"ramp", "left spinner", "right spinner"}
+     */
+    std::vector<std::string> scoreFeatures;
+
+    /**
+     * Optional. Version number for the score features.
+     * Set to 1 if score features are used. Increment this version when new features are added
+     * in future game releases.
+     * Ignored if @ref scoreFeatures is empty.
+     */
+    int scoreFeaturesVersion {0};
+
+
+    // ------------ FOR INTERNAL USE ---------------------------------------------------------
 
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
@@ -88,7 +106,15 @@ struct DeviceInfo {
         , uuid {di.uuid ? di.uuid : std::string {}}
         , serialNumber {di.serial_number}
         , autoDownloadPlayerPics {di.auto_download_player_pics}
+        , scoreFeaturesVersion {di.score_features_version}
     {
+        if (di.score_features && di.score_features_count > 0) {
+            scoreFeatures.reserve(di.score_features_count);
+            for (size_t i = 0; i < di.score_features_count; ++i) {
+                scoreFeatures.emplace_back(di.score_features[i] ? di.score_features[i]
+                                                                : std::string {});
+            }
+        }
     }
 
     operator sb_device_info_t() const
@@ -101,8 +127,27 @@ struct DeviceInfo {
         di.uuid = uuid.c_str();
         di.serial_number = serialNumber;
         di.auto_download_player_pics = autoDownloadPlayerPics;
+        di.score_features_version = scoreFeaturesVersion;
+
+        // Temporary array of C-string pointers (valid as long as `*this` lives)
+        if (!scoreFeatures.empty()) {
+            tempTagPtrs.clear();
+            for (const auto &tag : scoreFeatures) {
+                tempTagPtrs.push_back(tag.c_str());
+            }
+            di.score_features = tempTagPtrs.data();
+            di.score_features_count = tempTagPtrs.size();
+        } else {
+            di.score_features = nullptr;
+            di.score_features_count = 0;
+        }
+
         return di;
     }
+
+private:
+    // Used internally to hold C-string pointers for sb_device_info_t
+    mutable std::vector<const char *> tempTagPtrs;
 };
 
 using StringCallback = std::function<void(Error error, const std::string &reply)>;

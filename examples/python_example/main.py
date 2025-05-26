@@ -2,6 +2,14 @@ import time
 from datetime import datetime
 from scorbit import scorbit
 
+# Set score features - optional, but if you have features that help identify what
+# triggered a score increase in GameState.setScore().
+# WARNING: in the future releasees we can ONLY add new features, but not remove
+# existing ones, otherwise indices of score features of old game sesions will be
+# broken. Also we should increment scoreFeaturesVersion when new feature(s) added.
+G_SCORE_FEATURES = ["ramp", "left spinner", "right spinner", "left slingshot", "right slingshot"]
+G_SCORE_FEATURES_VERSION = 1
+
 # -------- Dummy functions to simulate game state --------
 def is_game_finished(i):
     return i == 99
@@ -61,6 +69,9 @@ def setup_game_state():
 
     # Automatically download pictures, will be available in PlayerInfo.picture
     info.auto_download_player_pics = True
+
+    info.score_features = G_SCORE_FEATURES
+    info.score_features_version = G_SCORE_FEATURES_VERSION
 
     # Use encrypt_tool to generate your encrypted key from your private key
     encrypted_key = '8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA=='
@@ -128,10 +139,10 @@ def main():
                 if (len(player_info.picture) > 0):
                     print(f"Player {player_num} picture: {player_info.picture[:32].hex()}")
 
-            gs.set_score(1, player1_score(i))
-            if has_player2(): gs.set_score(2, player2_score())
-            if has_player3(): gs.set_score(3, player3_score())
-            if has_player4(): gs.set_score(4, player4_score())
+            gs.set_score(1, player1_score(i), 2) # 2 is the score feature index for "right spinner"
+            if has_player2(): gs.set_score(2, player2_score(), 1)
+            if has_player3(): gs.set_score(3, player3_score(), 1)
+            if has_player4(): gs.set_score(4, player4_score(), 1)
 
             gs.set_active_player(current_player())
             gs.set_current_ball(current_ball(i))
