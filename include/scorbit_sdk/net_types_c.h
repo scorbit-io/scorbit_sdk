@@ -77,6 +77,29 @@ typedef struct {
     /** If true, the SDK will automatically download players' profile pictures */
     bool auto_download_player_pics;
 
+    /**
+     * Optional. An array of score features that help identify what triggered a score increase
+     * (e.g., ramp, spinner, target, etc.).
+     * Set it to NULL if no specific features are provided.
+     *
+     * Example: info.score_features = {"ramp", "left spinner", "right spinner"};
+     */
+    const char **score_features;
+
+    /**
+     * Optional. The number of strings of the score_features array. If don't provide score
+     * features, set to 0. See @ref score_features.
+     */
+    size_t score_features_count;
+
+    /**
+     * Optional. Version number for the score features.
+     * Set to 1 if score features are used. Increment this version when new features are added
+     * in future game releases.
+     * Ignored if @ref score_features is empty.
+     */
+    int score_features_version;
+
 } sb_device_info_t;
 
 /**

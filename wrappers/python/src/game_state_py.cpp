@@ -188,6 +188,23 @@ PYBIND11_MODULE(scorbit, m)
             .def_readwrite("auto_download_player_pics", &DeviceInfo::autoDownloadPlayerPics,
                            "If true, the SDK will automatically download players' profile pictures.")
 
+            .def_readwrite("score_features", &DeviceInfo::scoreFeatures, R"doc(
+                Optional. The list of score features.
+                A list of score features that help identify what triggered a score increase
+                (e.g., ramp, spinner, target, etc.).
+
+                Leave this vector empty if no specific features are provided.
+
+                Example:
+                    - `Example: ["ramp", "left spinner", "right spinner"]`)doc")
+
+            .def_readwrite("score_features_version", &DeviceInfo::scoreFeaturesVersion, R"doc(
+                Optional. Version number for the score features.
+                Initially set to 1 if there are score features. It should be incremented if the
+                score features array has new entries.
+                If `score_features` is empty, this entry will be ignored.
+            )doc")
+
             .def("__repr__", [](const DeviceInfo &d) {
                 std::stringstream ss;
                 ss << std::hex << std::showbase << reinterpret_cast<std::uintptr_t>(&d);
