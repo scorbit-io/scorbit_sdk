@@ -91,7 +91,7 @@ def main():
     ))
 
     gs.request_top_scores(0, lambda error, reply: print(
-        f"Top scores: {reply}" if error == 0 else f"Error: {error}"
+        f"Top scores: {reply}" if error == scorbit.Error.Success else f"Error: {error}"
     ))
 
     print(f"Deeplink for pairing: {gs.get_pair_deeplink()}")
