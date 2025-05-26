@@ -17,6 +17,23 @@
 #include <unistd.h>
 #endif
 
+// Set score features - optional, but if you have features that help identify what
+// triggered a score increase in sb_set_score().
+// WARNING: in the future releasees we can ONLY add new features, but not remove
+// existing ones, otherwise indices of score features of old game sesions will be
+// broken. Also we should increment scoreFeaturesVersion when new feature(s) added.
+const char *G_SCORE_FEATURES[] = {
+        "ramp",
+        "left spinner",
+        "right spinner",
+        "left slingshot",
+        "right slingshot"
+};
+const size_t G_SCORE_FEATURES_COUNT = sizeof(G_SCORE_FEATURES) / sizeof(G_SCORE_FEATURES[0]);
+
+// Increment only if new entries added in new game releases
+const int G_SCORE_FEATURES_VERSION = 1;
+
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 int isGameFinished(int i)
 {
@@ -145,8 +162,12 @@ sb_game_handle_t setup_game_state(void)
             // UUID is optional, if NULL, will be automatically derived from device's mac address
             // However, if there is known uuid attached to the device, set it here:
             .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
-            .serial_number = 0, // If no serial number available, set to 0
+            .serial_number = 0,                 // If no serial number available, set to 0
             .auto_download_player_pics = false, // we don't want to download player's pictures
+
+            .score_features = G_SCORE_FEATURES,
+            .score_features_count = G_SCORE_FEATURES_COUNT,
+            .score_features_version = G_SCORE_FEATURES_VERSION,
     };
 
     // Another example with default values:
@@ -157,6 +178,8 @@ sb_game_handle_t setup_game_state(void)
             .uuid = NULL,                 // NULL, will be automatically derived from device
             .serial_number = 0,           // no serial number available, set to 0
             .auto_download_player_pics = true, // players' pictures will be automatically downloaded
+            .score_features = NULL,      // we don't use score features
+            .score_features_count = 0,
     };
     (void)device_info2;
 
@@ -300,7 +323,7 @@ int main(void)
             }
 
             // Set player1 score, no problem, if it was not changed in the current cycle
-            sb_set_score(gs, 1, player1Score(i), 0);
+            sb_set_score(gs, 1, player1Score(i), 2); // 2 is a feature, e.g., right spinner
 
             if (hasPlayer2()) {
                 // Set player2 score if player2 is present
