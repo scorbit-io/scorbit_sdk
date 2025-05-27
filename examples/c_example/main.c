@@ -111,19 +111,22 @@ int isUnpairTriggeredByUser(void)
 
 // This callback will be called in a thread-safe manner, so we don't worry about thread-safety
 void loggerCallback(const char *message, sb_log_level_t level, const char *file, int line,
-                    void *userData)
+                    int64_t timestamp, void *userData)
 {
     (void)userData;
     (void)file;
     (void)line;
+    (void)timestamp;
 
     // Get the current time
-    time_t ct = time(NULL);               // Current time in seconds since epoch
+    time_t ct = timestamp / 1000;      // Convert milliseconds since epoch to seconds
     struct tm *timeInfo = localtime(&ct); // Convert to local time
 
     // Buffer for formatted time string
     char timeStr[30]; // Holds a string like "2024-10-01 12:34:56"
     strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", timeInfo);
+
+    int millis = timestamp % 1000; // Get milliseconds part
 
     // Determine log level string
     const char *levelStr = "UNK"; // default to unknown
@@ -146,7 +149,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     }
 
     // Use printf to print the log message
-    printf("[%s] [%s] %s\n", timeStr, levelStr, message);
+    printf("[%s.%03d] [%s] %s\n", timeStr, millis, levelStr, message);
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 

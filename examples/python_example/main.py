@@ -54,10 +54,11 @@ def is_unpair_triggered_by_user():
     return False
 
 # -------- Logger callback --------
-def logger_callback(message, level, file, line):
+def logger_callback(message, level, file, line, timestamp):
     level_str = {scorbit.LogLevel.Debug: "DBG", scorbit.LogLevel.Info: "INF",
                  scorbit.LogLevel.Warn: "WRN", scorbit.LogLevel.Error: "ERR"}.get(level, "UNK")
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [{level_str}] {message}")
+    dt = datetime.fromtimestamp(timestamp / 1000) # timestamp is in milliseconds
+    print(f"[{dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [{level_str}] {message}")
 
 def setup_game_state():
     info = scorbit.DeviceInfo()

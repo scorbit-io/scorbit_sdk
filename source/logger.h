@@ -25,10 +25,11 @@ class Logger
     friend Logger *logger();
 
     struct LogData {
-        std::string message;
-        LogLevel level;
-        const char *file;
-        int line;
+        std::string message; // Log message
+        LogLevel level;      // Log level
+        const char *file;    // Source file name
+        int line;            // Source line number
+        int64_t timestamp;   // Timestamp in milliseconds since epoch
     };
 
     struct CallbackAndData {

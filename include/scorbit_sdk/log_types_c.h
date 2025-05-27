@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,9 +48,10 @@ typedef enum {
  * - **line**: The line number in the source file where the log message originated.
  * - **userData**: A pointer to user-defined data, passed when registering the callback. This
  *                 can be used to maintain context or state within the callback.
+ * - **timestamp**: The timestamp of the log message in millseconds since the epoch.
  */
 typedef void (*sb_log_callback_t)(const char *message, sb_log_level_t level, const char *file,
-                                  int line, void *user_data);
+                                  int line, int64_t timestamp, void *user_data);
 
 #ifdef __cplusplus
 }

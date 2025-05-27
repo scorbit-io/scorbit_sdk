@@ -35,7 +35,8 @@ inline void sleepForLogger()
 TEST_CASE("logger using functor object callback")
 {
     struct loggerFunctor {
-        void operator()(std::string_view msg, scorbit::LogLevel level, const char *file, int line)
+        void operator()(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
+                        int64_t timestamp)
         {
             data.msg = msg;
             data.level = level;
@@ -90,7 +91,8 @@ struct MockCallback {
     MAKE_MOCK4(callbackFunc, void(std::string_view, scorbit::LogLevel, const char *, int));
 } mockCallback;
 
-void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line)
+void callbackFunc(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
+                  int64_t timestamp)
 {
     mockCallback.callbackFunc(msg, level, file, line);
 }
@@ -114,8 +116,9 @@ TEST_CASE("Logger with function callback using trompeloeil")
 }
 
 static void callback(std::string_view msg, scorbit::LogLevel level, const char *file, int line,
-                     void *user)
+                     int64_t timestamp, void *user)
 {
+    (void)timestamp;
     auto &userData = *static_cast<CallbackHelper *>(user);
     userData.level = level;
     userData.fileName = file;
@@ -128,7 +131,8 @@ TEST_CASE("logger using lambda callback")
     CallbackHelper userData;
 
     scorbit::addLoggerCallback(
-            [&userData](std::string_view msg, scorbit::LogLevel level, const char *file, int line) {
+            [&userData](std::string_view msg, scorbit::LogLevel level, const char *file, int line,
+                        int64_t timestamp) {
                 userData.level = level;
                 userData.fileName = file;
                 userData.line = line;
@@ -151,7 +155,8 @@ TEST_CASE("logger using bind callback")
     CallbackHelper userData;
 
     scorbit::addLoggerCallback(std::bind(callback, std::placeholders::_1, std::placeholders::_2,
-                                      std::placeholders::_3, std::placeholders::_4, &userData));
+                                         std::placeholders::_3, std::placeholders::_4,
+                                         std::placeholders::_5, &userData));
     INF("Hello");
     sleepForLogger();
     int line = __LINE__ - 2;
@@ -167,9 +172,8 @@ TEST_CASE("logger using bind callback")
 TEST_CASE("logger multithread")
 {
     std::vector<std::string> logs;
-    scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int) {
-        logs.emplace_back(msg);
-    });
+    scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
+                                       int64_t) { logs.emplace_back(msg); });
 
     // Set up the random number generator
     std::random_device rd;
