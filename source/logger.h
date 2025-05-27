@@ -12,33 +12,54 @@
 
 #include <fmt/format.h>
 #include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <thread>
+#include <atomic>
 
 namespace scorbit {
 namespace detail {
 
 class Logger
 {
-public:
-    static Logger *instance();
+    friend Logger *logger();
 
-    void addCallback(LoggerCallback &&callback, void *userData = nullptr);
-    void clear();
+    struct LogData {
+        std::string message;
+        LogLevel level;
+        const char *file;
+        int line;
+    };
 
-    void log(const std::string &message, LogLevel level, const char *file, int line) const;
-
-private:
-    Logger() = default;
-
-private:
     struct CallbackAndData {
         LoggerCallback callback;
         void *userData {nullptr};
     };
+
+public:
+    static Logger *instance();
+
+    ~Logger();
+
+    void addCallback(LoggerCallback &&callback, void *userData = nullptr);
+    void clear();
+
+    void log(const std::string &message, LogLevel level, const char *file, int line);
+
+private:
+    Logger();
+    void processLogs();
+
+private:
+    std::atomic_bool m_stop {false};
+    std::queue<LogData> m_queue;
     std::vector<CallbackAndData> m_callbacks;
 
-    mutable std::mutex m_mutex;
+    std::mutex m_cbMutex;
+    std::mutex m_queueMutex;
+    std::condition_variable m_queueCV;
 
-    friend Logger *logger();
+    std::thread m_thread; // This should be last, other members must be valid when it is destroyed
 };
 
 extern Logger *logger();
