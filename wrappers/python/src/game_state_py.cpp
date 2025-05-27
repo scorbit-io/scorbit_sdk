@@ -571,10 +571,4 @@ PYBIND11_MODULE(scorbit, m)
     m.def("create_game_state", py::overload_cast<std::string, const DeviceInfo &>(&createGameState),
           py::arg("encrypted_key"), py::arg("device_info"),
           "Factory function to create a GameState instance");
-
-    // Reset the logger before exiting to prevent a SIGSEGV.
-    // Perform cleanup when the application exits:
-    // https://pybind11.readthedocs.io/en/stable/advanced/misc.html#module-destructors
-    auto atexit = py::module_::import("atexit");
-    atexit.attr("register")(py::cpp_function([]() { resetLogger(); }));
 }
