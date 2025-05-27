@@ -127,6 +127,8 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
 Net::~Net()
 {
     m_stopHeartbeatTimer = true;
+    m_stop = true;
+    m_authCV.notify_all();
 }
 
 AuthStatus Net::status() const
@@ -387,7 +389,7 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
             });
 
             if (m_status == AuthStatus::AuthenticationFailed) {
@@ -459,7 +461,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
             });
 
             if (m_status != AuthStatus::AuthenticatedPaired) {
@@ -595,6 +597,9 @@ Net::task_t Net::createHeartbeatTask()
                 case AuthStatus::AuthenticationFailed:
                     return true;
                 default:
+                    if (m_stop) {
+                        return true;
+                    }
                     return false;
                 }
             });
@@ -707,7 +712,7 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
             });
 
             if (m_status != AuthStatus::AuthenticatedPaired) {
@@ -744,7 +749,7 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
             });
 
             auto [url, parameters] = deferredSetup();
@@ -801,7 +806,7 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed;
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
             });
 
             auto [url, payload] = deferredSetup();

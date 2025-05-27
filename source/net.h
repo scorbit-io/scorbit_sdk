@@ -125,6 +125,7 @@ private:
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stopHeartbeatTimer {false};
+    std::atomic_bool m_stop {false};
 
     std::string m_hostname;
     std::string m_stoken;
