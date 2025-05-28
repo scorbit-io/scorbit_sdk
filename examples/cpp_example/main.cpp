@@ -8,6 +8,7 @@
 #include <scorbit_sdk/scorbit_sdk.h>
 
 #include <iostream>
+#include <sstream>
 #include <iomanip>
 #include <chrono>
 #include <ctime>

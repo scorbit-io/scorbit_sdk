@@ -32,16 +32,17 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
     SECTION("Full initialization with all fields")
     {
         const char *tags[] = {"tag1", "tag2", "tag3"};
-        sb_device_info_t c_info = {.provider = "scorbitron",
-                                   .machine_id = 4419,
-                                   .game_code_version = "1.12.3",
-                                   .hostname = "production",
-                                   .uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce",
-                                   .serial_number = 123456789,
-                                   .auto_download_player_pics = true,
-                                   .score_features = tags,
-                                   .score_features_count = 3,
-                                   .score_features_version = 1};
+        sb_device_info_t c_info;
+        c_info.provider = "scorbitron";
+        c_info.machine_id = 4419;
+        c_info.game_code_version = "1.12.3";
+        c_info.hostname = "production";
+        c_info.uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce";
+        c_info.serial_number = 123456789;
+        c_info.auto_download_player_pics = true;
+        c_info.score_features = tags;
+        c_info.score_features_count = 3;
+        c_info.score_features_version = 1;
 
         DeviceInfo info(c_info);
 
@@ -61,16 +62,17 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
 
     SECTION("Minimal initialization with required fields only")
     {
-        sb_device_info_t c_info = {.provider = "vpin",
-                                   .machine_id = 1234,
-                                   .game_code_version = "2.0.0",
-                                   .hostname = nullptr,
-                                   .uuid = nullptr,
-                                   .serial_number = 0,
-                                   .auto_download_player_pics = false,
-                                   .score_features = nullptr,
-                                   .score_features_count = 0,
-                                   .score_features_version = 0};
+        sb_device_info_t c_info;
+        c_info.provider = "vpin";
+        c_info.machine_id = 1234;
+        c_info.game_code_version = "2.0.0";
+        c_info.hostname = nullptr;
+        c_info.uuid = nullptr;
+        c_info.serial_number = 0;
+        c_info.auto_download_player_pics = false;
+        c_info.score_features = nullptr;
+        c_info.score_features_count = 0;
+        c_info.score_features_version = 0;
 
         DeviceInfo info(c_info);
 
@@ -86,17 +88,16 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
 
     SECTION("With null score tags but non-zero count (edge case)")
     {
-        sb_device_info_t c_info = {
-                .provider = "test",
-                .machine_id = 1,
-                .game_code_version = "1.0.0",
-                .hostname = nullptr,
-                .uuid = nullptr,
-                .serial_number = 0,
-                .auto_download_player_pics = false,
-                .score_features = nullptr,
-                .score_features_count = 5 // Non-zero but null pointer
-        };
+        sb_device_info_t c_info;
+        c_info.provider = "test";
+        c_info.machine_id = 1;
+        c_info.game_code_version = "1.0.0";
+        c_info.hostname = nullptr;
+        c_info.uuid = nullptr;
+        c_info.serial_number = 0;
+        c_info.auto_download_player_pics = false;
+        c_info.score_features = nullptr;
+        c_info.score_features_count = 5; // Non-zero but null pointer
 
         DeviceInfo info(c_info);
 
@@ -106,16 +107,17 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
     SECTION("With some null strings in score tags")
     {
         const char *tags[] = {"tag1", nullptr, "tag3"};
-        sb_device_info_t c_info = {.provider = "test",
-                                   .machine_id = 1,
-                                   .game_code_version = "1.0.0",
-                                   .hostname = nullptr,
-                                   .uuid = nullptr,
-                                   .serial_number = 0,
-                                   .auto_download_player_pics = false,
-                                   .score_features = tags,
-                                   .score_features_count = 3,
-                                   .score_features_version = 1};
+        sb_device_info_t c_info;
+        c_info.provider = "test";
+        c_info.machine_id = 1;
+        c_info.game_code_version = "1.0.0";
+        c_info.hostname = nullptr;
+        c_info.uuid = nullptr;
+        c_info.serial_number = 0;
+        c_info.auto_download_player_pics = false;
+        c_info.score_features = tags;
+        c_info.score_features_count = 3;
+        c_info.score_features_version = 1;
 
         DeviceInfo info(c_info);
 
@@ -196,15 +198,16 @@ TEST_CASE("DeviceInfo round-trip conversion", "[DeviceInfo]")
     {
         // Create original C struct
         const char *original_tags[] = {"tag1", "tag2"};
-        sb_device_info_t original = {.provider = "scorbitron",
-                                     .machine_id = 4419,
-                                     .game_code_version = "1.12.3",
-                                     .hostname = "production",
-                                     .uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce",
-                                     .serial_number = 123456789,
-                                     .auto_download_player_pics = true,
-                                     .score_features = original_tags,
-                                     .score_features_count = 2};
+        sb_device_info_t original;
+        original.provider = "scorbitron";
+        original.machine_id = 4419;
+        original.game_code_version = "1.12.3";
+        original.hostname = "production";
+        original.uuid = "f0b188f8-9f2d-4f8d-abe4-c3107516e7ce";
+        original.serial_number = 123456789;
+        original.auto_download_player_pics = true;
+        original.score_features = original_tags;
+        original.score_features_count = 2;
 
         // Convert to DeviceInfo and back
         DeviceInfo info(original);
