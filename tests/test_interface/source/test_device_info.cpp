@@ -44,7 +44,7 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
         c_info.score_features_count = 3;
         c_info.score_features_version = 1;
 
-        DeviceInfo info(c_info);
+        DeviceInfo info {c_info};
 
         REQUIRE(info.provider == "scorbitron");
         REQUIRE(info.machineId == 4419);
@@ -74,7 +74,7 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
         c_info.score_features_count = 0;
         c_info.score_features_version = 0;
 
-        DeviceInfo info(c_info);
+        DeviceInfo info {c_info};
 
         REQUIRE(info.provider == "vpin");
         REQUIRE(info.machineId == 1234);
@@ -99,7 +99,7 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
         c_info.score_features = nullptr;
         c_info.score_features_count = 5; // Non-zero but null pointer
 
-        DeviceInfo info(c_info);
+        DeviceInfo info {c_info};
 
         REQUIRE(info.scoreFeatures.empty()); // Should handle null pointer gracefully
     }
@@ -119,7 +119,7 @@ TEST_CASE("DeviceInfo constructor from sb_device_info_t", "[DeviceInfo]")
         c_info.score_features_count = 3;
         c_info.score_features_version = 1;
 
-        DeviceInfo info(c_info);
+        DeviceInfo info {c_info};
 
         REQUIRE(info.scoreFeatures.size() == 3);
         REQUIRE(info.scoreFeatures[0] == "tag1");
@@ -304,11 +304,11 @@ TEST_CASE("DeviceInfo edge cases and validation", "[DeviceInfo]")
     SECTION("Empty string handling")
     {
         DeviceInfo info;
-        info.provider = "";
+        info.provider.clear();
         info.machineId = 1;
-        info.gameCodeVersion = "";
-        info.hostname = "";
-        info.uuid = "";
+        info.gameCodeVersion.clear();
+        info.hostname.clear();
+        info.uuid.clear();
         info.scoreFeatures = {"", "valid", ""};
 
         sb_device_info_t c_info = info;

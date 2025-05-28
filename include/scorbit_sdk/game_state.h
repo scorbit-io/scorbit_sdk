@@ -326,19 +326,15 @@ public:
     }
 
 private:
-    static std::pair<sb_string_callback_t, void *> prepareCallback(StringCallback callback)
-    {
+    static void callback_c(sb_error_t error, const char *reply, void *user_data) {
+        auto *cb = static_cast<StringCallback *>(user_data);
+        (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string{});
+        delete cb;
+    }
+
+    static std::pair<sb_string_callback_t, void *> prepareCallback(StringCallback callback) {
         auto *userData = new StringCallback(std::move(callback));
-
-        // Define callback as static to get function pointer
-        static sb_string_callback_t cb_c = [](sb_error_t error, const char *reply,
-                                              void *user_data) {
-            auto *cb = static_cast<StringCallback *>(user_data);
-            (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string {});
-            delete cb;
-        };
-
-        return std::make_pair(cb_c, userData);
+        return std::make_pair(&GameState::callback_c, userData);
     }
 
 private:

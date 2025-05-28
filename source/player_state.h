@@ -25,8 +25,8 @@ public:
     void setScore(sb_score_t score, sb_score_feature_t feature = 0);
 
 private:
-    sb_player_t m_player {0};
     sb_score_t m_score {0};
+    sb_player_t m_player {0};
     sb_score_feature_t m_scoreFeature {0};
 };
 

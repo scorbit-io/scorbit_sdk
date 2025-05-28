@@ -57,7 +57,8 @@ std::string encryptSecret(const std::vector<uint8_t> &secret, const std::string 
 
     int len = 0;
     EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, key.data(), iv.data());
-    EVP_EncryptUpdate(ctx, ciphertext.data(), &len, (uint8_t *)secret.data(), secret.size());
+    EVP_EncryptUpdate(ctx, ciphertext.data(), &len, static_cast<const uint8_t *>(secret.data()),
+                      secret.size());
     int ciphertext_len = len;
     EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len);
     ciphertext_len += len;
@@ -66,7 +67,7 @@ std::string encryptSecret(const std::vector<uint8_t> &secret, const std::string 
     EVP_CIPHER_CTX_free(ctx);
 
     // Store salt, IV, ciphertext, and tag
-    std::vector<uint8_t> combined = salt;
+    std::vector<uint8_t> combined = std::move(salt);
     combined.insert(combined.end(), iv.begin(), iv.end());
     combined.insert(combined.end(), ciphertext.begin(), ciphertext.end());
     combined.insert(combined.end(), tag.begin(), tag.end());

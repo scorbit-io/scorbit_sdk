@@ -20,7 +20,7 @@ namespace detail {
 class Worker
 {
 public:
-    Worker();
+    Worker() = default;
     ~Worker();
 
     void start();

@@ -119,7 +119,7 @@ TEST_CASE("Parse UUID without dashes with curly braces", "[parseUuid]")
 TEST_CASE("Parse incorrect UUID returns empty string", "[parseUuid]")
 {
     const auto uuid = parseUuid("f4de2fc0");
-    CHECK(uuid == "");
+    CHECK(uuid.empty());
 }
 
 // Creating test case for gameHistoryToCsv

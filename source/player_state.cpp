@@ -11,8 +11,8 @@ namespace scorbit {
 namespace detail {
 
 PlayerState::PlayerState(sb_player_t player, sb_score_t score)
-    : m_player(player)
-    , m_score {score}
+    : m_score {score}
+    , m_player(player)
 {
 }
 
