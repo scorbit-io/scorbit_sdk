@@ -95,7 +95,7 @@ private:
     task_t createUploadHistoryTask(const GameHistory &history);
 
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
-                            const cpr::Multipart &multipart);
+                            cpr::Multipart &&multipart, std::optional<std::vector<uint8_t>> &&buffer);
 
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {

@@ -697,18 +697,36 @@ Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
     const auto sessionUuid = history.front().sessionUuid;
     const auto filename = fmt::format("{}.csv", sessionUuid.get());
     const auto csv = gameHistoryToCsv(history);
-    const auto multipart = cpr::Multipart {
+
+    // Buffer to hold data for cpr::Buffer, as the latter is a non-owning structure
+    std::vector<uint8_t> buffer {csv.cbegin(), csv.cend()};
+    auto multipart = cpr::Multipart {
             {"uuid", sessionUuid},
-            {"log_file", cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
+            {"log_file", cpr::Buffer(buffer.cbegin(), buffer.cend(), filename)},
     };
 
-    return createUploadTask(SESSION_CSV_URL, filename, multipart);
+    // IMPORTANT: buffer must be moved, otherwise multipart will have dangling pointer
+    return createUploadTask(SESSION_CSV_URL, filename, std::move(multipart), std::move(buffer));
 }
 
+/**
+ * @brief Net::createUploadTask
+ * @param endpoint The URL endpoint to upload to (e.g., "session_log/").
+ * @param filename Name of the file to upload (e.g., "12345678.csv"). If uploading a real file, pass
+ *        std::nullopt to @ref buffer. If using cpr::Buffer (a non-owning type), provide the data
+ *        via @ref buffer.
+ * @param multipart data to be sent as multipart/form-data via POST.
+ * @param buffer Optional buffer containing the data to upload. If not set, it's assumed a real file
+ *        will be used (cpr::File). If using cpr::Buffer instead of cpr::File, this must contain the
+ *        data to upload.
+ * @return Upload task lambda (Net::task_t).
+ */
 Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
-                                  const cpr::Multipart &multipart)
+                                  cpr::Multipart &&multipart,
+                                  std::optional<std::vector<uint8_t>> &&buffer)
 {
-    return [this, endpoint, filename, multipart]() {
+    return [this, endpoint, filename, multipart = std::move(multipart),
+            buffer = std::move(buffer)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
             m_authCV.wait(lock, [this] {
