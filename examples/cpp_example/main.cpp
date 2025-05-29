@@ -297,9 +297,11 @@ int main()
                     cout << "Picture size: " << info.picture.size() << endl;
                     // display first 32 bytes of the picture
                     cout << "Picture: ";
-                    for (size_t j = 0; j < std::min(info.picture.size(), size_t(32)); ++j) {
-                        cout << std::hex << std::setw(2) << std::setfill('0') << (int)info.picture[j]
-                             << ' ';
+                    const auto pictureEnd = info.picture.begin()
+                                          + std::min(info.picture.size(), static_cast<size_t>(32));
+                    for (auto it = info.picture.begin(); it != pictureEnd; ++it) {
+                        std::cout << std::hex << std::setw(2) << std::setfill('0')
+                                  << static_cast<int>(*it) << ' ';
                     }
                     cout << std::dec << endl;
                 }

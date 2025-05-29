@@ -13,10 +13,6 @@ namespace detail {
 
 constexpr auto NUM_OF_THREADS = 4;
 
-Worker::Worker()
-{
-}
-
 Worker::~Worker()
 {
     stop();

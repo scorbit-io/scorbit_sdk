@@ -167,7 +167,7 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
         return;
     }
 
-    m_data.players.insert(std::make_pair(player, PlayerState {player, 0}));
+    m_data.players.emplace(std::make_pair(player, PlayerState {player, 0}));
     DBG("Player {} added", player);
 }
 

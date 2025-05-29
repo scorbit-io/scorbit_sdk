@@ -11,13 +11,15 @@
 #include "log_types.h"
 #include <scorbit_sdk/export.h>
 
-namespace {
+namespace scorbit {
 
-std::vector<scorbit::LoggerCallback *> g_callbacks;
+namespace detail {
+
+static std::vector<scorbit::LoggerCallback *> g_callbacks;
 
 // C-style callback that forwards to the C++ function
-void cLogCallback(const char *message, sb_log_level_t level, const char *file, int line,
-                  int64_t timestamp, void *user_data)
+inline void cLogCallback(const char *message, sb_log_level_t level, const char *file, int line,
+                         int64_t timestamp, void *user_data)
 {
     auto &callback = *static_cast<scorbit::LoggerCallback *>(user_data);
     if (callback) {
@@ -26,9 +28,7 @@ void cLogCallback(const char *message, sb_log_level_t level, const char *file, i
     }
 }
 
-} // anonymous namespace
-
-namespace scorbit {
+} // namespace detail
 
 /**
  * @brief Add a logger callback function to be invoked for log messages.
@@ -52,10 +52,10 @@ inline void addLoggerCallback(LoggerCallback &&callback)
     auto *callbackPtr = new LoggerCallback(std::move(callback));
 
     // Keep track of it so we can delete it later
-    g_callbacks.push_back(callbackPtr);
+    detail::g_callbacks.push_back(callbackPtr);
 
     // Register with C API
-    sb_add_logger_callback(cLogCallback, callbackPtr);
+    sb_add_logger_callback(detail::cLogCallback, callbackPtr);
 }
 
 /**
@@ -71,10 +71,10 @@ inline void resetLogger()
 {
     sb_reset_logger();
 
-    for (auto *callback : g_callbacks) {
+    for (auto *callback : detail::g_callbacks) {
         delete callback;
     }
-    g_callbacks.clear();
+    detail::g_callbacks.clear();
 }
 
 } // namespace scorbit

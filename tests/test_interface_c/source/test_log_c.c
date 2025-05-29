@@ -43,16 +43,16 @@ static MunitResult test_sb_add_logger_callback(const MunitParameter params[], vo
 // =======================================================================================
 
 // Test suite setup
-static MunitTest tests[] = {{(char *)"/sb_add_logger_callback/add_callback",
+static MunitTest tests[] = {{"/sb_add_logger_callback/add_callback",
                              test_sb_add_logger_callback, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
                             {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 
 // Test suite definition
-static const MunitSuite test_suite = {(char *)"/scorbit_sdk_tests_c", tests, NULL, 1,
+static const MunitSuite test_suite = {"/scorbit_sdk_tests_c", tests, NULL, 1,
                                       MUNIT_SUITE_OPTION_NONE};
 
 // Main function
 int main(int argc, char *argv[])
 {
-    return munit_suite_main(&test_suite, (void *)"munit", argc, argv);
+    return munit_suite_main(&test_suite, "munit", argc, argv);
 }

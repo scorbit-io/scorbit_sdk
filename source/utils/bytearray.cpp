@@ -13,10 +13,6 @@
 namespace scorbit {
 namespace detail {
 
-ByteArray::ByteArray()
-{
-}
-
 ByteArray::ByteArray(ByteArrayBase::size_type count, const uint8_t defaultValue)
     : ByteArrayBase(count, defaultValue)
 {
@@ -117,7 +113,7 @@ std::string ByteArray::string() const
 {
     std::string result;
     for (auto a : *this) {
-        result += char(a);
+        result += static_cast<char>(a);
     }
     return result;
 }

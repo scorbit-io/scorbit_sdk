@@ -51,7 +51,7 @@ TEST_CASE("Remove mode", "[Modes]")
     {
         modes.removeMode("NA:Ball");
         CHECK(modes.isEmpty());
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 
     SECTION("Remove one mode from multiple")
@@ -74,7 +74,7 @@ TEST_CASE("Remove mode", "[Modes]")
         modes.addMode("NA:Multiball");
         modes.removeMode("NA:Ball");
         modes.removeMode("NA:Multiball");
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 }
 
@@ -85,7 +85,7 @@ TEST_CASE("Clear modes", "[Modes]")
     SECTION("Clear modes when no modes are added does not change state")
     {
         modes.clear();
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 
     SECTION("Clear modes when modes are present")
@@ -95,7 +95,7 @@ TEST_CASE("Clear modes", "[Modes]")
         REQUIRE(modes.str() == "NA:Ball;NA:Multiball");
 
         modes.clear();
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 
     SECTION("Clear modes twice in a row only changes state once")
@@ -104,10 +104,10 @@ TEST_CASE("Clear modes", "[Modes]")
         REQUIRE(modes.str() == "NA:Ball");
 
         modes.clear();
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
 
         modes.clear();
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 }
 
@@ -117,7 +117,7 @@ TEST_CASE("Modes to string", "[Modes]")
 
     SECTION("Empty modes list returns an empty string")
     {
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 
     SECTION("Single mode returns the mode name")
@@ -146,6 +146,6 @@ TEST_CASE("Modes to string", "[Modes]")
         modes.addMode("NA:Ball");
         modes.addMode("NA:Multiball");
         modes.clear();
-        CHECK(modes.str() == "");
+        CHECK(modes.str().empty());
     }
 }

@@ -129,11 +129,12 @@ std::string getMacAddress()
         if (ifa->ifa_addr->sa_family != AF_PACKET)
             continue;
 
-        struct sockaddr_ll *s = (struct sockaddr_ll *)ifa->ifa_addr;
+        struct sockaddr_ll *s = reinterpret_cast<struct sockaddr_ll *>(ifa->ifa_addr);
         if (s->sll_halen == 6) { // MAC address length
             std::ostringstream mac;
             for (int i = 0; i < 6; ++i) {
-                mac << std::hex << std::setw(2) << std::setfill('0') << (int)s->sll_addr[i];
+                mac << std::hex << std::setw(2) << std::setfill('0')
+                    << static_cast<int>(s->sll_addr[i]);
                 if (i != 5) {
                     mac << ":";
                 }
@@ -145,12 +146,13 @@ std::string getMacAddress()
         if (ifa->ifa_addr->sa_family != AF_LINK)
             continue;
 
-        struct sockaddr_dl *sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+        struct sockaddr_dl *sdl = reinterpret_cast<struct sockaddr_dl *>(ifa->ifa_addr);
         unsigned char *mac = (unsigned char *)LLADDR(sdl);
         if (sdl->sdl_alen == 6) { // MAC address length
             std::ostringstream macStream;
             for (int i = 0; i < 6; ++i) {
-                macStream << std::hex << std::setw(2) << std::setfill('0') << (int)mac[i];
+                macStream << std::hex << std::setw(2) << std::setfill('0')
+                          << static_cast<int>(mac[i]);
                 if (i != 5) {
                     macStream << ":";
                 }

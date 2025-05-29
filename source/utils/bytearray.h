@@ -18,7 +18,7 @@ using ByteArrayBase = std::vector<uint8_t>;
 class ByteArray : public ByteArrayBase
 {
 public:
-    ByteArray();
+    ByteArray() = default;
     explicit ByteArray(size_type count, const uint8_t defaultValue = 0);
     ByteArray(std::initializer_list<uint8_t> init);
     ByteArray(const ByteArray &other);

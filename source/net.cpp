@@ -402,13 +402,13 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
                     {"type", type},
             };
 
-            const auto installedStr = installed ? (installed.value() ? "true" : "false") : "none";
+            const auto installedStr = installed ? (*installed ? "true" : "false") : "none";
             if (installed) {
                 payload.Add({"installed", installedStr});
             }
 
             if (log) {
-                payload.Add({"log", log.value()});
+                payload.Add({"log", *log});
             }
 
             INF("API send installed: type={}, version={}, installed={}, log: {}", type, version,
