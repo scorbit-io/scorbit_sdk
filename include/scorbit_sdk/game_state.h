@@ -37,7 +37,7 @@ namespace scorbit {
  * @warning If the game is not active, all calls to modify the game state, as well as @ref commit,
  * will be ignored.
  */
-class SCORBIT_SDK_EXPORT GameState
+class GameState
 {
 public:
     GameState(sb_game_handle_t handle)
