@@ -13,10 +13,12 @@
 #include <catch2/trompeloeil.hpp>
 #include <thread>
 #include <random>
+#include <chrono>
 
 // clazy:excludeall=non-pod-global-static
 
 using namespace scorbit;
+using namespace std::chrono_literals;
 
 struct CallbackHelper {
     std::string msg;
@@ -24,6 +26,11 @@ struct CallbackHelper {
     std::string fileName;
     int line;
 };
+
+inline void sleepForLogger()
+{
+    std::this_thread::sleep_for(1ms); // Give some time to the logger thread
+}
 
 TEST_CASE("logger using functor object callback")
 {
@@ -47,7 +54,8 @@ TEST_CASE("logger using functor object callback")
         // the object's data as the object will be copied
         scorbit::addLoggerCallback(std::ref(l));
         INF("Hello");
-        int line = __LINE__ - 1;
+        sleepForLogger();
+        int line = __LINE__ - 2;
         const char *file = __FILE__;
         CHECK(l.data.msg == "Hello");
         CHECK(l.data.level == scorbit::LogLevel::Info);
@@ -59,15 +67,19 @@ TEST_CASE("logger using functor object callback")
     {
         scorbit::addLoggerCallback(std::ref(l));
         DBG("Debug");
+        sleepForLogger();
         CHECK(l.data.level == scorbit::LogLevel::Debug);
 
         INF("Info");
+        sleepForLogger();
         CHECK(l.data.level == scorbit::LogLevel::Info);
 
         WRN("Warn");
+        sleepForLogger();
         CHECK(l.data.level == scorbit::LogLevel::Warn);
 
         ERR("Error");
+        sleepForLogger();
         CHECK(l.data.level == scorbit::LogLevel::Error);
     }
 
@@ -95,6 +107,7 @@ TEST_CASE("Logger with function callback using trompeloeil")
 
         scorbit::addLoggerCallback(callbackFunc);
         INF("Hello");
+        sleepForLogger();
     }
 
     resetLogger();
@@ -122,7 +135,8 @@ TEST_CASE("logger using lambda callback")
                 userData.msg = msg;
             });
     INF("Hello");
-    int line = __LINE__ - 1;
+    sleepForLogger();
+    int line = __LINE__ - 2;
     const char *file = __FILE__;
     CHECK(userData.msg == "Hello");
     CHECK(userData.level == scorbit::LogLevel::Info);
@@ -139,7 +153,8 @@ TEST_CASE("logger using bind callback")
     scorbit::addLoggerCallback(std::bind(callback, std::placeholders::_1, std::placeholders::_2,
                                       std::placeholders::_3, std::placeholders::_4, &userData));
     INF("Hello");
-    int line = __LINE__ - 1;
+    sleepForLogger();
+    int line = __LINE__ - 2;
     const char *file = __FILE__;
     CHECK(userData.msg == "Hello");
     CHECK(userData.level == scorbit::LogLevel::Info);
