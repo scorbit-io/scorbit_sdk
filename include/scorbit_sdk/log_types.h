@@ -47,8 +47,9 @@ enum class LogLevel {
  * - **line**: The line number in the source file where the log message originated.
  * - **userData**: A pointer to user-defined data, passed when registering the callback. This
  *                 can be used to maintain context or state within the callback.
+ * - **timestamp**: The timestamp of the log message in milliseconds since the epoch.
  */
 using LoggerCallback = std::function<void(const std::string &message, LogLevel level,
-                                          const char *file, int line)>;
+                                          const char *file, int line, int64_t timestamp)>;
 
 } // namespace scorbit

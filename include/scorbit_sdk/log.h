@@ -17,12 +17,12 @@ std::vector<scorbit::LoggerCallback *> g_callbacks;
 
 // C-style callback that forwards to the C++ function
 void cLogCallback(const char *message, sb_log_level_t level, const char *file, int line,
-                  void *user_data)
+                  int64_t timestamp, void *user_data)
 {
     auto &callback = *static_cast<scorbit::LoggerCallback *>(user_data);
     if (callback) {
         // Forward to C++ callback
-        callback(message, static_cast<scorbit::LogLevel>(level), file, line);
+        callback(message, static_cast<scorbit::LogLevel>(level), file, line, timestamp);
     }
 }
 

@@ -15,8 +15,9 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *userData)
 
     detail::Logger::instance()->addCallback(
             [callback, userData](const std::string &message, LogLevel level, const char *file,
-                                 int line) {
-                callback(message.c_str(), static_cast<sb_log_level_t>(level), file, line, userData);
+                                 int line, int64_t timestamp) {
+                callback(message.c_str(), static_cast<sb_log_level_t>(level), file, line, timestamp,
+                         userData);
             },
             userData);
 }

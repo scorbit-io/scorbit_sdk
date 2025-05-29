@@ -7,6 +7,8 @@
 
 #include "logger.h"
 
+#include <chrono>
+
 namespace {
 
 constexpr size_t MAX_LOG_MESSAGE_LENGTH = 511;
@@ -68,8 +70,12 @@ void Logger::clear()
 
 void Logger::log(const std::string &message, LogLevel level, const char *file, int line)
 {
+    using namespace std::chrono;
+    const auto timestamp =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+
     std::lock_guard<std::mutex> lock {m_queueMutex};
-    m_queue.push(LogData {message, level, file, line});
+    m_queue.push(LogData {message, level, file, line, timestamp});
     m_queueCV.notify_one();
 }
 
@@ -95,10 +101,11 @@ void Logger::processLogs()
 
                 if (LIKELY(item.callback)) {
                     if (LIKELY(logData.message.length() <= MAX_LOG_MESSAGE_LENGTH)) {
-                        item.callback(logData.message, logData.level, logData.file, logData.line);
+                        item.callback(logData.message, logData.level, logData.file, logData.line,
+                                      logData.timestamp);
                     } else {
                         item.callback(cutLongString(logData.message, MAX_LOG_MESSAGE_LENGTH),
-                                      logData.level, logData.file, logData.line);
+                                      logData.level, logData.file, logData.line, logData.timestamp);
                     }
                 }
 

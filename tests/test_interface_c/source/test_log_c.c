@@ -18,11 +18,12 @@ typedef struct {
 } UserData;
 
 void logCallback(const char *message, sb_log_level_t level, const char *file, int line,
-                 void *userData)
+                 int64_t timestamp, void *userData)
 {
     UserData *data = (UserData *)userData;
     data->level = level;
     data->line = line;
+    (void)timestamp;
     snprintf(data->message, sizeof(data->message), "%s", message);
     snprintf(data->file, sizeof(data->file), "%s", file);
 }

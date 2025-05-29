@@ -106,7 +106,8 @@ bool isUnpairTriggeredByUser()
 // --------------- Example of logger callback ------------------
 
 // This callback will be called in a thread-safe manner, so we don't worry about thread-safety
-void loggerCallback(const std::string &message, scorbit::LogLevel level, const char *file, int line)
+void loggerCallback(const std::string &message, scorbit::LogLevel level, const char *file, int line,
+                    int64_t timestamp)
 {
     (void)file;
     (void)line;
@@ -116,20 +117,19 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
         return;
     }
 
-    // Get current time point
-    auto now = std::chrono::system_clock::now();
+    constexpr int64_t MILLIS_IN_SECOND = 1000;
 
     // Convert to time_t for calendar time (seconds precision)
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::time_t t = timestamp / MILLIS_IN_SECOND; // Convert milliseconds to seconds
 
     // Convert to milliseconds since epoch
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    int millis = timestamp % MILLIS_IN_SECOND; // Get milliseconds part
 
     // Format the time
     std::ostringstream oss;
     oss << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
     // Add milliseconds
-    oss << '.' << std::setw(3) << std::setfill('0') << ms.count();
+    oss << '.' << std::setw(3) << std::setfill('0') << millis;
 
     std::cout << '[' << oss.str() << "] [";
 
