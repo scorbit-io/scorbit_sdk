@@ -15,6 +15,7 @@
 #include "player_info.h"
 
 #include <string>
+#include <memory>
 
 namespace scorbit {
 
