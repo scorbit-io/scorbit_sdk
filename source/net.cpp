@@ -60,7 +60,7 @@ constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
-constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024; // 300 KB reserve for picture download
+constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
@@ -311,7 +311,7 @@ PlayerProfilesManager &Net::playersManager()
     return m_playersManager;
 }
 
-Net::task_t Net::createAuthenticateTask()
+task_t Net::createAuthenticateTask()
 {
     return [this]() {
         std::lock_guard lock(m_authMutex);
@@ -383,8 +383,8 @@ Net::task_t Net::createAuthenticateTask()
     };
 }
 
-Net::task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                     std::optional<bool> installed, std::optional<std::string> log)
+task_t Net::createInstalledTask(const std::string &type, const std::string &version,
+                                std::optional<bool> installed, std::optional<std::string> log)
 {
     return [this, type, version, installed = std::move(installed), log = std::move(log)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
@@ -439,7 +439,7 @@ Net::task_t Net::createInstalledTask(const std::string &type, const std::string 
     };
 }
 
-Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
+task_t Net::createGameDataTask(const std::string &sessionUuid)
 {
     return [this, sessionUuid]() {
         m_isGameDataInQueue = false;
@@ -583,7 +583,7 @@ Net::task_t Net::createGameDataTask(const std::string &sessionUuid)
     };
 }
 
-Net::task_t Net::createHeartbeatTask()
+task_t Net::createHeartbeatTask()
 {
     return [this]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
@@ -693,7 +693,7 @@ void Net::postUploadHistoryTask(const GameHistory &history)
     m_worker.postQueue(createUploadHistoryTask(history));
 }
 
-Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
+task_t Net::createUploadHistoryTask(const GameHistory &history)
 {
     const auto sessionUuid = history.front().sessionUuid;
     const auto filename = fmt::format("{}.csv", sessionUuid.get());
@@ -706,8 +706,8 @@ Net::task_t Net::createUploadHistoryTask(const GameHistory &history)
     return createUploadTask(SESSION_CSV_URL, filename, std::move(multipart));
 }
 
-Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
-                                  SafeMultipart &&multipart)
+task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
+                             SafeMultipart &&multipart)
 {
     return [this, endpoint, filename, multipart = std::move(multipart)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
@@ -738,9 +738,8 @@ Net::task_t Net::createUploadTask(const std::string &endpoint, const std::string
     };
 }
 
-Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
-                                      deferred_get_setup_t deferredSetup,
-                                      std::vector<AuthStatus> allowedStatuses)
+task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
+                                 std::vector<AuthStatus> allowedStatuses)
 {
     return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
             allowedStatuses = std::move(allowedStatuses)]() {
@@ -795,9 +794,8 @@ Net::task_t Net::createGetRequestTask(StringCallback replyCallback,
     };
 }
 
-Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
-                                       deferred_post_setup_t deferredSetup,
-                                       std::vector<AuthStatus> allowedStatuses)
+task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+                                  std::vector<AuthStatus> allowedStatuses)
 {
     return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
             allowedStatuses = std::move(allowedStatuses)]() {
@@ -852,8 +850,8 @@ Net::task_t Net::createPostRequestTask(StringCallback replyCallback,
     };
 }
 
-Net::task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                        std::string filename)
+task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
+                                   std::string filename)
 {
     return [callback = std::move(replyCallback), url = std::move(url),
             filename = std::move(filename)]() {
@@ -894,8 +892,8 @@ Net::task_t Net::createDownloadFileTask(StringCallback replyCallback, std::strin
     };
 }
 
-Net::task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
-                                          size_t reserveBufferSize)
+task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
+                                     size_t reserveBufferSize)
 {
     return [callback = std::move(replyCallback), url = std::move(url), reserveBufferSize]() {
         Error error {Error::ApiError};

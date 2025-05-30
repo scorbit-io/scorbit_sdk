@@ -17,6 +17,8 @@
 namespace scorbit {
 namespace detail {
 
+using task_t = std::function<void()>;
+
 class Worker
 {
 public:
@@ -28,12 +30,12 @@ public:
 
     bool isRunning() const { return m_running; }
 
-    void post(std::function<void()> func);
-    void postQueue(std::function<void()> func);
-    void postGameDataQueue(std::function<void()> func);
-    void postHeartbeatQueue(std::function<void()> func);
+    void post(task_t func);
+    void postQueue(task_t func);
+    void postGameDataQueue(task_t func);
+    void postHeartbeatQueue(task_t func);
 
-    void runTimer(std::chrono::steady_clock::duration delay, std::function<void()> func);
+    void runTimer(std::chrono::steady_clock::duration delay, task_t func);
 
 private:
     void run();

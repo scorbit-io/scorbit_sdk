@@ -34,7 +34,6 @@ class SafeMultipart;
 
 class Net : public NetBase
 {
-    using task_t = std::function<void()>;
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
 
