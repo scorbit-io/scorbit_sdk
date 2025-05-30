@@ -171,6 +171,7 @@ target_sources(
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
         source/utils/lru_cache.hpp
+        source/safe_multipart.h
 )
 
 # Generate the header from the template
