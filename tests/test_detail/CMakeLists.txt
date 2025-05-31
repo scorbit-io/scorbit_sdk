@@ -119,6 +119,8 @@ target_sources(
         source/test_player_profiles_manager.cpp
         ../../source/utils/lru_cache.hpp
         source/test_lru_cache.cpp
+        ../../source/safe_multipart.h
+        source/test_safe_multipart.cpp
 )
 
 target_link_libraries(

@@ -30,9 +30,10 @@ using SignerCallback = std::function<Signature(const Digest &digest)>;
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 
+class SafeMultipart;
+
 class Net : public NetBase
 {
-    using task_t = std::function<void()>;
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
 
@@ -95,7 +96,7 @@ private:
     task_t createUploadHistoryTask(const GameHistory &history);
 
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
-                            cpr::Multipart &&multipart, std::optional<std::vector<uint8_t>> &&buffer);
+                            SafeMultipart &&multipart);
 
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
