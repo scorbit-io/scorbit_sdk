@@ -41,6 +41,10 @@ TEST_CASE("PlayerProfile 1 player")
     auto p1 = pm.profile(1);
     REQUIRE(p1 != nullptr);
     CHECK(p1->id == 47);
+    CHECK(p1->name == "dilshodm");
+    CHECK(p1->initials == "DTM");
+    CHECK_FALSE(p1->preferInitials);
+    CHECK(p1->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg");
 
     // Check picture
     Picture picture {1, 2, 3};
@@ -113,6 +117,10 @@ TEST_CASE("PlayerProfile 2 players")
     p2 = pm.profile(2);
     REQUIRE(p2 != nullptr);
     CHECK(p2->id == 48);
+    CHECK(p2->name == "dilshodm2");
+    CHECK(p2->initials == "DT2");
+    CHECK(p2->preferInitials);
+    CHECK(p2->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
 
     auto p3 = pm.profile(3);
     CHECK(p3 == nullptr);

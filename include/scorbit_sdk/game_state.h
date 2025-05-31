@@ -312,9 +312,11 @@ public:
     {
         PlayerInfo info;
         if (hasPlayerInfo(player)) {
+            info.id = sb_get_player_id(m_handle.get(), player);
             info.preferredName = sb_get_player_preferred_name(m_handle.get(), player);
             info.name = sb_get_player_name(m_handle.get(), player);
             info.initials = sb_get_player_initials(m_handle.get(), player);
+            info.pictureUrl = sb_get_player_picture_url(m_handle.get(), player);
 
             size_t pictureSize;
             const auto picture = sb_get_player_picture(m_handle.get(), player, &pictureSize);

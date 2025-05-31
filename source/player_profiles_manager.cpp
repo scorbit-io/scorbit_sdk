@@ -46,7 +46,7 @@ void PlayerProfilesManager::setProfiles(const boost::json::value &val)
                 const auto &player = item.at("player").get_object();
 
                 PlayerProfile profile;
-                profile.id = player.at("id").to_number<uint64_t>();
+                profile.id = player.at("id").as_int64();
                 profile.preferInitials = player.at("prefer_initials").as_bool();
                 profile.name = player.at("cached_display_name").as_string();
                 profile.initials = player.at("initials").as_string();

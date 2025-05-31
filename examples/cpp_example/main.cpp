@@ -291,12 +291,14 @@ int main()
             // Display players names / pictures
             for (const auto &item : players) {
                 const auto &info = item.second;
-                cout << "Player " << item.first << ": " << info.preferredName << endl;
+                cout << "Player " << item.first << ": " << info.preferredName
+                     << ", id: " << item.second.id << endl;
                 if (!info.picture.empty()) {
                     // Display picture
-                    cout << "Picture size: " << info.picture.size() << endl;
+                    cout << "Picture size: " << info.picture.size()
+                         << ", url: " << item.second.pictureUrl << endl;
                     // display first 32 bytes of the picture
-                    cout << "Picture: ";
+                    cout << "Picture (first 32 bytes): ";
                     const auto pictureEnd = info.picture.begin()
                                           + std::min(info.picture.size(), static_cast<size_t>(32));
                     for (auto it = info.picture.begin(); it != pictureEnd; ++it) {
