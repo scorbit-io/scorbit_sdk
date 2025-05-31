@@ -317,8 +317,8 @@ void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, v
  * this function will return false.
  *
  * If the function returns true, use the following functions to retrieve the updated data:
- * @ref sb_get_player_preferred_name, @ref sb_get_player_name, @ref sb_get_player_initials,
- * @ref sb_get_player_picture_url, and @ref sb_get_player_picture.
+ * @ref sb_get_player_id, @ref sb_get_player_preferred_name, @ref sb_get_player_name, @ref
+ * sb_get_player_initials, @ref sb_get_player_picture_url, and @ref sb_get_player_picture.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @return true if there are updates to any player profiles; false otherwise.
@@ -327,7 +327,8 @@ SCORBIT_SDK_EXPORT
 bool sb_is_players_info_updated(sb_game_handle_t handle);
 
 /**
- * @brief Checks if player information is available.
+ * @brief Checks if player information is available. For a given player it will be available if
+ * player claimed the slot.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @param player The player number (starting from 1).
@@ -337,15 +338,27 @@ SCORBIT_SDK_EXPORT
 bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player);
 
 /**
+ * @brief Retrieves the player's ID.
+ *
+ * Returns the player's unique ID, which is used to identify the player in the Scorbit system.
+ * The ID is a 64-bit integer. If no player information is available (i.e.,
+ * @ref sb_has_player_info returned false), this function returns -1.
+ *
+ * @param handle A game handle created using @ref sb_create_game_state.
+ * @param player The player number (starting from 1).
+ * @return The player's ID, or -1 if no player info is available.
+ */
+SCORBIT_SDK_EXPORT
+int64_t sb_get_player_id(sb_game_handle_t handle, sb_player_t player);
+
+/**
  * @brief Retrieves the player's preferred display name.
  *
  * Returns the player's preferred display name, which is either their initials or full name,
  * depending on the player's preference.
  *
  * @warning Copy the returned string to your own buffer. The returned pointer remains valid only
- * until any of the following functions are called again:
- * @ref sb_is_players_info_updated, @ref sb_get_player_preferred_name, @ref sb_get_player_name,
- * @ref sb_get_player_initials, or @ref sb_get_player_picture_url.
+ * until @ref sb_is_players_info_updated is called again.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @param player The player number (starting from 1).
@@ -359,9 +372,7 @@ const char *sb_get_player_preferred_name(sb_game_handle_t handle, sb_player_t pl
  * @brief Retrieves the player's name.
  *
  * @warning Copy the returned string to your own buffer. The returned pointer remains valid only
- * until any of the following functions are called again:
- * @ref sb_is_players_info_updated, @ref sb_get_player_preferred_name, @ref sb_get_player_name,
- * @ref sb_get_player_initials, or @ref sb_get_player_picture_url.
+ * until @ref sb_is_players_info_updated is called again.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @param player The player number (starting from 1).
@@ -375,9 +386,7 @@ const char *sb_get_player_name(sb_game_handle_t handle, sb_player_t player);
  * @brief Retrieves the player's initials.
  *
  * @warning Copy the returned string to your own buffer. The returned pointer remains valid only
- * until any of the following functions are called again:
- * @ref sb_is_players_info_updated, @ref sb_get_player_preferred_name, @ref sb_get_player_name,
- * @ref sb_get_player_initials, or @ref sb_get_player_picture_url.
+ * until @ref sb_is_players_info_updated is called again.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @param player The player number (starting from 1).
@@ -388,15 +397,30 @@ SCORBIT_SDK_EXPORT
 const char *sb_get_player_initials(sb_game_handle_t handle, sb_player_t player);
 
 /**
+ * @brief Retrieves the player's profile picture URL.
+ *
+ * Returns the URL of the player's profile picture. SDK can automatically download picture,
+ * see @ref sb_device_info_t::auto_download_player_pics, @ref sb_get_player_picture.
+ *
+ * @warning Copy the returned string to your own buffer. The returned pointer remains valid only
+ * until @ref sb_is_players_info_updated is called again.
+ *
+ * @param handle A game handle created using @ref sb_create_game_state.
+ * @param player The player number (starting from 1).
+ * @return A pointer to the player's profile picture URL string, or NULL if no player info is
+ * available (i.e. @ref sb_has_player_info returned false).
+ */
+SCORBIT_SDK_EXPORT
+const char *sb_get_player_picture_url(sb_game_handle_t handle, sb_player_t player);
+
+/**
  * @brief Retrieves the player's profile picture, downloaded into an internal buffer.
  *
  * Returns the player's profile picture in binary JPEG format. The picture is only available if
  * it was configured to be downloaded during the game state setup.
  *
- * @warning Copy the returned buffer to your own memory. The pointer remains valid only until
- * any of the following functions are called again:
- * @ref sb_is_players_info_updated, @ref sb_get_player_preferred_name, @ref sb_get_player_name,
- * @ref sb_get_player_initials, or @ref sb_get_player_picture_url.
+ * @warning Copy the returned string to your own buffer. The returned pointer remains valid only
+ * until @ref sb_is_players_info_updated is called again.
  *
  * @param handle A game handle created using @ref sb_create_game_state.
  * @param player The player number (starting from 1).
