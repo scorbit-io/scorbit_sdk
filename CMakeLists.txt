@@ -71,7 +71,7 @@ CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 
 CPMAddPackage(
     NAME fmt
-    GIT_TAG 10.2.1
+    GIT_TAG 11.2.0
     GITHUB_REPOSITORY fmtlib/fmt
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
@@ -88,7 +88,7 @@ endif()
 set(BUILD_SHARED_LIBS OFF)
 CPMAddPackage(
     NAME cpr
-    GIT_TAG 1.11.0
+    GIT_TAG 1.11.2
     GITHUB_REPOSITORY libcpr/cpr
     EXCLUDE_FROM_ALL YES
     SYSTEM YES

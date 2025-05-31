@@ -15,7 +15,7 @@ include(../../cmake/tools.cmake)
 
 CPMAddPackage(
     NAME pybind11
-    URL https://github.com/pybind/pybind11/archive/d8565ac7317b4838a08308170f5b9ba82d091546.tar.gz
+    URL https://github.com/pybind/pybind11/archive/21c9dd11bcc92341ecba4469c743e97996ba0c66.tar.gz
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
     GIT_SHALLOW TRUE
