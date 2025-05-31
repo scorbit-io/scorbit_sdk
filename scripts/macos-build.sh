@@ -44,8 +44,8 @@ run_build() {
         && conda deactivate \
     "
 
-    cleanup_build_files "$BUILD_DIR" || true
-    bash -c "$CMD_TGZ"
+    #cleanup_build_files "$BUILD_DIR" || true
+    #bash -c "$CMD_TGZ"
     bash -c "$CMD_WHL"
 
     # Move artifacts to dist directory

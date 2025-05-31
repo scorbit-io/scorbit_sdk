@@ -134,11 +134,11 @@ def main():
 
             # Display players names / pictures
             for player_num, player_info in players.items():
-                print(f"Player {player_num}: name: {player_info.name}, initials: {player_info.initials}, preferred_name: {player_info.preferred_name}")
-                print(f"Picture size: {len(player_info.picture)} bytes")
+                print(f"Player {player_num}: id: {player_info.id}, name: {player_info.name}, initials: {player_info.initials}, preferred_name: {player_info.preferred_name}")
+                print(f"Picture size: {len(player_info.picture)} bytes, url: {player_info.picture_url}")
                 # Print first 32 bytes of picture in hex format
                 if (len(player_info.picture) > 0):
-                    print(f"Player {player_num} picture: {player_info.picture[:32].hex()}")
+                    print(f"Player {player_num} picture (first 32 bytes): {player_info.picture[:32].hex()}")
 
             gs.set_score(1, player1_score(i), 2) # 2 is the score feature index for "right spinner"
             if has_player2(): gs.set_score(2, player2_score(), 1)

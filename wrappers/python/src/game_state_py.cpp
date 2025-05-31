@@ -227,12 +227,19 @@ PYBIND11_MODULE(scorbit, m)
                 set to true in the `DeviceInfo` class.
         )doc")
 
+            .def(py::init<>(), "Creates PlayerInfo instance with default values.")
+
+            .def_readonly("id", &PlayerInfo::id, "The player's id in Scorbit system.")
+
             .def_readonly("preferred_name", &PlayerInfo::preferredName,
                           "The player's preferred name.")
 
             .def_readonly("name", &PlayerInfo::name, "The player's full name.")
 
             .def_readonly("initials", &PlayerInfo::initials, "The player's initials.")
+
+            .def_readonly("picture_url", &PlayerInfo::pictureUrl,
+                          "The player's profile picture url.")
 
             .def_property_readonly(
                     "picture",

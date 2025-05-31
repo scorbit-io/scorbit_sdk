@@ -98,7 +98,14 @@ class TestPlayerInfo(unittest.TestCase):
         # This test would need actual PlayerInfo instances from the C++ side
         # Since they're read-only, we can't easily create test instances
         # In a real scenario, you'd get PlayerInfo from GameState.get_player_info()
-        pass
+
+        pi = scorbit.PlayerInfo()
+        self.assertTrue(hasattr(pi, 'id'))
+        self.assertTrue(hasattr(pi, 'preferred_name'))
+        self.assertTrue(hasattr(pi, 'name'))
+        self.assertTrue(hasattr(pi, 'initials'))
+        self.assertTrue(hasattr(pi, 'picture_url'))
+        self.assertTrue(hasattr(pi, 'picture'))
 
 
 class TestLoggerFunctionality(unittest.TestCase):
