@@ -1,3 +1,12 @@
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
 # Define BOOST_COMPILED_COMPONENTS and BOOST_HEADER_ONLY_COMPONENTS lists
 # then include this module and in for the target add ${BOOST_LIBS}:
 # target_link_libraries(${PROJECT_NAME} PRIVATE ${BOOST_LIBS})

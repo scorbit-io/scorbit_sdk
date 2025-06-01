@@ -1,4 +1,11 @@
-# By Dilshod Mukhtarov, 2025
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 
 # This script is used to detect the target architecture of the compiler
 # and normalize it to a standard format.
