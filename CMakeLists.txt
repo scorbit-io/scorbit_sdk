@@ -214,7 +214,10 @@ target_include_directories(
 include(cmake/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
-    PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
+    PRIVATE
+        SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
+        SCORBIT_SDK_THIS_KEY_HASH="${SCORBIT_SDK_THIS_KEY_HASH}"
+        SCORBIT_SDK_PRODUCTION_KEY_HASH="${SCORBIT_SDK_PRODUCTION_KEY_HASH}"
 )
 
 # ---- Create an installable target ----

@@ -29,6 +29,14 @@
 #include <regex>
 #include <string_view>
 
+#ifndef SCORBIT_SDK_PRODUCTION_KEY_HASH
+#define SCORBIT_SDK_PRODUCTION_KEY_HASH "unknown1"
+#endif
+
+#ifndef SCORBIT_SDK_THIS_KEY_HASH
+#define SCORBIT_SDK_THIS_KEY_HASH "unknown2"
+#endif
+
 namespace {
 
 constexpr auto UPDATE_DIR = "scorbit_sdk_update";
@@ -67,8 +75,9 @@ fs::path findFile(const fs::path &dir, const std::regex &pattern)
 namespace scorbit {
 namespace detail {
 
-Updater::Updater(NetBase &net)
+Updater::Updater(NetBase &net, bool useEncryptedKey)
     : m_net {net}
+    , m_useEncryptedKey {useEncryptedKey}
 {
 }
 
@@ -138,6 +147,17 @@ void Updater::parseUrl(const boost::json::value &sdkVal)
     // Make sure that platform id is correct
     if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID)) {
         m_feedback = fmt::format("Invalid platform ID: {}", SCORBIT_SDK_PLATFORM_ID);
+        ERR("Updater: {}", m_feedback);
+        return;
+    }
+
+    // If using encrypted key, make sure this SDK has been built with correct production key hash
+    if (m_useEncryptedKey
+        && std::string {SCORBIT_SDK_THIS_KEY_HASH}
+                   != std::string {SCORBIT_SDK_PRODUCTION_KEY_HASH}) {
+        m_feedback = fmt::format(
+                "Using encrypted key, production key hash mismatch: expected {}, found {}",
+                SCORBIT_SDK_PRODUCTION_KEY_HASH, SCORBIT_SDK_THIS_KEY_HASH);
         ERR("Updater: {}", m_feedback);
         return;
     }

@@ -42,7 +42,7 @@ TEST_CASE("Net constructor")
 {
     ALLOW_CALL(Signer, signer(_)).RETURN(Signature {});
     DeviceInfo info;
-    Net net {signer, std::move(info)};
+    Net net {signer, std::move(info), true};
 }
 
 TEST_CASE("Net hostname")
@@ -50,7 +50,7 @@ TEST_CASE("Net hostname")
     ALLOW_CALL(Signer, signer(_)).RETURN(Signature {});
 
     DeviceInfo info;
-    Net net {signer, std::move(info)};
+    Net net {signer, std::move(info), true};
     CHECK(net.hostname() == "https://api.scorbit.io:443"); // By default it's production
 
     net.setHostname("production");

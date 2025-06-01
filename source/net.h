@@ -63,7 +63,7 @@ class Net : public NetBase
     };
 
 public:
-    Net(SignerCallback signer, DeviceInfo deviceInfo);
+    Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey);
     ~Net() override;
 
     AuthStatus status() const override;

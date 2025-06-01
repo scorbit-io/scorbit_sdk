@@ -95,10 +95,10 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
 
 // --------------------------------------------------------------------------------
 
-Net::Net(SignerCallback signer, DeviceInfo deviceInfo)
+Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
-    , m_updater(*this)
+    , m_updater(*this, useEncryptedKey)
 {
     setHostname(m_deviceInfo.hostname);
 
