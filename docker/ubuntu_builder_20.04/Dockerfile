@@ -60,8 +60,8 @@ RUN wget https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/$LIB
     && make install \
     && cd .. && rm -rf $LIBPSL
 
-ARG CURL=curl-8.13.0
-ARG CURL_VER=8_13_0
+ARG CURL=curl-8.14.0
+ARG CURL_VER=8_14_0
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
@@ -78,7 +78,7 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
     && cmake --build build --target install \
     && cd .. && rm -rf $CURL
 
-ARG LIBARCHIVE_VER=3.7.9
+ARG LIBARCHIVE_VER=3.8.0
 ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
 RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
     && tar xf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \

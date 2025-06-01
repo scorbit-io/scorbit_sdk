@@ -20,12 +20,10 @@ include(../../cmake/tools.cmake)
 
 include(../../cmake/CPM.cmake)
 
-CPMAddPackage("gh:TheLartians/Format.cmake@1.7.3")
-
 # Catch2
 CPMAddPackage(
     NAME Catch2
-    GIT_TAG v3.7.1
+    GIT_TAG v3.8.1
     GITHUB_REPOSITORY catchorg/Catch2
     GIT_SHALLOW TRUE
     OPTIONS "CATCH_INSTALL_DOCS OFF" "CATCH_INSTALL_HELPERS OFF" "CATCH_INSTALL_TESTS OFF"
@@ -34,7 +32,7 @@ CPMAddPackage(
 # Trompeloeil
 CPMAddPackage(
     NAME trompeloeil
-    GIT_TAG v48
+    GIT_TAG v49
     GIT_SHALLOW TRUE
     GITHUB_REPOSITORY rollbear/trompeloeil
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
