@@ -144,6 +144,16 @@ void Updater::parseUrl(const boost::json::value &sdkVal)
             return;
         }
 
+        // Make sure that if current version is x.y.z then it updates only by x.y.*
+        const auto majorMinor =
+                fmt::format("{}.{}.", SCORBIT_SDK_VERSION_MAJOR, SCORBIT_SDK_VERSION_MINOR);
+        if (m_version.substr(0, majorMinor.size()) != majorMinor) {
+            m_feedback = fmt::format("Version mismatch: can only update by {}x, found: {}",
+                                     majorMinor, m_version);
+            ERR("Updater: {}", m_feedback);
+            return;
+        }
+
         // Find the first asset with the correct platform
         for (const auto &asset : assets) {
             const auto url = asset.as_string();
