@@ -39,11 +39,7 @@ function(get_target_arch OUT_VAR)
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        execute_process(
-            COMMAND ${CMAKE_CXX_COMPILER}
-            ERROR_VARIABLE RAW_ARCH
-            OUTPUT_QUIET
-        )
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} ERROR_VARIABLE RAW_ARCH OUTPUT_QUIET)
 
         # Parse from string like "for x64" or "for x86"
         string(REGEX MATCH "for ([^ \n]+)" MATCH_RESULT "${RAW_ARCH}")

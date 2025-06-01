@@ -2,8 +2,11 @@ cmake_minimum_required(VERSION 3.28)
 
 # Read version from VERSION file
 if(NOT DEFINED SCORBIT_SDK_VERSION)
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-                 "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    set_property(
+        DIRECTORY
+        APPEND
+        PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION"
+    )
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" SCORBIT_SDK_VERSION)
     string(STRIP "${SCORBIT_SDK_VERSION}" SCORBIT_SDK_VERSION)
 endif()
@@ -68,7 +71,7 @@ set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
 
 # To silence warning in PackageProject
 if(POLICY CMP0177)
-  set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
+    set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
 endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
@@ -179,11 +182,7 @@ target_sources(
 )
 
 # Generate the header from the template
-configure_file(
-    source/platform_id.h.in
-    "${CMAKE_CURRENT_BINARY_DIR}/platform_id.h"
-    @ONLY
-)
+configure_file(source/platform_id.h.in "${CMAKE_CURRENT_BINARY_DIR}/platform_id.h" @ONLY)
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
@@ -215,7 +214,10 @@ target_include_directories(
 include(cmake/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
-    PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
+    PRIVATE
+        SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
+        SCORBIT_SDK_THIS_KEY_HASH="${SCORBIT_SDK_THIS_KEY_HASH}"
+        SCORBIT_SDK_PRODUCTION_KEY_HASH="${SCORBIT_SDK_PRODUCTION_KEY_HASH}"
 )
 
 # ---- Create an installable target ----
@@ -238,7 +240,6 @@ if(SCORBIT_SDK_ABI STREQUAL "u12")
 endif()
 
 # Detect architecture
-
 
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")

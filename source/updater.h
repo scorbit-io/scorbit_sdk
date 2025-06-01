@@ -30,7 +30,7 @@ namespace detail {
 class Updater
 {
 public:
-    Updater(NetBase &net);
+    Updater(NetBase &net, bool useEncryptedKey);
 
     void checkNewVersionAndUpdate(const boost::json::object &json);
 
@@ -42,6 +42,8 @@ private:
 private:
     NetBase &m_net;
     std::atomic_bool m_updateInProgress {false};
+
+    const bool m_useEncryptedKey;
 
     std::string m_url;
     std::string m_version;

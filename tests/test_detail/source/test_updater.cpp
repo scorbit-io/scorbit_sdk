@@ -98,7 +98,7 @@ TEST_CASE("Updater")
     auto &mockNetRef = *mockNet; // mockNet will be moved into Updater, so we keep the ref
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet);
+    Updater updater(*mockNet, false);
 
     SECTION("happy path")
     {
@@ -167,7 +167,7 @@ TEST_CASE("Updater major.minor version mismatch")
     auto &mockNetRef = *mockNet;
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet);
+    Updater updater(*mockNet, false);
 
     REQUIRE_CALL(mockNetRef,
                  sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq<std::optional<bool>>(false),
@@ -176,4 +176,51 @@ TEST_CASE("Updater major.minor version mismatch")
             .TIMES(1);
 
     updater.checkNewVersionAndUpdate(json);
+}
+
+// Make sure that if using encrypted key, sdk key hash and prod key hash should match
+TEST_CASE("Updater prod key hash check")
+{
+    boost::json::object json = boost::json::parse(R"(
+            {
+                "sdk": {
+                    "version": "1.0.2",
+                    "assets_json": [
+                        "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz"
+                    ]
+                }
+            }
+        )")
+                                       .as_object();
+
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+
+    SECTION("Mismatch while using encrypted key")
+    {
+        // Create Updater object with mocked NetBase
+        Updater updater(*mockNet, true);
+
+        REQUIRE_CALL(mockNetRef,
+                     sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
+                                   eq<std::optional<bool>>(false),
+                                   eq<std::optional<std::string>>(
+                                           "Using encrypted key, production key hash mismatch: "
+                                           "expected unknown1, found unknown2")))
+                .TIMES(1);
+
+        updater.checkNewVersionAndUpdate(json);
+    }
+
+    SECTION("No problem with mismatch while not using encrypted key")
+    {
+        // Create Updater object with mocked NetBase
+        Updater updater(*mockNet, false);
+
+        REQUIRE_CALL(mockNetRef,
+                     download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
+                .TIMES(1);
+
+        updater.checkNewVersionAndUpdate(json);
+    }
 }

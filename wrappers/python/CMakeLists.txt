@@ -49,18 +49,26 @@ target_link_libraries(scorbit PRIVATE scorbit_sdk::scorbit_sdk)
 execute_process(
     COMMAND ${Python_EXECUTABLE} -m pybind11_stubgen --help
     RESULT_VARIABLE STUBGEN_EXIT_CODE
-    OUTPUT_QUIET ERROR_QUIET
+    OUTPUT_QUIET
+    ERROR_QUIET
 )
 
 # Only add the command if pybind11-stubgen is available
 if(STUBGEN_EXIT_CODE EQUAL 0)
     add_custom_command(
-        TARGET scorbit POST_BUILD
-        COMMAND ${Python_EXECUTABLE} -m pybind11_stubgen scorbit -o ${CMAKE_CURRENT_BINARY_DIR}/stubs
+        TARGET scorbit
+        POST_BUILD
+        COMMAND
+            ${Python_EXECUTABLE} -m pybind11_stubgen scorbit -o ${CMAKE_CURRENT_BINARY_DIR}/stubs
         COMMENT "Generating stubs using pybind11-stubgen"
     )
     # Install the generated stubs
-    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/stubs/ DESTINATION scorbit FILES_MATCHING PATTERN "*")
+    install(
+        DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/stubs/
+        DESTINATION scorbit
+        FILES_MATCHING
+        PATTERN "*"
+    )
 else()
     message(WARNING "pybind11-stubgen not found, skipping stub generation.")
 endif()
@@ -72,4 +80,3 @@ install(
     ARCHIVE DESTINATION scorbit
     RUNTIME DESTINATION scorbit
 )
-

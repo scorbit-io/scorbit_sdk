@@ -39,9 +39,10 @@ struct sb_game_state_struct {
 
 namespace {
 
-GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &deviceInfo)
+GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &deviceInfo,
+                                  bool useEncryptedKey)
 {
-    auto net = std::make_unique<Net>(std::move(signer), deviceInfo);
+    auto net = std::make_unique<Net>(std::move(signer), deviceInfo, useEncryptedKey);
     return GameStateImpl(std::move(net));
 }
 
@@ -51,11 +52,9 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
                    provider = deviceInfo.provider](const Digest &digest) {
         Signature signature;
 
-        auto decrypted = decryptSecret(
+        const auto key = decryptSecret(
                 encryptedKey, provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
-        if (!decrypted.empty()) {
-            const auto key = decryptSecret(encryptedKey, provider + SCORBIT_SDK_ENCRYPT_SECRET);
-
+        if (!key.empty()) {
             const auto result = Signer::sign(signature, digest, key);
             if (result != SignErrorCode::Ok) {
                 ERR(std::string {AY_OBFUSCATE("Failed to sign the digest. Error: {}")},
@@ -66,7 +65,7 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
         return signature;
     };
 
-    return createGameStateImpl(std::move(signer), deviceInfo);
+    return createGameStateImpl(std::move(signer), deviceInfo, true);
 }
 
 }
@@ -85,7 +84,8 @@ sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_
         return signature;
     };
 
-    return new sb_game_state_struct {createGameStateImpl(std::move(cb), DeviceInfo(*device_info))};
+    return new sb_game_state_struct {
+            createGameStateImpl(std::move(cb), DeviceInfo(*device_info), false)};
 }
 
 sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
