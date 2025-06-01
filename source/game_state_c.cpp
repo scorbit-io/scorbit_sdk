@@ -51,11 +51,9 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
                    provider = deviceInfo.provider](const Digest &digest) {
         Signature signature;
 
-        auto decrypted = decryptSecret(
+        const auto key = decryptSecret(
                 encryptedKey, provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
-        if (!decrypted.empty()) {
-            const auto key = decryptSecret(encryptedKey, provider + SCORBIT_SDK_ENCRYPT_SECRET);
-
+        if (!key.empty()) {
             const auto result = Signer::sign(signature, digest, key);
             if (result != SignErrorCode::Ok) {
                 ERR(std::string {AY_OBFUSCATE("Failed to sign the digest. Error: {}")},

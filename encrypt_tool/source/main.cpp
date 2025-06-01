@@ -128,9 +128,8 @@ int main(int argc, char *argv[])
 
     try {
         const auto secret = hex2bytes(argv[1]);
-        std::string provider = argv[2] + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET));
-
-        std::string encrypted = encryptSecret(secret, provider);
+        std::string encrypted = encryptSecret(
+                secret, argv[2] + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
         std::cout << encrypted << std::endl;
     } catch (std::exception &e) {
         std::cerr << e.what() << std::endl;
