@@ -66,6 +66,10 @@ set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir})
 
 # ---- Add dependencies via CPM ----
 
+# To silence warning in PackageProject
+if(POLICY CMP0177)
+  set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
+endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 

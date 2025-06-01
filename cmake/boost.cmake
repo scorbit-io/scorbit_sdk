@@ -4,7 +4,7 @@
 
 # Author: Dilshod Mukhtarov, 2025
 
-if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30.0")
+if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
 
