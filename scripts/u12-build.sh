@@ -1,6 +1,13 @@
 #!/bin/bash
 
-# Dilshod Mukhtarov <dilshodm@gmail.com>, Oct 2024
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 
 REL=6
 SCORBIT_SDK_ABI=u12

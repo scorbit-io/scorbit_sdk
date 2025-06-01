@@ -1,4 +1,13 @@
-cmake_minimum_required(VERSION 3.16)
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+    cmake_minimum_required(VERSION 3.16)
 
 project(c_example LANGUAGES C)
 

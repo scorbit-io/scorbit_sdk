@@ -1,6 +1,11 @@
-# Created by Dilshod Mukhtarov <dilshodm@gmail.com>, 2024
-# License: MIT
-# © 2024 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 
 # Dockerfile for building the Scorbit SDK for the amd64 architecture running Ubuntu 20.04
 
