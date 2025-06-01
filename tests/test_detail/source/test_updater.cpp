@@ -135,3 +135,33 @@ TEST_CASE("Updater")
         updater.checkNewVersionAndUpdate(json);
     }
 }
+
+// Make sure that if current version is x.y.z then it updates only by x.y.*
+TEST_CASE("Updater major.minor version mismatch")
+{
+    boost::json::object json = boost::json::parse(R"(
+            {
+                "sdk": {
+                    "version": "1.1.0",
+                    "assets_json": [
+                        "https://example.com/scorbit_sdk-1.1.0-testarch_testabi.tgz"
+                    ]
+                }
+            }
+        )")
+                                       .as_object();
+
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+
+    // Create Updater object with mocked NetBase
+    Updater updater(*mockNet);
+
+    REQUIRE_CALL(mockNetRef,
+                 sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq<std::optional<bool>>(false),
+                               eq<std::optional<std::string>>(
+                                       "Version mismatch: can only update by 1.0.x, found: 1.1.0")))
+            .TIMES(1);
+
+    updater.checkNewVersionAndUpdate(json);
+}
