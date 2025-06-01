@@ -54,7 +54,7 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread )
+set(BOOST_COMPILED_COMPONENTS filesystem json thread)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
 
@@ -62,10 +62,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
 else()
-    CPMAddPackage(
-        NAME scorbit_sdk
-        SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..
-    )
+    CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
 
 find_package(OpenSSL REQUIRED)
@@ -145,7 +142,8 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
 endif()
 
-target_include_directories(${PROJECT_NAME}
+target_include_directories(
+    ${PROJECT_NAME}
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/include"
@@ -172,10 +170,12 @@ target_compile_definitions(
         SCORBIT_SDK_STATIC_DEFINE=1
 )
 
-if (WIN32)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:scorbit_sdk>
+if(WIN32)
+    add_custom_command(
+        TARGET ${PROJECT_NAME}
+        POST_BUILD
+        COMMAND
+            ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:scorbit_sdk>
             $<TARGET_FILE_DIR:${PROJECT_NAME}>
     )
 endif()

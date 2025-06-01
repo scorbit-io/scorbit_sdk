@@ -26,8 +26,5 @@ else()
     CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
 
-add_executable(
-    ${PROJECT_NAME}
-    main.cpp
-)
+add_executable(${PROJECT_NAME} main.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE scorbit_sdk::scorbit_sdk)
