@@ -1,6 +1,6 @@
 # Introduction
 
-The Scorbit SDK enables seamless integration of third-party systems, machines, or platforms with the Scorbit ecosystem. It provides developers with the tools necessary to connect and interact with Scorbit-enabled devices and services.
+The Scorbit SDK enables seamless integration of third-party systems, machines, or platforms with the Scorbit ecosystem. It provides game manufacturers with the tools necessary to connect and interact with Scorbit services.
 
 ## Features
 
@@ -13,21 +13,21 @@ The Scorbit SDK enables seamless integration of third-party systems, machines, o
 
 It's recommended to use pre-built package. For obfuscation purposes, in pre-built packages, a shared secret is used to decrypt providers' private keys which is obtained using encrypt_tool. This allows developers to use private keys without exposing them in the code.
 
-Pre-built packages are available for various platforms and processor architectures upon provider request. Additional platforms will be supported on request.
+Pre-built packages are available for various platforms and processor architectures upon providers requests. Additional platforms will be supported on request.
 
-From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) the necessary package can be downloaded.
+From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the necessary package can be downloaded.
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
 ### Install C/C++ SDK
 
-#### Choose the right Pre-built Package
+#### Choose the right pre-built package based on your system OS and architecture
 
-The pre-built package is available for different platforms and architectures. Choose the appropriate package based on your system configuration: [`<arch>`](#processor-architecture-arch) and [`<abi_tag>`](#abi-tag-abi_tag):
+The pre-built packages are available for different platforms and architectures. Choose the appropriate package based on your system configuration: [`<arch>`](#processor-architecture-arch) and [`<abi_tag>`](#abi-tag-abi_tag) (e.g. `scorbit_sdk-1.1.0-amd64_u20.tar.gz`):
 
 ```
-scorbit-sdk-<version>-<arch>-<abi_tag>.deb
-scorbit-sdk-<version>-<arch>-<abi_tag>.tgz
+scorbit-sdk-<version>-<arch>_<abi_tag>.deb
+scorbit-sdk-<version>-<arch>_<abi_tag>.tgz
 ```
 
 #### Processor Architecture (`<arch>`)
@@ -43,7 +43,9 @@ The SDK is built for multiple architectures. We support the following architectu
 The ABI tag is used to specify the Application Binary Interface (ABI) compatibility of the package. It indicates the compatibility of the package with different versions of the Scorbit SDK. The ABI tag is included in the package name and can be used to ensure that the correct version of the SDK is installed.
 
 The following are supported ABI tags:
+
 * `u12`: Ubuntu 12.04 and later, Linux systems with glibc 2.15 or later
+* `u12dev`: Same as `u12`, but built with OpenSSL built with "no-asm" option, which is useful for debugging purposes
 * `u20`: Ubuntu 20.04 and later, Linux systems with glibc 2.31 and libstdc++.6.0.28 (GLIBCXX_3.4.28) or later
 
 More compilers and OS will be added on request.
@@ -52,11 +54,15 @@ More compilers and OS will be added on request.
 
 Minimum supported Python version is 3.8.
 
-To install the Python SDK, you can use pip to install the pre-built wheel file (e.g., for Python 3.10 on amd64 linux it will be `scorbit-1.0.3-cp310-cp310-linux_x86_64.whl`).
+To install the Python SDK, you can use pip to install the pre-built wheel package (e.g., for Python 3.10 on amd64 linux it will be `scorbit-1.0.3-cp310-cp310-linux_x86_64.whl`).
 
 ```bash
 pip install scorbit-1.0.3-cp310-cp310-linux_x86_64.whl
 ```
+
+## Install from Source
+
+<Work in progress>
 
 ## Documentation
 
