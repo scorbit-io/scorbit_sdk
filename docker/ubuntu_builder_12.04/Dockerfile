@@ -41,12 +41,12 @@ RUN wget --no-check-certificate https://zlib.net/$ZLIB.tar.gz \
     && make install \
     && cd .. && rm -rf $ZLIB
 
-ARG OPENSSL=openssl-3.5.0
+ARG OPENSSL=openssl-3.5.1
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
     && ./config --openssldir=/usr/lib/ssl --prefix=/usr/local --libdir=/usr/local/lib \
-                no-apps no-shared no-pinshared zlib \
+                no-apps no-shared no-pinshared no-dso no-engine zlib \
                 ${OPENSSL_CONFIG_ARGS} \
     && make -j $(nproc) && make install_sw \
     && cd .. && rm -rf $OPENSSL
@@ -68,8 +68,8 @@ RUN wget https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/$LIB
     && make install \
     && cd .. && rm -rf $LIBPSL
 
-ARG CURL=curl-8.14.0
-ARG CURL_VER=8_14_0
+ARG CURL=curl-8.15.0
+ARG CURL_VER=8_15_0
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \

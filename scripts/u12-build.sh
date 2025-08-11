@@ -9,7 +9,8 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-REL=6
+REL=7
+SCORBIT_SDK_ABI=u12
 
 set -e
 
@@ -22,12 +23,9 @@ VERSION=$(get_version "$SCRIPT_DIR/../VERSION")
 run_build() {
     ARCH=$1
     PLATFORM=$2
-    SCORBIT_SDK_ABI=$3
-    RELEASE=$4
 
-    DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:12.04_${RELEASE}
+    DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:12.04_${REL}
     build_using_docker "$ARCH" "$PLATFORM" "$VERSION" "$SCORBIT_SDK_ABI" "$DOCKER_IMAGE"
 }
 
-run_build arm linux/arm/v7 u12 6
-run_build arm linux/arm/v7 u12dev 6-devel
+run_build arm linux/arm/v7
