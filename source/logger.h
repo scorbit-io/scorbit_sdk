@@ -34,8 +34,6 @@ namespace detail {
 
 class Logger
 {
-    friend Logger *logger();
-
     struct LogData {
         std::string message; // Log message
         LogLevel level;      // Log level
@@ -74,8 +72,6 @@ private:
 
     std::thread m_thread; // This should be last, other members must be valid when it is destroyed
 };
-
-extern Logger *logger();
 
 // Macros to make the logMessage function easier to call with added filename and line number
 #define DBG(...) scorbit::detail::logMessage(LogLevel::Debug, __FILE__, __LINE__, __VA_ARGS__)
