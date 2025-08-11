@@ -26,7 +26,7 @@ run_build() {
     PYTHON_VER=$3
     echo "!!! Building Python $PYTHON_VER arch: $ARCH, platform: $PLATFORM !!!"
 
-    BUILD_DIR="build/${ARCH}_${SCORBIT_SDK_ABI}"
+    BUILD_DIR="build/${ARCH}_${SCORBIT_SDK_ABI}_python"
     DIST_DIR=build/dist/$VERSION
     DOCKER_IMAGE=dilshodm/ubuntu-builder-$ARCH:20.04_${REL}
 
