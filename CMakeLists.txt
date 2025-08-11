@@ -229,7 +229,7 @@ string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
 # BeableBone Black (BBB) requires installing extra libs
-if(SCORBIT_SDK_ABI STREQUAL "u12")
+if(SCORBIT_SDK_ABI STREQUAL "u12" OR SCORBIT_SDK_ABI STREQUAL "u12dev")
     install(
         FILES
             "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
