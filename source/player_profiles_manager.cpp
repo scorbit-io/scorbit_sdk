@@ -62,7 +62,10 @@ void PlayerProfilesManager::setProfiles(const boost::json::value &val)
                 profile.preferInitials = player.at("prefer_initials").as_bool();
                 profile.name = player.at("cached_display_name").as_string();
                 profile.initials = player.at("initials").as_string();
-                profile.pictureUrl = player.at("profile_picture").as_string();
+                profile.pictureUrl = (player.contains("profile_picture")
+                                      && player.at("profile_picture").is_string())
+                                           ? std::string(player.at("profile_picture").as_string())
+                                           : std::string {};
 
                 profiles.emplace(playerNum, std::move(profile));
             }
