@@ -144,3 +144,58 @@ TEST_CASE("PlayerProfile 2 players")
     REQUIRE(toDownload.size() == 1);
     CHECK(toDownload.at(2) == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
 }
+
+TEST_CASE("Player profile with null profile_picture")
+{
+    auto profiles = boost::json::parse(R"(
+        [
+          {
+            "position": 1,
+            "player": {
+              "id": 47,
+              "cached_display_name": "dilshodm",
+              "initials": "DTM",
+              "prefer_initials": false,
+              "profile_picture": null
+            }
+          }
+        ]
+    )");
+
+    PlayerProfilesManager pm;
+
+    pm.setProfiles(profiles);
+    bool hasUpdate = pm.hasUpdate();
+    REQUIRE(hasUpdate);
+
+    auto p1 = pm.profile(1);
+    REQUIRE(p1 != nullptr);
+    CHECK(p1->id == 47);
+}
+
+TEST_CASE("Player profile without profile_picture")
+{
+    auto profiles = boost::json::parse(R"(
+        [
+          {
+            "position": 1,
+            "player": {
+              "id": 47,
+              "cached_display_name": "dilshodm",
+              "initials": "DTM",
+              "prefer_initials": false
+            }
+          }
+        ]
+    )");
+
+    PlayerProfilesManager pm;
+
+    pm.setProfiles(profiles);
+    bool hasUpdate = pm.hasUpdate();
+    REQUIRE(hasUpdate);
+
+    auto p1 = pm.profile(1);
+    REQUIRE(p1 != nullptr);
+    CHECK(p1->id == 47);
+}
