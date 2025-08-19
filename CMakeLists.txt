@@ -107,6 +107,8 @@ if(APPLE AND NOT DEFINED LibArchive_ROOT)
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
+include(cmake/lib_centrifugo-cpp)
+
 # Boost -----------
 
 set(BOOST_COMPILED_COMPONENTS filesystem json thread)
@@ -198,7 +200,13 @@ endif()
 # Link dependencies
 target_link_libraries(
     ${PROJECT_NAME}
-    PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto LibArchive::LibArchive
+    PRIVATE
+        ${BOOST_LIBS}
+        fmt::fmt
+        cpr::cpr
+        OpenSSL::Crypto
+        LibArchive::LibArchive
+        centrifugo-cpp
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)

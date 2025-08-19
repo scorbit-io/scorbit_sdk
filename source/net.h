@@ -24,6 +24,7 @@
 #include "game_data.h"
 #include "worker.h"
 #include "updater.h"
+#include <centrifugo.h>
 #include <cpr/cpr.h>
 #include <boost/json.hpp>
 #include <string>
