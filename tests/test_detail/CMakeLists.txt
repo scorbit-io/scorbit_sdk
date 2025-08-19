@@ -67,6 +67,8 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 
+include(../../cmake/lib_centrifugo-cpp)
+
 # ---- Create binary ----
 
 add_executable(${PROJECT_NAME})
@@ -137,6 +139,7 @@ target_link_libraries(
         OpenSSL::Crypto
         cpr::cpr
         LibArchive::LibArchive
+        centrifugo-cpp
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
