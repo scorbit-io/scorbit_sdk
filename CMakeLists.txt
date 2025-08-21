@@ -111,7 +111,7 @@ include(cmake/lib_centrifugo-cpp)
 
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread)
+set(BOOST_COMPILED_COMPONENTS filesystem json thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
 include(cmake/boost.cmake)
 

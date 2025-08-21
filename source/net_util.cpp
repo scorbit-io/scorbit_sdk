@@ -19,8 +19,10 @@
 
 #include "net_util.h"
 #include "fmt/format.h"
+#include "logger.h"
 #include <boost/uuid.hpp>
-#include <regex>
+#include <boost/url/url_view.hpp>
+#include <boost/url/parse.hpp>
 
 namespace scorbit {
 namespace detail {
@@ -30,24 +32,26 @@ constexpr auto ABSOLUTE_MAX_PLAYERS_NUM = 6;
 // Function to extract protocol, hostname, and port
 UrlInfo exctractHostAndPort(const std::string &url)
 {
-    static const std::regex url_regex(R"((https?):\/\/([^\/:]+)(?::(\d+))?)");
-    std::smatch url_match_result;
+    const auto r = boost::urls::parse_uri(url);
+    if (!r) {
+        ERR("Invalid URL: {}, {}", url, r.error().message());
+        return {};
+    }
 
+    const auto u = *r;
     UrlInfo result;
+    result.protocol = u.scheme();
+    result.hostname = u.host();
 
-    if (std::regex_search(url, url_match_result, url_regex)) {
-        result.protocol = url_match_result[1].str();
-        result.hostname = url_match_result[2].str();
-        result.port = url_match_result[3].str();
-
-        // If no port is found, assign a default one based on the protocol
-        if (result.port.empty()) {
-            if (result.protocol == "https") {
-                result.port = "443"; // Default port for HTTPS
-            } else if (result.protocol == "http") {
-                result.port = "80"; // Default port for HTTP
-            }
-        }
+    if (u.has_port()) {
+        result.port = u.port();
+    } else if (result.protocol == "https" || result.protocol == "wss") {
+        result.port = "443"; // Default port for HTTPS and WSS
+    } else if (result.protocol == "http" || result.protocol == "ws") {
+        result.port = "80"; // Default port for HTTP (if not specified, we assume HTTP)
+    } else {
+        // Invalid scheme: accepted only http(s) or ws(s)
+        result = {};
     }
 
     return result;
