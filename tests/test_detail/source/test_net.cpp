@@ -55,22 +55,28 @@ TEST_CASE("Net hostname")
 
     net.setHostname("production");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://centrifuge.scorbit.io:443");
 
     net.setHostname("staging");
     CHECK(net.hostname() == "https://staging.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://sws.scorbit.io:443");
 
     net.setHostname("");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://centrifuge.scorbit.io:443");
 
-    net.setHostname("http://localhost:8080");
+    net.setHostname("http://localhost:8080", "ws://localhost:9000");
     CHECK(net.hostname() == "http://localhost:8080");
+    CHECK(net.cfHostname() == "ws://localhost:9000");
 
     // Make sure that anything after port is thrown away
     net.setHostname("http://localhost:8080/api");
     CHECK(net.hostname() == "http://localhost:8080");
+    CHECK(net.cfHostname() == "ws://localhost:8080");
 
     net.setHostname("https://example.com/api");
     CHECK(net.hostname() == "https://example.com:443");
+    CHECK(net.cfHostname() == "wss://example.com:443");
 }
 
 TEST_CASE("getSignature calls signer with correct digest")

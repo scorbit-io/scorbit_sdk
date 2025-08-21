@@ -54,7 +54,7 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread)
+set(BOOST_COMPILED_COMPONENTS filesystem json thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
 

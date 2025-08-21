@@ -49,6 +49,8 @@ public:
 
     void runTimer(std::chrono::steady_clock::duration delay, task_t func);
 
+    auto &centrifugoStrand() { return m_centrifugoStrand; }
+
 private:
     void run();
 
@@ -64,6 +66,7 @@ private:
     asio_strand m_strand {m_ioc.get_executor()};
     asio_strand m_gameDataStrand {m_ioc.get_executor()};
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
+    asio_strand m_centrifugoStrand {m_ioc.get_executor()};
 
     boost::thread_group m_threads;
 

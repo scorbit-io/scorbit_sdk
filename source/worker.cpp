@@ -65,7 +65,7 @@ void Worker::postQueue(task_t func)
 
 void Worker::postGameDataQueue(task_t func)
 {
-    boost::asio::post(m_gameDataStrand, std::move(func));
+    boost::asio::post(centrifugoStrand(), std::move(func));
 }
 
 void Worker::postHeartbeatQueue(task_t func)

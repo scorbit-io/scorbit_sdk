@@ -70,7 +70,8 @@ public:
     AuthStatus status() const override;
 
     const std::string &hostname() const;
-    void setHostname(std::string hostname);
+    const std::string &cfHostname() const; // Centrifugo hostname
+    void setHostname(std::string hostname, std::string cfHostname = std::string {});
     bool isAuthenticated() const;
 
     void authenticate() override;
@@ -142,6 +143,7 @@ private:
     std::atomic_bool m_stop {false};
 
     std::string m_hostname;
+    std::string m_cfHostname;
     std::string m_stoken;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
@@ -152,6 +154,8 @@ private:
     std::map<std::string, GameSession> m_gameSessions; // key: session uuid
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
+
+    std::unique_ptr<centrifugo::Client> m_centrifugo; // Centrifugo client for real-time updates
 
     Worker m_worker; // This must be last element, as it has to be destroyed first, otherwise it
                      // will try to access already destroyed member variables
