@@ -33,6 +33,8 @@
 #include <boost/uuid.hpp>
 #include <boost/json.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/url/url_view.hpp>
+#include <boost/url/parse.hpp>
 #include <optional>
 
 using namespace std;
@@ -42,11 +44,16 @@ namespace scorbit {
 namespace detail {
 
 constexpr auto PRODUCTION_LABEL = "production";
-constexpr auto STAGING_LABEL = "staging";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
+constexpr auto PRODUCTION_CENTRIFUGO = "wss://centrifuge.scorbit.io";
+
+constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
+constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
+
 constexpr auto API = "api";
-constexpr auto STOKEN_URL = "stoken/";
+constexpr auto CENTRIFUGO_URL = "connection/websocket";
+// constexpr auto STOKEN_URL = "stoken/";
 constexpr auto INSTALLED_URL = "installed/";
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
@@ -54,6 +61,7 @@ constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
+constexpr auto REQUEST_V2_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/token/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
@@ -100,7 +108,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, useEncryptedKey)
 {
-    setHostname(m_deviceInfo.hostname);
+    setHostname(m_deviceInfo.hostname, "");
 
     // Verify that mandatory "provider" field in deviceInfo is set
     if (m_deviceInfo.provider.empty()) {
@@ -134,6 +142,14 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
+    // Create centrifugo client
+    centrifugo::ClientConfig config;
+    config.name = "scorbit_sdk";
+    config.version = SCORBIT_SDK_VERSION;
+    config.getToken = [this]() -> std::string { return m_stoken; };
+    auto cfUrl = fmt::format("{}/{}", m_cfHostname, CENTRIFUGO_URL);
+    m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+
     m_worker.start();
 }
 
@@ -154,16 +170,44 @@ const string &Net::hostname() const
     return m_hostname;
 }
 
-void Net::setHostname(std::string hostname)
+const string &Net::cfHostname() const
+{
+    return m_cfHostname;
+}
+
+void Net::setHostname(std::string hostname, std::string cfHostname)
 {
     if (hostname == PRODUCTION_LABEL || hostname.empty()) {
         hostname = PRODUCTION_HOSTNAME;
+        if (cfHostname.empty()) {
+            cfHostname = PRODUCTION_CENTRIFUGO;
+        }
     } else if (hostname == STAGING_LABEL) {
         hostname = STAGING_HOSTNAME;
+        if (cfHostname.empty()) {
+            cfHostname = STAGING_CENTRIFUGO;
+        }
+    } else if (cfHostname.empty()) {
+        // Default centrifugo URL if not specified
+        cfHostname = hostname;
     }
 
-    const auto host = exctractHostAndPort(hostname);
-    m_hostname = fmt::format("{}://{}:{}", host.protocol, host.hostname, host.port);
+    {
+        const auto host = exctractHostAndPort(hostname);
+        m_hostname = fmt::format("{}://{}:{}", host.protocol, host.hostname, host.port);
+    }
+
+    {
+        auto host = exctractHostAndPort(cfHostname);
+        if (cfHostname == hostname) {
+            if (host.protocol == "https") {
+                host.protocol = "wss";
+            } else if (host.protocol == "http") {
+                host.protocol = "ws";
+            }
+        }
+        m_cfHostname = fmt::format("{}://{}:{}", host.protocol, host.hostname, host.port);
+    }
 }
 
 bool Net::isAuthenticated() const
@@ -346,20 +390,32 @@ task_t Net::createAuthenticateTask()
                 return;
             }
 
-            auto payload = cpr::Payload {
-                    {"provider", m_deviceInfo.provider},
-                    {"uuid", m_deviceInfo.uuid},
-                    {"timestamp", timestamp},
-                    {"sign", signature},
-            };
+            // Create json string
 
-            auto r = cpr::Post(url(STOKEN_URL), payload);
+
+
+            boost::json::object j;
+            j["provider"] = m_deviceInfo.provider;
+            j["uuid"] = m_deviceInfo.uuid;
+            j["timestamp"] = timestamp;
+            j["signature"] = signature;
+            j["serial_number"] = 0;
+
+
+
+            const auto myurl = url(
+                    fmt::format(REQUEST_V2_TOKEN, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
+            INF("Body: {}", boost::json::serialize(j));
+            auto r = cpr::Post(myurl, cpr::Body {boost::json::serialize(j)},
+                               cpr::Header {{"Content-Type", "application/json"}});
 
             if (r.status_code == 200) {
+                INF("API Reply: {}", r.text);
                 try {
                     boost::json::object json = boost::json::parse(r.text).as_object();
 
                     m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
+                    INF("SToken: {}", m_stoken);
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
                     INF("API authentication successful! Checking pairing status...");
@@ -692,6 +748,7 @@ task_t Net::createHeartbeatTask()
 
 void Net::startHeartbeatTimer()
 {
+    return; // FIXME - disable heartbeat timer for now
     if (!m_stopHeartbeatTimer) {
         m_worker.runTimer(HEARTBEAT_TIME, [this] {
             startHeartbeatTimer();
@@ -965,7 +1022,9 @@ cpr::Header Net::authHeader() const
 
 cpr::Url Net::url(std::string_view endpoint) const
 {
-    return cpr::Url {fmt::format("{}/{}/{}", m_hostname, API, endpoint)};
+    const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, endpoint);
+    INF("API URL: {}", myurl);
+    return cpr::Url {myurl};
 }
 
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
