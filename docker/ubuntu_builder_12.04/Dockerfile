@@ -33,20 +33,19 @@ RUN \
 RUN apt-get install -y cpanminus \
     && cpanm List::Util Text::Template
 
-ARG ZLIB=zlib-1.3.1
-RUN wget --no-check-certificate https://zlib.net/$ZLIB.tar.gz \
-    && tar xf $ZLIB.tar.gz && rm $ZLIB.tar.gz && cd $ZLIB \
-    && CFLAGS="-fPIC" ./configure --static \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. && rm -rf $ZLIB
+ARG BOOST=boost-1.89.0
+RUN wget https://github.com/boostorg/boost/releases/download/$BOOST/$BOOST-b2-nodocs.tar.xz \
+    && tar xf $BOOST-b2-nodocs.tar.xz && rm $BOOST-b2-nodocs.tar.xz && cd $BOOST \
+    && ./bootstrap.sh \
+    && ./b2 -j$(nproc) threading=multi link=static cflags="-fPIC" cxxflags="-fPIC" --without-python install \
+    && cd .. && rm -rf $BOOST
 
-ARG OPENSSL=openssl-3.5.1
+ARG OPENSSL=openssl-3.5.2
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
     && ./config --openssldir=/usr/lib/ssl --prefix=/usr/local --libdir=/usr/local/lib \
-                no-apps no-shared no-pinshared no-dso no-engine zlib \
+                no-apps no-shared no-pinshared no-dso no-engine \
                 ${OPENSSL_CONFIG_ARGS} \
     && make -j $(nproc) && make install_sw \
     && cd .. && rm -rf $OPENSSL
@@ -97,9 +96,3 @@ RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE
     && make install \
     && cd ../.. && rm -rf $LIBARCHIVE
 
-ARG BOOST=boost-1.88.0
-RUN wget https://github.com/boostorg/boost/releases/download/$BOOST/$BOOST-b2-nodocs.tar.xz \
-    && tar xf $BOOST-b2-nodocs.tar.xz && rm $BOOST-b2-nodocs.tar.xz && cd $BOOST \
-    && ./bootstrap.sh \
-    && ./b2 -j$(nproc) threading=multi link=static cflags="-fPIC" cxxflags="-fPIC" --without-python install \
-    && cd .. && rm -rf $BOOST
