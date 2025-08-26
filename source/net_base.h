@@ -46,6 +46,7 @@ public:
     virtual void sessionCreate(const detail::GameData &data) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
+    virtual void getConfig() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;
 
     virtual const std::string &getMachineUuid() const = 0;
