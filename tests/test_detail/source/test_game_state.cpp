@@ -54,6 +54,7 @@ public:
     void requestUnpair(StringCallback) override { };
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
+    void sessionCreate(const scorbit::detail::GameData &data) override {};
     MAKE_MOCK4(sendInstalled,
                void(const std::string &, const std::string &, std::optional<bool>,
                     std::optional<std::string>),
@@ -79,9 +80,11 @@ struct GameDataMatcher {
     {
         // sessionUuid should be parsed ok, otherwise it will throw an exception
         try {
-            boost::uuids::uuid actualUuid =
-                    boost::uuids::string_generator()(actual.sessionUuid.get());
-            (void)actualUuid;
+            if (!actual.sessionUuid->empty()) {
+                boost::uuids::uuid actualUuid =
+                        boost::uuids::string_generator()(actual.sessionUuid.get());
+                (void)actualUuid;
+            }
         } catch (...) {
             FAIL("Invalid UUID: '" << actual.sessionUuid << "'");
         }

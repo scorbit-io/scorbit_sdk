@@ -42,5 +42,7 @@ std::string parseUuid(const std::string &str);
 
 std::string gameHistoryToCsv(const GameHistory &history);
 
+std::string to_iso8601(std::chrono::system_clock::time_point tp);
+
 } // namespace detail
 } // namespace scorbit

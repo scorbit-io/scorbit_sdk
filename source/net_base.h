@@ -43,6 +43,7 @@ public:
     virtual void sendInstalled(const std::string &type, const std::string &version,
                                std::optional<bool> installed,
                                std::optional<std::string> log = std::nullopt) = 0;
+    virtual void sessionCreate(const detail::GameData &data) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;

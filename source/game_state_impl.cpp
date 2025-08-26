@@ -46,11 +46,13 @@ void GameStateImpl::setGameStarted()
     // Reset game data
     m_prevData = m_data = GameData {};
 
+    m_data.id = ++m_sessionId;
     m_data.isGameActive = true;
-    m_data.sessionUuid = boost::uuids::to_string(boost::uuids::random_generator()());
     setCurrentBall(1);
     setActivePlayer(1);
-    INF("New game session started: {}", m_data.sessionUuid.get());
+    INF("New game session started, id: {}", m_data.id);
+
+    m_net->sessionCreate(m_data);
 }
 
 void GameStateImpl::setGameFinished()

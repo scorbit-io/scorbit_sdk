@@ -73,6 +73,7 @@ private:
     std::unique_ptr<NetBase> m_net;
     GameData m_data;
     GameData m_prevData;
+    int m_sessionId {0};
 };
 
 } // namespace detail

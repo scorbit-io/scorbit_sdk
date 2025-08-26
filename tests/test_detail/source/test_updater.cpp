@@ -60,6 +60,7 @@ public:
     void requestTopScores(sb_score_t, StringCallback) override {};
     void requestUnpair(StringCallback) override {};
     void authenticate() override { };
+    void sessionCreate(const scorbit::detail::GameData &data) override {};
     void sendGameData(const GameData &) override { };
 
     MAKE_MOCK4(sendInstalled,
