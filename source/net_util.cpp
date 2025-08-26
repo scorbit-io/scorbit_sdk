@@ -23,6 +23,7 @@
 #include <boost/uuid.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
+#include <iomanip>
 
 namespace scorbit {
 namespace detail {
@@ -126,6 +127,20 @@ std::string gameHistoryToCsv(const GameHistory &history)
     }
 
     return rv;
+}
+
+// Convert chrono timepoint to ISO 8601 string in UTC (e.g. "2023-10-05T14:48:00Z")
+std::string to_iso8601(std::chrono::system_clock::time_point tp)
+{
+    // Convert to time_t (seconds since epoch)
+    std::time_t t = std::chrono::system_clock::to_time_t(tp);
+
+    // Convert to UTC
+    std::tm tm = *std::gmtime(&t);
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
 }
 
 } // namespace detail

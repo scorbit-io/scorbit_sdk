@@ -51,22 +51,22 @@ constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 
-constexpr auto API = "api";
+constexpr auto API = "api/v2";
 constexpr auto CENTRIFUGO_URL = "connection/websocket";
-// constexpr auto STOKEN_URL = "stoken/";
+constexpr auto TOKEN_URL {"scorbitrons/{scorbitron_uuid}/token/"};
 constexpr auto INSTALLED_URL = "installed/";
+constexpr auto SESSIONS_CREATE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
-constexpr auto REQUEST_V2_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/token/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
-constexpr auto REST_TOKEN {"SToken"};
-constexpr auto RETURNED_TOKEN_NAME {"stoken"};
+constexpr auto REST_TOKEN {"Bearer"};
+constexpr auto RETURNED_TOKEN_NAME {"token"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
@@ -218,20 +218,35 @@ bool Net::isAuthenticated() const
 
 void Net::authenticate()
 {
-    m_worker.postQueue(createAuthenticateTask());
+    INF("API post authentication");
+    m_worker.post(createAuthenticateTask());
 }
 
 void Net::sendInstalled(const std::string &type, const std::string &version,
                         std::optional<bool> installed, std::optional<string> log)
 {
+    INF("API post queue installed, type: {}, version: {}", type, version);
     m_worker.postQueue(createInstalledTask(type, version, std::move(installed), std::move(log)));
+}
+
+void Net::sessionCreate(const GameData &data)
+{
+    {
+        std::lock_guard lock(m_gameSessionsMutex);
+        auto &session = m_gameSessions[data.id];
+        session.gameData = data;
+        session.history.push_back(data);
+    }
+
+    INF("API post queue create session, id: {}", data.id);
+    m_worker.postQueue(createSessionCreate(data.id));
 }
 
 void Net::sendGameData(const detail::GameData &data)
 {
     {
         std::lock_guard lock(m_gameSessionsMutex);
-        auto &session = m_gameSessions[data.sessionUuid];
+        auto &session = m_gameSessions[data.id];
         session.gameData = data;
         session.history.push_back(data);
     }
@@ -240,14 +255,17 @@ void Net::sendGameData(const detail::GameData &data)
     // However, if game session is finished (not active), post task anyway, because this is the last
     // task for that game session.
     if (!data.isGameActive || !m_isGameDataInQueue.exchange(true)) {
-        m_worker.postGameDataQueue(createGameDataTask(data.sessionUuid));
+        INF("API post game data, id: {}", data.id);
+        m_worker.postGameDataQueue(createGameDataTask(data.id));
     }
 }
 
 void Net::sendHeartbeat()
 {
+    return; // FIXME: disable heartbeat for now
     // Ensure that only single task in the queue (while another can be running)
     if (!m_isHeartbeatInQueue.exchange(true)) {
+        INF("API post heartbeat");
         m_worker.postHeartbeatQueue(createHeartbeatTask());
     }
 }
@@ -260,6 +278,7 @@ void Net::requestPairCode(StringCallback callback)
         return;
     }
 
+    INF("API post queue request pair code");
     m_worker.postQueue(createPostRequestTask(
             [this, callback = std::move(callback)](Error error, std::string reply) {
                 // Parse short code and return it in callback
@@ -391,9 +410,6 @@ task_t Net::createAuthenticateTask()
             }
 
             // Create json string
-
-
-
             boost::json::object j;
             j["provider"] = m_deviceInfo.provider;
             j["uuid"] = m_deviceInfo.uuid;
@@ -401,21 +417,16 @@ task_t Net::createAuthenticateTask()
             j["signature"] = signature;
             j["serial_number"] = 0;
 
-
-
-            const auto myurl = url(
-                    fmt::format(REQUEST_V2_TOKEN, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
+            const auto myurl =
+                    url(fmt::format(TOKEN_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
             INF("Body: {}", boost::json::serialize(j));
             auto r = cpr::Post(myurl, cpr::Body {boost::json::serialize(j)},
                                cpr::Header {{"Content-Type", "application/json"}});
 
             if (r.status_code == 200) {
-                INF("API Reply: {}", r.text);
                 try {
                     boost::json::object json = boost::json::parse(r.text).as_object();
-
                     m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
-                    INF("SToken: {}", m_stoken);
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
                     INF("API authentication successful! Checking pairing status...");
@@ -507,20 +518,105 @@ task_t Net::createInstalledTask(const std::string &type, const std::string &vers
     };
 }
 
-task_t Net::createGameDataTask(const std::string &sessionUuid)
+task_t Net::createSessionCreate(int sessionId)
 {
-    return [this, sessionUuid]() {
+    return [this, sessionId]() {
+        INF("API session create for id: {}...", sessionId);
+        int sessionCounter;
+        {
+            std::lock_guard lock(m_gameSessionsMutex);
+            if (m_gameSessions.count(sessionId) == 0) {
+                // Nothing to do, session is already finished and removed
+                return;
+            }
+
+            sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+        }
+
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            std::unique_lock lock(m_authMutex);
+            m_authCV.wait(lock, [this] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
+            });
+
+            if (m_status != AuthStatus::AuthenticatedPaired) {
+                if (m_status == AuthStatus::AuthenticationFailed) {
+                    DBG("Can't send game data, authentication failed!");
+                }
+                break;
+            }
+
+            std::optional<GameSession> session;
+            {
+                std::lock_guard lockGameSession(m_gameSessionsMutex);
+                session = m_gameSessions[sessionId];
+            }
+
+            // const auto &data = session->gameData;
+
+            const int64_t elapsedMilliseconds =
+                    chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                                - session->startedTime)
+                            .count();
+            const auto currentDateTime = to_iso8601(chrono::system_clock::now());
+
+            boost::json::object obj;
+            obj["player_count"] = 1; // FIXME: support multiple players
+            obj["sequence_number"] = sessionCounter;
+            obj["session_time"] = elapsedMilliseconds;
+            obj["active_on"] = currentDateTime;
+            obj["use_lobby"] = true;
+
+            // Serialize to string
+            std::string body = boost::json::serialize(obj);
+
+            // Send POST with JSON body
+            auto response =
+                    cpr::Post(cpr::Url {"https://example.com/api/session"},
+                              cpr::Header {{"Content-Type", "application/json"}}, cpr::Body {body});
+
+            auto header = authHeader();
+            header["Content-Type"] = "application/json";
+
+            const auto r =
+                    cpr::Post(url(fmt::format(SESSIONS_CREATE_URL,
+                                              fmt::arg("scorbitron_uuid", m_deviceInfo.uuid))),
+                              cpr::Body {body}, header, cpr::Timeout {NET_TIMEOUT});
+
+            if (r.status_code == 200) {
+                INF("API create session: ok, id: {}, {}", sessionId, r.text);
+                this_thread::sleep_for(10s);
+
+                try {
+                    boost::json::object json = boost::json::parse(r.text).as_object();
+
+                    // Scores array will have players' profiles
+                    if (const auto scoresPtr = json.if_contains("scores")) {
+                        processPlayersProfiles(*scoresPtr);
+                    }
+                } catch (const std::exception &e) {
+                    ERR("API error parsing game data reply: {}", e.what());
+                }
+                break;
+            }
+        }
+    };
+}
+
+task_t Net::createGameDataTask(int sessionId)
+{
+    return [this, sessionId]() {
         m_isGameDataInQueue = false;
 
         int sessionCounter;
         {
             std::lock_guard lock(m_gameSessionsMutex);
-            if (m_gameSessions.count(sessionUuid) == 0) {
+            if (m_gameSessions.count(sessionId) == 0) {
                 // Nothing to do, session is already finished and removed
                 return;
             }
 
-            sessionCounter = ++m_gameSessions[sessionUuid].sessionCounter;
+            sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
         }
 
         std::optional<GameSession> session;
@@ -542,7 +638,7 @@ task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             {
                 std::lock_guard lockGameSession(m_gameSessionsMutex);
-                session = m_gameSessions[sessionUuid];
+                session = m_gameSessions[sessionId];
             }
 
             int64_t elapsedMilliseconds =
@@ -580,9 +676,10 @@ task_t Net::createGameDataTask(const std::string &sessionUuid)
                         fmt::format("player{}={}, ", player.second.player(), player.second.score());
             }
 
-            INF("API sending game data for session {}, counter: {}, active player: {}, current "
-                "ball: {}, scores: {}modes: [{}]",
-                sessionUuid, sessionCounter, data.activePlayer, data.ball, scoresStr, gameModes);
+            INF("API sending game data for session id: {}, uuid: {}, counter: {}, active player: "
+                "{}, current ball: {}, scores: {}modes: [{}]",
+                sessionId, data.sessionUuid.get(), sessionCounter, data.activePlayer, data.ball,
+                scoresStr, gameModes);
 
             // Reset the flag only single time. From this point there maybe another score change
             // added and flag will be again true. So, we don't want to reset the flag another time
@@ -635,10 +732,11 @@ task_t Net::createGameDataTask(const std::string &sessionUuid)
 
             {
                 std::lock_guard lock(m_gameSessionsMutex);
-                if (m_gameSessions.count(sessionUuid) > 0) {
-                    finishedSessionHistory = std::move(m_gameSessions[sessionUuid].history);
-                    m_gameSessions.erase(sessionUuid);
-                    INF("Game session {} finished", sessionUuid);
+                if (m_gameSessions.count(sessionId) > 0) {
+                    finishedSessionHistory = std::move(m_gameSessions[sessionId].history);
+                    auto sessionUuid = m_gameSessions.at(sessionId).gameData.sessionUuid.get();
+                    m_gameSessions.erase(sessionId);
+                    INF("Game session  finished, id: {}, uuid: {}", sessionId, sessionUuid);
                 }
             }
 
@@ -729,7 +827,7 @@ task_t Net::createHeartbeatTask()
                 break;
             }
 
-            ERR("API send game data failed: code={}, {}", r.status_code, r.error.message);
+            ERR("API hearbeat failed: code={}, {}", r.status_code, r.error.message);
             ERR("{}", r.text);
 
             if (r.status_code != 401) {
@@ -748,7 +846,6 @@ task_t Net::createHeartbeatTask()
 
 void Net::startHeartbeatTimer()
 {
-    return; // FIXME - disable heartbeat timer for now
     if (!m_stopHeartbeatTimer) {
         m_worker.runTimer(HEARTBEAT_TIME, [this] {
             startHeartbeatTimer();
