@@ -81,6 +81,7 @@ public:
     void sessionCreate(const detail::GameData &data) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
+    void getConfig() override;
     void requestPairCode(StringCallback callback) override;
 
     const std::string &getMachineUuid() const override;

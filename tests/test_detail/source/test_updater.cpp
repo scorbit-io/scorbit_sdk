@@ -62,6 +62,7 @@ public:
     void authenticate() override { };
     void sessionCreate(const scorbit::detail::GameData &data) override {};
     void sendGameData(const GameData &) override { };
+    void getConfig() override { };
 
     MAKE_MOCK4(sendInstalled,
                void(const std::string &, const std::string &, std::optional<bool>,

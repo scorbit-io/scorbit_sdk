@@ -58,9 +58,9 @@ constexpr auto INSTALLED_URL = "installed/";
 constexpr auto SESSIONS_CREATE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
+constexpr auto GET_CONFIG_URL {"scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
-constexpr auto REQUEST_PAIR_CODE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
@@ -251,6 +251,8 @@ void Net::sendGameData(const detail::GameData &data)
         session.history.push_back(data);
     }
 
+    return; // FIXME disable sending game data for now
+
     // Ensure that only single task in the queue (while another can be running).
     // However, if game session is finished (not active), post task anyway, because this is the last
     // task for that game session.
@@ -270,6 +272,69 @@ void Net::sendHeartbeat()
     }
 }
 
+void Net::getConfig()
+{
+    INF("API get config");
+    m_worker.post(createGetRequestTask(
+            [this](Error error, const std::string &reply) {
+                if (error != Error::Success) {
+                    WRN("API get config error: {}", static_cast<int>(error));
+                    return;
+                }
+                INF("API get config: {}", reply);
+
+                try {
+                    boost::json::object json = boost::json::parse(reply).as_object();
+                    AuthStatus status {AuthStatus::AuthenticatedPaired};
+                    const auto isPaired =
+                            json.contains("is_paired") && json.at("is_paired").as_bool();
+                    if (!isPaired) {
+                        status = AuthStatus::AuthenticatedUnpaired;
+                        m_vmInfo.venuemachineId = 0;
+                        m_vmInfo.opdbId.clear();
+                    }
+
+                    if (const auto shortcode = json.if_contains("shortcode");
+                        shortcode && shortcode->is_string()) {
+                        m_cachedShortCode = shortcode->as_string();
+                    }
+
+                    // FIXME: fix the parameters according to API results
+                    if (const auto venuemachineId = json.if_contains("venuemachine_id");
+                        venuemachineId && venuemachineId->is_int64()) {
+                        m_vmInfo.venuemachineId = venuemachineId->as_int64();
+                    }
+
+                    if (const auto config = json.if_contains("config");
+                        config && config->is_object()) {
+                        if (const auto opdbId = config->as_object().if_contains("opdb_id");
+                            opdbId && opdbId->is_string()) {
+                            m_vmInfo.opdbId = opdbId->as_string();
+                        }
+                    }
+
+                    m_updater.checkNewVersionAndUpdate(json);
+
+                    if (m_status != status) {
+                        m_status = status;
+                        m_authCV.notify_all();
+                    }
+                } catch (const std::exception &e) {
+                    ERR("API error parsing config reply: {}", e.what());
+                }
+            },
+            [this]() {
+                const auto endpoint = url(GET_CONFIG_URL);
+                cpr::Parameters parameters;
+                return make_tuple(endpoint, parameters);
+            },
+            {
+                    AuthStatus::AuthenticatedCheckingPairing,
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
+}
+
 void Net::requestPairCode(StringCallback callback)
 {
     // Return cached short code if available
@@ -277,31 +342,6 @@ void Net::requestPairCode(StringCallback callback)
         callback(Error::Success, m_cachedShortCode);
         return;
     }
-
-    INF("API post queue request pair code");
-    m_worker.postQueue(createPostRequestTask(
-            [this, callback = std::move(callback)](Error error, std::string reply) {
-                // Parse short code and return it in callback
-                if (error == Error::Success) {
-                    m_cachedShortCode.clear();
-                    try {
-                        const auto json = boost::json::parse(reply).as_object();
-                        m_cachedShortCode = json.at("shortcode").as_string();
-                    } catch (std::exception const &e) {
-                        error = Error::ApiError;
-                        WRN("Error parsing pair code reply: {}", e.what());
-                    }
-                    callback(error, m_cachedShortCode);
-                }
-            },
-            [this]() {
-                // Deferred setup
-                const auto endpoint = url(fmt::format(
-                        REQUEST_PAIR_CODE_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-
-                return make_tuple(endpoint, cpr::Payload {});
-            },
-            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}));
 }
 
 const string &Net::getMachineUuid() const
@@ -419,7 +459,6 @@ task_t Net::createAuthenticateTask()
 
             const auto myurl =
                     url(fmt::format(TOKEN_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-            INF("Body: {}", boost::json::serialize(j));
             auto r = cpr::Post(myurl, cpr::Body {boost::json::serialize(j)},
                                cpr::Header {{"Content-Type", "application/json"}});
 
@@ -433,7 +472,8 @@ task_t Net::createAuthenticateTask()
 
                     m_authCV.notify_all();
 
-                    sendHeartbeat(); // To check if it's paired
+                    getConfig(); // Get config after authentication, it also checks pair status
+                    sendHeartbeat();
                     startHeartbeatTimer();
                     break;
                 } catch (const std::exception &e) {
@@ -914,8 +954,9 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
+            m_authCV.wait(lock, [this, allowedStatuses] {
+                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop
+                    || checkAllowedStatuses(allowedStatuses);
             });
 
             auto [url, parameters] = deferredSetup();
@@ -936,7 +977,7 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
             auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
             reply = std::move(r.text);
 
-            if (r.status_code == 200) {
+            if (r.status_code >= 200 && r.status_code < 300) {
                 DBG("API GET request: ok, {}", reply);
                 error = Error::Success;
                 break;
@@ -1119,8 +1160,11 @@ cpr::Header Net::authHeader() const
 
 cpr::Url Net::url(std::string_view endpoint) const
 {
-    const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, endpoint);
-    INF("API URL: {}", myurl);
+    const auto formattedEndpoint =
+            fmt::format(endpoint, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid),
+                        fmt::arg("venuemachine_id", m_vmInfo.venuemachineId));
+    const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, formattedEndpoint);
+    INF("API prepared URL: {}", myurl);
     return cpr::Url {myurl};
 }
 
