@@ -60,13 +60,12 @@ public:
     void requestTopScores(sb_score_t, StringCallback) override {};
     void requestUnpair(StringCallback) override {};
     void authenticate() override { };
-    void sessionCreate(const scorbit::detail::GameData &data) override {};
+    void sessionCreate(const scorbit::detail::GameData &data) override { };
     void sendGameData(const GameData &) override { };
     void getConfig() override { };
 
-    MAKE_MOCK4(sendInstalled,
-               void(const std::string &, const std::string &, std::optional<bool>,
-                    std::optional<std::string>),
+    MAKE_MOCK4(updateConfig,
+               void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
     MAKE_MOCK3(download, void(StringCallback, const std::string &, const std::string &), override);
 
@@ -119,9 +118,9 @@ TEST_CASE("Updater")
                 .TIMES(1);
 
         REQUIRE_CALL(mockNetRef,
-                     sendInstalled(eq("sdk"), eq("1.0.1"), eq<std::optional<bool>>(false),
-                                   eq<std::optional<std::string>>(
-                                           "Updater: download failed: 4, some_temp_file.tar.gz")))
+                     updateConfig(eq("sdk"), eq("1.0.1"), eq(false),
+                                  eq<std::optional<std::string>>(
+                                          "Updater: download failed: 4, some_temp_file.tar.gz")))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
@@ -130,9 +129,8 @@ TEST_CASE("Updater")
     SECTION("incorrect version, can't find download")
     {
         json.at("sdk").as_object()["version"] = "1.0.0";
-        REQUIRE_CALL(mockNetRef,
-                     sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
-                                   eq<std::optional<bool>>(false), ANY(std::optional<std::string>)))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
+                                              ANY(std::optional<std::string>)))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
@@ -141,9 +139,8 @@ TEST_CASE("Updater")
     SECTION("empty assets")
     {
         json.at("sdk").as_object()["assets_json"].as_array().clear();
-        REQUIRE_CALL(mockNetRef, sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
-                                               eq<std::optional<bool>>(false),
-                                               eq<std::optional<std::string>>("Assets list empty")))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
+                                              eq<std::optional<std::string>>("Assets list empty")))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);
@@ -172,9 +169,9 @@ TEST_CASE("Updater major.minor version mismatch")
     Updater updater(*mockNet, false);
 
     REQUIRE_CALL(mockNetRef,
-                 sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq<std::optional<bool>>(false),
-                               eq<std::optional<std::string>>(
-                                       "Version mismatch: can only update by 1.0.x, found: 1.1.0")))
+                 updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
+                              eq<std::optional<std::string>>(
+                                      "Version mismatch: can only update by 1.0.x, found: 1.1.0")))
             .TIMES(1);
 
     updater.checkNewVersionAndUpdate(json);
@@ -204,11 +201,10 @@ TEST_CASE("Updater prod key hash check")
         Updater updater(*mockNet, true);
 
         REQUIRE_CALL(mockNetRef,
-                     sendInstalled(eq("sdk"), eq(SCORBIT_SDK_VERSION),
-                                   eq<std::optional<bool>>(false),
-                                   eq<std::optional<std::string>>(
-                                           "Using encrypted key, production key hash mismatch: "
-                                           "expected unknown1, found unknown2")))
+                     updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
+                                  eq<std::optional<std::string>>(
+                                          "Using encrypted key, production key hash mismatch: "
+                                          "expected unknown1, found unknown2")))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json);

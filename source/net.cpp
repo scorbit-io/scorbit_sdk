@@ -54,11 +54,11 @@ constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 constexpr auto API = "api/v2";
 constexpr auto CENTRIFUGO_URL = "connection/websocket";
 constexpr auto TOKEN_URL {"scorbitrons/{scorbitron_uuid}/token/"};
-constexpr auto INSTALLED_URL = "installed/";
+constexpr auto GET_CONFIG_URL {"scorbitrons/{scorbitron_uuid}/config/"};
+constexpr auto UPDATE_CONFIG_URL = "scorbitrons/{scorbitron_uuid}/config/";
 constexpr auto SESSIONS_CREATE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
-constexpr auto GET_CONFIG_URL {"scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
@@ -222,11 +222,11 @@ void Net::authenticate()
     m_worker.post(createAuthenticateTask());
 }
 
-void Net::sendInstalled(const std::string &type, const std::string &version,
-                        std::optional<bool> installed, std::optional<string> log)
+void Net::updateConfig(const std::string &type, const std::string &version, bool installed,
+                       std::optional<string> log)
 {
     INF("API post queue installed, type: {}, version: {}", type, version);
-    m_worker.postQueue(createInstalledTask(type, version, std::move(installed), std::move(log)));
+    m_worker.postQueue(updateConfigTask(type, version, std::move(installed), std::move(log)));
 }
 
 void Net::sessionCreate(const GameData &data)
@@ -502,8 +502,8 @@ task_t Net::createAuthenticateTask()
     };
 }
 
-task_t Net::createInstalledTask(const std::string &type, const std::string &version,
-                                std::optional<bool> installed, std::optional<std::string> log)
+task_t Net::updateConfigTask(const std::string &type, const std::string &version, bool installed,
+                             std::optional<std::string> log)
 {
     return [this, type, version, installed = std::move(installed), log = std::move(log)]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
@@ -517,34 +517,29 @@ task_t Net::createInstalledTask(const std::string &type, const std::string &vers
                 break;
             }
 
-            auto payload = cpr::Payload {
-                    {"version", version},
-                    {"type", type},
-            };
-
-            const auto installedStr = installed ? (*installed ? "true" : "false") : "none";
-            if (installed) {
-                payload.Add({"installed", installedStr});
-            }
-
+            // Create json string
+            boost::json::object j;
+            j["version"] = version;
+            j["type"] = type;
+            j["installed"] = installed;
             if (log) {
-                payload.Add({"log", *log});
+                j["log"] = boost::json::value {*log};
             }
 
-            INF("API send installed: type={}, version={}, installed={}, log: {}", type, version,
-                installedStr, log.value_or("none"));
+            const auto payload = boost::json::serialize(j);
+            INF("API update config: {}", payload);
 
             // TODO: Sentry
 
-            const auto r = cpr::Post(url(INSTALLED_URL), payload, authHeader(),
-                                     cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Patch(url(UPDATE_CONFIG_URL), cpr::Body {payload}, authHeader(),
+                                      cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
-                INF("API installed response: {}", r.text);
+                INF("API update config response: {}", r.text);
                 break;
             }
 
-            ERR("API installed failed: code={}, {}", r.status_code, r.error.message);
+            ERR("API update config failed: code={}, {}", r.status_code, r.error.message);
             ERR("{}", r.text);
 
             if (r.status_code != 401) {
@@ -1155,6 +1150,7 @@ cpr::Header Net::authHeader() const
 {
     auto h = header();
     h["Authorization"] = fmt::format("{} {}", REST_TOKEN, m_stoken);
+    h["Content-Type"] = "application/json";
     return h;
 }
 
