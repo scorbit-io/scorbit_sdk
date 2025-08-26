@@ -30,6 +30,7 @@ namespace scorbit {
 namespace detail {
 
 struct GameData {
+    int id {0};
     bool isGameActive {false};
 
     sb_ball_t ball {0};

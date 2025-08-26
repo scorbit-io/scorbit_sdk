@@ -78,6 +78,7 @@ public:
     void sendInstalled(const std::string &type, const std::string &version,
                        std::optional<bool> installed,
                        std::optional<std::string> log = std::nullopt) override;
+    void sessionCreate(const detail::GameData &data) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
     void requestPairCode(StringCallback callback) override;
@@ -101,7 +102,8 @@ private:
     task_t createAuthenticateTask();
     task_t createInstalledTask(const std::string &type, const std::string &version,
                                std::optional<bool> installed, std::optional<std::string> log);
-    task_t createGameDataTask(const std::string &sessionUuid);
+    task_t createSessionCreate(int sessionId);
+    task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
 
     void startHeartbeatTimer();
@@ -151,7 +153,8 @@ private:
 
     DeviceInfo m_deviceInfo;
     VenueMachineInfo m_vmInfo;
-    std::map<std::string, GameSession> m_gameSessions; // key: session uuid
+    std::map<int, GameSession> m_gameSessions; // key: session id
+
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
 

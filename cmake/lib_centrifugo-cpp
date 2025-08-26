@@ -1,1 +1,1 @@
-CPMAddPackage(gh:scorbit-io/centrifugo-cpp@0.1.1)
+CPMAddPackage(gh:scorbit-io/centrifugo-cpp@0.4.0)
