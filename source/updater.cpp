@@ -30,11 +30,11 @@
 #include <string_view>
 
 #ifndef SCORBIT_SDK_PRODUCTION_KEY_HASH
-#define SCORBIT_SDK_PRODUCTION_KEY_HASH "unknown1"
+#    define SCORBIT_SDK_PRODUCTION_KEY_HASH "unknown1"
 #endif
 
 #ifndef SCORBIT_SDK_THIS_KEY_HASH
-#define SCORBIT_SDK_THIS_KEY_HASH "unknown2"
+#    define SCORBIT_SDK_THIS_KEY_HASH "unknown2"
 #endif
 
 namespace {
@@ -121,7 +121,7 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
                             }
 
                             m_updateInProgress = false;
-                            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
+                            m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
                         },
                         m_url, tempFile.string());
             } else {
@@ -137,7 +137,7 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
         // Some error happened, update in progress cleared
         if (!ok) {
             m_updateInProgress = false;
-            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
+            m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
         }
     }
 }

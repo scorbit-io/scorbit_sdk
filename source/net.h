@@ -75,9 +75,8 @@ public:
     bool isAuthenticated() const;
 
     void authenticate() override;
-    void sendInstalled(const std::string &type, const std::string &version,
-                       std::optional<bool> installed,
-                       std::optional<std::string> log = std::nullopt) override;
+    void updateConfig(const std::string &type, const std::string &version, bool installed,
+                      std::optional<std::string> log = std::nullopt) override;
     void sessionCreate(const detail::GameData &data) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
@@ -93,7 +92,8 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
-    void download(StringCallback callback, const std::string &url, const std::string &filename) override;
+    void download(StringCallback callback, const std::string &url,
+                  const std::string &filename) override;
     void downloadBuffer(VectorCallback callback, const std::string &url,
                         size_t reserveBufferSize) override;
 
@@ -101,8 +101,8 @@ public:
 
 private:
     task_t createAuthenticateTask();
-    task_t createInstalledTask(const std::string &type, const std::string &version,
-                               std::optional<bool> installed, std::optional<std::string> log);
+    task_t updateConfigTask(const std::string &type, const std::string &version,
+                            bool installed, std::optional<std::string> log);
     task_t createSessionCreate(int sessionId);
     task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
