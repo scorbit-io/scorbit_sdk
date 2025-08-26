@@ -55,6 +55,7 @@ public:
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &data) override {};
+    void getConfig() override { };
     MAKE_MOCK4(sendInstalled,
                void(const std::string &, const std::string &, std::optional<bool>,
                     std::optional<std::string>),
