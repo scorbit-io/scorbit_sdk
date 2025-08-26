@@ -40,32 +40,44 @@ class MockNetBase : public NetBase
 public:
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
-    void requestPairCode(StringCallback) override { };
-    const std::string &getMachineUuid() const override { static std::string rv; return rv; };
-    const std::string &getPairDeeplink() const override { static std::string rv; return rv; };
-    const std::string &getClaimDeeplink(int) const override { static std::string rv; return rv; };
+    void requestPairCode(StringCallback) override {};
+    const std::string &getMachineUuid() const override
+    {
+        static std::string rv;
+        return rv;
+    };
+    const std::string &getPairDeeplink() const override
+    {
+        static std::string rv;
+        return rv;
+    };
+    const std::string &getClaimDeeplink(int) const override
+    {
+        static std::string rv;
+        return rv;
+    };
     const DeviceInfo &deviceInfo() const override
     {
         static DeviceInfo info;
         info.gameCodeVersion = "1.2.3";
         return info;
     };
-    void requestTopScores(sb_score_t, StringCallback) override { };
-    void requestUnpair(StringCallback) override { };
+    void requestTopScores(sb_score_t, StringCallback) override {};
+    void requestUnpair(StringCallback) override {};
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
-    void sessionCreate(const scorbit::detail::GameData &data) override {};
+    void sessionCreate(const scorbit::detail::GameData &data) override { };
     void getConfig() override { };
-    MAKE_MOCK4(sendInstalled,
-               void(const std::string &, const std::string &, std::optional<bool>,
-                    std::optional<std::string>),
+    MAKE_MOCK4(updateConfig,
+               void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
     void download(StringCallback, const std::string &, const std::string &) override { };
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
 
 private:
-    PlayerProfilesManager m_playersManager;};
+    PlayerProfilesManager m_playersManager;
+};
 } // namespace
 
 // We need custom GameDataMatcher, because sessionUuid is randomly generated
@@ -114,7 +126,7 @@ TEST_CASE("setGameStarted functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -173,7 +185,7 @@ TEST_CASE("setGameFinished functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -238,7 +250,7 @@ TEST_CASE("setCurrentBall functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -288,7 +300,7 @@ TEST_CASE("setActivePlayer functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -371,7 +383,7 @@ TEST_CASE("setScore functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_))
             .WITH(_1.players.at(1).score() == 0)
@@ -483,7 +495,7 @@ TEST_CASE("addMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -541,7 +553,7 @@ TEST_CASE("removeMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -591,7 +603,7 @@ TEST_CASE("clearModes functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -642,7 +654,7 @@ TEST_CASE("commit functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -736,8 +748,12 @@ TEST_CASE("Sending version of sdk and game_code")
     sequence seq;
 
     REQUIRE_CALL(mockNetRef, authenticate()).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("game_code", "1.2.3", true, std::nullopt)).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("sdk", SCORBIT_SDK_VERSION, true, std::nullopt)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, updateConfig("game_code", "1.2.3", true, std::nullopt))
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+    REQUIRE_CALL(mockNetRef, updateConfig("sdk", SCORBIT_SDK_VERSION, true, std::nullopt))
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
