@@ -51,12 +51,12 @@ constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 
-constexpr auto API = "api/v2";
-constexpr auto CENTRIFUGO_URL = "connection/websocket";
-constexpr auto TOKEN_URL {"scorbitrons/{scorbitron_uuid}/token/"};
-constexpr auto GET_CONFIG_URL {"scorbitrons/{scorbitron_uuid}/config/"};
-constexpr auto UPDATE_CONFIG_URL = "scorbitrons/{scorbitron_uuid}/config/";
-constexpr auto SESSIONS_CREATE_URL {"scorbitron_paired/{scorbitron_uuid}/"};
+constexpr auto API = "api";
+constexpr auto CENTRIFUGO_URL {"connection/websocket"};
+constexpr auto TOKEN_URL {"v2/scorbitrons/{scorbitron_uuid}/token/"};
+constexpr auto GET_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
+constexpr auto UPDATE_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
+constexpr auto SESSIONS_CREATE_URL {"v2/scorbitron_paired/{scorbitron_uuid}/"};
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
