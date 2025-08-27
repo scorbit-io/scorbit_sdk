@@ -973,13 +973,13 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
             reply = std::move(r.text);
 
             if (r.status_code >= 200 && r.status_code < 300) {
-                DBG("API GET request: ok, {}", reply);
+                DBG("API GET request to {} OK, {}", url.str(), reply);
                 error = Error::Success;
                 break;
             }
 
-            ERR("API GET request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
-                reply);
+            ERR("API GET request to {} FAILED: code={}, {}, reply: {}", url.str(), r.status_code,
+                r.error.message, reply);
 
             if (r.status_code != 401) {
                 break;
