@@ -74,10 +74,14 @@ private:
 };
 
 // Macros to make the logMessage function easier to call with added filename and line number
-#define DBG(...) scorbit::detail::logMessage(LogLevel::Debug, __FILE__, __LINE__, __VA_ARGS__)
-#define INF(...) scorbit::detail::logMessage(LogLevel::Info, __FILE__, __LINE__, __VA_ARGS__)
-#define WRN(...) scorbit::detail::logMessage(LogLevel::Warn, __FILE__, __LINE__, __VA_ARGS__)
-#define ERR(...) scorbit::detail::logMessage(LogLevel::Error, __FILE__, __LINE__, __VA_ARGS__)
+#define DBG(...)                                                                                   \
+    scorbit::detail::logMessage(scorbit::LogLevel::Debug, __FILE__, __LINE__, __VA_ARGS__)
+#define INF(...)                                                                                   \
+    scorbit::detail::logMessage(scorbit::LogLevel::Info, __FILE__, __LINE__, __VA_ARGS__)
+#define WRN(...)                                                                                   \
+    scorbit::detail::logMessage(scorbit::LogLevel::Warn, __FILE__, __LINE__, __VA_ARGS__)
+#define ERR(...)                                                                                   \
+    scorbit::detail::logMessage(scorbit::LogLevel::Error, __FILE__, __LINE__, __VA_ARGS__)
 
 template<typename... Args>
 constexpr inline void logMessage(LogLevel level, const char *file, int line, Args &&...args)
