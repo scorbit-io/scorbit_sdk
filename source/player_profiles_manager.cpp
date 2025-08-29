@@ -20,6 +20,8 @@
 #include "player_profiles_manager.h"
 #include "logger.h"
 
+#include <nlohmann/json.hpp>
+
 namespace scorbit {
 namespace detail {
 
@@ -36,7 +38,7 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
 
 // -----------------------------------------------------------------------
 
-void PlayerProfilesManager::setProfiles(const boost::json::value &val)
+void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
 {
     if (!val.is_array()) {
         WRN("Invalid player profiles data");
@@ -45,33 +47,35 @@ void PlayerProfilesManager::setProfiles(const boost::json::value &val)
 
     decltype(m_profiles) profiles;
 
-    for (const auto &item : val.as_array()) {
+    for (const auto &item : val) {
         if (!item.is_object()) {
-            WRN("Invalid player profile data: {}", boost::json::serialize(val));
+            WRN("Invalid player profile data: {}", val.dump());
             continue;
         }
 
         try {
-            sb_player_t playerNum = item.at("position").as_int64();
+            sb_player_t playerNum = item["position"].get<sb_player_t>();
 
-            if (item.at("player").is_object()) {
-                const auto &player = item.at("player").get_object();
+            if (item["player"].is_object()) {
+                const auto &player = item["player"];
 
                 PlayerProfile profile;
-                profile.id = player.at("id").as_int64();
-                profile.preferInitials = player.at("prefer_initials").as_bool();
-                profile.name = player.at("cached_display_name").as_string();
-                profile.initials = player.at("initials").as_string();
-                profile.pictureUrl = (player.contains("profile_picture")
-                                      && player.at("profile_picture").is_string())
-                                           ? std::string(player.at("profile_picture").as_string())
-                                           : std::string {};
+                player["id"].get_to(profile.id);
+                player["prefer_initials"].get_to(profile.preferInitials);
+                player["cached_display_name"].get_to(profile.name);
+                player["initials"].get_to(profile.initials);
+
+                const auto pictureIt = player.find("profile_picture");
+                if (pictureIt != player.end() && pictureIt->is_string()) {
+                    pictureIt->get_to(profile.pictureUrl);
+                } else {
+                    profile.pictureUrl.clear();
+                }
 
                 profiles.emplace(playerNum, std::move(profile));
             }
         } catch (const std::exception &e) {
-            ERR("Failed to parse player profile: {}, item: {}", e.what(),
-                boost::json::serialize(item));
+            ERR("Failed to parse player profile: {}, item: {}", e.what(), item.dump());
         }
     }
 

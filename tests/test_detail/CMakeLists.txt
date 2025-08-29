@@ -54,9 +54,11 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread url)
+set(BOOST_COMPILED_COMPONENTS filesystem thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/lib_boost.cmake)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/lib_nlohmann_json.cmake)
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)

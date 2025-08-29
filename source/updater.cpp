@@ -23,6 +23,7 @@
 #include <platform_id.h>
 #include <scorbit_sdk/version.h>
 
+#include <nlohmann/json.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/predef.h>
 #include <boost/filesystem.hpp>
@@ -81,12 +82,12 @@ Updater::Updater(NetBase &net, bool useEncryptedKey)
 {
 }
 
-void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
+void Updater::checkNewVersionAndUpdate(const nlohmann::json &json)
 {
     if (m_updateInProgress)
         return;
 
-    if (const auto sdk = json.if_contains("sdk")) {
+    if (const auto sdk = json.find("sdk"); sdk != json.end() && sdk->is_object()) {
         m_updateInProgress = true;
         bool ok = true;
         try {
@@ -142,7 +143,7 @@ void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
     }
 }
 
-void Updater::parseUrl(const boost::json::value &sdkVal)
+void Updater::parseUrl(const nlohmann::json &sdk)
 {
     // Make sure that platform id is correct
     if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID)) {
@@ -167,9 +168,8 @@ void Updater::parseUrl(const boost::json::value &sdkVal)
     m_feedback.clear();
 
     try {
-        const auto sdk = sdkVal.as_object();
-        m_version = sdk.at("version").as_string();
-        const auto assets = sdk.at("assets_json").as_array();
+        m_version = sdk["version"].get<std::string>();
+        const auto assets = sdk["assets_json"];
         if (assets.empty()) {
             m_feedback = fmt::format("Assets list empty");
             ERR("Updater: {}", m_feedback);
@@ -188,7 +188,7 @@ void Updater::parseUrl(const boost::json::value &sdkVal)
 
         // Find the first asset with the correct platform
         for (const auto &asset : assets) {
-            const auto url = asset.as_string();
+            const auto url = asset.get<std::string>();
             static const std::regex re(URL_PATTERN);
             std::cmatch match;
             if (!std::regex_match(url.c_str(), match, re)) {
@@ -209,8 +209,7 @@ void Updater::parseUrl(const boost::json::value &sdkVal)
         ERR("Updater: {}", m_feedback);
 
     } catch (const std::exception &e) {
-        m_feedback = fmt::format("Error parsing 'sdk': {}, in json: {}", e.what(),
-                                 boost::json::serialize(sdkVal).c_str());
+        m_feedback = fmt::format("Error parsing 'sdk': {}, in json: {}", e.what(), sdk.dump());
         ERR("Updater: {}", m_feedback);
     }
 }

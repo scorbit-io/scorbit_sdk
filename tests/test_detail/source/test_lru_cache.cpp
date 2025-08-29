@@ -19,7 +19,7 @@
 
 #include "utils/lru_cache.hpp"
 
-#include <boost/json.hpp>
+#include <nlohmann/json.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace scorbit;
