@@ -20,7 +20,7 @@
 #pragma once
 
 #include "net_base.h"
-#include <boost/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <atomic>
 
@@ -32,10 +32,10 @@ class Updater
 public:
     Updater(NetBase &net, bool useEncryptedKey);
 
-    void checkNewVersionAndUpdate(const boost::json::object &json);
+    void checkNewVersionAndUpdate(const nlohmann::json &json);
 
 private:
-    void parseUrl(const boost::json::value &sdkVal);
+    void parseUrl(const nlohmann::json &sdk);
     bool update(const std::string &archivePath);
     bool replaceLibrary(const std::string &libPath, const std::string &newLibPath);
 

@@ -31,7 +31,6 @@
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
-#include <boost/json.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
@@ -284,32 +283,39 @@ void Net::getConfig()
                 INF("API get config: {}", reply);
 
                 try {
-                    boost::json::object json = boost::json::parse(reply).as_object();
+                    nlohmann::json json = nlohmann::json::parse(reply);
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
-                    const auto isPaired =
-                            json.contains("is_paired") && json.at("is_paired").as_bool();
+
+                    const auto isPaired = [&json]() {
+                        if (const auto it = json.find("is_paired");
+                            it != json.end() && it->is_boolean()) {
+                            return it->get<bool>();
+                        }
+                        return false;
+                    }();
+
                     if (!isPaired) {
                         status = AuthStatus::AuthenticatedUnpaired;
                         m_vmInfo.venuemachineId = 0;
                         m_vmInfo.opdbId.clear();
                     }
 
-                    if (const auto shortcode = json.if_contains("shortcode");
-                        shortcode && shortcode->is_string()) {
-                        m_cachedShortCode = shortcode->as_string();
+                    if (const auto it = json.find("shortcode");
+                        it != json.end() && it->is_string()) {
+                        m_cachedShortCode = it->get<std::string>();
                     }
 
                     // FIXME: fix the parameters according to API results
-                    if (const auto venuemachineId = json.if_contains("venuemachine_id");
-                        venuemachineId && venuemachineId->is_int64()) {
-                        m_vmInfo.venuemachineId = venuemachineId->as_int64();
+                    if (const auto it = json.find("venuemachine_id");
+                        it != json.end() && it->is_number()) {
+                        m_vmInfo.venuemachineId = it->get<int64_t>();
                     }
 
-                    if (const auto config = json.if_contains("config");
-                        config && config->is_object()) {
-                        if (const auto opdbId = config->as_object().if_contains("opdb_id");
-                            opdbId && opdbId->is_string()) {
-                            m_vmInfo.opdbId = opdbId->as_string();
+                    if (const auto configIt = json.find("config");
+                        configIt != json.end() && configIt->is_object()) {
+                        if (const auto opdbIt = configIt->find("opdb_id");
+                            opdbIt != configIt->end() && opdbIt->is_string()) {
+                            opdbIt->get_to(m_vmInfo.opdbId);
                         }
                     }
 
@@ -405,12 +411,12 @@ void Net::requestUnpair(StringCallback callback)
                 callback(error, reply);
             },
             [this]() {
-                // Create json string
-                boost::json::object j;
-                j["machine"] = boost::json::value {nullptr};
+                nlohmann::json j {
+                        {"machine", nullptr},
+                };
 
                 const auto endpoint = url(SCORBITRON_PARTIAL_UPDATE_URL);
-                const auto body {boost::json::serialize(j)};
+                const auto body {j.dump()};
                 INF("API requesting unpair with {}", body);
 
                 return make_tuple(endpoint, cpr::Body {body});
@@ -456,22 +462,23 @@ task_t Net::createAuthenticateTask()
             }
 
             // Create json string
-            boost::json::object j;
-            j["provider"] = m_deviceInfo.provider;
-            j["uuid"] = m_deviceInfo.uuid;
-            j["timestamp"] = timestamp;
-            j["signature"] = signature;
-            j["serial_number"] = 0;
+            nlohmann::json j {
+                    {"provider", m_deviceInfo.provider},
+                    {"uuid", m_deviceInfo.uuid},
+                    {"timestamp", timestamp},
+                    {"signature", signature},
+                    {"serial_number", 0},
+            };
 
             const auto myurl =
                     url(fmt::format(TOKEN_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-            auto r = cpr::Post(myurl, cpr::Body {boost::json::serialize(j)},
+            auto r = cpr::Post(myurl, cpr::Body {j.dump()},
                                cpr::Header {{"Content-Type", "application/json"}});
 
             if (r.status_code == 200) {
                 try {
-                    boost::json::object json = boost::json::parse(r.text).as_object();
-                    m_stoken = json.at(RETURNED_TOKEN_NAME).as_string();
+                    const auto json = nlohmann::json::parse(r.text);
+                    json[RETURNED_TOKEN_NAME].get_to(m_stoken);
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
                     INF("API authentication successful! Checking pairing status...");
@@ -524,15 +531,16 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
             }
 
             // Create json string
-            boost::json::object j;
-            j["version"] = version;
-            j["type"] = type;
-            j["installed"] = installed;
+            nlohmann::json j {
+                    {"version", version},
+                    {"type", type},
+                    {"installed", installed},
+            };
             if (log) {
-                j["log"] = boost::json::value {*log};
+                j["log"] = *log;
             }
 
-            const auto payload = boost::json::serialize(j);
+            const auto payload = j.dump();
             INF("API update config: {}", payload);
 
             // TODO: Sentry
@@ -601,39 +609,32 @@ task_t Net::createSessionCreate(int sessionId)
                             .count();
             const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
-            boost::json::object obj;
-            obj["player_count"] = 1; // FIXME: support multiple players
-            obj["sequence_number"] = sessionCounter;
-            obj["session_time"] = elapsedMilliseconds;
-            obj["active_on"] = currentDateTime;
-            obj["use_lobby"] = true;
+            nlohmann::json j {
+                    {"player_count", 1}, // FIXME: support multiple players
+                    {"sequence_number", sessionCounter},
+                    {"session_time", elapsedMilliseconds},
+                    {"active_on", currentDateTime},
+                    {"use_lobby", true},
+            };
 
             // Serialize to string
-            std::string body = boost::json::serialize(obj);
-
-            // Send POST with JSON body
-            auto response =
-                    cpr::Post(cpr::Url {"https://example.com/api/session"},
-                              cpr::Header {{"Content-Type", "application/json"}}, cpr::Body {body});
+            std::string body = j.dump();
 
             auto header = authHeader();
-            header["Content-Type"] = "application/json";
 
-            const auto r =
-                    cpr::Post(url(fmt::format(SESSIONS_CREATE_URL,
-                                              fmt::arg("scorbitron_uuid", m_deviceInfo.uuid))),
-                              cpr::Body {body}, header, cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Post(url(SESSIONS_CREATE_URL), cpr::Body {body}, header,
+                                     cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API create session: ok, id: {}, {}", sessionId, r.text);
                 this_thread::sleep_for(10s);
 
                 try {
-                    boost::json::object json = boost::json::parse(r.text).as_object();
+                    nlohmann::json json = nlohmann::json::parse(r.text);
 
                     // Scores array will have players' profiles
-                    if (const auto scoresPtr = json.if_contains("scores")) {
-                        processPlayersProfiles(*scoresPtr);
+                    if (const auto it = json.find("scores"); it != json.end()) {
+                        processPlayersProfiles(*it);
                     }
                 } catch (const std::exception &e) {
                     ERR("API error parsing game data reply: {}", e.what());
@@ -687,7 +688,8 @@ task_t Net::createGameDataTask(int sessionId)
                                                                 - session->startedTime)
                             .count();
             auto &data = session->gameData;
-            cpr::Payload payload {
+
+            nlohmann::json j {
                     {"session_uuid", data.sessionUuid},
                     {"session_time", std::to_string(elapsedMilliseconds)},
                     {"active", data.isGameActive ? "true" : "false"},
@@ -695,24 +697,23 @@ task_t Net::createGameDataTask(int sessionId)
             };
 
             if (data.ball > 0) {
-                payload.Add({"current_ball", std::to_string(data.ball)});
+                j["current_ball"] = data.ball;
             }
 
             if (data.activePlayer > 0) {
-                payload.Add({"current_player", std::to_string(data.activePlayer)});
+                j["current_player"] = data.activePlayer;
             }
 
             const auto gameModes = data.modes.str();
             if (!gameModes.empty()) {
-                payload.Add({"game_modes", gameModes});
+                j["game_modes"] = gameModes;
             }
 
             // Iterate over all existing scores and build payload with scores
             std::string scoresStr;
             for (const auto &player : data.players) {
-                payload.Add({fmt::format("{}{}{}", PLAYER_SCORE_HEAD, player.second.player(),
-                                         PLAYER_SCORE_TAIL),
-                             std::to_string(player.second.score())});
+                j[fmt::format("{}{}{}", PLAYER_SCORE_HEAD, player.second.player(),
+                              PLAYER_SCORE_TAIL)] = player.second.score();
                 scoresStr +=
                         fmt::format("player{}={}, ", player.second.player(), player.second.score());
             }
@@ -731,18 +732,18 @@ task_t Net::createGameDataTask(int sessionId)
 
             // TODO: sentry
 
-            const auto r =
-                    cpr::Post(url(ENTRY_URL), payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            const auto r = cpr::Post(url(ENTRY_URL), cpr::Body {j}, authHeader(),
+                                     cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
                 INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
 
                 try {
-                    boost::json::object json = boost::json::parse(r.text).as_object();
+                    nlohmann::json json = nlohmann::json::parse(r.text);
 
                     // Scores array will have players' profiles
-                    if (const auto scoresPtr = json.if_contains("scores")) {
-                        processPlayersProfiles(*scoresPtr);
+                    if (const auto it = json.find("scores"); it != json.end()) {
+                        processPlayersProfiles(*it);
                     }
                 } catch (const std::exception &e) {
                     ERR("API error parsing game data reply: {}", e.what());
@@ -835,24 +836,27 @@ task_t Net::createHeartbeatTask()
                 INF("API heartbeat: ok, {}", r.text);
 
                 try {
-                    boost::json::object json = boost::json::parse(r.text).as_object();
+                    nlohmann::json json = nlohmann::json::parse(r.text);
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
-                    if (json.contains("unpaired") && json.at("unpaired").as_bool()) {
-                        status = AuthStatus::AuthenticatedUnpaired;
-                        m_vmInfo.venuemachineId = 0;
-                        m_vmInfo.opdbId.clear();
+                    if (const auto it = json.find("unpaired");
+                        it != json.end() && it->is_boolean()) {
+                        if (it->get<bool>()) {
+                            status = AuthStatus::AuthenticatedUnpaired;
+                            m_vmInfo.venuemachineId = 0;
+                            m_vmInfo.opdbId.clear();
+                        }
                     }
 
-                    if (const auto venuemachineId = json.if_contains("venuemachine_id");
-                        venuemachineId && venuemachineId->is_int64()) {
-                        m_vmInfo.venuemachineId = venuemachineId->as_int64();
+                    if (const auto it = json.find("venuemachine_id");
+                        it != json.end() && it->is_number()) {
+                        m_vmInfo.venuemachineId = it->get<int64_t>();
                     }
 
-                    if (const auto config = json.if_contains("config");
-                        config && config->is_object()) {
-                        if (const auto opdbId = config->as_object().if_contains("opdb_id");
-                            opdbId && opdbId->is_string()) {
-                            m_vmInfo.opdbId = opdbId->as_string();
+                    if (const auto configIt = json.find("config");
+                        configIt != json.end() && configIt->is_object()) {
+                        if (const auto opdbIt = configIt->find("opdb_id");
+                            opdbIt != configIt->end() && opdbIt->is_string()) {
+                            m_vmInfo.opdbId = opdbIt->get<std::string>();
                         }
                     }
 
@@ -1158,7 +1162,7 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
                        [this](AuthStatus status) { return status == m_status; });
 }
 
-void Net::processPlayersProfiles(const boost::json::value &val)
+void Net::processPlayersProfiles(const nlohmann::json &val)
 {
     m_playersManager.setProfiles(val);
     if (m_deviceInfo.autoDownloadPlayerPics) {

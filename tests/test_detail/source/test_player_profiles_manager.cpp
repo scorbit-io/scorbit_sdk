@@ -19,7 +19,7 @@
 
 #include "player_profiles_manager.h"
 
-#include <boost/json.hpp>
+#include <nlohmann/json.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <trompeloeil.hpp>
 
@@ -29,7 +29,7 @@ using namespace trompeloeil;
 
 TEST_CASE("PlayerProfile 1 player")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
@@ -69,7 +69,7 @@ TEST_CASE("PlayerProfile 1 player")
 
 TEST_CASE("PlayerProfile 2 players")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
@@ -88,7 +88,7 @@ TEST_CASE("PlayerProfile 2 players")
         ]
     )");
 
-    auto profiles2 = boost::json::parse(R"(
+    auto profiles2 = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
@@ -147,7 +147,7 @@ TEST_CASE("PlayerProfile 2 players")
 
 TEST_CASE("Player profile with null profile_picture")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
@@ -171,11 +171,12 @@ TEST_CASE("Player profile with null profile_picture")
     auto p1 = pm.profile(1);
     REQUIRE(p1 != nullptr);
     CHECK(p1->id == 47);
+    CHECK(p1->pictureUrl.empty());
 }
 
 TEST_CASE("Player profile without profile_picture")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
