@@ -939,10 +939,14 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
     };
 }
 
-task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
-                                 std::vector<AuthStatus> allowedStatuses)
+// Template implementation for generic HTTP request task
+template<typename DeferredSetupT, typename HttpMethodT>
+task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyCallback,
+                                  DeferredSetupT deferredSetup, HttpMethodT httpMethod,
+                                  std::vector<AuthStatus> allowedStatuses)
 {
-    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
+    return [this, requestType, callback = std::move(replyCallback),
+            deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
             allowedStatuses = std::move(allowedStatuses)]() {
         Error error {Error::ApiError};
         std::string reply;
@@ -954,32 +958,35 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
                     || checkAllowedStatuses(allowedStatuses);
             });
 
-            auto [url, parameters] = deferredSetup();
+            auto setupResult = deferredSetup();
+            auto url = std::get<0>(setupResult);
 
             if (!checkAllowedStatuses(allowedStatuses)) {
                 if (m_status == AuthStatus::AuthenticationFailed) {
-                    DBG("Can't send GET request to {}, authentication failed!", url.str());
+                    DBG("Can't send {} request to {}, authentication failed!", requestType,
+                        url.str());
                     error = Error::AuthFailed;
                 } else {
-                    DBG("Can't send GET request to {}, not paired!", url.str());
+                    DBG("Can't send {} request to {}, not paired!", requestType, url.str());
                     error = Error::NotPaired;
                 }
                 break;
             }
 
-            INF("API GET request: {}", url.str());
+            INF("API {} request: {}", requestType, url.str());
 
-            auto r = cpr::Get(url, parameters, authHeader(), cpr::Timeout {NET_TIMEOUT});
+            auto r = httpMethod(url, std::get<1>(setupResult), authHeader(),
+                                cpr::Timeout {NET_TIMEOUT});
             reply = std::move(r.text);
 
             if (r.status_code >= 200 && r.status_code < 300) {
-                DBG("API GET request to {} OK, {}", url.str(), reply);
+                DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
                 error = Error::Success;
                 break;
             }
 
-            ERR("API GET request to {} FAILED: code={}, {}, reply: {}", url.str(), r.status_code,
-                r.error.message, reply);
+            ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
+                r.status_code, r.error.message, reply);
 
             if (r.status_code != 401) {
                 break;
@@ -996,60 +1003,35 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
     };
 }
 
+task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
+                                 std::vector<AuthStatus> allowedStatuses)
+{
+    return createHttpRequestTask(
+            "GET", std::move(replyCallback), std::move(deferredSetup),
+            [](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+               const cpr::Timeout &timeout) { return cpr::Get(url, params, header, timeout); },
+            std::move(allowedStatuses));
+}
+
 task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses)
 {
-    return [this, callback = std::move(replyCallback), deferredSetup = std::move(deferredSetup),
-            allowedStatuses = std::move(allowedStatuses)]() {
-        Error error {Error::ApiError};
-        std::string reply;
+    return createHttpRequestTask(
+            "POST", std::move(replyCallback), std::move(deferredSetup),
+            [](const cpr::Url &url, const cpr::Payload &payload, const cpr::Header &header,
+               const cpr::Timeout &timeout) { return cpr::Post(url, payload, header, timeout); },
+            std::move(allowedStatuses));
+}
 
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-            });
-
-            auto [url, payload] = deferredSetup();
-
-            if (!checkAllowedStatuses(allowedStatuses)) {
-                if (m_status == AuthStatus::AuthenticationFailed) {
-                    DBG("Can't send POST request to {}, authentication failed!", url.str());
-                    error = Error::AuthFailed;
-                } else {
-                    DBG("Can't send POST request to {}, not paired!", url.str());
-                    error = Error::NotPaired;
-                }
-                break;
-            }
-
-            INF("API POST request: {}", url.str());
-
-            auto r = cpr::Post(url, payload, authHeader(), cpr::Timeout {NET_TIMEOUT});
-            reply = std::move(r.text);
-
-            if (r.status_code == 200) {
-                DBG("API POST request: ok, {}", reply);
-                error = Error::Success;
-                break;
-            }
-
-            ERR("API POST request failed: code={}, {}, reply: {}", r.status_code, r.error.message,
-                reply);
-
-            if (r.status_code != 401) {
-                break;
-            }
-
-            m_status = AuthStatus::NotAuthenticated;
-            auto auth = createAuthenticateTask();
-            auth();
-        }
-
-        if (callback) {
-            callback(error, std::move(reply));
-        }
-    };
+task_t Net::createPatchRequestTask(StringCallback replyCallback,
+                                   deferred_patch_setup_t deferredSetup,
+                                   std::vector<AuthStatus> allowedStatuses)
+{
+    return createHttpRequestTask(
+            "PATCH", std::move(replyCallback), std::move(deferredSetup),
+            [](const cpr::Url &url, const cpr::Payload &payload, const cpr::Header &header,
+               const cpr::Timeout &timeout) { return cpr::Patch(url, payload, header, timeout); },
+            std::move(allowedStatuses));
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,

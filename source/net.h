@@ -49,6 +49,7 @@ class Net : public NetBase
 {
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
+    using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
 
     struct GameSession {
         int sessionCounter {0};
@@ -115,12 +116,23 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             SafeMultipart &&multipart);
 
+    // Generic HTTP request task creator
+    template<typename DeferredSetupT, typename HttpMethodT>
+    task_t createHttpRequestTask(const char *requestType, StringCallback replyCallback,
+                                 DeferredSetupT deferredSetup, HttpMethodT httpMethod,
+                                 std::vector<AuthStatus> allowedStatuses = {
+                                         AuthStatus::AuthenticatedPaired});
+
+    // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
                                         AuthStatus::AuthenticatedPaired});
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
+    task_t createPatchRequestTask(StringCallback replyCallback, deferred_patch_setup_t deferredSetup,
+                                  std::vector<AuthStatus> allowedStatuses = {
+                                          AuthStatus::AuthenticatedPaired});
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
