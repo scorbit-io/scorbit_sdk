@@ -61,7 +61,7 @@ constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
-constexpr auto REQUEST_UNPAIR_URL {"scorbitron_unpair/"};
+constexpr auto SCORBITRON_PARTIAL_UPDATE_URL {"v2/scorbitrons/{scorbitron_uuid}/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
@@ -380,6 +380,8 @@ const DeviceInfo &Net::deviceInfo() const
 
 void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
+    return; // FIXME: implement when API will be ready
+
     m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
         const auto endpoint = url(fmt::format(
                 LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId)));
@@ -394,7 +396,7 @@ void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 
 void Net::requestUnpair(StringCallback callback)
 {
-    m_worker.postQueue(createPostRequestTask(
+    m_worker.postQueue(createPatchRequestTask(
             [this, callback = std::move(callback)](Error error, std::string reply) {
                 if (error == Error::Success || error == Error::NotPaired) {
                     m_status = AuthStatus::AuthenticatedUnpaired;
@@ -403,11 +405,15 @@ void Net::requestUnpair(StringCallback callback)
                 callback(error, reply);
             },
             [this]() {
-                const auto endpoint = url(fmt::format(
-                        REQUEST_UNPAIR_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-                cpr::Payload payload = {{"unpaired", "true"}};
+                // Create json string
+                boost::json::object j;
+                j["machine"] = boost::json::value {nullptr};
 
-                return make_tuple(endpoint, payload);
+                const auto endpoint = url(SCORBITRON_PARTIAL_UPDATE_URL);
+                const auto body {boost::json::serialize(j)};
+                INF("API requesting unpair with {}", body);
+
+                return make_tuple(endpoint, cpr::Body {body});
             }));
 }
 
@@ -1018,8 +1024,8 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
 {
     return createHttpRequestTask(
             "POST", std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const cpr::Payload &payload, const cpr::Header &header,
-               const cpr::Timeout &timeout) { return cpr::Post(url, payload, header, timeout); },
+            [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+               const cpr::Timeout &timeout) { return cpr::Post(url, body, header, timeout); },
             std::move(allowedStatuses));
 }
 
@@ -1029,8 +1035,8 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
 {
     return createHttpRequestTask(
             "PATCH", std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const cpr::Payload &payload, const cpr::Header &header,
-               const cpr::Timeout &timeout) { return cpr::Patch(url, payload, header, timeout); },
+            [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+               const cpr::Timeout &timeout) { return cpr::Patch(url, body, header, timeout); },
             std::move(allowedStatuses));
 }
 

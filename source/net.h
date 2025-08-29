@@ -48,8 +48,8 @@ class SafeMultipart;
 class Net : public NetBase
 {
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
-    using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
-    using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
+    using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
+    using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
 
     struct GameSession {
         int sessionCounter {0};
