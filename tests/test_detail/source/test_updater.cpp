@@ -21,6 +21,7 @@
 #include <updater.h>
 #include "trompeloeil_printer.h"
 
+#include <nlohmann/json.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <trompeloeil.hpp>
 
@@ -80,7 +81,7 @@ private:
 
 TEST_CASE("Updater")
 {
-    boost::json::object json = boost::json::parse(R"(
+    nlohmann::json json = nlohmann::json::parse(R"(
             {
                 "sdk": {
                     "version": "1.0.2",
@@ -92,8 +93,7 @@ TEST_CASE("Updater")
                     ]
                 }
             }
-        )")
-                                       .as_object();
+        )");
 
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into Updater, so we keep the ref
@@ -128,7 +128,7 @@ TEST_CASE("Updater")
 
     SECTION("incorrect version, can't find download")
     {
-        json.at("sdk").as_object()["version"] = "1.0.0";
+        json["sdk"]["version"] = "1.0.0";
         REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
                                               ANY(std::optional<std::string>)))
                 .TIMES(1);
@@ -138,7 +138,7 @@ TEST_CASE("Updater")
 
     SECTION("empty assets")
     {
-        json.at("sdk").as_object()["assets_json"].as_array().clear();
+        json["sdk"]["assets_json"].clear();
         REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
                                               eq<std::optional<std::string>>("Assets list empty")))
                 .TIMES(1);
@@ -150,7 +150,7 @@ TEST_CASE("Updater")
 // Make sure that if current version is x.y.z then it updates only by x.y.*
 TEST_CASE("Updater major.minor version mismatch")
 {
-    boost::json::object json = boost::json::parse(R"(
+    nlohmann::json json = nlohmann::json::parse(R"(
             {
                 "sdk": {
                     "version": "1.1.0",
@@ -159,8 +159,7 @@ TEST_CASE("Updater major.minor version mismatch")
                     ]
                 }
             }
-        )")
-                                       .as_object();
+        )");
 
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet;
@@ -180,7 +179,7 @@ TEST_CASE("Updater major.minor version mismatch")
 // Make sure that if using encrypted key, sdk key hash and prod key hash should match
 TEST_CASE("Updater prod key hash check")
 {
-    boost::json::object json = boost::json::parse(R"(
+    nlohmann::json json = nlohmann::json::parse(R"(
             {
                 "sdk": {
                     "version": "1.0.2",
@@ -189,8 +188,7 @@ TEST_CASE("Updater prod key hash check")
                     ]
                 }
             }
-        )")
-                                       .as_object();
+        )");
 
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet;

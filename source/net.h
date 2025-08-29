@@ -26,7 +26,7 @@
 #include "updater.h"
 #include <centrifugo.h>
 #include <cpr/cpr.h>
-#include <boost/json.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <functional>
 #include <chrono>
@@ -102,8 +102,8 @@ public:
 
 private:
     task_t createAuthenticateTask();
-    task_t updateConfigTask(const std::string &type, const std::string &version,
-                            bool installed, std::optional<std::string> log);
+    task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
+                            std::optional<std::string> log);
     task_t createSessionCreate(int sessionId);
     task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
@@ -130,7 +130,8 @@ private:
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
-    task_t createPatchRequestTask(StringCallback replyCallback, deferred_patch_setup_t deferredSetup,
+    task_t createPatchRequestTask(StringCallback replyCallback,
+                                  deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
                                           AuthStatus::AuthenticatedPaired});
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
@@ -143,7 +144,7 @@ private:
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
-    void processPlayersProfiles(const boost::json::value &val);
+    void processPlayersProfiles(const nlohmann::json &val);
 
 private:
     SignerCallback m_signer;

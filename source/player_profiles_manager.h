@@ -22,13 +22,14 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "utils/lru_cache.hpp"
 
-#include <boost/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include <cstdint>
 #include <string>
 #include <vector>
 #include <map>
 #include <mutex>
+#include <atomic>
 
 namespace scorbit {
 namespace detail {
@@ -64,7 +65,7 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs);
 class PlayerProfilesManager
 {
 public:
-    void setProfiles(const boost::json::value &val);
+    void setProfiles(const nlohmann::json &val);
     void setPicture(sb_player_t player, std::vector<uint8_t> &&picture);
     void removePicture(sb_player_t player);
 
