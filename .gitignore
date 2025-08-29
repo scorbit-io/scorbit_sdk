@@ -63,3 +63,6 @@ __pycache__
 *.pyo
 *.pyd
 *.pdb
+
+# VSCode
+.vscode/
