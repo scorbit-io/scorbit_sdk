@@ -111,7 +111,8 @@ bool timeToClearModes()
 
 bool isUnpairTriggeredByUser()
 {
-    return false;
+    static bool unpair = false; // Set to true to trigger unpairing once
+    return std::exchange(unpair, false);
 }
 
 // --------------- Example of logger callback ------------------
