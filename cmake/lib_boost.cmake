@@ -1,5 +1,3 @@
-# Scorbit SDK
-#
 # (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
 #
 # MIT License
@@ -17,13 +15,9 @@ if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
 
-set(TRY_BOOST_VERSION 1.88.0) # Set the desired Boost version here for fetching by CPM
+include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
-set(Boost_USE_STATIC_LIBS ON) # only find static libs
-set(Boost_USE_DEBUG_LIBS OFF) # ignore debug libs and
-set(Boost_USE_RELEASE_LIBS ON) # only find release libs
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF)
+set(TRY_BOOST_VERSION 1.89.0) # Set the desired Boost version here for fetching by CPM
 
 # Don't use find_package if boost was added by CPM, otherwise can't find include files
 if(NOT BOOST_ADDED_BY_CPM)
@@ -37,6 +31,12 @@ if(Boost_FOUND)
 else()
     set(BOOST_ADDED_BY_CPM ON)
     message(STATUS "System Boost not found, fetching Boost ${TRY_BOOST_VERSION} using CPM.")
+
+    set(Boost_USE_STATIC_LIBS ON) # only find static libs
+    set(Boost_USE_DEBUG_LIBS OFF) # ignore debug libs and
+    set(Boost_USE_RELEASE_LIBS ON) # only find release libs
+    set(Boost_USE_MULTITHREADED ON)
+    set(Boost_USE_STATIC_RUNTIME OFF)
 
     # url for 1.85.0 + only
     set(BOOST_URL
