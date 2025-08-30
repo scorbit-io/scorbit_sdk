@@ -53,9 +53,10 @@ constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 constexpr auto API = "api";
 constexpr auto CENTRIFUGO_URL {"connection/websocket"};
 constexpr auto TOKEN_URL {"v2/scorbitrons/{scorbitron_uuid}/token/"};
+constexpr auto CENTRIFUGO_TOKEN_URL {"v2/scorbitrons/{scorbitron_uuid}/socket/"};
 constexpr auto GET_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto UPDATE_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
-constexpr auto SESSIONS_CREATE_URL {"v2/scorbitron_paired/{scorbitron_uuid}/"};
+constexpr auto SESSIONS_CREATE_URL {"v2/scorbitrons/{scorbitron_uuid}/sessions/"};
 constexpr auto ENTRY_URL = "entry/";
 constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
@@ -100,6 +101,32 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
     return ByteArray(signature).hex();
 }
 
+std::string getJwtToken(const std::string &url, const std::string &authToken)
+{
+    INF("API-CF getting JWT token from: {}", url);
+
+    auto r = cpr::Get(cpr::Url {url}, cpr::Header {{"Authorization", "Bearer " + authToken}},
+                      cpr::Timeout {NET_TIMEOUT});
+
+    if (r.status_code != 200) {
+        ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
+    } else {
+        try {
+            const auto json = nlohmann::json::parse(r.text);
+            if (const auto it = json.find("token"); it != json.end() && it->is_string()) {
+                const auto token = it->get<std::string>();
+                INF("API-CF received JWT token successfully");
+                return token;
+            } else {
+                ERR("API-CF JWT token not found in response");
+            }
+        } catch (const std::exception &e) {
+            ERR("API-CF failed to parse JWT token response: {}", e.what());
+        }
+    }
+    return {};
+}
+
 // --------------------------------------------------------------------------------
 
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
@@ -141,14 +168,9 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
-    // Create centrifugo client
-    centrifugo::ClientConfig config;
-    config.name = "scorbit_sdk";
-    config.version = SCORBIT_SDK_VERSION;
-    config.getToken = [this]() -> std::string { return m_stoken; };
-    auto cfUrl = fmt::format("{}/{}", m_cfHostname, CENTRIFUGO_URL);
-    m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+    centrifugoSetup();
 
+    // Start worker thread
     m_worker.start();
 }
 
@@ -488,6 +510,7 @@ task_t Net::createAuthenticateTask()
                     getConfig(); // Get config after authentication, it also checks pair status
                     sendHeartbeat();
                     startHeartbeatTimer();
+                    centrifugoConnect();
                     break;
                 } catch (const std::exception &e) {
                     ERR("Error parsing authentication reply: {}", e.what());
@@ -1182,6 +1205,66 @@ void Net::processPlayersProfiles(const nlohmann::json &val)
                     },
                     pictureUrl, PICTURE_BUFFER_RESERVE);
         }
+    }
+}
+
+void Net::centrifugoSetup()
+{
+    // Create centrifugo client
+    centrifugo::ClientConfig config;
+    config.name = "scorbit_sdk";
+    config.version = SCORBIT_SDK_VERSION;
+    config.getToken = [this]() -> std::string {
+        // std::unique_lock lock(m_authMutex);
+        // m_authCV.wait(lock, [this] {
+        //     return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
+        // });
+
+        // Get JWT token for Centrifugo connection
+        return getJwtToken(url(CENTRIFUGO_TOKEN_URL).str(), m_stoken);
+    };
+
+    const auto cfUrl = fmt::format("{}/{}", m_cfHostname, CENTRIFUGO_URL);
+    INF("API centrifugo url: {}", cfUrl);
+    m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+
+    m_centrifugo->onConnecting([](centrifugo::Error const &error) {
+        INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
+    });
+
+    m_centrifugo->onConnected([] { INF("[CLIENT] Connected to Centrifugo!"); });
+
+    m_centrifugo->onDisconnected([](centrifugo::Error const &error) {
+        WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
+    });
+
+    m_centrifugo->onSubscribing([](const std::string &channel) {
+        INF("API-CF Subscribing to channel: {}...", channel);
+    });
+
+    m_centrifugo->onSubscribed([](const std::string &channel) {
+        INF("API-CF Subscribed successfully to channel: {}", channel);
+    });
+
+    m_centrifugo->onUnsubscribed([](const std::string &channel) {
+        INF("API-CF Unsubscribed from channel: {}", channel);
+    });
+
+    m_centrifugo->onPublication([](const std::string &channel, centrifugo::Publication const &pub) {
+        INF("API-CF Publication received on channel: {}", channel);
+        if (pub.info) {
+            INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
+                pub.info->client);
+        }
+        INF("API-CF Publication data: {}, offset: {}", pub.data.dump(), pub.offset);
+    });
+}
+
+void Net::centrifugoConnect()
+{
+    if (auto const res = m_centrifugo->connect(); !res) {
+        ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
+            res.error().message);
     }
 }
 
