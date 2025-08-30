@@ -146,6 +146,9 @@ private:
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
     void processPlayersProfiles(const nlohmann::json &val);
 
+    void centrifugoSetup();
+    void centrifugoConnect();
+
 private:
     SignerCallback m_signer;
 
