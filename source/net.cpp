@@ -260,7 +260,7 @@ void Net::sessionCreate(const GameData &data)
     }
 
     INF("API post queue create session, id: {}", data.id);
-    m_worker.postQueue(createSessionCreate(data.id));
+    m_worker.postQueue(createSessionCreateTask(data.id));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -590,82 +590,63 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
     };
 }
 
-task_t Net::createSessionCreate(int sessionId)
+task_t Net::createSessionCreateTask(int sessionId)
 {
-    return [this, sessionId]() {
-        INF("API session create for id: {}...", sessionId);
-        int sessionCounter;
-        {
-            std::lock_guard lock(m_gameSessionsMutex);
-            if (m_gameSessions.count(sessionId) == 0) {
-                // Nothing to do, session is already finished and removed
-                return;
-            }
-
-            sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+    INF("API session create for id: {}...", sessionId);
+    int sessionCounter;
+    {
+        std::lock_guard lock(m_gameSessionsMutex);
+        if (m_gameSessions.count(sessionId) == 0) {
+            // Nothing to do, session is already finished and removed
+            ERR("API this error should not happen. Can't find session {} in game sessions",
+                sessionId);
         }
 
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-            });
+        sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+    }
 
-            if (m_status != AuthStatus::AuthenticatedPaired) {
-                if (m_status == AuthStatus::AuthenticationFailed) {
-                    DBG("Can't send game data, authentication failed!");
+    std::optional<GameSession> session;
+    {
+        std::lock_guard lockGameSession(m_gameSessionsMutex);
+        session = m_gameSessions[sessionId];
+    }
+
+    const int64_t elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
+                                                chrono::steady_clock::now() - session->startedTime)
+                                                .count();
+    const auto currentDateTime = to_iso8601(chrono::system_clock::now());
+
+    nlohmann::json j {
+            {"player_count", 1}, // FIXME: support multiple players
+            {"sequence_number", sessionCounter},
+            {"session_time", elapsedMilliseconds},
+            {"active_on", currentDateTime},
+            {"use_lobby", true}, // FIXME: it depends on if lobby is used or not
+    };
+
+    auto deferredSetup = [this, body = j.dump()]() {
+        return std::make_tuple(url(SESSIONS_CREATE_URL), cpr::Body {body});
+    };
+
+    auto callback = [this, sessionId](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API create session: ok, id: {}, {}", sessionId, reply);
+            this_thread::sleep_for(10s);
+
+            try {
+                nlohmann::json json = nlohmann::json::parse(reply);
+
+                // Scores array will have players' profiles
+                if (const auto it = json.find("scores"); it != json.end()) {
+                    processPlayersProfiles(*it);
                 }
-                break;
-            }
-
-            std::optional<GameSession> session;
-            {
-                std::lock_guard lockGameSession(m_gameSessionsMutex);
-                session = m_gameSessions[sessionId];
-            }
-
-            // const auto &data = session->gameData;
-
-            const int64_t elapsedMilliseconds =
-                    chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
-                                                                - session->startedTime)
-                            .count();
-            const auto currentDateTime = to_iso8601(chrono::system_clock::now());
-
-            nlohmann::json j {
-                    {"player_count", 1}, // FIXME: support multiple players
-                    {"sequence_number", sessionCounter},
-                    {"session_time", elapsedMilliseconds},
-                    {"active_on", currentDateTime},
-                    {"use_lobby", true},
-            };
-
-            // Serialize to string
-            std::string body = j.dump();
-
-            auto header = authHeader();
-
-            const auto r = cpr::Post(url(SESSIONS_CREATE_URL), cpr::Body {body}, header,
-                                     cpr::Timeout {NET_TIMEOUT});
-
-            if (r.status_code == 200) {
-                INF("API create session: ok, id: {}, {}", sessionId, r.text);
-                this_thread::sleep_for(10s);
-
-                try {
-                    nlohmann::json json = nlohmann::json::parse(r.text);
-
-                    // Scores array will have players' profiles
-                    if (const auto it = json.find("scores"); it != json.end()) {
-                        processPlayersProfiles(*it);
-                    }
-                } catch (const std::exception &e) {
-                    ERR("API error parsing game data reply: {}", e.what());
-                }
-                break;
+            } catch (const std::exception &e) {
+                ERR("API error parsing game data reply: {}", e.what());
             }
         }
     };
+
+    return createPostRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
 task_t Net::createGameDataTask(int sessionId)
@@ -1175,7 +1156,7 @@ cpr::Url Net::url(std::string_view endpoint) const
             fmt::format(endpoint, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid),
                         fmt::arg("venuemachine_id", m_vmInfo.venuemachineId));
     const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, formattedEndpoint);
-    INF("API prepared URL: {}", myurl);
+    DBG("API prepared URL: {}", myurl);
     return cpr::Url {myurl};
 }
 
