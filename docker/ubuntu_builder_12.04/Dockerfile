@@ -20,7 +20,6 @@ RUN \
         software-properties-common \
         python-software-properties \
         pkg-config \
-        ninja-build \
         perl \
         linux-headers-3.2.0-150 \
     && add-apt-repository ppa:ubuntu-toolchain-r/test \
@@ -55,6 +54,16 @@ ARG CMAKE_VERSION=4.0.1
 RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-armv7l.sh \
     && sh cmake-$CMAKE_VERSION-Linux-armv7l.sh --skip-license --prefix=/usr \
     && rm cmake-$CMAKE_VERSION-Linux-armv7l.sh
+
+# Install ninja
+ARG NINJA_VER=1.13.1
+ARG NINJA=ninja-$NINJA_VER
+RUN wget https://github.com/ninja-build/ninja/archive/refs/tags/v$NINJA_VER.tar.gz -O $NINJA.tar.gz \
+    && tar xf $NINJA.tar.gz && rm $NINJA.tar.gz && cd $NINJA \
+    && cmake -B build -DBUILD_TESTING=OFF \
+    && cmake --build build --parallel --config Release \
+    && cmake --build build --target install \
+    && cd .. && rm -rf $NINJA
 
 # libspl needed for curl
 ARG LIBPSL_VER=0.21.5
