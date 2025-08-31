@@ -104,7 +104,7 @@ private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
                             std::optional<std::string> log);
-    task_t createSessionCreate(int sessionId);
+    task_t createSessionCreateTask(int sessionId);
     task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
 
@@ -175,10 +175,15 @@ private:
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
 
-    std::unique_ptr<centrifugo::Client> m_centrifugo; // Centrifugo client for real-time updates
+    // -----------------------------------------------------------------------
 
-    Worker m_worker; // This must be last element, as it has to be destroyed first, otherwise it
-                     // will try to access already destroyed member variables
+    // This must be last element, as it has to be destroyed first, otherwise it will try to access
+    // already destroyed member variables
+    Worker m_worker;
+
+    // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
+    // created after m_worker and destroyed before m_worker
+    std::unique_ptr<centrifugo::Client> m_centrifugo;
 };
 
 } // namespace detail
