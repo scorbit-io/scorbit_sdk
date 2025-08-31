@@ -24,7 +24,6 @@ RUN \
         file \
         software-properties-common \
         pkg-config \
-        ninja-build \
         perl \
         linux-headers-5.4.0-204 \
         libssl-dev
@@ -52,6 +51,16 @@ RUN ARCH=$(uname -m) \
     && wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-$ARCH.sh \
     && sh cmake-$CMAKE_VERSION-Linux-$ARCH.sh --skip-license --prefix=/usr \
     && rm cmake-$CMAKE_VERSION-Linux-$ARCH.sh
+
+# Install ninja
+ARG NINJA_VER=1.13.1
+ARG NINJA=ninja-$NINJA_VER
+RUN wget https://github.com/ninja-build/ninja/archive/refs/tags/v$NINJA_VER.tar.gz -O $NINJA.tar.gz \
+    && tar xf $NINJA.tar.gz && rm $NINJA.tar.gz && cd $NINJA \
+    && cmake -B build -DBUILD_TESTING=OFF \
+    && cmake --build build --parallel --config Release \
+    && cmake --build build --target install \
+    && cd .. && rm -rf $NINJA
 
 # libspl needed for curl
 ARG LIBPSL_VER=0.21.5

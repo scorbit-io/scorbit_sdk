@@ -9,10 +9,13 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-REL=8
+set -e
 
 # Determine the directory of the script
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Read REL from file DOCKER_RELEASE
+REL="$(cat "$SCRIPT_DIR/../../DOCKER_RELEASE")"
 
 # Release build
 echo "!!! Building Ubuntu 12.04 !!!"

@@ -9,13 +9,16 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-REL=8
 SCORBIT_SDK_ABI=u20
 
 set -e
 
 # Get the directory of the script and source the common functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Read REL from file DOCKER_RELEASE
+REL="$(cat "$SCRIPT_DIR/../DOCKER_RELEASE")"
+
 source "$SCRIPT_DIR/_common.sh"
 
 VERSION=$(get_version "$SCRIPT_DIR/../VERSION")
