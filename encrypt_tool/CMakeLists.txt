@@ -76,7 +76,7 @@ target_compile_definitions(
 )
 
 # Link dependencies
-target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto ZLIB::ZLIB)
+target_link_libraries(${PROJECT_NAME} PRIVATE OpenSSL::Crypto)
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE)
 endif()
