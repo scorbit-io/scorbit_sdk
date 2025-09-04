@@ -53,15 +53,17 @@ class Net : public NetBase
 
     struct GameSession {
         int sessionCounter {0};
+        std::string sessionUuid;
         GameData gameData;
         std::chrono::time_point<std::chrono::steady_clock> startedTime {
                 std::chrono::steady_clock::now()};
         GameHistory history;
     };
 
-    struct VenueMachineInfo {
-        int64_t venuemachineId {0};
+    struct MachineInfo {
         std::string opdbId;
+        std::string machineUuid;
+        std::string variantUuid;
     };
 
 public:
@@ -110,8 +112,8 @@ private:
 
     void startHeartbeatTimer();
 
-    void postUploadHistoryTask(const GameHistory &history);
-    task_t createUploadHistoryTask(const GameHistory &history);
+    void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
+    task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
 
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             SafeMultipart &&multipart);
@@ -168,8 +170,10 @@ private:
     mutable std::string m_cachedPairDeeplink;
     mutable std::string m_cachedCclaimDeeplink;
 
+    std::string m_machineChannel;
+
     DeviceInfo m_deviceInfo;
-    VenueMachineInfo m_vmInfo;
+    MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
 
     Updater m_updater;
