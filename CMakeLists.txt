@@ -107,7 +107,7 @@ if(APPLE AND NOT DEFINED LibArchive_ROOT)
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
-include(cmake/lib_centrifugo-cpp)
+include(cmake/lib_centrifugo-cpp.cmake)
 
 # Boost -----------
 
