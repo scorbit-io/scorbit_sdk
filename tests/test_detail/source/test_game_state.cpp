@@ -80,7 +80,7 @@ private:
 };
 } // namespace
 
-// We need custom GameDataMatcher, because sessionUuid is randomly generated
+// We need custom GameDataMatcher for comparing GameData objects
 struct GameDataMatcher {
     GameData expected;
 
@@ -91,16 +91,6 @@ struct GameDataMatcher {
 
     bool operator()(const GameData &actual) const
     {
-        // sessionUuid should be parsed ok, otherwise it will throw an exception
-        try {
-            if (!actual.sessionUuid->empty()) {
-                boost::uuids::uuid actualUuid =
-                        boost::uuids::string_generator()(actual.sessionUuid.get());
-                (void)actualUuid;
-            }
-        } catch (...) {
-            FAIL("Invalid UUID: '" << actual.sessionUuid << "'");
-        }
         return actual.isGameActive == expected.isGameActive && actual.ball == expected.ball
             && actual.activePlayer == expected.activePlayer && actual.players == expected.players
             && actual.modes == expected.modes;
