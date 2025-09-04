@@ -39,6 +39,7 @@ public:
     bool contains(std::string_view mode) const;
 
     std::string str() const;
+    std::string jsonStr() const;
 
 private:
     std::vector<boost::flyweight<std::string>> m_modes;

@@ -69,7 +69,7 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 
-include(../../cmake/lib_centrifugo-cpp)
+include(../../cmake/lib_centrifugo-cpp.cmake)
 
 # ---- Create binary ----
 

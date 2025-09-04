@@ -38,6 +38,7 @@
 
 using namespace std;
 namespace fs = boost::filesystem;
+using json = nlohmann::json;
 
 namespace scorbit {
 namespace detail {
@@ -58,9 +59,9 @@ constexpr auto GET_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto UPDATE_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto SESSIONS_CREATE_URL {"v2/scorbitrons/{scorbitron_uuid}/sessions/"};
 constexpr auto ENTRY_URL = "entry/";
-constexpr auto HEARTBEAT_URL {"heartbeat/"};
+// constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
-constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
+// constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 constexpr auto SCORBITRON_PARTIAL_UPDATE_URL {"v2/scorbitrons/{scorbitron_uuid}/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
@@ -71,8 +72,8 @@ constexpr auto RETURNED_TOKEN_NAME {"token"};
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
-constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
-                               "&opdb={opdb_id}&position={player_number}"};
+// constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
+//                                "&opdb={opdb_id}&position={player_number}"};
 
 using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
@@ -112,7 +113,7 @@ std::string getJwtToken(const std::string &url, const std::string &authToken)
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
     } else {
         try {
-            const auto json = nlohmann::json::parse(r.text);
+            const auto json = json::parse(r.text);
             if (const auto it = json.find("token"); it != json.end() && it->is_string()) {
                 const auto token = it->get<std::string>();
                 INF("API-CF received JWT token successfully");
@@ -265,21 +266,66 @@ void Net::sessionCreate(const GameData &data)
 
 void Net::sendGameData(const detail::GameData &data)
 {
+    const auto sessionId = data.id;
+    std::string sessionUuid;
     {
         std::lock_guard lock(m_gameSessionsMutex);
-        auto &session = m_gameSessions[data.id];
+        auto &session = m_gameSessions[sessionId];
         session.gameData = data;
         session.history.push_back(data);
+        sessionUuid = session.sessionUuid;
     }
 
-    return; // FIXME disable sending game data for now
+    const auto &gameData = m_gameSessions[sessionId].gameData;
 
     // Ensure that only single task in the queue (while another can be running).
     // However, if game session is finished (not active), post task anyway, because this is the last
     // task for that game session.
-    if (!data.isGameActive || !m_isGameDataInQueue.exchange(true)) {
-        INF("API post game data, id: {}", data.id);
-        m_worker.postGameDataQueue(createGameDataTask(data.id));
+
+    // TODO: check if centrifugo is connected, if not, skip sending game data
+    if (data.isGameActive && !sessionUuid.empty()
+        && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
+        // m_worker.postGameDataQueue(createGameDataTask(data.id));
+
+        // TODO: check if it's needed to lock mutex here
+        const auto sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+        const auto modes = json::parse(gameData.modes.jsonStr());
+        const auto currentDateTime = to_iso8601(chrono::system_clock::now());
+
+        json::array_t scores;
+        for (const auto &[playerNum, playerState] : gameData.players) {
+            // const auto playerProfile = m_playersManager.profile(playerNum);
+            json playerJson {
+                    {"position", playerNum},
+                    {"player", nullptr},
+                    // {"player",
+                    //  {{"username", playerProfile->name}, {"avatar", playerProfile->pictureUrl}}},
+                    {"score", playerState.score()},
+                    {"ball", gameData.ball},
+                    {"ball_in_progress", gameData.activePlayer == playerNum},
+                    {"modes", modes}};
+            scores.emplace_back(playerJson);
+        }
+
+        json j {{"type", "score_update"},
+                {"payload",
+                 {{"game_in_progress", true},
+                  {"scores", scores},
+                  {"metadata",
+                   {{"game", sessionUuid},
+                    {"machine", m_machineInfo.machineUuid},
+                    {"variant", m_machineInfo.variantUuid},
+                    {"sequence", sessionCounter},
+                    {"timestamp", currentDateTime},
+                    /*{"venue", "uuid"}*/}}}}};
+
+        const auto jstr = j.dump();
+        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
+
+        const auto r = m_centrifugo->publish(m_machineChannel, j);
+        if (!r) {
+            WRN("API failed to send game data: {}", r.error().message);
+        }
     }
 }
 
@@ -305,7 +351,7 @@ void Net::getConfig()
                 INF("API get config: {}", reply);
 
                 try {
-                    nlohmann::json json = nlohmann::json::parse(reply);
+                    json json = json::parse(reply);
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
 
                     const auto isPaired = [&json]() {
@@ -318,26 +364,37 @@ void Net::getConfig()
 
                     if (!isPaired) {
                         status = AuthStatus::AuthenticatedUnpaired;
-                        m_vmInfo.venuemachineId = 0;
-                        m_vmInfo.opdbId.clear();
+                        m_machineInfo.opdbId.clear();
+                        m_machineInfo.machineUuid.clear();
+                        m_machineInfo.variantUuid.clear();
                     }
 
                     if (const auto it = json.find("shortcode");
                         it != json.end() && it->is_string()) {
-                        m_cachedShortCode = it->get<std::string>();
+                        it->get_to(m_cachedShortCode);
                     }
 
-                    // FIXME: fix the parameters according to API results
-                    if (const auto it = json.find("venuemachine_id");
-                        it != json.end() && it->is_number()) {
-                        m_vmInfo.venuemachineId = it->get<int64_t>();
+                    if (const auto it = json.find("machine_id");
+                        it != json.end() && it->is_string()) {
+                        it->get_to(m_machineInfo.machineUuid);
+                        m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
+                    }
+
+                    if (const auto it = json.find("variant_id");
+                        it != json.end() && it->is_string()) {
+                        it->get_to(m_machineInfo.variantUuid);
                     }
 
                     if (const auto configIt = json.find("config");
                         configIt != json.end() && configIt->is_object()) {
-                        if (const auto opdbIt = configIt->find("opdb_id");
-                            opdbIt != configIt->end() && opdbIt->is_string()) {
-                            opdbIt->get_to(m_vmInfo.opdbId);
+                        if (const auto it = configIt->find("opdb_id");
+                            it != configIt->end() && it->is_string()) {
+                            it->get_to(m_machineInfo.opdbId);
+                        }
+
+                        if (const auto it = configIt->find("machine_id");
+                            it != configIt->end() && it->is_number_integer()) {
+                            it->get_to(m_deviceInfo.machineId);
                         }
                     }
 
@@ -386,17 +443,19 @@ const string &Net::getPairDeeplink() const
     return m_cachedPairDeeplink;
 }
 
-const string &Net::getClaimDeeplink(int player) const
+const string &Net::getClaimDeeplink(int /*player*/) const
 {
-    if (m_vmInfo.venuemachineId == 0) {
-        DBG("Venue machine ID is not set, make sure that the device is authenticated "
-            "and paired");
-        m_cachedCclaimDeeplink.clear();
-    } else {
-        m_cachedCclaimDeeplink = fmt::format(
-                CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId),
-                fmt::arg("opdb_id", m_vmInfo.opdbId), fmt::arg("player_number", player));
-    }
+    // FIXME: disable claim deeplink for now, find out what will be claim deeplink format
+
+    // if (m_machineInfo.venuemachineId == 0) {
+    //     DBG("Venue machine ID is not set, make sure that the device is authenticated "
+    //         "and paired");
+    //     m_cachedCclaimDeeplink.clear();
+    // } else {
+    //     m_cachedCclaimDeeplink = fmt::format(
+    //             CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_machineInfo.venuemachineId),
+    //             fmt::arg("opdb_id", m_machineInfo.opdbId), fmt::arg("player_number", player));
+    // }
 
     return m_cachedCclaimDeeplink;
 }
@@ -406,20 +465,21 @@ const DeviceInfo &Net::deviceInfo() const
     return m_deviceInfo;
 }
 
-void Net::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+void Net::requestTopScores(sb_score_t /*scoreFilter*/, StringCallback /*callback*/)
 {
     return; // FIXME: implement when API will be ready
 
-    m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
-        const auto endpoint = url(fmt::format(
-                LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id", m_vmInfo.venuemachineId)));
-        cpr::Parameters parameters;
-        if (scoreFilter > 0) {
-            parameters.Add({"score", fmt::format("{}", scoreFilter)});
-        }
+    // m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
+    //     const auto endpoint = url(fmt::format(
+    //             LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id",
+    //             m_machineInfo.venuemachineId)));
+    //     cpr::Parameters parameters;
+    //     if (scoreFilter > 0) {
+    //         parameters.Add({"score", fmt::format("{}", scoreFilter)});
+    //     }
 
-        return make_tuple(endpoint, parameters);
-    }));
+    //     return make_tuple(endpoint, parameters);
+    // }));
 }
 
 void Net::requestUnpair(StringCallback callback)
@@ -433,7 +493,7 @@ void Net::requestUnpair(StringCallback callback)
                 callback(error, reply);
             },
             [this]() {
-                nlohmann::json j {
+                json j {
                         {"machine", nullptr},
                 };
 
@@ -484,7 +544,7 @@ task_t Net::createAuthenticateTask()
             }
 
             // Create json string
-            nlohmann::json j {
+            json j {
                     {"provider", m_deviceInfo.provider},
                     {"uuid", m_deviceInfo.uuid},
                     {"timestamp", timestamp},
@@ -499,7 +559,7 @@ task_t Net::createAuthenticateTask()
 
             if (r.status_code == 200) {
                 try {
-                    const auto json = nlohmann::json::parse(r.text);
+                    const auto json = json::parse(r.text);
                     json[RETURNED_TOKEN_NAME].get_to(m_stoken);
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
@@ -554,7 +614,7 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
             }
 
             // Create json string
-            nlohmann::json j {
+            json j {
                     {"version", version},
                     {"type", type},
                     {"installed", installed},
@@ -616,12 +676,12 @@ task_t Net::createSessionCreateTask(int sessionId)
                                                 .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
-    nlohmann::json j {
+    json j {
             {"player_count", 1}, // FIXME: support multiple players
             {"sequence_number", sessionCounter},
             {"session_time", elapsedMilliseconds},
             {"active_on", currentDateTime},
-            {"use_lobby", true}, // FIXME: it depends on if lobby is used or not
+            {"use_lobby", false}, // FIXME: it depends on if lobby is used or not
     };
 
     auto deferredSetup = [this, body = j.dump()]() {
@@ -631,10 +691,21 @@ task_t Net::createSessionCreateTask(int sessionId)
     auto callback = [this, sessionId](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API create session: ok, id: {}, {}", sessionId, reply);
-            this_thread::sleep_for(10s);
 
             try {
-                nlohmann::json json = nlohmann::json::parse(reply);
+                json json = json::parse(reply);
+
+                if (const auto it = json.find("id"); it != json.end() && it->is_string()) {
+                    std::lock_guard lock(m_gameSessionsMutex);
+                    if (m_gameSessions.count(sessionId) > 0) {
+                        m_gameSessions[sessionId].sessionUuid = it->get<std::string>();
+                    }
+                    INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
+                        m_gameSessions[sessionId].sessionUuid,
+                        (uint64_t)&m_gameSessions[sessionId].gameData);
+                } else {
+                    ERR("API create session: can't find session UUID in reply");
+                }
 
                 // Scores array will have players' profiles
                 if (const auto it = json.find("scores"); it != json.end()) {
@@ -651,6 +722,8 @@ task_t Net::createSessionCreateTask(int sessionId)
 
 task_t Net::createGameDataTask(int sessionId)
 {
+    return {};
+
     return [this, sessionId]() {
         m_isGameDataInQueue = false;
 
@@ -685,6 +758,7 @@ task_t Net::createGameDataTask(int sessionId)
             {
                 std::lock_guard lockGameSession(m_gameSessionsMutex);
                 session = m_gameSessions[sessionId];
+
             }
 
             int64_t elapsedMilliseconds =
@@ -693,11 +767,11 @@ task_t Net::createGameDataTask(int sessionId)
                             .count();
             auto &data = session->gameData;
 
-            nlohmann::json j {
-                    {"session_uuid", data.sessionUuid},
+            json j {
+                    {"session_uuid", session->sessionUuid},
                     {"session_time", std::to_string(elapsedMilliseconds)},
                     {"active", data.isGameActive ? "true" : "false"},
-                    {"session_sequence", to_string(sessionCounter)},
+                    {"session_sequence", sessionCounter},
             };
 
             if (data.ball > 0) {
@@ -723,8 +797,8 @@ task_t Net::createGameDataTask(int sessionId)
             }
 
             INF("API sending game data for session id: {}, uuid: {}, counter: {}, active player: "
-                "{}, current ball: {}, scores: {}modes: [{}]",
-                sessionId, data.sessionUuid.get(), sessionCounter, data.activePlayer, data.ball,
+                "{}, current ball: {}, scores: {}, modes: [{}]",
+                sessionId, session->sessionUuid, sessionCounter, data.activePlayer, data.ball,
                 scoresStr, gameModes);
 
             // Reset the flag only single time. From this point there maybe another score change
@@ -743,7 +817,7 @@ task_t Net::createGameDataTask(int sessionId)
                 INF("API send game data: ok, counter: {}, {}", sessionCounter, r.text);
 
                 try {
-                    nlohmann::json json = nlohmann::json::parse(r.text);
+                    json json = json::parse(r.text);
 
                     // Scores array will have players' profiles
                     if (const auto it = json.find("scores"); it != json.end()) {
@@ -780,23 +854,27 @@ task_t Net::createGameDataTask(int sessionId)
                 std::lock_guard lock(m_gameSessionsMutex);
                 if (m_gameSessions.count(sessionId) > 0) {
                     finishedSessionHistory = std::move(m_gameSessions[sessionId].history);
-                    auto sessionUuid = m_gameSessions.at(sessionId).gameData.sessionUuid.get();
+                    auto sessionUuid = session->sessionUuid;
                     m_gameSessions.erase(sessionId);
                     INF("Game session  finished, id: {}, uuid: {}", sessionId, sessionUuid);
                 }
             }
 
             if (finishedSessionHistory) {
-                postUploadHistoryTask(*finishedSessionHistory);
+                postUploadHistoryTask(*finishedSessionHistory, session->sessionUuid);
             }
         }
 
         // DBG("On quit game data");
     };
+
 }
 
 task_t Net::createHeartbeatTask()
 {
+    return {}; // FIXME: disable heartbeat for now, implement heatbeat v2
+
+    /*
     return [this]() {
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // DBG("Before waiting heartbeat");
@@ -840,27 +918,27 @@ task_t Net::createHeartbeatTask()
                 INF("API heartbeat: ok, {}", r.text);
 
                 try {
-                    nlohmann::json json = nlohmann::json::parse(r.text);
+                    json json = json::parse(r.text);
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
                     if (const auto it = json.find("unpaired");
                         it != json.end() && it->is_boolean()) {
                         if (it->get<bool>()) {
                             status = AuthStatus::AuthenticatedUnpaired;
-                            m_vmInfo.venuemachineId = 0;
-                            m_vmInfo.opdbId.clear();
+                            m_machineInfo.venuemachineId = 0;
+                            m_machineInfo.opdbId.clear();
                         }
                     }
 
                     if (const auto it = json.find("venuemachine_id");
                         it != json.end() && it->is_number()) {
-                        m_vmInfo.venuemachineId = it->get<int64_t>();
+                        m_machineInfo.venuemachineId = it->get<int64_t>();
                     }
 
                     if (const auto configIt = json.find("config");
                         configIt != json.end() && configIt->is_object()) {
                         if (const auto opdbIt = configIt->find("opdb_id");
                             opdbIt != configIt->end() && opdbIt->is_string()) {
-                            m_vmInfo.opdbId = opdbIt->get<std::string>();
+                            m_machineInfo.opdbId = opdbIt->get<std::string>();
                         }
                     }
 
@@ -891,6 +969,7 @@ task_t Net::createHeartbeatTask()
         m_isHeartbeatInQueue = false;
         // DBG("On quit heartbeat");
     };
+*/
 }
 
 void Net::startHeartbeatTimer()
@@ -903,15 +982,14 @@ void Net::startHeartbeatTimer()
     }
 }
 
-void Net::postUploadHistoryTask(const GameHistory &history)
+void Net::postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid)
 {
-    m_worker.postQueue(createUploadHistoryTask(history));
+    m_worker.postQueue(createUploadHistoryTask(history, sessionUuid));
 }
 
-task_t Net::createUploadHistoryTask(const GameHistory &history)
+task_t Net::createUploadHistoryTask(const GameHistory &history, const string &sessionUuid)
 {
-    const auto sessionUuid = history.front().sessionUuid;
-    const auto filename = fmt::format("{}.csv", sessionUuid.get());
+    const auto filename = fmt::format("{}.csv", sessionUuid);
     const auto csv = gameHistoryToCsv(history);
     SafeMultipart multipart {cpr::Multipart {
             {"uuid", sessionUuid},
@@ -1154,7 +1232,7 @@ cpr::Url Net::url(std::string_view endpoint) const
 {
     const auto formattedEndpoint =
             fmt::format(endpoint, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid),
-                        fmt::arg("venuemachine_id", m_vmInfo.venuemachineId));
+                        fmt::arg("machine_uuid", m_machineInfo.machineUuid));
     const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, formattedEndpoint);
     DBG("API prepared URL: {}", myurl);
     return cpr::Url {myurl};
@@ -1166,7 +1244,7 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
                        [this](AuthStatus status) { return status == m_status; });
 }
 
-void Net::processPlayersProfiles(const nlohmann::json &val)
+void Net::processPlayersProfiles(const json &val)
 {
     m_playersManager.setProfiles(val);
     if (m_deviceInfo.autoDownloadPlayerPics) {
@@ -1196,6 +1274,8 @@ void Net::centrifugoSetup()
     config.name = "scorbit_sdk";
     config.version = SCORBIT_SDK_VERSION;
     config.getToken = [this]() -> std::string {
+        // TODO: check if this unique_lock needed
+
         // std::unique_lock lock(m_authMutex);
         // m_authCV.wait(lock, [this] {
         //     return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
@@ -1213,7 +1293,7 @@ void Net::centrifugoSetup()
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
     });
 
-    m_centrifugo->onConnected([] { INF("[CLIENT] Connected to Centrifugo!"); });
+    m_centrifugo->onConnected([] { INF("[API-CF Connected to Centrifugo!"); });
 
     m_centrifugo->onDisconnected([](centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
@@ -1232,12 +1312,12 @@ void Net::centrifugoSetup()
     });
 
     m_centrifugo->onPublication([](const std::string &channel, centrifugo::Publication const &pub) {
-        INF("API-CF Publication received on channel: {}", channel);
+        INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
+            pub.data.dump(), pub.offset);
         if (pub.info) {
             INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
                 pub.info->client);
         }
-        INF("API-CF Publication data: {}, offset: {}", pub.data.dump(), pub.offset);
     });
 }
 

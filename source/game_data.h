@@ -22,7 +22,6 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "player_state.h"
 #include "modes.h"
-#include <boost/flyweight.hpp>
 #include <map>
 #include <chrono>
 
@@ -38,7 +37,6 @@ struct GameData {
     std::map<sb_player_t, PlayerState> players;
     Modes modes;
 
-    boost::flyweight<std::string> sessionUuid;
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 };
 
@@ -46,7 +44,7 @@ inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::deta
 {
     return lhs.isGameActive == rhs.isGameActive && lhs.ball == rhs.ball
         && lhs.activePlayer == rhs.activePlayer && lhs.modes == rhs.modes
-        && lhs.players == rhs.players && lhs.sessionUuid == rhs.sessionUuid;
+        && lhs.players == rhs.players;
 }
 
 inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
