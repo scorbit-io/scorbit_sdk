@@ -294,7 +294,6 @@ void Net::sendGameData(const detail::GameData &data)
 
         json::array_t scores;
         for (const auto &[playerNum, playerState] : gameData.players) {
-            // const auto playerProfile = m_playersManager.profile(playerNum);
             json playerJson {
                     {"position", playerNum},
                     {"player", nullptr},
@@ -304,6 +303,12 @@ void Net::sendGameData(const detail::GameData &data)
                     {"ball", gameData.ball},
                     {"ball_in_progress", gameData.activePlayer == playerNum},
                     {"modes", modes}};
+
+            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                playerJson["player"] = {{"username", playerProfile->username},
+                                        {"avatar", playerProfile->pictureUrl}};
+            }
+
             scores.emplace_back(playerJson);
         }
 

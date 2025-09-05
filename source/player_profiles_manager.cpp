@@ -28,7 +28,7 @@ namespace detail {
 bool operator==(const PlayerProfile &lhs, const PlayerProfile &rhs)
 {
     return lhs.id == rhs.id && lhs.preferInitials == rhs.preferInitials && lhs.name == rhs.name
-        && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl;
+        && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl && lhs.url == rhs.url;
 }
 
 bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
@@ -47,27 +47,28 @@ void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
 
     decltype(m_profiles) profiles;
 
-    for (const auto &item : val) {
-        if (!item.is_object()) {
+    for (const auto &obj : val) {
+        if (!obj.is_object()) {
             WRN("Invalid player profile data: {}", val.dump());
             continue;
         }
 
         try {
-            sb_player_t playerNum = item["position"].get<sb_player_t>();
+            sb_player_t playerNum = obj["position"].get<sb_player_t>();
 
-            if (item["player"].is_object()) {
-                const auto &player = item["player"];
+            if (const auto it = obj.find("player"); it != obj.end() && it->is_object()) {
+                const auto &player = *it;
 
                 PlayerProfile profile;
                 player["id"].get_to(profile.id);
-                player["prefer_initials"].get_to(profile.preferInitials);
-                player["cached_display_name"].get_to(profile.name);
+                profile.preferInitials = player.value("prefer_initials", false);
+                player["username"].get_to(profile.username);
+                player["display_name"].get_to(profile.name);
                 player["initials"].get_to(profile.initials);
+                player["url"].get_to(profile.url);
 
-                const auto pictureIt = player.find("profile_picture");
-                if (pictureIt != player.end() && pictureIt->is_string()) {
-                    pictureIt->get_to(profile.pictureUrl);
+                if (const auto it = player.find("avatar"); it != player.end() && it->is_string()) {
+                    it->get_to(profile.pictureUrl);
                 } else {
                     profile.pictureUrl.clear();
                 }
@@ -75,7 +76,7 @@ void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
                 profiles.emplace(playerNum, std::move(profile));
             }
         } catch (const std::exception &e) {
-            ERR("Failed to parse player profile: {}, item: {}", e.what(), item.dump());
+            ERR("Failed to parse player profile: {}, item: {}", e.what(), obj.dump());
         }
     }
 
