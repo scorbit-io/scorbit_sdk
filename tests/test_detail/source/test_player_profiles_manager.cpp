@@ -34,11 +34,13 @@ TEST_CASE("PlayerProfile 1 player")
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -52,8 +54,8 @@ TEST_CASE("PlayerProfile 1 player")
 
     auto p1 = pm.profile(1);
     REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
-    CHECK(p1->name == "dilshodm");
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
+    CHECK(p1->name == "Dilshod M");
     CHECK(p1->initials == "DTM");
     CHECK_FALSE(p1->preferInitials);
     CHECK(p1->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg");
@@ -74,11 +76,13 @@ TEST_CASE("PlayerProfile 2 players")
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           },
           {
@@ -93,21 +97,25 @@ TEST_CASE("PlayerProfile 2 players")
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           },
           {
             "position": 2,
             "player": {
-              "id": 48,
-              "cached_display_name": "dilshodm2",
+              "id": "821eb8c8-e48f-4b71-84b2-7ae9382f0e60",
+              "username": "dilshodm2",
+              "display_name": "Dilshod M2",
               "initials": "DT2",
               "prefer_initials": true,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm2/"
             }
           }
         ]
@@ -128,8 +136,8 @@ TEST_CASE("PlayerProfile 2 players")
 
     p2 = pm.profile(2);
     REQUIRE(p2 != nullptr);
-    CHECK(p2->id == 48);
-    CHECK(p2->name == "dilshodm2");
+    CHECK(p2->id == "821eb8c8-e48f-4b71-84b2-7ae9382f0e60");
+    CHECK(p2->name == "Dilshod M2");
     CHECK(p2->initials == "DT2");
     CHECK(p2->preferInitials);
     CHECK(p2->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
@@ -152,11 +160,13 @@ TEST_CASE("Player profile with null profile_picture")
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": null
+              "avatar": null,
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -170,7 +180,7 @@ TEST_CASE("Player profile with null profile_picture")
 
     auto p1 = pm.profile(1);
     REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
     CHECK(p1->pictureUrl.empty());
 }
 
@@ -181,10 +191,12 @@ TEST_CASE("Player profile without profile_picture")
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
-              "prefer_initials": false
+              "prefer_initials": false,
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -198,5 +210,5 @@ TEST_CASE("Player profile without profile_picture")
 
     auto p1 = pm.profile(1);
     REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
 }
