@@ -204,11 +204,12 @@ bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player)
     return handle->gameState.getPlayerProfile(player) != nullptr;
 }
 
-int64_t sb_get_player_id(sb_game_handle_t handle, sb_player_t player)
+int64_t sb_get_player_id(sb_game_handle_t /*handle*/, sb_player_t /*player*/)
 {
-    if (auto profile = handle->gameState.getPlayerProfile(player)) {
-        return static_cast<int>(profile->id);
-    }
+    // FIXME: this should be string
+    // if (auto profile = handle->gameState.getPlayerProfile(player)) {
+    //     return static_cast<int>(profile->id);
+    // }
     return -1; // Invalid player ID
 }
 

@@ -41,11 +41,13 @@ constexpr auto MAX_PICTURES_CACHED = 8; // Maximum number of pictures to cache
  * It is used to display player information in the UI.
  */
 struct PlayerProfile {
-    int64_t id;             // The player's ID
     bool preferInitials;    // Reference to either display_name or initials
+    std::string id;         // The player's ID
+    std::string username;   // The player's username
     std::string name;       // The player's name to display
     std::string initials;   // The player's initials, e.g. "DTM"
     std::string pictureUrl; // The URL to the player's profile picture
+    std::string url;        // The URL to the player's profile page
 };
 
 using Picture = std::vector<uint8_t>; // The profile picture binary (jpg)

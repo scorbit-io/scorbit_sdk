@@ -88,19 +88,7 @@ CPMAddPackage(
 
 find_package(OpenSSL REQUIRED)
 
-find_package(CURL 8.0.0)
-if(CURL_FOUND)
-    set(CPR_USE_SYSTEM_CURL ON)
-endif()
-set(BUILD_SHARED_LIBS OFF)
-CPMAddPackage(
-    NAME cpr
-    GIT_TAG 1.11.2
-    GITHUB_REPOSITORY libcpr/cpr
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    GIT_SHALLOW TRUE
-)
+include(cmake/lib_cpr.cmake)
 
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")

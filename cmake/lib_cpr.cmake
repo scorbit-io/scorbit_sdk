@@ -1,0 +1,16 @@
+find_package(CURL 8.0.0)
+if(CURL_FOUND)
+    set(CPR_OPTIONS "CPR_USE_SYSTEM_CURL ON")
+else()
+    unset(CURL_LIBRARIES)
+endif()
+
+CPMAddPackage(
+    NAME cpr
+    GIT_TAG 1.11.2
+    GITHUB_REPOSITORY libcpr/cpr
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+    GIT_SHALLOW TRUE
+    OPTIONS "BUILD_SHARED_LIBS OFF" "BUILD_CPR_TESTS OFF" "${CPR_OPTIONS}"
+)
