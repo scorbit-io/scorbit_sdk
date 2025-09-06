@@ -377,6 +377,7 @@ void Net::getConfig()
                     if (const auto it = json.find("shortcode");
                         it != json.end() && it->is_string()) {
                         it->get_to(m_cachedShortCode);
+                        m_shortCodeCV.notify_all();
                     }
 
                     if (const auto it = json.find("machine_id");
@@ -432,6 +433,25 @@ void Net::requestPairCode(StringCallback callback)
         callback(Error::Success, m_cachedShortCode);
         return;
     }
+
+    // If shortcode is not cached, wait for it to be received
+    m_worker.postQueue([this, callback = std::move(callback)]() {
+        std::unique_lock lock(m_shortCodeMutex);
+        m_shortCodeCV.wait(lock, [this] {
+            return !m_cachedShortCode.empty() || m_stop;
+        });
+
+        if (m_stop) {
+            callback(Error::ApiError, "");
+            return;
+        }
+
+        if (!m_cachedShortCode.empty()) {
+            callback(Error::Success, m_cachedShortCode);
+        } else {
+            callback(Error::ApiError, "");
+        }
+    });
 }
 
 const string &Net::getMachineUuid() const
