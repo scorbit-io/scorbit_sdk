@@ -156,8 +156,10 @@ private:
 
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
     std::condition_variable m_authCV;
+    std::condition_variable m_shortCodeCV;
     std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
+    std::mutex m_shortCodeMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stopHeartbeatTimer {false};
