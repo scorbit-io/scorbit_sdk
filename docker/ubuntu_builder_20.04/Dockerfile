@@ -115,4 +115,5 @@ RUN add-apt-repository -y ppa:deadsnakes/ppa \
 
 RUN apt-get install -y --no-install-recommends \
         uuid-dev \
-        libusb-1.0-0-dev
+        libusb-1.0-0-dev \
+        libsystemd-dev
