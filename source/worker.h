@@ -34,6 +34,12 @@ using task_t = std::function<void()>;
 class Worker
 {
 public:
+    enum class Timer {
+        Heartbeat,
+        TokenRefresh,
+    };
+
+public:
     Worker() = default;
     ~Worker();
 
@@ -47,12 +53,14 @@ public:
     void postGameDataQueue(task_t func);
     void postHeartbeatQueue(task_t func);
 
-    void runTimer(std::chrono::steady_clock::duration delay, task_t func);
+    void startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func);
+    void stopTimer(Timer timerType);
 
     auto &centrifugoStrand() { return m_centrifugoStrand; }
 
 private:
     void run();
+    auto timerStrand(Timer timerType) -> boost::asio::steady_timer *;
 
 private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
@@ -71,6 +79,7 @@ private:
     boost::thread_group m_threads;
 
     boost::asio::steady_timer m_heartbeatTimer {m_ioc};
+    boost::asio::steady_timer m_tokenRefreshTimer {m_ioc};
 };
 
 } // namespace detail

@@ -20,10 +20,30 @@
 #include "worker.h"
 #include "logger.h"
 
+constexpr auto NUM_OF_THREADS = 4;
+
+using namespace scorbit::detail;
+
+// Define custom formatter
+template<>
+struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
+    auto format(Worker::Timer c, fmt::format_context &ctx) const
+    {
+        std::string_view name = "unknown";
+        switch (c) {
+        case Worker::Timer::Heartbeat:
+            name = "Heartbeat";
+            break;
+        case Worker::Timer::TokenRefresh:
+            name = "TokenRefresh";
+            break;
+        }
+        return fmt::formatter<std::string_view>::format(name, ctx);
+    }
+};
+
 namespace scorbit {
 namespace detail {
-
-constexpr auto NUM_OF_THREADS = 4;
 
 Worker::~Worker()
 {
@@ -45,6 +65,7 @@ void Worker::start()
 
 void Worker::stop()
 {
+    INF("Stopping worker...");
     if (!m_running)
         return;
 
@@ -73,14 +94,57 @@ void Worker::postHeartbeatQueue(task_t func)
     boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
-void Worker::runTimer(std::chrono::steady_clock::duration delay, task_t func)
+void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)
 {
-    m_heartbeatTimer.expires_after(delay);
-    m_heartbeatTimer.async_wait([func = std::move(func)](const boost::system::error_code &ec) {
+    auto *timer = timerStrand(timerType);
+    if (timer == nullptr) {
+        return;
+    }
+
+    DBG("Timer {} started", timerType);
+
+    timer->expires_after(delay);
+    timer->async_wait([timerType, func = std::move(func)](const boost::system::error_code &ec) {
         if (!ec) {
             func();
+        } else if (ec == boost::asio::error::operation_aborted) {
+            DBG("Timer {} cancelled", timerType);
+        } else {
+            ERR("Timer error: {}", ec.to_string());
         }
     });
+}
+
+void Worker::stopTimer(Timer timerType)
+{
+    auto *timer = timerStrand(timerType);
+    if (timer == nullptr) {
+        return;
+    }
+
+    DBG("Timer {} stopped", timerType);
+
+    try {
+        timer->cancel();
+    } catch (const std::exception &e) {
+        ERR("Failed to cancel timer {}: {}", timerType, e.what());
+        return;
+    }
+}
+
+auto Worker::timerStrand(Timer timerType) -> boost::asio::steady_timer *
+{
+    switch (timerType) {
+    case Timer::Heartbeat:
+        return &m_heartbeatTimer;
+
+    case Timer::TokenRefresh:
+        return &m_tokenRefreshTimer;
+
+    default:
+        ERR("Worker: unknown timer type {}", static_cast<int>(timerType));
+        return nullptr;
+    }
 }
 
 } // namespace detail

@@ -80,6 +80,7 @@ using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
+constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
@@ -178,7 +179,8 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
 
 Net::~Net()
 {
-    m_stopHeartbeatTimer = true;
+    stopHeartbeatTimer();
+    stopTokenRefreshTimer();
     m_stop = true;
     m_authCV.notify_all();
 }
@@ -549,11 +551,13 @@ task_t Net::createAuthenticateTask()
     return [this]() {
         std::lock_guard lock(m_authMutex);
 
-        if (m_status != AuthStatus::NotAuthenticated) {
+        const auto startServices = !m_isRefreshingToken;
+
+        if (m_status != AuthStatus::NotAuthenticated && !m_isRefreshingToken) {
             return;
         }
 
-        m_stoken.clear();
+        m_isRefreshingToken = true;
         m_status = AuthStatus::Authenticating;
         std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
         ByteArray message(m_deviceInfo.uuid);
@@ -563,6 +567,7 @@ task_t Net::createAuthenticateTask()
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
                 m_status = AuthStatus::AuthenticationFailed;
+                stopTokenRefreshTimer();
                 m_authCV.notify_all();
                 return;
             }
@@ -584,35 +589,28 @@ task_t Net::createAuthenticateTask()
             if (r.status_code == 200) {
                 try {
                     const auto json = json::parse(r.text);
-                    json[RETURNED_TOKEN_NAME].get_to(m_stoken);
-
-                    // Parse JWT token expiration time
-                    const auto expiration = parseJwtExpiration(m_stoken);
-                    if (expiration) {
-                        m_tokenExpiration = *expiration;
-                        const auto now = std::chrono::system_clock::now();
-                        const auto timeUntilExpiration =
-                                std::chrono::duration_cast<std::chrono::seconds>(*expiration - now);
-                        INF("API authentication successful! JWT token expires in {} seconds",
-                            timeUntilExpiration.count());
-                    } else {
-                        WRN("API authentication successful but failed to parse JWT token "
-                            "expiration");
+                    {
+                        std::unique_lock tokenLock(m_tokenMutex);
+                        json[RETURNED_TOKEN_NAME].get_to(m_stoken);
                     }
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
                     INF("API authentication successful! Checking pairing status...");
 
+                    startTokenRefreshTimer(); // Start/restart token refresh timer
                     m_authCV.notify_all();
 
-                    getConfig(); // Get config after authentication, it also checks pair status
-                    sendHeartbeat();
-                    startHeartbeatTimer();
-                    centrifugoConnect();
+                    if (startServices) {
+                        getConfig(); // Get config after authentication, it also checks pair status
+                        sendHeartbeat();
+                        startHeartbeatTimer();
+                        centrifugoConnect();
+                    }
                     break;
                 } catch (const std::exception &e) {
                     ERR("Error parsing authentication reply: {}", e.what());
                     m_status = AuthStatus::AuthenticationFailed;
+                    stopTokenRefreshTimer();
                     m_authCV.notify_all();
                     return;
                 }
@@ -623,6 +621,7 @@ task_t Net::createAuthenticateTask()
                 timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
             } else {
                 m_status = AuthStatus::AuthenticationFailed;
+                stopTokenRefreshTimer();
                 const auto msg = fmt::format("API authentication failed: code {}, {}",
                                              r.status_code, r.error.message);
                 ERR("{}", msg);
@@ -682,6 +681,7 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
             }
 
             m_status = AuthStatus::NotAuthenticated;
+            stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
         }
@@ -719,7 +719,7 @@ task_t Net::createSessionCreateTask(int sessionId)
             {"sequence_number", sessionCounter},
             {"session_time", elapsedMilliseconds},
             {"active_on", currentDateTime},
-            {"use_lobby", false}, // FIXME: it depends on if lobby is used or not
+            {"use_lobby", true}, // FIXME: it depends on if lobby is used or not
     };
 
     auto deferredSetup = [this, body = j.dump()]() {
@@ -879,6 +879,7 @@ task_t Net::createGameDataTask(int sessionId)
             }
 
             m_status = AuthStatus::NotAuthenticated;
+            stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
         }
@@ -998,6 +999,7 @@ task_t Net::createHeartbeatTask()
             }
 
             m_status = AuthStatus::NotAuthenticated;
+            stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
         }
@@ -1010,12 +1012,39 @@ task_t Net::createHeartbeatTask()
 
 void Net::startHeartbeatTimer()
 {
-    if (!m_stopHeartbeatTimer) {
-        m_worker.runTimer(HEARTBEAT_TIME, [this] {
-            startHeartbeatTimer();
-            sendHeartbeat();
+    m_worker.startTimer(Worker::Timer::Heartbeat, HEARTBEAT_TIME, [this] {
+        startHeartbeatTimer();
+        sendHeartbeat();
+    });
+}
+
+void Net::stopHeartbeatTimer()
+{
+    m_worker.stopTimer(Worker::Timer::Heartbeat);
+}
+
+void Net::startTokenRefreshTimer()
+{
+    // Calculate time until token expires minus TOKEN_BEFORE_EXPIRY
+    const auto timeUntilExpiration = getTimeUntilTokenExpiration();
+
+    if (timeUntilExpiration && *timeUntilExpiration > REFRESH_TOKEN_BEFORE_EXPIRY) {
+        const auto refreshDelay = *timeUntilExpiration - REFRESH_TOKEN_BEFORE_EXPIRY;
+        INF("API starting token refresh timer, will refresh in {} seconds", refreshDelay.count());
+
+        m_worker.startTimer(Worker::Timer::TokenRefresh, refreshDelay, [this] {
+            INF("API token refresh timer triggered, requesting new token...");
+            m_isRefreshingToken = true;
+            authenticate();
         });
+    } else {
+        WRN("API token refresh timer not started: token expires too soon or is invalid");
     }
+}
+
+void Net::stopTokenRefreshTimer()
+{
+    m_worker.stopTimer(Worker::Timer::TokenRefresh);
 }
 
 void Net::postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid)
@@ -1121,6 +1150,7 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             }
 
             m_status = AuthStatus::NotAuthenticated;
+            stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
         }
@@ -1259,6 +1289,7 @@ cpr::Header Net::header() const
 cpr::Header Net::authHeader() const
 {
     auto h = header();
+    std::shared_lock tokenLock(m_tokenMutex);
     h["Authorization"] = fmt::format("{} {}", REST_TOKEN, m_stoken);
     h["Content-Type"] = "application/json";
     return h;
@@ -1309,6 +1340,7 @@ void Net::centrifugoSetup()
     centrifugo::ClientConfig config;
     config.name = "scorbit_sdk";
     config.version = SCORBIT_SDK_VERSION;
+    config.refreshTokenBeforeExpiry = 3min;
     config.getToken = [this]() -> std::string {
         // TODO: check if this unique_lock needed
 
@@ -1318,6 +1350,7 @@ void Net::centrifugoSetup()
         // });
 
         // Get JWT token for Centrifugo connection
+        std::shared_lock lock(m_tokenMutex);
         return getJwtToken(url(CENTRIFUGO_TOKEN_URL).str(), m_stoken);
     };
 
@@ -1365,30 +1398,9 @@ void Net::centrifugoConnect()
     }
 }
 
-std::optional<std::chrono::system_clock::time_point> Net::getTokenExpiration() const
-{
-    std::lock_guard lock(m_authMutex);
-    if (m_stoken.empty()) {
-        return std::nullopt;
-    }
-    return m_tokenExpiration;
-}
-
-bool Net::isTokenExpired() const
-{
-    std::lock_guard lock(m_authMutex);
-    if (m_stoken.empty()) {
-        return true;
-    }
-    return isJwtTokenExpired(m_stoken);
-}
-
 std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
 {
-    std::lock_guard lock(m_authMutex);
-    if (m_stoken.empty()) {
-        return std::nullopt;
-    }
+    std::shared_lock tokenLock(m_tokenMutex);
     return getJwtTokenTimeUntilExpiration(m_stoken);
 }
 

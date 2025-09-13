@@ -31,6 +31,7 @@
 #include <functional>
 #include <chrono>
 #include <condition_variable>
+#include <shared_mutex>
 
 namespace scorbit {
 namespace detail {
@@ -111,6 +112,9 @@ private:
     task_t createHeartbeatTask();
 
     void startHeartbeatTimer();
+    void stopHeartbeatTimer();
+    void startTokenRefreshTimer();
+    void stopTokenRefreshTimer();
 
     void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
     task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
@@ -151,9 +155,6 @@ private:
     void centrifugoSetup();
     void centrifugoConnect();
 
-    // JWT token expiration utilities
-    std::optional<std::chrono::system_clock::time_point> getTokenExpiration() const;
-    bool isTokenExpired() const;
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
 private:
@@ -165,10 +166,11 @@ private:
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;
+    mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
-    std::atomic_bool m_stopHeartbeatTimer {false};
     std::atomic_bool m_stop {false};
+    std::atomic_bool m_isRefreshingToken {false};
 
     std::string m_hostname;
     std::string m_cfHostname;
