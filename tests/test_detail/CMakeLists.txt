@@ -119,6 +119,9 @@ target_sources(
         ../../source/utils/date_time_parser.h
         ../../source/utils/date_time_parser.cpp
         source/test_date_time_parser.cpp
+        ../../source/utils/jwt_parser.h
+        ../../source/utils/jwt_parser.cpp
+        source/test_jwt_parser.cpp
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp

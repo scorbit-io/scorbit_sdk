@@ -151,13 +151,18 @@ private:
     void centrifugoSetup();
     void centrifugoConnect();
 
+    // JWT token expiration utilities
+    std::optional<std::chrono::system_clock::time_point> getTokenExpiration() const;
+    bool isTokenExpired() const;
+    std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
+
 private:
     SignerCallback m_signer;
 
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
     std::condition_variable m_authCV;
     std::condition_variable m_shortCodeCV;
-    std::mutex m_authMutex;
+    mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;
     std::atomic_bool m_isGameDataInQueue {false};
@@ -168,6 +173,7 @@ private:
     std::string m_hostname;
     std::string m_cfHostname;
     std::string m_stoken;
+    std::chrono::system_clock::time_point m_tokenExpiration;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
     mutable std::string m_cachedCclaimDeeplink;

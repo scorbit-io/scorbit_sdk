@@ -25,6 +25,7 @@
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
 #include "utils/date_time_parser.h"
+#include "utils/jwt_parser.h"
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
 #include <fmt/format.h>
@@ -437,9 +438,7 @@ void Net::requestPairCode(StringCallback callback)
     // If shortcode is not cached, wait for it to be received
     m_worker.postQueue([this, callback = std::move(callback)]() {
         std::unique_lock lock(m_shortCodeMutex);
-        m_shortCodeCV.wait(lock, [this] {
-            return !m_cachedShortCode.empty() || m_stop;
-        });
+        m_shortCodeCV.wait(lock, [this] { return !m_cachedShortCode.empty() || m_stop; });
 
         if (m_stop) {
             callback(Error::ApiError, "");
@@ -586,6 +585,20 @@ task_t Net::createAuthenticateTask()
                 try {
                     const auto json = json::parse(r.text);
                     json[RETURNED_TOKEN_NAME].get_to(m_stoken);
+
+                    // Parse JWT token expiration time
+                    const auto expiration = parseJwtExpiration(m_stoken);
+                    if (expiration) {
+                        m_tokenExpiration = *expiration;
+                        const auto now = std::chrono::system_clock::now();
+                        const auto timeUntilExpiration =
+                                std::chrono::duration_cast<std::chrono::seconds>(*expiration - now);
+                        INF("API authentication successful! JWT token expires in {} seconds",
+                            timeUntilExpiration.count());
+                    } else {
+                        WRN("API authentication successful but failed to parse JWT token "
+                            "expiration");
+                    }
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
                     INF("API authentication successful! Checking pairing status...");
@@ -783,7 +796,6 @@ task_t Net::createGameDataTask(int sessionId)
             {
                 std::lock_guard lockGameSession(m_gameSessionsMutex);
                 session = m_gameSessions[sessionId];
-
             }
 
             int64_t elapsedMilliseconds =
@@ -892,7 +904,6 @@ task_t Net::createGameDataTask(int sessionId)
 
         // DBG("On quit game data");
     };
-
 }
 
 task_t Net::createHeartbeatTask()
@@ -1352,6 +1363,33 @@ void Net::centrifugoConnect()
         ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
             res.error().message);
     }
+}
+
+std::optional<std::chrono::system_clock::time_point> Net::getTokenExpiration() const
+{
+    std::lock_guard lock(m_authMutex);
+    if (m_stoken.empty()) {
+        return std::nullopt;
+    }
+    return m_tokenExpiration;
+}
+
+bool Net::isTokenExpired() const
+{
+    std::lock_guard lock(m_authMutex);
+    if (m_stoken.empty()) {
+        return true;
+    }
+    return isJwtTokenExpired(m_stoken);
+}
+
+std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
+{
+    std::lock_guard lock(m_authMutex);
+    if (m_stoken.empty()) {
+        return std::nullopt;
+    }
+    return getJwtTokenTimeUntilExpiration(m_stoken);
 }
 
 } // namespace detail
