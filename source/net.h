@@ -32,6 +32,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <shared_mutex>
+#include <unordered_map>
 
 namespace scorbit {
 namespace detail {
@@ -52,6 +53,11 @@ class Net : public NetBase
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
     using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
 
+    struct ScoreMetadata {
+        uint64_t id {0}; // score id
+        bool isNfcVerified {false};
+    };
+
     struct GameSession {
         int sessionCounter {0};
         std::string sessionUuid;
@@ -59,6 +65,7 @@ class Net : public NetBase
         std::chrono::time_point<std::chrono::steady_clock> startedTime {
                 std::chrono::steady_clock::now()};
         GameHistory history;
+        std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadata;
     };
 
     struct MachineInfo {
@@ -150,7 +157,7 @@ private:
 
     cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
-    void processPlayersProfiles(const nlohmann::json &val);
+    void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
     void centrifugoSetup();
     void centrifugoConnect();

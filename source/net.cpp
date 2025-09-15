@@ -271,15 +271,16 @@ void Net::sendGameData(const detail::GameData &data)
 {
     const auto sessionId = data.id;
     std::string sessionUuid;
+    GameSession *gameSession = nullptr;
     {
         std::lock_guard lock(m_gameSessionsMutex);
-        auto &session = m_gameSessions[sessionId];
-        session.gameData = data;
-        session.history.push_back(data);
-        sessionUuid = session.sessionUuid;
+        gameSession = &m_gameSessions[sessionId];
+        gameSession->gameData = data;
+        gameSession->history.push_back(data);
+        sessionUuid = gameSession->sessionUuid;
     }
 
-    const auto &gameData = m_gameSessions[sessionId].gameData;
+    const auto &gameData = gameSession->gameData;
 
     // Ensure that only single task in the queue (while another can be running).
     // However, if game session is finished (not active), post task anyway, because this is the last
@@ -305,6 +306,8 @@ void Net::sendGameData(const detail::GameData &data)
 
             json playerScoreJson {
                     {"position", playerNum},
+                    {"id", gameSession->scoresMetadata[playerNum].id},
+                    {"is_nfc_verified", gameSession->scoresMetadata[playerNum].isNfcVerified},
                     {"player", playerProfileJson},
                     {"score", playerState.score()},
                     {"ball", gameData.ball},
@@ -734,21 +737,23 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
             try {
                 json json = json::parse(reply);
 
+                GameSession *gameSession = nullptr;
+
                 if (const auto it = json.find("id"); it != json.end() && it->is_string()) {
                     std::lock_guard lock(m_gameSessionsMutex);
-                    if (m_gameSessions.count(sessionId) > 0) {
-                        m_gameSessions[sessionId].sessionUuid = it->get<std::string>();
-                    }
+
+                    gameSession = &m_gameSessions[sessionId];
+                    it->get_to(gameSession->sessionUuid);
+
                     INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
-                        m_gameSessions[sessionId].sessionUuid,
-                        (uint64_t)&m_gameSessions[sessionId].gameData);
+                        gameSession->sessionUuid, (uint64_t)&gameSession->gameData);
                 } else {
                     ERR("API create session: can't find session UUID in reply");
                 }
 
                 // Scores array will have players' profiles
                 if (const auto it = json.find("scores"); it != json.end()) {
-                    processPlayersProfiles(*it);
+                    processScoresAndPlayersProfiles(*it, *gameSession);
                 }
             } catch (const std::exception &e) {
                 ERR("API error parsing game data reply: {}", e.what());
@@ -859,7 +864,7 @@ task_t Net::createGameDataTask(int sessionId)
 
                     // Scores array will have players' profiles
                     if (const auto it = json.find("scores"); it != json.end()) {
-                        processPlayersProfiles(*it);
+                        // processScoresAndPlayersProfiles(*it);
                     }
                 } catch (const std::exception &e) {
                     ERR("API error parsing game data reply: {}", e.what());
@@ -1312,9 +1317,22 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
                        [this](AuthStatus status) { return status == m_status; });
 }
 
-void Net::processPlayersProfiles(const json &val)
+void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSession)
 {
+    // Process scores
+    try {
+        for (const auto &obj : val) {
+            sb_player_t playerNum = obj["position"].get<sb_player_t>();
+            obj["id"].get_to(gameSession.scoresMetadata[playerNum].id);
+            obj["is_nfc_verified"].get_to(gameSession.scoresMetadata[playerNum].isNfcVerified);
+        }
+    } catch (const std::exception &e) {
+        ERR("Error parsing player score: {}", e.what());
+    }
+
+    // Process players profiles
     m_playersManager.setProfiles(val);
+
     if (m_deviceInfo.autoDownloadPlayerPics) {
         const auto toDownload = m_playersManager.picturesToDownload();
         for (const auto &[playerNum, pictureUrl] : toDownload) {
