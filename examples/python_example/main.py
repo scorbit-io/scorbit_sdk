@@ -132,8 +132,18 @@ def main():
                 "Unpairing successful" if error == 0 else f"Error: {error}"
             ))
 
-        if is_game_just_started(i):
+        if is_game_just_started(i): # started by Start Button
             gs.set_game_started()
+        else:
+            is_requested, players_count = gs.is_game_start_requested()
+            if is_requested:
+                # Game was started from the app and requested to start the game on the machine
+                # call function to start the game on the machine with players_count players ...
+
+                # It's not necessary to call gs.set_game_started(), as it's automaticlly called when
+                # request arrived and will be be ignored here
+                print(f"Game start requested with {players_count} players!")
+
 
         if is_game_active(i):
             # Let's pretend that this players_num is current number of players in the game

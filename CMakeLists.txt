@@ -100,7 +100,7 @@ include(cmake/lib_centrifugo-cpp.cmake)
 # Boost -----------
 
 set(BOOST_COMPILED_COMPONENTS filesystem thread url)
-set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll)
+set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
 include(cmake/lib_boost.cmake)
 
 include(cmake/lib_nlohmann_json.cmake)
@@ -173,6 +173,7 @@ target_sources(
         source/player_profiles_manager.cpp
         source/utils/lru_cache.hpp
         source/safe_multipart.h
+        source/game_start_origin.h
 )
 
 # Generate the header from the template

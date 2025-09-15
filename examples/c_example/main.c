@@ -52,7 +52,7 @@ int isGameFinished(int i)
     return i == 99;
 }
 
-int isGameJustStarted(int i)
+int isGameJustStartedByStartButton(int i)
 {
     return i == 5;
 }
@@ -260,6 +260,8 @@ int main(void)
     char player_names[4][32];
     memset(player_names, 0, sizeof(player_names));
 
+    int players_count = 1;
+
     printf("Simple example of Scorbit SDK usage\n");
 
     // Setup logger
@@ -276,7 +278,9 @@ int main(void)
     // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
     sb_request_pair_code(gs, &shortcode_callback, NULL);
 
-    // Main loop which is typically an infinite loop, but this example runs for 10 cycles
+
+
+    // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
         // Check the auth (networking) status. It's not necessary, just for demo
         if (i % 10 == 0) {
@@ -291,13 +295,22 @@ int main(void)
             sb_set_game_finished(gs);
         }
 
-        if (isGameJustStarted(i)) {
-            // This will start new game session with player1 score 0 and current ball 1.
+        if (isGameJustStartedByStartButton(i)) {
+            // Game was just started by player pressing start button
 
             // In the same game cycle before commit it can be set new score, active player, etc.
+            // This will start new game session with player1 score 0 and current ball 1.
             // So, player1's initial score will be not 0, but the one set in the current cycle
             sb_set_game_started(gs);
+        } else if (sb_is_game_start_requested(gs, &players_count)) {
+            // Game was started from the app and requested to start the game on the machine
+            // call function to start the game on the machine with players_count players ...
+
+            // It's not necessary to call sb_set_game_started, as it's automaticlly called when
+            // request arrived and will be be ignored here
+            printf("Started from mobile app with %d players!\n", players_count);
         }
+
 
         if (isGameActive(i)) {
             // Let's pretend that this players_num is current number of players in the game

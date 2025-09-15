@@ -19,9 +19,11 @@
 
 #pragma once
 
+#include "game_start_origin.h"
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
 #include "player_profiles_manager.h"
+#include <boost/signals2.hpp>
 #include <string>
 #include <optional>
 
@@ -32,6 +34,8 @@ struct GameData;
 
 class NetBase
 {
+    using GameStartRequestedSignal = boost::signals2::signal<void(int playersCount)>;
+
 public:
     NetBase() = default;
     virtual ~NetBase() = default;
@@ -42,7 +46,7 @@ public:
 
     virtual void updateConfig(const std::string &type, const std::string &version, bool installed,
                               std::optional<std::string> log = std::nullopt) = 0;
-    virtual void sessionCreate(const detail::GameData &data) = 0;
+    virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin) = 0;
     virtual void sendGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
     virtual void getConfig() = 0;
@@ -63,6 +67,21 @@ public:
                                 size_t reserveBufferSize) = 0;
 
     virtual PlayerProfilesManager &playersManager() = 0;
+
+    // --------------------------------------------------------------------------------------
+
+    void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
+    {
+        m_gameStartRequestedSignal.connect(subscriber);
+    }
+
+    void emitGameStartRequested(int playersCount)
+    {
+        m_gameStartRequestedSignal(playersCount);
+    }
+
+private:
+    GameStartRequestedSignal m_gameStartRequestedSignal;
 };
 
 } // namespace detail

@@ -442,6 +442,34 @@ const char *sb_get_player_picture_url(sb_game_handle_t handle, sb_player_t playe
 SCORBIT_SDK_EXPORT
 const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player, size_t *size);
 
+// -------------------------- GAME START FROM MOBILE APP --------------------------------------
+
+/**
+ * @brief Checks if a game start has been requested from the mobile app.
+ *
+ * This function checks if a game start has been requested from the mobile app. If a request is
+ * found, it retrieves the number of players specified in the request.
+ *
+ * It only checks for new requests, and after this function is called, the internal state is
+ * cleared. Subsequent calls will return false until a new request arrives.
+ *
+ * Retrieve players' info using @ref sb_has_player_info, @ref sb_get_player_id,
+ * @ref sb_get_player_name, @ref sb_get_player_initials, @ref sb_get_player_picture_url, and
+ * @ref sb_get_player_picture.
+ *
+ * @note This function should be called periodically while the game is in an idle state to check
+ * for new game start requests. If a request is found, the function returns true and provides the
+ * number of players. If no request is found, it returns false.
+ *
+ * @param handle A game handle created using @ref sb_create_game_state.
+ * @param players_count [out] A pointer to an integer that will receive the number of players if a
+ * game start is requested. If no request is found, this value remains unchanged.
+ * @return true if a game start has been requested; false otherwise.
+ */
+
+SCORBIT_SDK_EXPORT
+bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count);
+
 #ifdef __cplusplus
 }
 #endif

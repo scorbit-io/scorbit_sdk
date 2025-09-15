@@ -254,7 +254,7 @@ void Net::updateConfig(const std::string &type, const std::string &version, bool
     m_worker.postQueue(updateConfigTask(type, version, std::move(installed), std::move(log)));
 }
 
-void Net::sessionCreate(const GameData &data)
+void Net::sessionCreate(const GameData &data, GameStartOrigin origin)
 {
     {
         std::lock_guard lock(m_gameSessionsMutex);
@@ -264,7 +264,7 @@ void Net::sessionCreate(const GameData &data)
     }
 
     INF("API post queue create session, id: {}", data.id);
-    m_worker.postQueue(createSessionCreateTask(data.id));
+    m_worker.postQueue(createSessionCreateTask(data.id, origin));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -297,35 +297,35 @@ void Net::sendGameData(const detail::GameData &data)
 
         json::array_t scores;
         for (const auto &[playerNum, playerState] : gameData.players) {
-            json playerJson {
+            json playerProfileJson = nullptr;
+            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                playerProfileJson = {{"username", playerProfile->username},
+                                     {"avatar", playerProfile->pictureUrl}};
+            }
+
+            json playerScoreJson {
                     {"position", playerNum},
-                    {"player", nullptr},
-                    // {"player",
-                    //  {{"username", playerProfile->name}, {"avatar", playerProfile->pictureUrl}}},
+                    {"player", playerProfileJson},
                     {"score", playerState.score()},
                     {"ball", gameData.ball},
                     {"ball_in_progress", gameData.activePlayer == playerNum},
                     {"modes", modes}};
 
-            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerJson["player"] = {{"username", playerProfile->username},
-                                        {"avatar", playerProfile->pictureUrl}};
-            }
-
-            scores.emplace_back(playerJson);
+            scores.emplace_back(playerScoreJson);
         }
 
         json j {{"type", "score_update"},
                 {"payload",
-                 {{"game_in_progress", true},
+                 {{"game_in_progress", data.isGameActive},
                   {"scores", scores},
                   {"metadata",
-                   {{"game", sessionUuid},
-                    {"machine", m_machineInfo.machineUuid},
-                    {"variant", m_machineInfo.variantUuid},
-                    {"sequence", sessionCounter},
-                    {"timestamp", currentDateTime},
-                    /*{"venue", "uuid"}*/}}}}};
+                   {
+                           {"game", sessionUuid},
+                           {"machine", m_machineInfo.machineUuid},
+                           {"variant", m_machineInfo.variantUuid},
+                           {"sequence", sessionCounter},
+                           {"timestamp", currentDateTime},
+                   }}}}};
 
         const auto jstr = j.dump();
         INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
@@ -688,9 +688,9 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
     };
 }
 
-task_t Net::createSessionCreateTask(int sessionId)
+task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
 {
-    INF("API session create for id: {}...", sessionId);
+    INF("API session create for id: {}, started by: {} ...", sessionId, origin);
     int sessionCounter;
     {
         std::lock_guard lock(m_gameSessionsMutex);
@@ -709,17 +709,18 @@ task_t Net::createSessionCreateTask(int sessionId)
         session = m_gameSessions[sessionId];
     }
 
+    const auto playerCount = session->gameData.players.size();
     const int64_t elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
                                                 chrono::steady_clock::now() - session->startedTime)
                                                 .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
     json j {
-            {"player_count", 1}, // FIXME: support multiple players
+            {"player_count", playerCount},
             {"sequence_number", sessionCounter},
             {"session_time", elapsedMilliseconds},
             {"active_on", currentDateTime},
-            {"use_lobby", true}, // FIXME: it depends on if lobby is used or not
+            {"use_lobby", origin == GameStartOrigin::FromLobby},
     };
 
     auto deferredSetup = [this, body = j.dump()]() {
@@ -1395,12 +1396,28 @@ void Net::centrifugoSetup()
         INF("API-CF Unsubscribed from channel: {}", channel);
     });
 
-    m_centrifugo->onPublication([](const std::string &channel, centrifugo::Publication const &pub) {
+    m_centrifugo->onPublication([this](const std::string &channel,
+                                       centrifugo::Publication const &pub) {
         INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
             pub.data.dump(), pub.offset);
         if (pub.info) {
             INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
                 pub.info->client);
+        }
+
+        if (channel.find("control_machine") == 0) {
+            const auto &j = pub.data;
+            if (const auto payloadIt = j.find("payload");
+                payloadIt != j.end() && payloadIt->is_object()) {
+                const auto type = j.value("type", "");
+
+                if (type == "start_game") {
+                    const int playerCount = payloadIt->value("player_count", 1);
+                    emitGameStartRequested(playerCount);
+                } else {
+                    WRN("API-CF Unknown publication type: {}", type);
+                }
+            }
         }
     });
 }

@@ -22,6 +22,9 @@
 #include <scorbit_sdk/version.h>
 #include <boost/uuid.hpp>
 #include <utility>
+#include <functional>
+
+using namespace std::placeholders;
 
 namespace scorbit {
 namespace detail {
@@ -29,6 +32,8 @@ namespace detail {
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
 {
+    m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
+
     m_net->authenticate();
 
     const auto &deviceInfo = m_net->deviceInfo();
@@ -38,21 +43,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
 
 void GameStateImpl::setGameStarted()
 {
-    if (m_data.isGameActive) {
-        DBG("Game is already active, ignore starting game");
-        return;
-    }
-
-    // Reset game data
-    m_prevData = m_data = GameData {};
-
-    m_data.id = ++m_sessionId;
-    m_data.isGameActive = true;
-    setCurrentBall(1);
-    setActivePlayer(1);
-    INF("New game session started, id: {}", m_data.id);
-
-    m_net->sessionCreate(m_data);
+    startGame(1, GameStartOrigin::StartButton);
 }
 
 void GameStateImpl::setGameFinished()
@@ -159,6 +150,17 @@ const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
     return m_net->playersManager().picture(player);
 }
 
+bool GameStateImpl::isGameStartRequested(int *playersCount)
+{
+    if (playersCount) {
+        *playersCount = static_cast<int>(m_data.players.size());
+    }
+    if (m_isGameStartRequested) {
+        INF("GameStart requested");
+    }
+    return m_isGameStartRequested.exchange(false);
+}
+
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));
@@ -207,6 +209,38 @@ bool GameStateImpl::isPlayerValid(sb_player_t player) const
 bool GameStateImpl::isBallValid(sb_ball_t ball) const
 {
     return 1 <= ball && ball <= 9;
+}
+
+bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
+{
+    if (m_data.isGameActive) {
+        DBG("Game is already active, ignore starting game");
+        return false;
+    }
+
+    // Reset game data
+    m_prevData = m_data = GameData {};
+
+    m_data.id = ++m_sessionId;
+    m_data.isGameActive = true;
+
+    for (int i = 1; i <= playersCount; ++i) {
+        addNewPlayer(i);
+    }
+
+    setCurrentBall(1);
+    setActivePlayer(1);
+
+    INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
+
+    m_net->sessionCreate(m_data, origin);
+    return true;
+}
+
+void GameStateImpl::gameStartRequested(int playersCount)
+{
+    INF("Game start requested from mobile app, players count: {}", playersCount);
+    m_isGameStartRequested = startGame(playersCount, GameStartOrigin::FromLobby);
 }
 
 } // namespace detail

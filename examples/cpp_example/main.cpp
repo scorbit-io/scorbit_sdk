@@ -47,7 +47,7 @@ bool isGameFinished(int i)
     return i == 99;
 }
 
-bool isGameJustStarted(int i)
+bool isGameJustStartedByStartButton(int i)
 {
     return i == 5;
 }
@@ -205,6 +205,8 @@ int main()
 {
     std::map<sb_player_t, scorbit::PlayerInfo> players;
 
+    int playersCount = 1;
+
     cout << "Simple example of Scorbit SDK usage" << endl;
 
     // Setup logger
@@ -276,12 +278,20 @@ int main()
             });
         }
 
-        if (isGameJustStarted(i)) {
-            // This will start new game session with player1 score 0 and current ball 1.
+        if (isGameJustStartedByStartButton(i)) {
+            // Game was just started by player pressing start button
 
             // In the same game cycle before commit it can be set new score, active player, etc.
             // So, player1's initial score will be not 0, but the one set in the current cycle
+            // This will start new game session with player1 score 0 and current ball 1.
             gs.setGameStarted();
+        } else if (gs.isGameStartRequested(playersCount)) {
+            // Game was started from the app and requested to start the game on the machine
+            // call function to start the game on the machine with players_count players ...
+
+            // It's not necessary to call setGameStarted, as it's automaticlly called when
+            // request arrived and will be be ignored here
+            cout << "Started from mobile app with " << playersCount << " player(s)!" << endl;
         }
 
         if (isGameActive(i)) {

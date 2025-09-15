@@ -339,6 +339,37 @@ public:
         return info;
     }
 
+// -------------------------- GAME START FROM MOBILE APP --------------------------------------
+
+    /**
+     * @brief Checks if a game start has been requested from the mobile app.
+     *
+     * This function checks if a game start has been requested from the mobile app. If a request is
+     * found, it retrieves the number of players specified in the request.
+     *
+     * It only checks for new requests, and after this function is called, the internal state is
+     * cleared. Subsequent calls will return false until a new request arrives.
+     *
+     * Retrieve players' info using @ref hasPlayerInfo, @ref getPlayerId,
+     * @ref getPlayerName, @ref getPlayerInitials, @ref getPlayerPictureUrl, and
+     * @ref getPlayerPicture.
+     *
+     * @note This function should be called periodically while game is in idle state to check for
+     * new game start requests. If a request is found, the function returns true and provides the
+     * number of players. If no request is found, it returns false.
+     *
+     * @param playersCount [out] A reference to an integer that will receive the number of players
+     * if a game start is requested. If no request is found, this value remains unchanged.
+     *
+     * @return true if a game start has been requested; false otherwise.
+     */
+    bool isGameStartRequested(int &playersCount)
+    {
+        return sb_is_game_start_requested(m_handle.get(), &playersCount);
+    }
+
+    // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
+
 private:
     static void callback_c(sb_error_t error, const char *reply, void *user_data) {
         auto *cb = static_cast<StringCallback *>(user_data);

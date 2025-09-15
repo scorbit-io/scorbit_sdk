@@ -66,7 +66,7 @@ public:
     void requestUnpair(StringCallback) override {};
     MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
     MAKE_MOCK0(authenticate, void(), override);
-    void sessionCreate(const scorbit::detail::GameData &data) override { };
+    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin) override { };
     void getConfig() override { };
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),
@@ -74,6 +74,9 @@ public:
     void download(StringCallback, const std::string &, const std::string &) override { };
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
+
+    // Expose the emitGameStartRequested method for testing
+    using NetBase::emitGameStartRequested;
 
 private:
     PlayerProfilesManager m_playersManager;
@@ -747,4 +750,78 @@ TEST_CASE("Sending version of sdk and game_code")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
+}
+
+TEST_CASE("isGameStartRequested functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+
+    // Create GameState object with mocked NetBase
+    GameStateImpl gameState(std::move(mockNet));
+
+    SECTION("Returns false when no game start has been requested")
+    {
+        int playersCount = 0;
+        bool result = gameState.isGameStartRequested(&playersCount);
+        
+        REQUIRE(result == false);
+        REQUIRE(playersCount == 0); // No players when game hasn't started
+    }
+
+    SECTION("Returns false when no game start has been requested (nullptr parameter)")
+    {
+        bool result = gameState.isGameStartRequested(nullptr);
+        REQUIRE(result == false);
+    }
+
+    SECTION("Returns true after game start is requested via network callback and resets the flag")
+    {
+        // Simulate a game start request from the network layer
+        // This would normally be called when a "start_game" message is received via Centrifugo
+        mockNetRef.emitGameStartRequested(3); // Request game start with 3 players
+        
+        int playersCount = 0;
+        bool result = gameState.isGameStartRequested(&playersCount);
+        
+        REQUIRE(result == true); // Should return true since game start was requested
+        REQUIRE(playersCount == 3); // Should return the number of players from the request
+        
+        // Second call should return false since the flag was reset
+        int playersCount2 = 0;
+        bool result2 = gameState.isGameStartRequested(&playersCount2);
+        REQUIRE(result2 == false);
+        REQUIRE(playersCount2 == 3); // Player count should still be 3
+    }
+
+    SECTION("Ignores other game start requests if game is active")
+    {
+        // First game start request
+        mockNetRef.emitGameStartRequested(2);
+        
+        int playersCount1 = 0;
+        bool result1 = gameState.isGameStartRequested(&playersCount1);
+        REQUIRE(result1 == true);
+        REQUIRE(playersCount1 == 2);
+        
+        // Second game start request after checking the first one
+        // Since the game is already active, startGame will return false
+        // and m_isGameStartRequested will be set to false
+        mockNetRef.emitGameStartRequested(4);
+        
+        int playersCount2 = 0;
+        bool result2 = gameState.isGameStartRequested(&playersCount2);
+        REQUIRE(result2 == false); // Should be false because game is already active
+        REQUIRE(playersCount2 == 2); // Player count should still be from the first request
+        
+        // Third call should also return false
+        int playersCount3 = 0;
+        bool result3 = gameState.isGameStartRequested(&playersCount3);
+        REQUIRE(result3 == false);
+        REQUIRE(playersCount3 == 2); // Player count should still be from the first request
+    }
 }
