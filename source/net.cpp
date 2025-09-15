@@ -1354,9 +1354,24 @@ void Net::centrifugoSetup()
         return getJwtToken(url(CENTRIFUGO_TOKEN_URL).str(), m_stoken);
     };
 
+    config.logHandler = [](centrifugo::LogEntry entry) {
+        switch (entry.level) {
+        case centrifugo::LogLevel::Debug:
+            DBG("CF {}, {}", entry.message, entry.fields.dump());
+            break;
+        case centrifugo::LogLevel::Error:
+            ERR("CF {}, {}", entry.message, entry.fields.dump());
+            break;
+        }
+    };
+
     const auto cfUrl = fmt::format("{}/{}", m_cfHostname, CENTRIFUGO_URL);
     INF("API centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+
+    m_centrifugo->onError([](const centrifugo::Error &error) {
+        ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
+    });
 
     m_centrifugo->onConnecting([](centrifugo::Error const &error) {
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
