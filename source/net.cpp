@@ -21,7 +21,6 @@
 #include "net_util.h"
 #include "logger.h"
 #include "updater.h"
-#include "identifiers.h"
 #include "safe_multipart.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
@@ -66,6 +65,8 @@ constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minut
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
+
+auto noop_task = []() { };
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
@@ -249,6 +250,12 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin)
 
     INF("API post queue create session, id: {}", data.id);
     m_worker.postQueue(createSessionCreateTask(data.id, origin));
+}
+
+void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
+{
+    INF("API post queue patch session, id: {}, upload history logs: {}", data.id, uploadHistoryLog);
+    m_worker.postQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
 void Net::sendGameData(const detail::GameData &data)
@@ -684,7 +691,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
             // Nothing to do, session is already finished and removed
             ERR("API this error should not happen. Can't find session {} in game sessions",
                 sessionId);
-            return {};
+            return noop_task;
         }
 
         gameSession = &m_gameSessions[sessionId];
@@ -745,9 +752,78 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
     return createPostRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
+task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
+{
+    GameSession *gameSession = nullptr;
+    {
+        std::lock_guard lock(m_gameSessionsMutex);
+        if (m_gameSessions.count(sessionId) == 0) {
+            // Nothing to do, session is already finished and removed
+            ERR("API this error should not happen. Can't find session {} in game sessions",
+                sessionId);
+            return noop_task;
+        }
+
+        gameSession = &m_gameSessions[sessionId];
+    }
+    const auto &sessionUuid = gameSession->sessionUuid;
+    if (sessionUuid.empty()) {
+        // Session patch cancelled, session uuid is not ready yet
+        return noop_task;
+    }
+
+    INF("API session patch for id: {}, uuid: {} ...", sessionId, sessionUuid);
+
+    const auto playerCount = gameSession->gameData.players.size();
+    const int64_t elapsedMilliseconds =
+            chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                        - gameSession->startedTime)
+                    .count();
+    const auto currentDateTime = to_iso8601(chrono::system_clock::now());
+
+    const auto filename = fmt::format("{}.{}", sessionUuid, SESS_LOG_EXTENSION);
+    const auto isActive = gameSession->gameData.isGameActive;
+
+    // Here we can't use json in case of uploading session log file, so we are using multipart
+    cpr::Multipart formData {
+            {JKEY_SESS_PLAYER_COUNT, std::to_string(playerCount)},
+            {JKEY_SESS_SEQUENCE_NUMBER, std::to_string(gameSession->sessionCounter)},
+            {JKEY_SESS_SESSION_TIME, std::to_string(elapsedMilliseconds)},
+            {(isActive ? JKEY_SESS_ACTIVE_ON : JKEY_SESS_SETTLED_ON), currentDateTime},
+    };
+
+    // If the game is finished, set "active off" time
+    if (!isActive) {
+        formData.parts.push_back({JKEY_SESS_SUCCESSFULLY_COMPLETED, "True"});
+    }
+
+    // Should we send history CSV logs?
+    if (uploadHistoryLogs) {
+        const auto csv = gameHistoryToCsv(gameSession->history);
+        formData.parts.push_back(
+                {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});
+    }
+
+    const auto sessionUpdateUrl =
+            url(URL_SCORBITRON_SESSION_UPDATE, fmt::arg(ARG_SESSION_UUID, sessionUuid));
+
+    auto deferredSetup = [sessionUpdateUrl = std::move(sessionUpdateUrl),
+                          safeFormData = SafeMultipart {std::move(formData)}]() {
+        return std::make_tuple(sessionUpdateUrl, std::move(safeFormData));
+    };
+
+    auto callback = [this, sessionId](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API patch session: ok, id: {}, {}", sessionId, reply);
+        }
+    };
+
+    return createPatchMultipartRequestTask(std::move(callback), std::move(deferredSetup));
+}
+
 task_t Net::createGameDataTask(int sessionId)
 {
-    return {};
+    return noop_task;
 
     return [this, sessionId]() {
         m_isGameDataInQueue = false;
@@ -896,7 +972,7 @@ task_t Net::createGameDataTask(int sessionId)
 
 task_t Net::createHeartbeatTask()
 {
-    return {}; // FIXME: disable heartbeat for now, implement heatbeat v2
+    return noop_task; // FIXME: disable heartbeat for now, implement heatbeat v2
 
     /*
     return [this]() {
@@ -1045,7 +1121,7 @@ task_t Net::createUploadHistoryTask(const GameHistory &history, const string &se
     const auto csv = gameHistoryToCsv(history);
     SafeMultipart multipart {cpr::Multipart {
             {JKEY_SESS_LOG_UUID, sessionUuid},
-            {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
+            {JKEY_SESS_LOG_FILE_DEPRECATED, cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
     }};
 
     return createUploadTask(SESSION_CSV_URL, filename, std::move(multipart));
@@ -1179,6 +1255,20 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
             std::move(allowedStatuses));
 }
 
+task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
+                                            deferred_patch_multipart_setup_t deferredSetup,
+                                            std::vector<AuthStatus> allowedStatuses)
+{
+    return createHttpRequestTask(
+            REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
+            [](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
+               const cpr::Timeout &timeout) {
+                header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
+                return cpr::Patch(url, multipart.get(), header, timeout);
+            },
+            std::move(allowedStatuses));
+}
+
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
                                    std::string filename)
 {
@@ -1280,16 +1370,6 @@ cpr::Header Net::authHeader() const
     h[HDR_KEY_AUTHORIZATION] = HDR_VAL_BEARER + m_stoken;
     h[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_JSON;
     return h;
-}
-
-cpr::Url Net::url(std::string_view endpoint) const
-{
-    const auto formattedEndpoint =
-            fmt::format(endpoint, fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
-                        fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid));
-    const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
-    DBG("API prepared URL: {}", myurl);
-    return cpr::Url {myurl};
 }
 
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const

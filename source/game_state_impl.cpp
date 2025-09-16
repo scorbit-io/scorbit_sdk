@@ -192,6 +192,29 @@ void GameStateImpl::sendGameData()
     if (isChanged()) {
         m_data.timestamp = std::chrono::system_clock::now();
         m_net->sendGameData(m_data);
+
+        const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
+
+        // Skip session update right after game start
+        if (!isGameJustStarted) {
+            const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
+            const auto isBallChanged = m_prevData.ball != m_data.ball;
+            const auto isGameJustEnded = m_prevData.isGameActive && !m_data.isGameActive;
+            const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
+
+            // Conditions to upload session logs
+            const auto hasToUploadSessionLogs =
+                    isActivePlayerChanged || isBallChanged || isGameJustEnded;
+
+            // Conditions to update session
+            const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
+
+            // Update session at certain conditions
+            if (hasToUpdateSession) {
+                m_net->sessionUpdate(m_data, hasToUploadSessionLogs);
+            }
+        }
+
         m_prevData = m_data;
     }
 }
@@ -230,6 +253,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 
     setCurrentBall(1);
     setActivePlayer(1);
+    m_data.timestamp = std::chrono::system_clock::now();
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
 

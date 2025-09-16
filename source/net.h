@@ -24,6 +24,7 @@
 #include "game_data.h"
 #include "worker.h"
 #include "updater.h"
+#include "identifiers.h"
 #include <centrifugo.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
@@ -52,6 +53,7 @@ class Net : public NetBase
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
     using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
+    using deferred_patch_multipart_setup_t = std::function<std::tuple<cpr::Url, SafeMultipart>()>;
 
     struct ScoreMetadata {
         uint64_t id {0}; // score id
@@ -89,6 +91,7 @@ public:
     void updateConfig(const std::string &type, const std::string &version, bool installed,
                       std::optional<std::string> log = std::nullopt) override;
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin) override;
+    void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) override;
     void sendGameData(const detail::GameData &data) override;
     void sendHeartbeat() override;
     void getConfig() override;
@@ -115,6 +118,7 @@ private:
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
                             std::optional<std::string> log);
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin);
+    task_t createSessionUpdateTask(int sessionId, bool uploadHistoryLogs);
     task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
 
@@ -147,6 +151,10 @@ private:
                                   deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
                                           AuthStatus::AuthenticatedPaired});
+    task_t createPatchMultipartRequestTask(StringCallback replyCallback,
+                                           deferred_patch_multipart_setup_t deferredSetup,
+                                           std::vector<AuthStatus> allowedStatuses = {
+                                                   AuthStatus::AuthenticatedPaired});
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
@@ -155,7 +163,6 @@ private:
     cpr::Header header() const;
     cpr::Header authHeader() const;
 
-    cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
@@ -163,6 +170,19 @@ private:
     void centrifugoConnect();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
+
+    // Make url() a variadic template that forwards all args to fmt::format
+    template<typename... Args>
+    cpr::Url url(std::string_view endpoint, Args &&...args) const
+    {
+        const auto formattedEndpoint =
+                fmt::format(endpoint, fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                            fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
+                            std::forward<Args>(args)...); // Pass extra args
+
+        const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
+        return cpr::Url {myurl};
+    }
 
 private:
     SignerCallback m_signer;
