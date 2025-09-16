@@ -21,6 +21,7 @@
 #include "net_util.h"
 #include "logger.h"
 #include "updater.h"
+#include "identifiers.h"
 #include "safe_multipart.h"
 #include "utils/bytearray.h"
 #include "utils/mac_address.h"
@@ -44,31 +45,12 @@ using json = nlohmann::json;
 namespace scorbit {
 namespace detail {
 
-constexpr auto PRODUCTION_LABEL = "production";
-constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
-constexpr auto PRODUCTION_CENTRIFUGO = "wss://centrifuge.scorbit.io";
-
-constexpr auto STAGING_LABEL = "staging";
-constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
-constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
-
-constexpr auto API = "api";
-constexpr auto CENTRIFUGO_URL {"connection/websocket"};
-constexpr auto TOKEN_URL {"v2/scorbitrons/{scorbitron_uuid}/token/"};
-constexpr auto CENTRIFUGO_TOKEN_URL {"v2/scorbitrons/{scorbitron_uuid}/socket/"};
-constexpr auto GET_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
-constexpr auto UPDATE_CONFIG_URL {"v2/scorbitrons/{scorbitron_uuid}/config/"};
-constexpr auto SESSIONS_CREATE_URL {"v2/scorbitrons/{scorbitron_uuid}/sessions/"};
-constexpr auto ENTRY_URL = "entry/";
 // constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 // constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
-constexpr auto SCORBITRON_PARTIAL_UPDATE_URL {"v2/scorbitrons/{scorbitron_uuid}/"};
 
 constexpr auto PLAYER_SCORE_HEAD {"current_p"};
 constexpr auto PLAYER_SCORE_TAIL {"_score"};
-constexpr auto REST_TOKEN {"Bearer"};
-constexpr auto RETURNED_TOKEN_NAME {"token"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
@@ -108,7 +90,8 @@ std::string getJwtToken(const std::string &url, const std::string &authToken)
 {
     INF("API-CF getting JWT token from: {}", url);
 
-    auto r = cpr::Get(cpr::Url {url}, cpr::Header {{"Authorization", "Bearer " + authToken}},
+    auto r = cpr::Get(cpr::Url {url},
+                      cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
                       cpr::Timeout {NET_TIMEOUT});
 
     if (r.status_code != 200) {
@@ -116,7 +99,7 @@ std::string getJwtToken(const std::string &url, const std::string &authToken)
     } else {
         try {
             const auto json = json::parse(r.text);
-            if (const auto it = json.find("token"); it != json.end() && it->is_string()) {
+            if (const auto it = json.find(JKEY_CF_TOKEN); it != json.end() && it->is_string()) {
                 const auto token = it->get<std::string>();
                 INF("API-CF received JWT token successfully");
                 return token;
@@ -148,7 +131,8 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
 
     // Verify that mandatory "provider" field in deviceInfo is set for manufacturers (except
     // scorbitron, vscorbitron)
-    if (m_deviceInfo.provider != "scorbitron" && m_deviceInfo.provider != "vscorbitron") {
+    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
+        && m_deviceInfo.provider != PROVIDER_VSCORBITRON) {
         if (m_deviceInfo.machineId == 0) {
             ERR("Machine ID not set");
             // TODO: Set an appropriate error status
@@ -225,10 +209,10 @@ void Net::setHostname(std::string hostname, std::string cfHostname)
     {
         auto host = exctractHostAndPort(cfHostname);
         if (cfHostname == hostname) {
-            if (host.protocol == "https") {
-                host.protocol = "wss";
-            } else if (host.protocol == "http") {
-                host.protocol = "ws";
+            if (host.protocol == PROTO_HTTPS) {
+                host.protocol = PROTO_WSS;
+            } else if (host.protocol == PROTO_HTTP) {
+                host.protocol = PROTO_WS;
             }
         }
         m_cfHostname = fmt::format("{}://{}:{}", host.protocol, host.hostname, host.port);
@@ -300,34 +284,34 @@ void Net::sendGameData(const detail::GameData &data)
         for (const auto &[playerNum, playerState] : gameData.players) {
             json playerProfileJson = nullptr;
             if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerProfileJson = {{"username", playerProfile->username},
-                                     {"avatar", playerProfile->pictureUrl}};
+                playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
+                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
             }
 
-            json playerScoreJson {
-                    {"position", playerNum},
-                    {"id", gameSession->scoresMetadata[playerNum].id},
-                    {"is_nfc_verified", gameSession->scoresMetadata[playerNum].isNfcVerified},
-                    {"player", playerProfileJson},
-                    {"score", playerState.score()},
-                    {"ball", gameData.ball},
-                    {"ball_in_progress", gameData.activePlayer == playerNum},
-                    {"modes", modes}};
+            json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
+                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                                  {JKEY_SCR_IS_NFC_VERIFIED,
+                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
+                                  {JKEY_SCR_PLAYER, playerProfileJson},
+                                  {JKEY_SCR_SCORE, playerState.score()},
+                                  {JKEY_SCR_BALL, gameData.ball},
+                                  {JKEY_SCR_BALL_IN_PROGRESS, gameData.activePlayer == playerNum},
+                                  {JKEY_SCR_MODES, modes}};
 
             scores.emplace_back(playerScoreJson);
         }
 
-        json j {{"type", "score_update"},
-                {"payload",
-                 {{"game_in_progress", data.isGameActive},
-                  {"scores", scores},
-                  {"metadata",
+        json j {{JKEY_CHN_TYPE, JKEY_SCR_SCORE_UPDATE},
+                {JKEY_CHN_PAYLOAD,
+                 {{JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                  {JKEY_SCR_SCORES, scores},
+                  {JKEY_SCR_METADATA,
                    {
-                           {"game", sessionUuid},
-                           {"machine", m_machineInfo.machineUuid},
-                           {"variant", m_machineInfo.variantUuid},
-                           {"sequence", sessionCounter},
-                           {"timestamp", currentDateTime},
+                           {JKEY_SCR_GAME, sessionUuid},
+                           {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                           {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                           {JKEY_SCR_SEQUENCE, sessionCounter},
+                           {JKEY_SCR_TIMESTAMP, currentDateTime},
                    }}}}};
 
         const auto jstr = j.dump();
@@ -366,7 +350,7 @@ void Net::getConfig()
                     AuthStatus status {AuthStatus::AuthenticatedPaired};
 
                     const auto isPaired = [&json]() {
-                        if (const auto it = json.find("is_paired");
+                        if (const auto it = json.find(JKEY_SCFG_IS_PAIRED);
                             it != json.end() && it->is_boolean()) {
                             return it->get<bool>();
                         }
@@ -380,31 +364,31 @@ void Net::getConfig()
                         m_machineInfo.variantUuid.clear();
                     }
 
-                    if (const auto it = json.find("shortcode");
+                    if (const auto it = json.find(JKEY_SCFG_SHORTCODE);
                         it != json.end() && it->is_string()) {
                         it->get_to(m_cachedShortCode);
                         m_shortCodeCV.notify_all();
                     }
 
-                    if (const auto it = json.find("machine_id");
+                    if (const auto it = json.find(JKEY_SCFG_MACHINE_UUID);
                         it != json.end() && it->is_string()) {
                         it->get_to(m_machineInfo.machineUuid);
                         m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
                     }
 
-                    if (const auto it = json.find("variant_id");
+                    if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
                         it != json.end() && it->is_string()) {
                         it->get_to(m_machineInfo.variantUuid);
                     }
 
-                    if (const auto configIt = json.find("config");
+                    if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
                         configIt != json.end() && configIt->is_object()) {
-                        if (const auto it = configIt->find("opdb_id");
+                        if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
                             it != configIt->end() && it->is_string()) {
                             it->get_to(m_machineInfo.opdbId);
                         }
 
-                        if (const auto it = configIt->find("machine_id");
+                        if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
                             it != configIt->end() && it->is_number_integer()) {
                             it->get_to(m_deviceInfo.machineId);
                         }
@@ -421,7 +405,7 @@ void Net::getConfig()
                 }
             },
             [this]() {
-                const auto endpoint = url(GET_CONFIG_URL);
+                const auto endpoint = url(URL_SCORBITRON_CONFIG);
                 cpr::Parameters parameters;
                 return make_tuple(endpoint, parameters);
             },
@@ -523,10 +507,10 @@ void Net::requestUnpair(StringCallback callback)
             },
             [this]() {
                 json j {
-                        {"machine", nullptr},
+                        {JKEY_SCFG_SCORBITRON_MACHINE, nullptr},
                 };
 
-                const auto endpoint = url(SCORBITRON_PARTIAL_UPDATE_URL);
+                const auto endpoint = url(URL_SCORBITRON_OBJECT);
                 const auto body {j.dump()};
                 INF("API requesting unpair with {}", body);
 
@@ -577,24 +561,22 @@ task_t Net::createAuthenticateTask()
 
             // Create json string
             json j {
-                    {"provider", m_deviceInfo.provider},
-                    {"uuid", m_deviceInfo.uuid},
-                    {"timestamp", timestamp},
-                    {"signature", signature},
-                    {"serial_number", 0},
+                    {JKEY_AUTH_PROVIDER, m_deviceInfo.provider},
+                    {JKEY_AUTH_UUID, m_deviceInfo.uuid},
+                    {JKEY_AUTH_TIMESTAMP, timestamp},
+                    {JKEY_AUTH_SIGNATURE, signature},
+                    {JKEY_AUTH_SERIAL_NUMBER, 0},
             };
 
-            const auto myurl =
-                    url(fmt::format(TOKEN_URL, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid)));
-            auto r = cpr::Post(myurl, cpr::Body {j.dump()},
-                               cpr::Header {{"Content-Type", "application/json"}});
+            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {j.dump()},
+                               cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}});
 
             if (r.status_code == 200) {
                 try {
                     const auto json = json::parse(r.text);
                     {
                         std::unique_lock tokenLock(m_tokenMutex);
-                        json[RETURNED_TOKEN_NAME].get_to(m_stoken);
+                        json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
                     }
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
@@ -655,12 +637,12 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
 
             // Create json string
             json j {
-                    {"version", version},
-                    {"type", type},
-                    {"installed", installed},
+                    {JKEY_SCFG_VERSION, version},
+                    {JKEY_SCFG_TYPE, type},
+                    {JKEY_SCFG_INSTALLED, installed},
             };
             if (log) {
-                j["log"] = *log;
+                j[JKEY_SCFG_LOG] = *log;
             }
 
             const auto payload = j.dump();
@@ -668,7 +650,7 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
 
             // TODO: Sentry
 
-            const auto r = cpr::Patch(url(UPDATE_CONFIG_URL), cpr::Body {payload}, authHeader(),
+            const auto r = cpr::Patch(url(URL_SCORBITRON_CONFIG), cpr::Body {payload}, authHeader(),
                                       cpr::Timeout {NET_TIMEOUT});
 
             if (r.status_code == 200) {
@@ -719,15 +701,15 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
     json j {
-            {"player_count", playerCount},
-            {"sequence_number", sessionCounter},
-            {"session_time", elapsedMilliseconds},
-            {"active_on", currentDateTime},
-            {"use_lobby", origin == GameStartOrigin::FromLobby},
+            {JKEY_SESS_PLAYER_COUNT, playerCount},
+            {JKEY_SESS_SEQUENCE_NUMBER, sessionCounter},
+            {JKEY_SESS_SESSION_TIME, elapsedMilliseconds},
+            {JKEY_SESS_ACTIVE_ON, currentDateTime},
+            {JKEY_SESS_USE_LOBBY, origin == GameStartOrigin::FromLobby},
     };
 
     auto deferredSetup = [this, body = j.dump()]() {
-        return std::make_tuple(url(SESSIONS_CREATE_URL), cpr::Body {body});
+        return std::make_tuple(url(URL_SCORBITRON_SESSIONS), cpr::Body {body});
     };
 
     auto callback = [this, sessionId](Error error, std::string reply) {
@@ -852,7 +834,7 @@ task_t Net::createGameDataTask(int sessionId)
             }
 
             // TODO: sentry
-
+            constexpr auto ENTRY_URL = "entry/";
             const auto r = cpr::Post(url(ENTRY_URL), cpr::Body {j}, authHeader(),
                                      cpr::Timeout {NET_TIMEOUT});
 
@@ -1060,11 +1042,11 @@ void Net::postUploadHistoryTask(const GameHistory &history, const std::string &s
 
 task_t Net::createUploadHistoryTask(const GameHistory &history, const string &sessionUuid)
 {
-    const auto filename = fmt::format("{}.csv", sessionUuid);
+    const auto filename = fmt::format("{}.{}", sessionUuid, SESS_LOG_EXTENSION);
     const auto csv = gameHistoryToCsv(history);
     SafeMultipart multipart {cpr::Multipart {
-            {"uuid", sessionUuid},
-            {"log_file", cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
+            {JKEY_SESS_LOG_UUID, sessionUuid},
+            {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)},
     }};
 
     return createUploadTask(SESSION_CSV_URL, filename, std::move(multipart));
@@ -1171,7 +1153,7 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
                                  std::vector<AuthStatus> allowedStatuses)
 {
     return createHttpRequestTask(
-            "GET", std::move(replyCallback), std::move(deferredSetup),
+            REST_GET, std::move(replyCallback), std::move(deferredSetup),
             [](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
                const cpr::Timeout &timeout) { return cpr::Get(url, params, header, timeout); },
             std::move(allowedStatuses));
@@ -1181,7 +1163,7 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
                                   std::vector<AuthStatus> allowedStatuses)
 {
     return createHttpRequestTask(
-            "POST", std::move(replyCallback), std::move(deferredSetup),
+            REST_POST, std::move(replyCallback), std::move(deferredSetup),
             [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                const cpr::Timeout &timeout) { return cpr::Post(url, body, header, timeout); },
             std::move(allowedStatuses));
@@ -1192,7 +1174,7 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
                                    std::vector<AuthStatus> allowedStatuses)
 {
     return createHttpRequestTask(
-            "PATCH", std::move(replyCallback), std::move(deferredSetup),
+            REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
             [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                const cpr::Timeout &timeout) { return cpr::Patch(url, body, header, timeout); },
             std::move(allowedStatuses));
@@ -1289,24 +1271,24 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
 
 cpr::Header Net::header() const
 {
-    return cpr::Header {{"Cache-Control", "no-cache"}};
+    return cpr::Header {{HDR_KEY_CACHE_CONTROL, HDR_VAL_NO_CACHE}};
 }
 
 cpr::Header Net::authHeader() const
 {
     auto h = header();
     std::shared_lock tokenLock(m_tokenMutex);
-    h["Authorization"] = fmt::format("{} {}", REST_TOKEN, m_stoken);
-    h["Content-Type"] = "application/json";
+    h[HDR_KEY_AUTHORIZATION] = HDR_VAL_BEARER + m_stoken;
+    h[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_JSON;
     return h;
 }
 
 cpr::Url Net::url(std::string_view endpoint) const
 {
     const auto formattedEndpoint =
-            fmt::format(endpoint, fmt::arg("scorbitron_uuid", m_deviceInfo.uuid),
-                        fmt::arg("machine_uuid", m_machineInfo.machineUuid));
-    const auto myurl = fmt::format("{}/{}/{}", m_hostname, API, formattedEndpoint);
+            fmt::format(endpoint, fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                        fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid));
+    const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
     DBG("API prepared URL: {}", myurl);
     return cpr::Url {myurl};
 }
@@ -1322,9 +1304,10 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     // Process scores
     try {
         for (const auto &obj : val) {
-            sb_player_t playerNum = obj["position"].get<sb_player_t>();
-            obj["id"].get_to(gameSession.scoresMetadata[playerNum].id);
-            obj["is_nfc_verified"].get_to(gameSession.scoresMetadata[playerNum].isNfcVerified);
+            sb_player_t playerNum = obj[JKEY_SCR_POSITION].get<sb_player_t>();
+            obj[JKEY_SCR_ID].get_to(gameSession.scoresMetadata[playerNum].id);
+            obj[JKEY_SCR_IS_NFC_VERIFIED].get_to(
+                    gameSession.scoresMetadata[playerNum].isNfcVerified);
         }
     } catch (const std::exception &e) {
         ERR("Error parsing player score: {}", e.what());
@@ -1370,7 +1353,7 @@ void Net::centrifugoSetup()
 
         // Get JWT token for Centrifugo connection
         std::shared_lock lock(m_tokenMutex);
-        return getJwtToken(url(CENTRIFUGO_TOKEN_URL).str(), m_stoken);
+        return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken);
     };
 
     config.logHandler = [](centrifugo::LogEntry entry) {
@@ -1384,7 +1367,7 @@ void Net::centrifugoSetup()
         }
     };
 
-    const auto cfUrl = fmt::format("{}/{}", m_cfHostname, CENTRIFUGO_URL);
+    const auto cfUrl = fmt::format("{}/{}", m_cfHostname, URL_CENTRIFUGO);
     INF("API centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
 
@@ -1414,30 +1397,30 @@ void Net::centrifugoSetup()
         INF("API-CF Unsubscribed from channel: {}", channel);
     });
 
-    m_centrifugo->onPublication([this](const std::string &channel,
-                                       centrifugo::Publication const &pub) {
-        INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
-            pub.data.dump(), pub.offset);
-        if (pub.info) {
-            INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
-                pub.info->client);
-        }
-
-        if (channel.find("control_machine") == 0) {
-            const auto &j = pub.data;
-            if (const auto payloadIt = j.find("payload");
-                payloadIt != j.end() && payloadIt->is_object()) {
-                const auto type = j.value("type", "");
-
-                if (type == "start_game") {
-                    const int playerCount = payloadIt->value("player_count", 1);
-                    emitGameStartRequested(playerCount);
-                } else {
-                    WRN("API-CF Unknown publication type: {}", type);
+    m_centrifugo->onPublication(
+            [this](const std::string &channel, centrifugo::Publication const &pub) {
+                INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
+                    pub.data.dump(), pub.offset);
+                if (pub.info) {
+                    INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
+                        pub.info->client);
                 }
-            }
-        }
-    });
+
+                if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
+                    const auto &j = pub.data;
+                    if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+                        payloadIt != j.end() && payloadIt->is_object()) {
+                        const auto type = j.value(JKEY_CHN_TYPE, "");
+
+                        if (type == JVAL_CHN_TYPE_START_GAME) {
+                            const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
+                            emitGameStartRequested(playerCount);
+                        } else {
+                            WRN("API-CF Unknown publication type: {}", type);
+                        }
+                    }
+                }
+            });
 }
 
 void Net::centrifugoConnect()

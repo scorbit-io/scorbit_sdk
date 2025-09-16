@@ -174,6 +174,7 @@ target_sources(
         source/utils/lru_cache.hpp
         source/safe_multipart.h
         source/game_start_origin.h
+        source/identifiers.h
 )
 
 # Generate the header from the template

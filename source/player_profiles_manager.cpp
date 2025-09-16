@@ -19,6 +19,7 @@
 
 #include "player_profiles_manager.h"
 #include "logger.h"
+#include "identifiers.h"
 
 #include <nlohmann/json.hpp>
 
@@ -54,20 +55,21 @@ void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
         }
 
         try {
-            sb_player_t playerNum = obj["position"].get<sb_player_t>();
+            sb_player_t playerNum = obj[JKEY_SCR_POSITION].get<sb_player_t>();
 
-            if (const auto it = obj.find("player"); it != obj.end() && it->is_object()) {
+            if (const auto it = obj.find(JKEY_SCR_PLAYER); it != obj.end() && it->is_object()) {
                 const auto &player = *it;
 
                 PlayerProfile profile;
-                player["id"].get_to(profile.id);
-                profile.preferInitials = player.value("prefer_initials", false);
-                player["username"].get_to(profile.username);
-                player["display_name"].get_to(profile.name);
-                player["initials"].get_to(profile.initials);
-                player["url"].get_to(profile.url);
+                player[JKEY_PLAYER_ID].get_to(profile.id);
+                profile.preferInitials = player.value(JKEY_PLAYER_PREFER_INITIALS, false);
+                player[JKEY_PLAYER_USERNAME].get_to(profile.username);
+                player[JKEY_PLAYER_DISPLAY_NAME].get_to(profile.name);
+                player[JKEY_PLAYER_INITIALS].get_to(profile.initials);
+                player[JKEY_PLAYER_URL].get_to(profile.url);
 
-                if (const auto it = player.find("avatar"); it != player.end() && it->is_string()) {
+                if (const auto it = player.find(JKEY_PLAYER_AVATAR);
+                    it != player.end() && it->is_string()) {
                     it->get_to(profile.pictureUrl);
                 } else {
                     profile.pictureUrl.clear();
