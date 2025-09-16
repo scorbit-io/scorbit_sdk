@@ -122,6 +122,7 @@ constexpr auto JKEY_SCFG_INSTALLED {"installed"};
 constexpr auto JKEY_SCFG_LOG {"log"};
 
 // Session
+constexpr auto JKEY_SESS_UUID {"id"};
 constexpr auto JKEY_SESS_PLAYER_COUNT {"player_count"};
 constexpr auto JKEY_SESS_SEQUENCE_NUMBER {"sequence_number"};
 constexpr auto JKEY_SESS_SESSION_TIME {"session_time"};

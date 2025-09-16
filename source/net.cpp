@@ -276,7 +276,7 @@ void Net::sendGameData(const detail::GameData &data)
         // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
         // TODO: check if it's needed to lock mutex here
-        const auto sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+        const auto sessionCounter = ++gameSession->sessionCounter;
         const auto modes = json::parse(gameData.modes.jsonStr());
         const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
@@ -677,27 +677,25 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
 {
     INF("API session create for id: {}, started by: {} ...", sessionId, origin);
     int sessionCounter;
+    GameSession *gameSession = nullptr;
     {
         std::lock_guard lock(m_gameSessionsMutex);
         if (m_gameSessions.count(sessionId) == 0) {
             // Nothing to do, session is already finished and removed
             ERR("API this error should not happen. Can't find session {} in game sessions",
                 sessionId);
+            return {};
         }
 
-        sessionCounter = ++m_gameSessions[sessionId].sessionCounter;
+        gameSession = &m_gameSessions[sessionId];
+        sessionCounter = ++gameSession->sessionCounter;
     }
 
-    std::optional<GameSession> session;
-    {
-        std::lock_guard lockGameSession(m_gameSessionsMutex);
-        session = m_gameSessions[sessionId];
-    }
-
-    const auto playerCount = session->gameData.players.size();
-    const int64_t elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
-                                                chrono::steady_clock::now() - session->startedTime)
-                                                .count();
+    const auto playerCount = gameSession->gameData.players.size();
+    const int64_t elapsedMilliseconds =
+            chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                        - gameSession->startedTime)
+                    .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
     json j {
@@ -721,7 +719,8 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
 
                 GameSession *gameSession = nullptr;
 
-                if (const auto it = json.find("id"); it != json.end() && it->is_string()) {
+                if (const auto it = json.find(JKEY_SESS_UUID);
+                    it != json.end() && it->is_string()) {
                     std::lock_guard lock(m_gameSessionsMutex);
 
                     gameSession = &m_gameSessions[sessionId];
