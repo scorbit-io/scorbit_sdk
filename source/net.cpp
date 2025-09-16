@@ -821,6 +821,17 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
     auto callback = [this, sessionId](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API patch session: ok, id: {}, {}", sessionId, reply);
+
+            // Erase the session if the game is finished
+            std::lock_guard lock(m_gameSessionsMutex);
+            if (!m_gameSessions[sessionId].gameData.isGameActive) {
+                m_gameSessions.erase(sessionId);
+            }
+        } else {
+            ERR("API patch session: failed, id: {}, error code: {}", sessionId,
+                static_cast<int>(error));
+            // TODO: Sentry
+            // FIXME: what to do with game session? Erase it or retry again?
         }
     };
 
