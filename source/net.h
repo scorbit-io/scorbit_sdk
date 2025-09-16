@@ -119,7 +119,6 @@ private:
                             std::optional<std::string> log);
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin);
     task_t createSessionUpdateTask(int sessionId, bool uploadHistoryLogs);
-    task_t createGameDataTask(int sessionId);
     task_t createHeartbeatTask();
 
     void startHeartbeatTimer();
