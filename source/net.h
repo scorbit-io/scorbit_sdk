@@ -92,7 +92,7 @@ public:
                       std::optional<std::string> log = std::nullopt) override;
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin) override;
     void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) override;
-    void sendGameData(const detail::GameData &data) override;
+    void sendGameData(const detail::GameData &data, bool isGameJustFinished) override;
     void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;

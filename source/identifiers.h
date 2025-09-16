@@ -100,6 +100,7 @@ constexpr auto JVAL_CHN_TYPE_START_GAME {"start_game"};
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
 constexpr auto JKEY_SCR_SCORES {"scores"};
+constexpr auto JKEY_SCR_FINAL_SCORES {"final_scores"};
 constexpr auto JKEY_SCR_METADATA {"metadata"};
 constexpr auto JKEY_SCR_GAME {"game"};
 constexpr auto JKEY_SCR_MACHINE {"machine"};
@@ -107,7 +108,8 @@ constexpr auto JKEY_SCR_VARIANT {"variant"};
 constexpr auto JKEY_SCR_SEQUENCE {"sequence"};
 constexpr auto JKEY_SCR_TIMESTAMP {"timestamp"};
 
-constexpr auto JKEY_SCR_SCORE_UPDATE {"score_update"};
+constexpr auto JVAL_SCR_SCORE_UPDATE {"score_update"};
+constexpr auto JVAL_SCR_GAME_END {"game_end"};
 
 // Scorbitron config
 constexpr auto JKEY_SCFG_IS_PAIRED {"is_paired"};

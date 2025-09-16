@@ -258,7 +258,7 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.postQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::sendGameData(const detail::GameData &data)
+void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
 {
     const auto sessionId = data.id;
     std::string sessionUuid;
@@ -278,7 +278,7 @@ void Net::sendGameData(const detail::GameData &data)
     // task for that game session.
 
     // TODO: check if centrifugo is connected, if not, skip sending game data
-    if (data.isGameActive && !sessionUuid.empty()
+    if (!sessionUuid.empty()
         && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
         // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
@@ -295,6 +295,9 @@ void Net::sendGameData(const detail::GameData &data)
                                      {JKEY_AVATAR, playerProfile->pictureUrl}};
             }
 
+            const auto valBallInProgress =
+                    gameData.isGameActive && (gameData.activePlayer == playerNum);
+
             json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
                                   {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
                                   {JKEY_SCR_IS_NFC_VERIFIED,
@@ -302,16 +305,19 @@ void Net::sendGameData(const detail::GameData &data)
                                   {JKEY_SCR_PLAYER, playerProfileJson},
                                   {JKEY_SCR_SCORE, playerState.score()},
                                   {JKEY_SCR_BALL, gameData.ball},
-                                  {JKEY_SCR_BALL_IN_PROGRESS, gameData.activePlayer == playerNum},
+                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
                                   {JKEY_SCR_MODES, modes}};
 
             scores.emplace_back(playerScoreJson);
         }
 
-        json j {{JKEY_CHN_TYPE, JKEY_SCR_SCORE_UPDATE},
+        const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
+        const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
+
+        json j {{JKEY_CHN_TYPE, valType},
                 {JKEY_CHN_PAYLOAD,
                  {{JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                  {JKEY_SCR_SCORES, scores},
+                  {keyScores, scores},
                   {JKEY_SCR_METADATA,
                    {
                            {JKEY_SCR_GAME, sessionUuid},

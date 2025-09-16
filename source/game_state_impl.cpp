@@ -191,20 +191,22 @@ void GameStateImpl::sendGameData()
 {
     if (isChanged()) {
         m_data.timestamp = std::chrono::system_clock::now();
-        m_net->sendGameData(m_data);
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
+        const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
+
+        // Publish game data
+        m_net->sendGameData(m_data, isGameJustFinished);
 
         // Skip session update right after game start
         if (!isGameJustStarted) {
             const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
             const auto isBallChanged = m_prevData.ball != m_data.ball;
-            const auto isGameJustEnded = m_prevData.isGameActive && !m_data.isGameActive;
             const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
 
             // Conditions to upload session logs
             const auto hasToUploadSessionLogs =
-                    isActivePlayerChanged || isBallChanged || isGameJustEnded;
+                    isActivePlayerChanged || isBallChanged || isGameJustFinished;
 
             // Conditions to update session
             const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
