@@ -254,7 +254,8 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin)
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
 {
-    INF("API post queue patch session, id: {}, upload history logs: {}", data.id, uploadHistoryLog);
+    INF("API post queue update session, id: {}, upload history logs: {}", data.id,
+        uploadHistoryLog);
     m_worker.postQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
@@ -778,7 +779,7 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
         return noop_task;
     }
 
-    INF("API session patch for id: {}, uuid: {} ...", sessionId, sessionUuid);
+    INF("API update session for id: {}, uuid: {} ...", sessionId, sessionUuid);
 
     const auto playerCount = gameSession->gameData.players.size();
     const int64_t elapsedMilliseconds =
@@ -820,7 +821,7 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
 
     auto callback = [this, sessionId](Error error, std::string reply) {
         if (error == Error::Success) {
-            INF("API patch session: ok, id: {}, {}", sessionId, reply);
+            INF("API update session: ok, id: {}, {}", sessionId, reply);
 
             // Erase the session if the game is finished
             std::lock_guard lock(m_gameSessionsMutex);
@@ -828,7 +829,7 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
                 m_gameSessions.erase(sessionId);
             }
         } else {
-            ERR("API patch session: failed, id: {}, error code: {}", sessionId,
+            ERR("API update session: failed, id: {}, error code: {}", sessionId,
                 static_cast<int>(error));
             // TODO: Sentry
             // FIXME: what to do with game session? Erase it or retry again?
