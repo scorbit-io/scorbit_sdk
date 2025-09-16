@@ -62,7 +62,8 @@ public:
     void requestUnpair(StringCallback) override {};
     void authenticate() override { };
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin) override { };
-    void sendGameData(const GameData &) override { };
+    void sendGameData(const GameData &, bool) override { };
+    void sessionUpdate(const GameData &, bool) override { };
     void getConfig() override { };
 
     MAKE_MOCK4(updateConfig,
