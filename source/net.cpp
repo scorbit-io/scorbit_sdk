@@ -582,6 +582,13 @@ task_t Net::createAuthenticateTask()
             auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {j.dump()},
                                cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}});
 
+            if (m_stop) {
+                m_status = AuthStatus::AuthenticationFailed;
+                m_isRefreshingToken = false;
+                m_authCV.notify_all();
+                return;
+            }
+
             if (r.status_code == 200) {
                 try {
                     const auto json = json::parse(r.text);
