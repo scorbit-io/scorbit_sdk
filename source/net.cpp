@@ -579,6 +579,8 @@ task_t Net::createAuthenticateTask()
                     {JKEY_AUTH_SERIAL_NUMBER, 0},
             };
 
+            INF("API authenticating to {}", m_hostname);
+
             auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {j.dump()},
                                cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}});
 

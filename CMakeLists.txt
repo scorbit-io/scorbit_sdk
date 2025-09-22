@@ -138,6 +138,8 @@ target_sources(
         include/scorbit_sdk/common_types_c.h
         include/scorbit_sdk/log_types_c.h
         include/scorbit_sdk/log_c.h
+        include/scorbit_sdk/event_types_c.h
+        include/scorbit_sdk/event_helpers_c.h
         source/net_base.h
         source/net.h
         source/log_c.cpp
@@ -175,6 +177,8 @@ target_sources(
         source/safe_multipart.h
         source/game_start_origin.h
         source/identifiers.h
+        source/event_helpers_c.cpp
+        source/event_struct.h
 )
 
 # Generate the header from the template

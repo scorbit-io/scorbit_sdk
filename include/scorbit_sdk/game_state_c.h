@@ -22,6 +22,7 @@
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
 #include "net_types_c.h"
+#include "event_types_c.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -469,6 +470,10 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 
 SCORBIT_SDK_EXPORT
 bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count);
+
+
+SCORBIT_SDK_EXPORT
+void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t handler, void *user_data);
 
 #ifdef __cplusplus
 }
