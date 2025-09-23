@@ -471,9 +471,23 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 SCORBIT_SDK_EXPORT
 bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count);
 
-
+/**
+ * @brief Sets a callback function to handle incoming events.
+ *
+ * This function registers a callback function that will be invoked when specific events occur,
+ * such as game start requests or credit addition requests. The callback function should match the
+ * signature defined by @ref sb_event_callback_t.
+ *
+ * In the callback use @ref sb_event_type to determine the event type and then use appropriate
+ * helper function to extract event data (e.g. @ref sb_event_game_start_requested, etc)
+ *
+ * @param handle A game handle created using @ref sb_create_game_state.
+ * @param callback The callback function to handle events. If NULL, any previously set callback is
+ * removed.
+ * @param user_data Optional user data to pass to the callback. Pass NULL if not needed.
+ */
 SCORBIT_SDK_EXPORT
-void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t handler, void *user_data);
+void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data);
 
 #ifdef __cplusplus
 }

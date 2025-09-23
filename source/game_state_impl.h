@@ -20,8 +20,10 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
+#include "scorbit_sdk/event_types.h"
 #include "net_base.h"
 #include "game_data.h"
+#include "event_struct.h"
 #include <string>
 #include <memory>
 #include <atomic>
@@ -33,6 +35,8 @@ class GameStateImpl
 {
 public:
     GameStateImpl(std::unique_ptr<NetBase> net);
+
+    void setEventCallback(EventCallback &&callback);
 
     void setGameStarted();
     void setGameFinished();

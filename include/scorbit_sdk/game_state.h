@@ -368,6 +368,11 @@ public:
         return sb_is_game_start_requested(m_handle.get(), &playersCount);
     }
 
+    // void setEventCallback(std::function<void(scorbit::Event)> callback, void *userData)
+    // {
+    //     sb_set_event_callback(m_handle.get(), callback, userData);
+    // }
+
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
 private:

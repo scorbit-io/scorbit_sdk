@@ -23,6 +23,7 @@
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
 #include "player_profiles_manager.h"
+#include "event_struct.h"
 #include <boost/signals2.hpp>
 #include <string>
 #include <optional>
@@ -71,6 +72,9 @@ public:
 
     // --------------------------------------------------------------------------------------
 
+    EventCallback &eventCallback() { return m_eventCallback; }
+    void setEventCallback(EventCallback &&callback) { m_eventCallback = std::move(callback); }
+
     void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
     {
         m_gameStartRequestedSignal.connect(subscriber);
@@ -82,6 +86,7 @@ public:
     }
 
 private:
+    EventCallback m_eventCallback;
     GameStartRequestedSignal m_gameStartRequestedSignal;
 };
 

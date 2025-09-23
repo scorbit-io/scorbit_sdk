@@ -140,6 +140,8 @@ target_sources(
         include/scorbit_sdk/log_c.h
         include/scorbit_sdk/event_types_c.h
         include/scorbit_sdk/event_helpers_c.h
+        include/scorbit_sdk/event_types.h
+        include/scorbit_sdk/event.h
         source/net_base.h
         source/net.h
         source/log_c.cpp

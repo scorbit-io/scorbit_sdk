@@ -19,25 +19,20 @@
 
 #pragma once
 
-#include "scorbit_sdk/event_types_c.h"
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <functional>
+#include "event_types_c.h"
+#include <scorbit_sdk/event_types_c.h>
 
 namespace scorbit {
-namespace detail {
 
-struct EventStruct {
-    sb_event_type_t type;
-    std::vector<std::string> strings;
-    std::vector<int64_t> ints;
+enum class EventType {
+    GameStartRequested = SB_EVT_GAME_START_REQUESTED,
+    CreditsAddRequested = SB_EVT_CREDITS_ADD_REQUESTED,
+    CreditsNumberRequested = SB_EVT_CREDITS_NUMBER_REQUESTED,
+
+    // ---------------- OEM providers can ignore the events below ----------------
+
+    None = SB_EVT_NONE, // This event shoud not be used
+    ConfigReceived = SB_EVT_CONFIG_RECEIVED,
 };
 
-using EventCallback = std::function<void(const EventStruct &event)>;
-
-} // namespace detail
 } // namespace scorbit
-
-struct sb_event_t : public scorbit::detail::EventStruct  {
-};

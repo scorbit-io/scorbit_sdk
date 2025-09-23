@@ -41,6 +41,12 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->updateConfig("sdk", SCORBIT_SDK_VERSION, true);
 }
 
+void GameStateImpl::setEventCallback(EventCallback &&callback)
+{
+    (void)callback;
+    m_net->setEventCallback(std::move(callback));
+}
+
 void GameStateImpl::setGameStarted()
 {
     startGame(1, GameStartOrigin::StartButton);
