@@ -75,10 +75,11 @@ build_using_docker() {
         cmake \
             -D SCORBIT_SDK_PRODUCTION=ON \
             -D SCORBIT_SDK_ABI='$SCORBIT_SDK_ABI' \
+            -D CMAKE_BUILD_TYPE=Release \
             -G Ninja  \
             -B '$BUILD_DIR' \
             -S . \
-        && cmake --build '$BUILD_DIR' --config Release \
+        && cmake --build '$BUILD_DIR' \
         && pushd '$BUILD_DIR' \
         && cpack -G DEB \
         && cpack -G TGZ \
@@ -86,10 +87,11 @@ build_using_docker() {
         \
         && cmake \
             -D SCORBIT_SDK_PRODUCTION=ON \
+            -D CMAKE_BUILD_TYPE=Release \
             -G Ninja \
             -B '$BUILD_DIR/encrypt_tool' \
             -S encrypt_tool \
-        && cmake --build '$BUILD_DIR/encrypt_tool' --config Release \
+        && cmake --build '$BUILD_DIR/encrypt_tool' \
         && pushd '$BUILD_DIR/encrypt_tool' \
         && cpack -G TGZ \
         && popd
