@@ -55,7 +55,7 @@ TEST_CASE("Net hostname")
 
     net.setHostname("production");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
-    CHECK(net.cfHostname() == "wss://centrifuge.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://sws.scorbit.io:443");
 
     net.setHostname("staging");
     CHECK(net.hostname() == "https://staging.scorbit.io:443");
@@ -63,7 +63,7 @@ TEST_CASE("Net hostname")
 
     net.setHostname("");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
-    CHECK(net.cfHostname() == "wss://centrifuge.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://sws.scorbit.io:443");
 
     net.setHostname("http://localhost:8080", "ws://localhost:9000");
     CHECK(net.hostname() == "http://localhost:8080");

@@ -29,7 +29,7 @@ constexpr auto URL_CENTRIFUGO {"connection/websocket"};
 // Hostnames
 constexpr auto PRODUCTION_LABEL = "production";
 constexpr auto PRODUCTION_HOSTNAME = "https://api.scorbit.io";
-constexpr auto PRODUCTION_CENTRIFUGO = "wss://centrifuge.scorbit.io";
+constexpr auto PRODUCTION_CENTRIFUGO = "wss://sws.scorbit.io";
 
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
