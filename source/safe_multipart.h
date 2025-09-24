@@ -55,7 +55,6 @@ public:
         }
     }
 
-    cpr::Multipart &get() { return m_data->multipart; }
     const cpr::Multipart &get() const { return m_data->multipart; }
 
 private:

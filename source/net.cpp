@@ -810,9 +810,12 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
         formData.parts.push_back({JKEY_SESS_SUCCESSFULLY_COMPLETED, "True"});
     }
 
-    // Should we send history CSV logs?
+    // History CSV logs
+    // This variable must be declared here to have same life length as formData, otherwise
+    // cpr::Buffer will use invalid reference upon exit from "if" clause which will cause memory
+    // corruption. Later, in SafeMultipart the cpr::Buffer will be copied
+    const auto csv = gameHistoryToCsv(gameSession->history);
     if (uploadHistoryLogs) {
-        const auto csv = gameHistoryToCsv(gameSession->history);
         formData.parts.push_back(
                 {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});
     }
