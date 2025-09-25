@@ -737,24 +737,28 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
             try {
                 json json = json::parse(reply);
 
-                GameSession *gameSession = nullptr;
-
                 if (const auto it = json.find(JKEY_SESS_UUID);
                     it != json.end() && it->is_string()) {
-                    std::lock_guard lock(m_gameSessionsMutex);
 
-                    gameSession = &m_gameSessions[sessionId];
+                    GameSession *gameSession = nullptr;
+                    {
+                        std::lock_guard lock(m_gameSessionsMutex);
+                        gameSession = &m_gameSessions[sessionId];
+                    }
+
                     it->get_to(gameSession->sessionUuid);
 
                     INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
                         gameSession->sessionUuid, (uint64_t)&gameSession->gameData);
+
+                    // Scores array will have players' profiles
+                    if (const auto it = json.find("scores"); it != json.end()) {
+                        processScoresAndPlayersProfiles(*it, *gameSession);
+                    } else {
+                        WRN("API create session: can't find scores in reply");
+                    }
                 } else {
                     ERR("API create session: can't find session UUID in reply");
-                }
-
-                // Scores array will have players' profiles
-                if (const auto it = json.find("scores"); it != json.end()) {
-                    processScoresAndPlayersProfiles(*it, *gameSession);
                 }
             } catch (const std::exception &e) {
                 ERR("API error parsing game data reply: {}", e.what());
