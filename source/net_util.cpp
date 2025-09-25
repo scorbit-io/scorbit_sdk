@@ -24,6 +24,7 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <iomanip>
+#include <regex>
 
 namespace scorbit {
 namespace detail {
@@ -141,6 +142,24 @@ std::string to_iso8601(std::chrono::system_clock::time_point tp)
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
     return oss.str();
+}
+
+
+auto parseActionGetUrl(const std::string &url) -> std::pair<std::string, std::string>
+{
+    // Example URL: https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad/
+    // Regex to capture "v2/sessions" and the UUID
+    std::regex re(R"(\/([^\/]+)\/([0-9a-fA-F\-]+)\/$)");
+    std::smatch match;
+
+    std::string endpoint;
+    std::string uuid;
+    if (std::regex_search(url, match, re)) {
+        endpoint = match[1]; // sessions
+        uuid = match[2];     // UUID
+    }
+
+    return std::make_pair(endpoint, uuid);
 }
 
 } // namespace detail

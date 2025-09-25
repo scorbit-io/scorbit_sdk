@@ -167,3 +167,19 @@ TEST_CASE("Game history to csv", "[gameHistoryToCsv]")
                               "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\"\n";
     CHECK(csv == expectedCsv);
 }
+
+TEST_CASE("parseActionGetUrl, happy path")
+{
+    const auto [action, getUrl] =
+            parseActionGetUrl("https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad/");
+    CHECK(action == "sessions");
+    CHECK(getUrl == "74657788-455e-4dce-a4d4-38e6e5b765ad");
+}
+
+TEST_CASE("parseActionGetUrl, with trailing slash")
+{
+    const auto [action, getUrl] =
+            parseActionGetUrl("https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad///");
+    CHECK(action.empty());
+    CHECK(getUrl.empty());
+}
