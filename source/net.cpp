@@ -988,6 +988,50 @@ void Net::stopTokenRefreshTimer()
     m_worker.stopTimer(Worker::Timer::TokenRefresh);
 }
 
+void Net::requestSessionData(const std::string &sessionUuid)
+{
+    INF("API post queue request session data, uuid: {} ...", sessionUuid);
+
+    auto callback = [this, sessionUuid](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API get session data: ok, {}", reply);
+            // Find out sessionId
+            int sessionId = -1;
+            for (const auto &[id, gameSession] : m_gameSessions) {
+                if (gameSession.sessionUuid == sessionUuid) {
+                    sessionId = id;
+                    break;
+                }
+            }
+
+            if (sessionId >= 0) {
+                json j = json::parse(reply);
+                if (const auto scoresIt = j.find(JKEY_SCR_SCORES);
+                    scoresIt != j.end() && scoresIt->is_array()) {
+                    GameSession *gameSession = nullptr;
+                    {
+                        std::lock_guard lock(m_gameSessionsMutex);
+                        gameSession = &m_gameSessions[sessionId];
+                    }
+                    processScoresAndPlayersProfiles(*scoresIt, *gameSession);
+                }
+            }
+        } else {
+            ERR("API get session data: failed, error code: {}, reply: {}", static_cast<int>(error),
+                reply);
+        }
+    };
+
+    auto deferredSetup = [this, sessionUuid]() {
+        const auto endpoint =
+                url(URL_SCORBITRON_SESSION_UPDATE, fmt::arg(ARG_SESSION_UUID, sessionUuid));
+        cpr::Parameters parameters;
+        return make_tuple(endpoint, parameters);
+    };
+
+    m_worker.postQueue(createGetRequestTask(std::move(callback), std::move(deferredSetup)));
+}
+
 void Net::postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid)
 {
     m_worker.postQueue(createUploadHistoryTask(history, sessionUuid));
@@ -1356,26 +1400,43 @@ void Net::centrifugoSetup()
 
     m_centrifugo->onPublication(
             [this](const std::string &channel, centrifugo::Publication const &pub) {
-                INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
-                    pub.data.dump(), pub.offset);
-                if (pub.info) {
-                    INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
-                        pub.info->client);
-                }
+                try {
+                    INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
+                        pub.data.dump(), pub.offset);
+                    if (pub.info) {
+                        INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
+                            pub.info->client);
+                    }
 
-                if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
-                    const auto &j = pub.data;
-                    if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
-                        payloadIt != j.end() && payloadIt->is_object()) {
-                        const auto type = j.value(JKEY_CHN_TYPE, "");
+                    if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
+                        const auto &j = pub.data;
+                        if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+                            payloadIt != j.end() && payloadIt->is_object()) {
+                            const auto type = j.value(JKEY_CHN_TYPE, "");
 
-                        if (type == JVAL_CHN_TYPE_START_GAME) {
-                            const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
-                            emitGameStartRequested(playerCount);
-                        } else {
-                            WRN("API-CF Unknown publication type: {}", type);
+                            if (type == JVAL_CHN_TYPE_START_GAME) {
+                                const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
+                                emitGameStartRequested(playerCount);
+                            } else {
+                                WRN("API-CF Unknown publication type: {}", type);
+                            }
+                        } else if (const auto typeIt = j.find(JKEY_CHN_TYPE);
+                                   typeIt != j.end() && typeIt->is_string()) {
+                            const auto type = typeIt->get<std::string>();
+                            if (type == JVAL_TYPE_ACTION) {
+                                const auto method = j.value(JKEY_METHOD, "");
+                                if (method == JVAL_METHOD_GET) {
+                                    const auto url = j.value(JKEY_URL, "");
+                                    const auto [endpoint, uuid] = parseActionGetUrl(url);
+                                    if (endpoint == URL_SESSION_ID) {
+                                        requestSessionData(uuid);
+                                    }
+                                }
+                            }
                         }
                     }
+                } catch (const std::exception &e) {
+                    ERR("API-CF Error parsing publication data: {}", e.what());
                 }
             });
 }

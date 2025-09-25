@@ -126,6 +126,8 @@ private:
     void startTokenRefreshTimer();
     void stopTokenRefreshTimer();
 
+    void requestSessionData(const std::string &sessionUuid);
+
     void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
     task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
 
