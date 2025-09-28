@@ -560,7 +560,7 @@ task_t Net::createAuthenticateTask()
         std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
         ByteArray message(m_deviceInfo.uuid);
 
-        for (int i = 0; i < NUM_RETRIES; ++i) {
+        for (;;) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
@@ -624,6 +624,10 @@ task_t Net::createAuthenticateTask()
                 INF("API authentication failed: code {}, {}, will retry with new timestamp",
                     r.status_code, r.error.message);
                 timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
+            } else if (r.status_code == 0) {
+                // Network error, retry
+                ERR("API authentication network error: {}, will retry in 10s", r.error.message);
+                std::this_thread::sleep_for(10s);
             } else {
                 m_status = AuthStatus::AuthenticationFailed;
                 stopTokenRefreshTimer();
