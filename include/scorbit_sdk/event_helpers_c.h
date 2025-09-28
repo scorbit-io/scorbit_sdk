@@ -50,7 +50,7 @@ sb_event_type_t sb_event_type(const sb_event_t *event);
  * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
  */
 SCORBIT_SDK_EXPORT
-bool sb_event_game_start_requested(sb_event_t *event, int *players_count);
+bool sb_event_game_start_requested(const sb_event_t *event, int *players_count);
 
 /**
  * @brief Helper function to process a credits add requested event.
@@ -65,7 +65,7 @@ bool sb_event_game_start_requested(sb_event_t *event, int *players_count);
  * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
  */
 SCORBIT_SDK_EXPORT
-bool sb_event_credits_add_requested(sb_event_t *event, int *credits_to_add);
+bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

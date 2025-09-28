@@ -16,7 +16,7 @@ namespace scorbit {
 class Event
 {
 public:
-    Event(sb_event_t *event)
+    Event(const sb_event_t *event)
         : m_event(event)
     {
     }
@@ -62,7 +62,7 @@ public:
 
            // ---------------- OEM providers can ignore the events below ----------------
 
-    sb_event_t *event() const { return m_event; }
+    const sb_event_t *event() const { return m_event; }
 
     bool eventConfigReceived(std::string &configJson) const
     {
@@ -75,7 +75,7 @@ public:
     }
 
 private:
-    sb_event_t *m_event;
+    const sb_event_t *m_event;
 };
 
 } // namespace scorbit
