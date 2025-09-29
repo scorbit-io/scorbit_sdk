@@ -95,12 +95,37 @@ endif()
 set(BUILD_SHARED_LIBS OFF)
 CPMAddPackage(
     NAME cpr
-    GIT_TAG 1.11.2
+    GIT_TAG 1.12.0
     GITHUB_REPOSITORY libcpr/cpr
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
     GIT_SHALLOW TRUE
 )
+if(cpr_ADDED)
+    set(CPR_SOURCE_DIR ${cpr_SOURCE_DIR})
+
+    execute_process(
+        COMMAND git apply --check "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch"
+        WORKING_DIRECTORY ${CPR_SOURCE_DIR}
+        RESULT_VARIABLE patch_check_result
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+
+    if(patch_check_result EQUAL 0)
+        message(STATUS "Applying CPR patch...")
+        execute_process(
+            COMMAND git apply "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch"
+            WORKING_DIRECTORY ${CPR_SOURCE_DIR}
+            RESULT_VARIABLE patch_result
+        )
+        if(NOT patch_result EQUAL 0)
+            message(FATAL_ERROR "Failed to apply patch to CPR")
+        endif()
+    else()
+        message(STATUS "CPR patch already applied (skipping).")
+    endif()
+endif()
 
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
@@ -195,6 +220,12 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-dead_strip")
 endif()
 
+# BeableBone Black (BBB) requires using static libstdc++ which will link to libstdc++_pic
+# it should be installed via libstdc++-9-pic package
+if(SCORBIT_SDK_ABI STREQUAL "u12" OR SCORBIT_SDK_ABI STREQUAL "u12dev")
+    target_link_options(${PROJECT_NAME} PRIVATE -static-libstdc++)
+endif()
+
 # Link dependencies
 target_link_libraries(
     ${PROJECT_NAME}
@@ -227,17 +258,6 @@ target_compile_definitions(
 # header paths
 string(TOLOWER ${PROJECT_NAME}/version.h VERSION_HEADER_LOCATION)
 string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
-
-# BeableBone Black (BBB) requires installing extra libs
-if(SCORBIT_SDK_ABI STREQUAL "u12" OR SCORBIT_SDK_ABI STREQUAL "u12dev")
-    install(
-        FILES
-            "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6"
-            "/usr/lib/arm-linux-gnueabihf/libstdc++.so.6.0.28"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/"
-        COMPONENT "${PROJECT_NAME}_Runtime"
-    )
-endif()
 
 # Detect architecture
 
@@ -272,7 +292,11 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 
 set(CPACK_DEBIAN_PACKAGE_SECTION "General")
 
-set(CPACK_STRIP_FILES TRUE)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CPACK_STRIP_FILES TRUE)
+else()
+    set(CPACK_STRIP_FILES FALSE)
+endif()
 
 set(CPACK_PACKAGING_INSTALL_PREFIX ${SCORBIT_SDK_INSTALL_PREFIX})
 

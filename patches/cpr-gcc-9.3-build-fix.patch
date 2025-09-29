@@ -1,0 +1,21 @@
+diff --git a/include/cpr/secure_string.h b/include/cpr/secure_string.h
+index 86c38c6..6d32fe6 100644
+--- a/include/cpr/secure_string.h
++++ b/include/cpr/secure_string.h
+@@ -34,6 +34,16 @@ struct SecureAllocator : private std::allocator<T> {
+ 
+     using value_type = T;
+ 
++    using size_type = std::size_t;
++    using difference_type = std::ptrdiff_t;
++    using pointer = T*;
++    using const_pointer = const T*;
++    using reference = T&;
++    using const_reference = const T&;
++
++    template <typename U>
++    struct rebind { using other = SecureAllocator<U>; };
++
+     // NOLINTNEXTLINE(readability-identifier-naming)
+     T* allocate(std::size_t n) {
+         return static_cast<std::allocator<T>&>(*this).allocate(n);

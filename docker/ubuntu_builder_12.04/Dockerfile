@@ -105,3 +105,5 @@ RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE
     && make install \
     && cd ../.. && rm -rf $LIBARCHIVE
 
+RUN apt-get install -y \
+        libstdc++-9-pic
