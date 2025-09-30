@@ -18,7 +18,10 @@
  */
 
 #include <scorbit_sdk/event_helpers_c.h>
-#include "event_struct.h"
+#include <scorbit_sdk/event_types.h>
+#include "event_impl.h"
+
+using namespace scorbit;
 
 namespace {
 
@@ -26,17 +29,17 @@ namespace {
 template<typename T, typename = std::enable_if_t<std::is_integral<T>::value>>
 inline bool assignParam(const sb_event_t &event, T *out, size_t &intIndex, size_t &)
 {
-    if (intIndex >= event.ints.size() || out == nullptr)
+    if (intIndex >= event.ints().size() || out == nullptr)
         return false;
-    *out = event.ints[intIndex++];
+    *out = event.ints()[intIndex++];
     return true;
 }
 
 inline bool assignParam(const sb_event_t &event, const char **out, size_t &, size_t &stringIndex)
 {
-    if (stringIndex >= event.strings.size() || out == nullptr)
+    if (stringIndex >= event.strings().size() || out == nullptr)
         return false;
-    *out = event.strings[stringIndex++].c_str();
+    *out = event.strings()[stringIndex++].c_str();
     return true;
 }
 
@@ -58,20 +61,22 @@ bool extractParameters(const sb_event_t &event, Args... args)
 
 sb_event_type_t sb_event_type(const sb_event_t *event)
 {
-    return event->type;
+    return static_cast<sb_event_type_t>(event->type());
 }
 
 bool sb_event_game_start_requested(const sb_event_t *event, int *players_count)
 {
-    return event->type == SB_EVT_GAME_START_REQUESTED && extractParameters(*event, players_count);
+    return event->type() == EventType::GameStartRequested
+        && extractParameters(*event, players_count);
 }
 
 bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add)
 {
-    return event->type == SB_EVT_CREDITS_ADD_REQUESTED && extractParameters(*event, credits_to_add);
+    return event->type() == EventType::CreditsAddRequested
+        && extractParameters(*event, credits_to_add);
 }
 
 bool sb_event_config_received(const sb_event_t *event, const char **config_json)
 {
-    return event->type == SB_EVT_CONFIG_RECEIVED && extractParameters(*event, config_json);
+    return event->type() == EventType::ConfigReceived && extractParameters(*event, config_json);
 }

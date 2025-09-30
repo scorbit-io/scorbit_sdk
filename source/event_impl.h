@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "scorbit_sdk/event_types_c.h"
+#include "scorbit_sdk/event_types.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -28,16 +28,40 @@
 namespace scorbit {
 namespace detail {
 
-struct EventStruct {
-    sb_event_type_t type;
-    std::vector<std::string> strings;
-    std::vector<int64_t> ints;
+enum EventPriority {
+    Normal,
+    High,
+    Highest,
 };
 
-using EventCallback = std::function<void(const EventStruct &event)>;
+class EventImpl
+{
+public:
+    EventImpl(EventType type, std::vector<std::string> &&strings = {},
+              std::vector<int64_t> &&ints = {});
+
+    EventType type() const { return m_type; }
+    const std::vector<std::string> &strings() const { return m_strings; }
+    const std::vector<int64_t> &ints() const { return m_ints; }
+
+    // To use in std::priority_queue
+    bool operator<(const EventImpl &other) const;
+
+private:
+    EventType m_type;
+    std::vector<std::string> m_strings;
+    std::vector<int64_t> m_ints;
+
+    EventPriority m_priority;
+    size_t m_order {++s_orderCounter}; // Incremental order to maintain FIFO for same priority
+
+    static size_t s_orderCounter;
+};
+
+using EventCallback = std::function<void(const EventImpl &event)>;
 
 } // namespace detail
 } // namespace scorbit
 
-struct sb_event_t : public scorbit::detail::EventStruct  {
+struct sb_event_t : public scorbit::detail::EventImpl {
 };
