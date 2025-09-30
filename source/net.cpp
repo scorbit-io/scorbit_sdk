@@ -392,6 +392,11 @@ void Net::getConfig()
                         it->get_to(m_machineInfo.variantUuid);
                     }
 
+                    if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
+                        it != json.end() && it->is_string()) {
+                        it->get_to(m_machineInfo.venueUuid);
+                    }
+
                     if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
                         configIt != json.end() && configIt->is_object()) {
                         if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);

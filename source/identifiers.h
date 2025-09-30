@@ -119,6 +119,7 @@ constexpr auto JKEY_SCFG_SHORTCODE {"shortcode"};
 constexpr auto JKEY_SCFG_MACHINE_UUID {"machine_id"};
 constexpr auto JKEY_SCFG_MACHINE_ID {"machine_id"};
 constexpr auto JKEY_SCFG_VARIANT_ID {"variant_id"};
+constexpr auto JKEY_SCFG_VENUE_ID {"venue_id"};
 constexpr auto JKEY_SCFG_CONFIG {"config"};
 constexpr auto JKEY_SCFG_OPDB_ID {"opdb_id"};
 constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
