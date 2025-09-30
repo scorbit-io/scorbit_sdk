@@ -1425,21 +1425,18 @@ void Net::centrifugoSetup()
                             if (type == JVAL_CHN_TYPE_START_GAME) {
                                 const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
                                 emitGameStartRequested(playerCount);
-                            } else {
-                                WRN("API-CF Unknown publication type: {}", type);
-                            }
-                        } else if (const auto typeIt = j.find(JKEY_CHN_TYPE);
-                                   typeIt != j.end() && typeIt->is_string()) {
-                            const auto type = typeIt->get<std::string>();
-                            if (type == JVAL_TYPE_ACTION) {
-                                const auto method = j.value(JKEY_METHOD, "");
+                            } else if (type == JVAL_TYPE_ACTION) {
+                                const auto method = payloadIt->value(JKEY_METHOD, "");
+                                const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
                                 if (method == JVAL_METHOD_GET) {
-                                    const auto url = j.value(JKEY_URL, "");
-                                    const auto [endpoint, uuid] = parseActionGetUrl(url);
-                                    if (endpoint == URL_SESSION_ID) {
-                                        requestSessionData(uuid);
+                                    if (name == JVAL_ACITON_GET_SCORBITRON_SESSION) {
+                                        const auto url = payloadIt->value(JKEY_URL, "");
+                                        const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
+                                        requestSessionData(sessionUuid);
                                     }
                                 }
+                            } else {
+                                WRN("API-CF Unknown publication type: {}", type);
                             }
                         }
                     }
