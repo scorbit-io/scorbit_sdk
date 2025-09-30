@@ -283,7 +283,8 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
         // TODO: check if it's needed to lock mutex here
         const auto sessionCounter = ++gameSession->sessionCounter;
         const auto modes = json::parse(gameData.modes.jsonStr());
-        const auto currentDateTime = to_iso8601(chrono::system_clock::now());
+        const auto updatedAt = to_iso8601(chrono::system_clock::now());
+        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
 
         json::array_t scores;
         for (const auto &[playerNum, playerState] : gameData.players) {
@@ -314,16 +315,22 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
 
         json j {{JKEY_CHN_TYPE, valType},
                 {JKEY_CHN_PAYLOAD,
-                 {{JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                  {keyScores, scores},
-                  {JKEY_SCR_METADATA,
-                   {
-                           {JKEY_SCR_GAME, sessionUuid},
-                           {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                           {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                           {JKEY_SCR_SEQUENCE, sessionCounter},
-                           {JKEY_SCR_TIMESTAMP, currentDateTime},
-                   }}}}};
+                 {
+                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                         {keyScores, scores},
+                 }},
+                {JKEY_SCR_METADATA,
+                 {
+                         {JKEY_SCR_GAME, sessionUuid},
+                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
+                                                  ? json(nullptr)
+                                                  : json(m_machineInfo.venueUuid)},
+                         {JKEY_SCR_SEQUENCE, sessionCounter},
+                         {JKEY_SCR_CREATED_AT, createdAt},
+                         {JKEY_SCR_UPDATED_AT, updatedAt},
+                 }}};
 
         const auto jstr = j.dump();
         INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);

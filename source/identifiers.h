@@ -107,8 +107,10 @@ constexpr auto JKEY_SCR_METADATA {"metadata"};
 constexpr auto JKEY_SCR_GAME {"game"};
 constexpr auto JKEY_SCR_MACHINE {"machine"};
 constexpr auto JKEY_SCR_VARIANT {"variant"};
+constexpr auto JKEY_SCR_VENUE {"venue"};
 constexpr auto JKEY_SCR_SEQUENCE {"sequence"};
-constexpr auto JKEY_SCR_TIMESTAMP {"timestamp"};
+constexpr auto JKEY_SCR_CREATED_AT {"created_at"};
+constexpr auto JKEY_SCR_UPDATED_AT {"updated_at"};
 
 constexpr auto JVAL_SCR_SCORE_UPDATE {"score_update"};
 constexpr auto JVAL_SCR_GAME_END {"game_end"};
