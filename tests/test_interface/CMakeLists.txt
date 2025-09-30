@@ -22,7 +22,7 @@ include(../../cmake/tools.cmake)
 
 # ---- Dependencies ----
 
-include(../../cmake/CPM.cmake)
+include(CPM)
 
 # Catch2
 CPMAddPackage(

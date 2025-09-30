@@ -69,7 +69,7 @@ elseif(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
 endif()
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/encrypt.cmake)
+include(encrypt)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"

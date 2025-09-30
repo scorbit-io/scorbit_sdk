@@ -22,7 +22,7 @@ if(scorbit_sdk_FOUND)
     message(STATUS "scorbit_sdk found")
 else()
     message(STATUS "scorbit_sdk not found, using CPM to add it")
-    include(../../cmake/CPM.cmake)
+    include(CPM)
     CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
 
