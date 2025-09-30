@@ -23,11 +23,11 @@ endif()
 
 # --- Import tools ----
 
-include(../../cmake/tools.cmake)
+include(tools)
 
 # ---- Dependencies ----
 
-include(../../cmake/CPM.cmake)
+include(CPM)
 
 # Catch2
 CPMAddPackage(
@@ -56,9 +56,9 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 set(BOOST_COMPILED_COMPONENTS filesystem thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll signals2)
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/lib_boost.cmake)
+include(lib_boost)
 
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/lib_nlohmann_json.cmake)
+include(lib_nlohmann_json)
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
@@ -69,7 +69,7 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 
-include(../../cmake/lib_centrifugo-cpp.cmake)
+include(lib_centrifugo-cpp)
 
 # ---- Create binary ----
 
