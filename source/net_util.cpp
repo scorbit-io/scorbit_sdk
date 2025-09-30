@@ -145,21 +145,20 @@ std::string to_iso8601(std::chrono::system_clock::time_point tp)
 }
 
 
-auto parseActionGetUrl(const std::string &url) -> std::pair<std::string, std::string>
+auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string
 {
-    // Example URL: https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad/
+    // Example URL:
+    // .../api/v2/scorbitrons/7a16ea98-48e8-4b2e-a1eb-cf282e3b81cc/sessions/da9e568d-ce3b-4493-9d5c-10cfe47a96de/
     // Regex to capture "v2/sessions" and the UUID
-    std::regex re(R"(\/([^\/]+)\/([0-9a-fA-F\-]+)\/$)");
+    std::regex re(fmt::format(R"(\/({})\/([0-9a-fA-F\-]+)\/)", key));
     std::smatch match;
 
-    std::string endpoint;
     std::string uuid;
     if (std::regex_search(url, match, re)) {
-        endpoint = match[1]; // sessions
         uuid = match[2];     // UUID
     }
 
-    return std::make_pair(endpoint, uuid);
+    return uuid;
 }
 
 } // namespace detail

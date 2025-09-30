@@ -24,7 +24,7 @@ constexpr auto URL_SCORBITRON_SESSIONS {"v2/scorbitrons/{scorbitron_uuid}/sessio
 constexpr auto URL_SCORBITRON_SESSION_UPDATE {"v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
 constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
 
-constexpr auto URL_SESSION_ID {"sessions"};
+constexpr auto URL_SESSIONS_ID {"sessions"};
 
 constexpr auto URL_CENTRIFUGO {"connection/websocket"};
 
@@ -159,6 +159,9 @@ constexpr auto JVAL_TYPE_ACTION {"action"};
 constexpr auto JKEY_METHOD {"method"};
 constexpr auto JVAL_METHOD_GET {"GET"};
 constexpr auto JKEY_URL {"url"};
+
+constexpr auto JKEY_ACTION_NAME {"name"};
+constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
 
 } // namespace detail
 } // namespace scorbit

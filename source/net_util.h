@@ -44,7 +44,7 @@ std::string gameHistoryToCsv(const GameHistory &history);
 
 std::string to_iso8601(std::chrono::system_clock::time_point tp);
 
-auto parseActionGetUrl(const std::string &url) -> std::pair<std::string, std::string>;
+auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string;
 
 } // namespace detail
 } // namespace scorbit
