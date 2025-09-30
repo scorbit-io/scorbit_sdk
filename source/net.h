@@ -74,6 +74,7 @@ class Net : public NetBase
         std::string opdbId;
         std::string machineUuid;
         std::string variantUuid;
+        std::string venueUuid;
     };
 
 public:
