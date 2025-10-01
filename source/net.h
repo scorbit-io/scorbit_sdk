@@ -66,6 +66,8 @@ class Net : public NetBase
         GameData gameData;
         std::chrono::time_point<std::chrono::steady_clock> startedTime {
                 std::chrono::steady_clock::now()};
+        std::chrono::time_point<std::chrono::system_clock> startedSystemTime {
+                std::chrono::system_clock::now()};
         GameHistory history;
         std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadata;
     };
@@ -74,6 +76,7 @@ class Net : public NetBase
         std::string opdbId;
         std::string machineUuid;
         std::string variantUuid;
+        std::string venueUuid;
     };
 
 public:
