@@ -23,7 +23,7 @@
 #include "scorbit_sdk/event_types.h"
 #include "net_base.h"
 #include "game_data.h"
-#include "event_impl.h"
+#include "event_classes.h"
 #include <string>
 #include <memory>
 #include <atomic>
