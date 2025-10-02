@@ -167,6 +167,11 @@ Net::~Net()
     m_authCV.notify_all();
 }
 
+void Net::setEventCallback(EventCallback &&callback)
+{
+    m_eventManager->setEventCallback(std::move(callback));
+}
+
 AuthStatus Net::status() const
 {
     return m_status;

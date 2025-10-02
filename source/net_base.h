@@ -41,6 +41,8 @@ public:
     NetBase() = default;
     virtual ~NetBase() = default;
 
+    virtual void setEventCallback(EventCallback &&callback) = 0;
+
     virtual AuthStatus status() const = 0;
 
     virtual void authenticate() = 0;
@@ -71,9 +73,6 @@ public:
     virtual PlayerProfilesManager &playersManager() = 0;
 
     // --------------------------------------------------------------------------------------
-
-    EventCallback &eventCallback() { return m_eventCallback; }
-    void setEventCallback(EventCallback &&callback) { m_eventCallback = std::move(callback); }
 
     void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
     {
