@@ -132,6 +132,9 @@ target_sources(
         source/test_lru_cache.cpp
         ../../source/safe_multipart.h
         source/test_safe_multipart.cpp
+        ../../source/event_queue.h
+        ../../source/event_classes.h
+        source/test_event_queue.cpp
 )
 
 target_link_libraries(
