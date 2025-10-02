@@ -182,6 +182,7 @@ target_sources(
         source/event_helpers_c.cpp
         source/event_classes.h
         source/event_queue.h
+        source/event_manager.h
 )
 
 # Generate the header from the template

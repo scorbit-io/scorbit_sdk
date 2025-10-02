@@ -135,6 +135,8 @@ target_sources(
         ../../source/event_queue.h
         ../../source/event_classes.h
         source/test_event_queue.cpp
+        ../../source/event_manager.h
+        source/test_event_manager.cpp
 )
 
 target_link_libraries(
