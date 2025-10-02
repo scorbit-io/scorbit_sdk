@@ -24,9 +24,9 @@
 #include <string.h>
 
 #ifdef _WIN32
-#include <windows.h>
+#    include <windows.h>
 #else
-#include <unistd.h>
+#    include <unistd.h>
 #endif
 
 // Set score features - optional, but if you have features that help identify what
@@ -34,13 +34,8 @@
 // WARNING: in the future releasees we can ONLY add new features, but not remove
 // existing ones, otherwise indices of score features of old game sesions will be
 // broken. Also we should increment scoreFeaturesVersion when new feature(s) added.
-const char *G_SCORE_FEATURES[] = {
-        "ramp",
-        "left spinner",
-        "right spinner",
-        "left slingshot",
-        "right slingshot"
-};
+const char *G_SCORE_FEATURES[] = {"ramp", "left spinner", "right spinner", "left slingshot",
+                                  "right slingshot"};
 const size_t G_SCORE_FEATURES_COUNT = sizeof(G_SCORE_FEATURES) / sizeof(G_SCORE_FEATURES[0]);
 
 // Increment only if new entries added in new game releases
@@ -131,7 +126,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     (void)timestamp;
 
     // Get the current time
-    time_t ct = timestamp / 1000;      // Convert milliseconds since epoch to seconds
+    time_t ct = timestamp / 1000;         // Convert milliseconds since epoch to seconds
     struct tm *timeInfo = localtime(&ct); // Convert to local time
 
     // Buffer for formatted time string
@@ -165,6 +160,50 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+void eventsCallback(const sb_event_t *event, void *user_data)
+{
+    (void)user_data;
+
+    sb_event_type_t event_type = sb_event_type(event);
+
+    printf("Event %d received\n", event_type);
+
+    switch (event_type) {
+    case SB_EVT_GAME_START_REQUESTED: {
+        int players = 0;
+        if (sb_event_game_start_requested(event, &players)) {
+            printf("Game start requested with %d player(s)\n", players);
+            // Start your game here
+        }
+    } break;
+
+    case SB_EVT_CREDITS_ADD_REQUESTED: {
+        int credits_to_add = 0;
+        if (sb_event_credits_add_requested(event, &credits_to_add)) {
+            printf("Credits add requested: %d\n", credits_to_add);
+            // Add credits to your game here
+        }
+    } break;
+
+    case SB_EVT_CREDITS_NUMBER_REQUESTED: {
+        printf("Credits number requested\n");
+        // Send current credits number using sb_send_credits_number()
+    }  break;
+
+    // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
+    case SB_EVT_CONFIG_RECEIVED: {
+        const char *config_json = NULL;
+        if (sb_event_config_received(event, &config_json)) {
+            printf("Config received: %s\n", config_json ? config_json : "NULL");
+            // Process the config JSON string here or copy it for further use
+        }
+    } break;
+
+    default:
+        break;
+    }
+}
+
 sb_game_handle_t setup_game_state(void)
 {
     // Setup device info
@@ -193,13 +232,15 @@ sb_game_handle_t setup_game_state(void)
             .uuid = NULL,                 // NULL, will be automatically derived from device
             .serial_number = 0,           // no serial number available, set to 0
             .auto_download_player_pics = true, // players' pictures will be automatically downloaded
-            .score_features = NULL,      // we don't use score features
+            .score_features = NULL,            // we don't use score features
             .score_features_count = 0,
     };
     (void)device_info2;
 
     // Setup encrypted key
-    const char *encrypted_key = "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
+    const char *encrypted_key =
+            "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+            "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
 
     // Create game state object. Device info will be copied, so it's safe to create it in the stack
     return sb_create_game_state2(encrypted_key, &device_info);
@@ -269,6 +310,9 @@ int main(void)
 
     sb_game_handle_t gs = setup_game_state();
 
+    // Setup events callback
+    sb_set_event_callback(gs, &eventsCallback, NULL);
+
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
@@ -277,8 +321,6 @@ int main(void)
 
     // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
     sb_request_pair_code(gs, &shortcode_callback, NULL);
-
-
 
     // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
@@ -310,7 +352,6 @@ int main(void)
             // request arrived and will be be ignored here
             printf("Started from mobile app with %d players!\n", players_count);
         }
-
 
         if (isGameActive(i)) {
             // Let's pretend that this players_num is current number of players in the game
