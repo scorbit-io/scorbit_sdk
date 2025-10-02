@@ -117,6 +117,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, useEncryptedKey)
+    , m_eventManager(std::make_unique<EventManager>(m_worker.eventsStrand()))
 {
     setHostname(m_deviceInfo.hostname, "");
 
@@ -423,6 +424,8 @@ void Net::getConfig()
                     }
 
                     m_updater.checkNewVersionAndUpdate(json);
+
+                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
 
                     if (m_status != status) {
                         m_status = status;
