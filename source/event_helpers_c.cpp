@@ -27,7 +27,8 @@ using namespace scorbit;
 
 sb_event_type_t sb_event_type(const sb_event_t *event)
 {
-    return static_cast<sb_event_type_t>(event->type());
+    const auto eventBase = static_cast<const detail::EventBase *>(event);
+    return static_cast<sb_event_type_t>(eventBase->type());
 }
 
 bool sb_event_game_start_requested(const sb_event_t* event, int* players_count) {

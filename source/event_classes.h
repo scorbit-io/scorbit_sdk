@@ -20,9 +20,16 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
-#include <cstdint>
 #include <string>
 #include <functional>
+
+
+struct sb_event_t {
+    virtual ~sb_event_t() = default;
+
+protected:
+    sb_event_t() = default;
+};
 
 namespace scorbit {
 namespace detail {
@@ -33,11 +40,9 @@ enum EventPriority {
     Highest,
 };
 
-class EventBase
+class EventBase : public sb_event_t
 {
 public:
-    virtual ~EventBase() = default;
-
     auto type() const -> EventType { return m_type; }
 
     // To use in std::priority_queue
@@ -134,5 +139,3 @@ private:
 } // namespace detail
 } // namespace scorbit
 
-struct sb_event_t : public scorbit::detail::EventBase {
-};
