@@ -18,60 +18,57 @@
  */
 
 #include <scorbit_sdk/event_helpers_c.h>
-#include "event_struct.h"
+#include <scorbit_sdk/event_types.h>
+#include "event_classes.h"
 
-namespace {
-
-// Overload for int type
-template<typename T, typename = std::enable_if_t<std::is_integral<T>::value>>
-inline bool assignParam(const sb_event_t &event, T *out, size_t &intIndex, size_t &)
-{
-    if (intIndex >= event.ints.size() || out == nullptr)
-        return false;
-    *out = event.ints[intIndex++];
-    return true;
-}
-
-inline bool assignParam(const sb_event_t &event, const char **out, size_t &, size_t &stringIndex)
-{
-    if (stringIndex >= event.strings.size() || out == nullptr)
-        return false;
-    *out = event.strings[stringIndex++].c_str();
-    return true;
-}
-
-// --- Variadic extractor ---
-template<typename... Args>
-bool extractParameters(const sb_event_t &event, Args... args)
-{
-    size_t intIndex = 0;
-    size_t stringIndex = 0;
-
-    bool ok = (assignParam(event, args, intIndex, stringIndex) && ...);
-
-    return ok;
-}
-
-} // namespace
+using namespace scorbit;
 
 // ------------------------------  Public API implementation -------------------------------
 
 sb_event_type_t sb_event_type(const sb_event_t *event)
 {
-    return event->type;
+    const auto eventBase = static_cast<const detail::EventBase *>(event);
+    return static_cast<sb_event_type_t>(eventBase->type());
 }
 
-bool sb_event_game_start_requested(const sb_event_t *event, int *players_count)
-{
-    return event->type == SB_EVT_GAME_START_REQUESTED && extractParameters(*event, players_count);
+bool sb_event_game_start_requested(const sb_event_t* event, int* players_count) {
+    if (!event || !players_count) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::GameStartRequestedEvent*>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *players_count = derived->playersCount();
+    return true;
 }
 
-bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add)
-{
-    return event->type == SB_EVT_CREDITS_ADD_REQUESTED && extractParameters(*event, credits_to_add);
+bool sb_event_credits_add_requested(const sb_event_t* event, int* credits_to_add) {
+    if (!event || !credits_to_add) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::CreditsAddRequestedEvent*>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *credits_to_add = derived->creditsToAdd();
+    return true;
 }
 
-bool sb_event_config_received(const sb_event_t *event, const char **config_json)
-{
-    return event->type == SB_EVT_CONFIG_RECEIVED && extractParameters(*event, config_json);
+bool sb_event_config_received(const sb_event_t* event, const char** config_json) {
+    if (!event || !config_json) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::ConfigReceivedEvent*>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *config_json = derived->configJson().c_str();
+    return true;
 }

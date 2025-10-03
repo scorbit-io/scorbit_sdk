@@ -34,6 +34,8 @@ namespace {
 class MockNetBase : public NetBase
 {
 public:
+    virtual ~MockNetBase() = default;
+    void setEventCallback(EventCallback &&) override { };
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override {};
@@ -73,6 +75,7 @@ public:
 
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
+    void patchScorbitron(std::string, StringCallback) override { };
 
 private:
     PlayerProfilesManager m_playersManager;

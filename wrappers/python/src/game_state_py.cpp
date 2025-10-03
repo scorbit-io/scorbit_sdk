@@ -42,7 +42,8 @@ auto makeSafeCallback(Func &&callback)
             new FuncType(std::forward<Func>(callback)), [](FuncType *ptr) {
                 if (!Py_IsInitialized()) {
                     std::cerr << "Skip deleting callback: Python is finalizing" << std::endl;
-                    // We don't delete ptr here, otherwise it will cause deadlock and will never return
+                    // We don't delete ptr here, otherwise it will cause deadlock and will never
+                    // return
                     return;
                 }
 
@@ -103,6 +104,106 @@ PYBIND11_MODULE(scorbit, m)
                    "Authenticated and paired.")
             .value("AuthenticationFailed", AuthStatus::AuthenticationFailed,
                    "Authentication process failed.");
+
+    // Bind EventType enum
+    py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
+            .value("GameStartRequested", EventType::GameStartRequested,
+                   "Game start requested from mobile app.")
+            .value("CreditsAddRequested", EventType::CreditsAddRequested,
+                   "Credits add requested from mobile app.")
+            .value("CreditsNumberRequested", EventType::CreditsNumberRequested,
+                   "Credits number requested from mobile app.")
+            .value("None", EventType::None, "No event (should not be used).")
+            .value("ConfigReceived", EventType::ConfigReceived,
+                   "Configuration received from server.");
+
+    // Event class
+    py::class_<Event>(m, "Event", R"doc(
+            Event class for handling game events.
+
+            This class provides methods to process different types of events that can occur during
+            gameplay, such as game start requests or credit addition requests.
+        )doc")
+            .def("type", &Event::type, R"doc(
+                    Get the type of the event.
+
+                    Returns:
+                        EventType: The type of the event.
+                )doc")
+            .def(
+                    "get_game_start_requested",
+                    [](const Event &self) {
+                        int players_count = 0;
+                        bool success = self.getGameStartRequested(players_count);
+                        return std::make_tuple(success, players_count);
+                    },
+                    R"doc(
+                        Process a game start requested event.
+
+                        This function processes an event representing a game start request.
+                        The event type must be EventType.GameStartRequested, otherwise the function
+                        returns (False, 0).
+
+                        Returns:
+                            tuple: (success, players_count)
+                                - success (bool): True on success, or False if an error occurs (e.g., wrong event type was given).
+                                - players_count (int): The number of players requested (valid only if success=True).
+
+                        Example:
+                            if event.type() == scorbit.EventType.GameStartRequested:
+                                success, players_count = event.get_game_start_requested()
+                                if success:
+                                    print(f"Game start requested with {players_count} players")
+                    )doc")
+            .def(
+                    "get_credits_add_requested",
+                    [](const Event &self) {
+                        int credits_to_add = 0;
+                        bool success = self.getCreditsAddRequested(credits_to_add);
+                        return std::make_tuple(success, credits_to_add);
+                    },
+                    R"doc(
+                        Process a credits add requested event.
+
+                        This function processes an event representing a credits add request.
+                        The event type must be EventType.CreditsAddRequested, otherwise the function
+                        returns (False, 0).
+
+                        Returns:
+                            tuple: (success, credits_to_add)
+                                - success (bool): True on success, or False if an error occurs (e.g., wrong event type was given).
+                                - credits_to_add (int): The number of credits to add (valid only if success=True).
+
+                        Example:
+                            if event.type() == scorbit.EventType.CreditsAddRequested:
+                                success, credits = event.get_credits_add_requested()
+                                if success:
+                                    print(f"Credits add requested: {credits}")
+                    )doc")
+            .def(
+                    "event_config_received",
+                    [](const Event &self) {
+                        std::string config_json;
+                        bool success = self.eventConfigReceived(config_json);
+                        return std::make_tuple(success, config_json);
+                    },
+                    R"doc(
+                        Process a configuration received event.
+
+                        This function processes an event representing configuration data received from the server.
+                        The event type must be EventType.ConfigReceived, otherwise the function returns (False, "").
+
+                        Returns:
+                            tuple: (success, config_json)
+                                - success (bool): True on success, or False if an error occurs (e.g., wrong event type was given).
+                                - config_json (str): The configuration JSON data (valid only if success=True).
+
+                        Example:
+                            if event.type() == scorbit.EventType.ConfigReceived:
+                                success, config = event.event_config_received()
+                                if success:
+                                    print(f"Config received: {config}")
+                    )doc");
 
     // Wrapper for addLoggerCallback
     m.def(
@@ -197,8 +298,9 @@ PYBIND11_MODULE(scorbit, m)
             .def_readwrite("serial_number", &DeviceInfo::serialNumber,
                            "Optional. The serial number of the device. If not set it will be 0.")
 
-            .def_readwrite("auto_download_player_pics", &DeviceInfo::autoDownloadPlayerPics,
-                           "If true, the SDK will automatically download players' profile pictures.")
+            .def_readwrite(
+                    "auto_download_player_pics", &DeviceInfo::autoDownloadPlayerPics,
+                    "If true, the SDK will automatically download players' profile pictures.")
 
             .def_readwrite("score_features", &DeviceInfo::scoreFeatures, R"doc(
                 Optional. The list of score features.
@@ -588,13 +690,14 @@ PYBIND11_MODULE(scorbit, m)
 
             // -------------------------- GAME START FROM MOBILE APP -------------------------------
 
-            .def("is_game_start_requested",
-                 [](GameState &self) {
-                     int players_count = 0;
-                     bool requested = self.isGameStartRequested(players_count);
-                     return std::make_tuple(requested, players_count);
-                 },
-                 R"doc(
+            .def(
+                    "is_game_start_requested",
+                    [](GameState &self) {
+                        int players_count = 0;
+                        bool requested = self.isGameStartRequested(players_count);
+                        return std::make_tuple(requested, players_count);
+                    },
+                    R"doc(
                         Check if a game start has been requested from the mobile app.
 
                         This function checks if a game start has been requested from the mobile app. If a request is
@@ -617,8 +720,36 @@ PYBIND11_MODULE(scorbit, m)
                             requested, players_count = game_state.is_game_start_requested()
                             if requested:
                                 print(f"Game start requested with {players_count} players")
-                    )doc");
+                    )doc")
 
+            .def(
+                    "set_event_callback",
+                    [](GameState &self, py::function callback) {
+                        // Use makeSafeCallback to handle thread safety and GIL management
+                        self.setEventCallback(makeSafeCallback(std::move(callback)));
+                    },
+                    py::arg("callback"),
+                    R"doc(
+                        Set the event callback function.
+
+                        This function sets a callback that will be invoked when game events occur. The callback
+                        receives an Event object containing information about the event.
+
+                        Note:
+                            The callback function is invoked asynchronously when events occur, running
+                            in a separate thread from the main calling thread. The wrapper automatically
+                            handles thread safety and GIL management.
+
+                        Args:
+                            callback (Callable[[scorbit.Event], None]): A callback function that receives an Event
+                                object when a game event occurs.
+
+                        Example:
+                            def on_event(event):
+                                print(f"Game event: {event}")
+
+                            game_state.set_event_callback(on_event)
+                    )doc");
 
     // Factory function
     m.def("create_game_state", py::overload_cast<std::string, const DeviceInfo &>(&createGameState),

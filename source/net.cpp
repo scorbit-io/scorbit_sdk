@@ -117,6 +117,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, useEncryptedKey)
+    , m_eventManager(std::make_unique<EventManager>(m_worker.eventsStrand()))
 {
     setHostname(m_deviceInfo.hostname, "");
 
@@ -165,6 +166,11 @@ Net::~Net()
     stopTokenRefreshTimer();
     m_stop = true;
     m_authCV.notify_all();
+}
+
+void Net::setEventCallback(EventCallback &&callback)
+{
+    m_eventManager->setEventCallback(std::move(callback));
 }
 
 AuthStatus Net::status() const
@@ -419,6 +425,8 @@ void Net::getConfig()
 
                     m_updater.checkNewVersionAndUpdate(json);
 
+                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
+
                     if (m_status != status) {
                         m_status = status;
                         m_authCV.notify_all();
@@ -520,25 +528,18 @@ void Net::requestTopScores(sb_score_t /*scoreFilter*/, StringCallback /*callback
 
 void Net::requestUnpair(StringCallback callback)
 {
-    m_worker.postQueue(createPatchRequestTask(
-            [this, callback = std::move(callback)](Error error, std::string reply) {
-                if (error == Error::Success || error == Error::NotPaired) {
-                    m_status = AuthStatus::AuthenticatedUnpaired;
-                    error = Error::Success;
-                }
-                callback(error, reply);
-            },
-            [this]() {
-                json j {
-                        {JKEY_SCFG_SCORBITRON_MACHINE, nullptr},
-                };
+    json j {
+            {JKEY_SCFG_SCORBITRON_MACHINE, nullptr},
+    };
 
-                const auto endpoint = url(URL_SCORBITRON_OBJECT);
-                const auto body {j.dump()};
-                INF("API requesting unpair with {}", body);
-
-                return make_tuple(endpoint, cpr::Body {body});
-            }));
+    patchScorbitron(j.dump(),
+                    [this, callback = std::move(callback)](Error error, std::string reply) {
+                        if (error == Error::Success || error == Error::NotPaired) {
+                            m_status = AuthStatus::AuthenticatedUnpaired;
+                            error = Error::Success;
+                        }
+                        callback(error, reply);
+                    });
 }
 
 void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
@@ -554,6 +555,20 @@ void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t
 PlayerProfilesManager &Net::playersManager()
 {
     return m_playersManager;
+}
+
+void Net::patchScorbitron(std::string body, StringCallback callback)
+{
+    m_worker.postQueue(createPatchRequestTask(
+            [callback = std::move(callback)](Error error, std::string reply) {
+                callback(error, reply);
+            },
+            [this, body = std::move(body)]() {
+                const auto endpoint = url(URL_SCORBITRON_OBJECT);
+                INF("API patching Scorbitron with {}", body);
+
+                return make_tuple(endpoint, cpr::Body {body});
+            }));
 }
 
 task_t Net::createAuthenticateTask()

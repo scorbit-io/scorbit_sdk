@@ -25,6 +25,7 @@
 #include "worker.h"
 #include "updater.h"
 #include "identifiers.h"
+#include "event_manager.h"
 #include <centrifugo.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
@@ -83,6 +84,8 @@ public:
     Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey);
     ~Net() override;
 
+    void setEventCallback(EventCallback &&callback) override;
+
     AuthStatus status() const override;
 
     const std::string &hostname() const;
@@ -115,6 +118,8 @@ public:
                         size_t reserveBufferSize) override;
 
     PlayerProfilesManager &playersManager() override;
+
+    void patchScorbitron(std::string body, StringCallback callback) override;
 
 private:
     task_t createAuthenticateTask();
@@ -229,6 +234,8 @@ private:
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker
     std::unique_ptr<centrifugo::Client> m_centrifugo;
+
+    std::shared_ptr<EventManager> m_eventManager;
 };
 
 } // namespace detail

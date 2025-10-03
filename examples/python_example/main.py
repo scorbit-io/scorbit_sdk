@@ -69,6 +69,37 @@ def logger_callback(message, level, file, line, timestamp):
     dt = datetime.fromtimestamp(timestamp / 1000) # timestamp is in milliseconds
     print(f"[{dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [{level_str}] {message}")
 
+# -------- Event callback --------
+def events_callback(gs, event):
+    print(f"Event received: {event.type()}")
+    
+    if event.type() == scorbit.EventType.GameStartRequested:
+        success, players_count = event.get_game_start_requested()
+        if success:
+            print(f"Game start requested with {players_count} player(s)")
+            # Start the game here...
+    
+    elif event.type() == scorbit.EventType.CreditsAddRequested:
+        success, credits_to_add = event.get_credits_add_requested()
+        if success:
+            print(f"Credits add requested: {credits_to_add} credit(s)")
+            # Add credits to the machine here...
+    
+    elif event.type() == scorbit.EventType.CreditsNumberRequested:
+        # This event is sent when user requests credits number from mobile app
+        # You should send credits number using GameState.setCreditsNumber()
+        print("Credits number requested by user")
+        # Example:
+        # gs.set_credits_number(current_credits)
+    
+    elif event.type() == scorbit.EventType.ConfigReceived:
+        success, config_json = event.event_config_received()
+        if success:
+            print(f"Config received: {config_json}")
+            # Process config JSON...
+        else:
+            print("Error getting config event")
+
 def setup_game_state():
     info = scorbit.DeviceInfo()
     info.provider = "dilshodpinball"
@@ -106,6 +137,9 @@ def main():
 
     # Create game state object
     gs = setup_game_state()
+
+    # Setup events callback
+    gs.set_event_callback(lambda event: events_callback(gs, event))
 
     gs.request_pair_code(lambda error, short_code: print(
         f"Pairing short code: {short_code}" if error == 0 else f"Error: {error}"

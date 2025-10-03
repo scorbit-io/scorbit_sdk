@@ -41,6 +41,7 @@ class MockNetBase : public NetBase
 public:
     virtual ~MockNetBase() = default;
     
+    void setEventCallback(EventCallback &&) override { };
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override {};
@@ -78,6 +79,7 @@ public:
     void download(StringCallback, const std::string &, const std::string &) override { };
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
+    void patchScorbitron(std::string, StringCallback) override { };
 
     // Expose the emitGameStartRequested method for testing
     using NetBase::emitGameStartRequested;

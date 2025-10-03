@@ -25,6 +25,7 @@
 #include "net_types.h"
 #include "game_state_c.h"
 #include "player_info.h"
+#include "event.h"
 
 #include <string>
 #include <memory>
@@ -51,6 +52,8 @@ namespace scorbit {
  */
 class GameState
 {
+    using EventCallback = std::function<void(const scorbit::Event &event)>;
+
 public:
     GameState(sb_game_handle_t handle)
         : m_handle(handle, sb_destroy_game_state)
@@ -59,8 +62,8 @@ public:
 
     GameState(const GameState &) = delete;
     GameState &operator=(const GameState &) = delete;
-    GameState(GameState&&) = default;
-    GameState& operator=(GameState&&) = default;
+    GameState(GameState &&) = default;
+    GameState &operator=(GameState &&) = default;
 
     /**
      * @brief Mark the game as started.
@@ -204,7 +207,10 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    std::string getPairDeeplink() const { return std::string {sb_get_pair_deeplink(m_handle.get())}; }
+    std::string getPairDeeplink() const
+    {
+        return std::string {sb_get_pair_deeplink(m_handle.get())};
+    }
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -239,7 +245,7 @@ public:
      */
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback)
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_top_scores(m_handle.get(), scoreFilter, cbPair.first, cbPair.second);
     }
 
@@ -260,7 +266,7 @@ public:
      */
     void requestPairCode(StringCallback callback) const
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_pair_code(m_handle.get(), cbPair.first, cbPair.second);
     }
 
@@ -283,7 +289,7 @@ public:
      */
     void requestUnpair(StringCallback callback) const
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_unpair(m_handle.get(), cbPair.first, cbPair.second);
     }
 
@@ -339,7 +345,7 @@ public:
         return info;
     }
 
-// -------------------------- GAME START FROM MOBILE APP --------------------------------------
+    // -------------------------- GAME START FROM MOBILE APP --------------------------------------
 
     /**
      * @brief Checks if a game start has been requested from the mobile app.
@@ -368,27 +374,47 @@ public:
         return sb_is_game_start_requested(m_handle.get(), &playersCount);
     }
 
-    // void setEventCallback(std::function<void(scorbit::Event)> callback, void *userData)
-    // {
-    //     sb_set_event_callback(m_handle.get(), callback, userData);
-    // }
+    void setEventCallback(EventCallback callback)
+    {
+        auto cbPair = prepareEventCallback(std::move(callback));
+        sb_set_event_callback(m_handle.get(), cbPair.first, cbPair.second);
+    }
 
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
 private:
-    static void callback_c(sb_error_t error, const char *reply, void *user_data) {
+    static void string_callback_c(sb_error_t error, const char *reply, void *user_data)
+    {
         auto *cb = static_cast<StringCallback *>(user_data);
-        (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string{});
+        (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string {});
         delete cb;
     }
 
-    static std::pair<sb_string_callback_t, void *> prepareCallback(StringCallback callback) {
+    static std::pair<sb_string_callback_t, void *> prepareStringCallback(StringCallback callback)
+    {
         auto *userData = new StringCallback(std::move(callback));
-        return std::make_pair(&GameState::callback_c, userData);
+        return std::make_pair(&GameState::string_callback_c, userData);
+    }
+
+    static void event_callback_c(const sb_event_t *event, void *user_data)
+    {
+        auto *gs = static_cast<GameState *>(user_data);
+        if (gs->m_eventCallback && event) {
+            gs->m_eventCallback(Event(const_cast<sb_event_t *>(event)));
+        }
+    }
+
+    std::pair<sb_event_callback_t, void *>
+    prepareEventCallback(std::function<void(Event)> callback)
+    {
+        m_eventCallback = EventCallback(std::move(callback));
+        return std::make_pair(&GameState::event_callback_c, this);
     }
 
 private:
-    std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void(*)(sb_game_handle_t)> m_handle;
+    std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
+            m_handle;
+    EventCallback m_eventCallback;
 };
 
 } // namespace scorbit

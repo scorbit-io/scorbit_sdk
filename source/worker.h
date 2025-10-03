@@ -57,6 +57,7 @@ public:
     void stopTimer(Timer timerType);
 
     auto &centrifugoStrand() { return m_centrifugoStrand; }
+    auto &eventsStrand() { return m_eventsStrand; }
 
 private:
     void run();
@@ -75,6 +76,7 @@ private:
     asio_strand m_gameDataStrand {m_ioc.get_executor()};
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
     asio_strand m_centrifugoStrand {m_ioc.get_executor()};
+    asio_strand m_eventsStrand {m_ioc.get_executor()};
 
     boost::thread_group m_threads;
 

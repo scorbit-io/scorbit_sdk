@@ -180,7 +180,9 @@ target_sources(
         source/game_start_origin.h
         source/identifiers.h
         source/event_helpers_c.cpp
-        source/event_struct.h
+        source/event_classes.h
+        source/event_queue.h
+        source/event_manager.h
 )
 
 # Generate the header from the template

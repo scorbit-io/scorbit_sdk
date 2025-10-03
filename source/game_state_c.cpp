@@ -22,7 +22,7 @@
 #include <scorbit_sdk/net_types_c.h>
 #include <scorbit_sdk/game_state_factory.h>
 #include "game_state_impl.h"
-#include "event_struct.h"
+#include "event_classes.h"
 #include "net.h"
 #include "logger.h"
 #include "utils/decrypt.h"
@@ -264,7 +264,7 @@ bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count)
 
 void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)
 {
-    handle->gameState.setEventCallback([callback, user_data](const EventStruct &event) {
+    handle->gameState.setEventCallback([callback, user_data](const EventBase &event) {
         if (callback) {
             callback(static_cast<const sb_event_t *>(&event), user_data);
         }

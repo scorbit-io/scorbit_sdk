@@ -43,7 +43,6 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
 
 void GameStateImpl::setEventCallback(EventCallback &&callback)
 {
-    (void)callback;
     m_net->setEventCallback(std::move(callback));
 }
 

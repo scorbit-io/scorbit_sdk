@@ -23,7 +23,7 @@
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
 #include "player_profiles_manager.h"
-#include "event_struct.h"
+#include "event_classes.h"
 #include <boost/signals2.hpp>
 #include <string>
 #include <optional>
@@ -40,6 +40,8 @@ class NetBase
 public:
     NetBase() = default;
     virtual ~NetBase() = default;
+
+    virtual void setEventCallback(EventCallback &&callback) = 0;
 
     virtual AuthStatus status() const = 0;
 
@@ -70,10 +72,9 @@ public:
 
     virtual PlayerProfilesManager &playersManager() = 0;
 
-    // --------------------------------------------------------------------------------------
+    virtual void patchScorbitron(std::string body, StringCallback callback) = 0;
 
-    EventCallback &eventCallback() { return m_eventCallback; }
-    void setEventCallback(EventCallback &&callback) { m_eventCallback = std::move(callback); }
+    // --------------------------------------------------------------------------------------
 
     void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
     {
