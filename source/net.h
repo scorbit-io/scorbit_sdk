@@ -119,6 +119,8 @@ public:
 
     PlayerProfilesManager &playersManager() override;
 
+    void patchScorbitron(std::string body, StringCallback callback) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,

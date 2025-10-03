@@ -72,6 +72,8 @@ public:
 
     virtual PlayerProfilesManager &playersManager() = 0;
 
+    virtual void patchScorbitron(std::string body, StringCallback callback) = 0;
+
     // --------------------------------------------------------------------------------------
 
     void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
