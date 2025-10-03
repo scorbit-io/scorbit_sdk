@@ -282,8 +282,7 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
     // task for that game session.
 
     // TODO: check if centrifugo is connected, if not, skip sending game data
-    if (!sessionUuid.empty()
-        && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
+    if (!sessionUuid.empty() && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
         // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
         // TODO: check if it's needed to lock mutex here
@@ -634,6 +633,7 @@ task_t Net::createAuthenticateTask()
 
                     if (startServices) {
                         getConfig(); // Get config after authentication, it also checks pair status
+                        updateScorbitronConfig();
                         sendHeartbeat();
                         startHeartbeatTimer();
                         centrifugoConnect();
@@ -1485,6 +1485,22 @@ std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
 {
     std::shared_lock tokenLock(m_tokenMutex);
     return getJwtTokenTimeUntilExpiration(m_stoken);
+}
+
+void Net::updateScorbitronConfig()
+{
+    json j {
+            {JKEY_SCFG_START_GAME_CAPABLE, m_deviceInfo.startGameCapable},
+    };
+
+    patchScorbitron(j.dump(), [](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API send Scorbitron config: ok, {}", reply);
+        } else {
+            ERR("API send Scorbitron config: failed, error code: {}, reply: {}",
+                static_cast<int>(error), reply);
+        }
+    });
 }
 
 } // namespace detail

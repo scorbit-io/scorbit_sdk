@@ -112,6 +112,12 @@ typedef struct {
      */
     int score_features_version;
 
+    /**
+     * Mandatory. Indicates whether the game can be started when requested by the SDK.
+     * See @ref SB_EVT_GAME_START_REQUESTED.
+     */
+    bool start_game_capable;
+
 } sb_device_info_t;
 
 /**

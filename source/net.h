@@ -180,6 +180,8 @@ private:
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
+    void updateScorbitronConfig();
+
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
