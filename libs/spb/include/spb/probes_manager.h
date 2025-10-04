@@ -29,6 +29,11 @@ enum ProbeType : probe_t {
     All = CPU | DMD | NFC
 };
 
+enum class NfcLedMode {
+    Idle,
+    GameSession,
+};
+
 using ProbeDisplayCallback = std::function<void(ProbeBase *probe, const std::string &device)>;
 
 class ProbesManager
@@ -44,6 +49,7 @@ public:
 
     auto isNfcTagRead() const -> bool;
     auto setNfcTag(const std::string &tag) -> bool;
+    auto setNfcLeds(NfcLedMode mode) -> bool;
 
 private:
     std::shared_ptr<ProbeCPU> m_cpu;

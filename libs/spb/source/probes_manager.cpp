@@ -16,6 +16,9 @@ constexpr auto CPU_PROBE_ID = "CPU";
 constexpr auto DMD_PROBE_ID = "DMD";
 constexpr auto NFC_PROBE_ID = "NFC";
 
+constexpr int NFC_SESSION_BRIGHTNESS = 0;
+constexpr int NFC_IDLE_BRIGHTNESS = 30;
+
 static bool has_flag(ProbeType probesSet, ProbeType flag)
 {
     return static_cast<probe_t>(probesSet) & static_cast<probe_t>(flag);
@@ -83,10 +86,25 @@ auto ProbesManager::isNfcTagRead() const -> bool
     return false;
 }
 
-bool ProbesManager::setNfcTag(const std::string &tag)
+auto ProbesManager::setNfcTag(const std::string &tag) -> bool
 {
     if (m_nfc) {
         return m_nfc->SetUri(tag);
+    }
+    return false;
+}
+
+auto ProbesManager::setNfcLeds(NfcLedMode mode) -> bool
+{
+    if (m_nfc) {
+        switch (mode) {
+        case NfcLedMode::Idle:
+            return m_nfc->SetLedsBrightness(NFC_IDLE_BRIGHTNESS);
+        case NfcLedMode::GameSession:
+            return m_nfc->SetLedsBrightness(NFC_SESSION_BRIGHTNESS);
+        default:
+            return false;
+        }
     }
     return false;
 }
