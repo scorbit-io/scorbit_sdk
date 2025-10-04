@@ -222,6 +222,10 @@ sb_game_handle_t setup_game_state(void)
             .score_features = G_SCORE_FEATURES,
             .score_features_count = G_SCORE_FEATURES_COUNT,
             .score_features_version = G_SCORE_FEATURES_VERSION,
+
+            // Set to true if game can start itself without user pressing Start Button upon SDK
+            // request: SB_EVT_GAME_START_REQUESTED event
+            .start_game_capable = false,
     };
 
     // Another example with default values:

@@ -23,6 +23,7 @@
 constexpr auto NUM_OF_THREADS = 4;
 
 using namespace scorbit::detail;
+using namespace std::chrono_literals;
 
 // Define custom formatter
 template<>
@@ -36,6 +37,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
             break;
         case Worker::Timer::TokenRefresh:
             name = "TokenRefresh";
+            break;
+        case Worker::Timer::NfcCheckTag:
+            name = "NfcCheckTag";
             break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
@@ -101,7 +105,9 @@ void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration del
         return;
     }
 
-    DBG("Timer {} started", timerType);
+    if (delay >= 10s) {
+        DBG("Timer {} started", timerType);
+    }
 
     timer->expires_after(delay);
     timer->async_wait([timerType, func = std::move(func)](const boost::system::error_code &ec) {
@@ -134,17 +140,11 @@ void Worker::stopTimer(Timer timerType)
 
 auto Worker::timerStrand(Timer timerType) -> boost::asio::steady_timer *
 {
-    switch (timerType) {
-    case Timer::Heartbeat:
-        return &m_heartbeatTimer;
-
-    case Timer::TokenRefresh:
-        return &m_tokenRefreshTimer;
-
-    default:
-        ERR("Worker: unknown timer type {}", static_cast<int>(timerType));
-        return nullptr;
+    if (m_timers.count(timerType) == 0) {
+        m_timers[timerType] = boost::asio::steady_timer {m_ioc};
     }
+
+    return &m_timers[timerType].value();
 }
 
 } // namespace detail

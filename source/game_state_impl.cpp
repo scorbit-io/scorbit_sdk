@@ -20,20 +20,40 @@
 #include "game_state_impl.h"
 #include "logger.h"
 #include <scorbit_sdk/version.h>
+#include <spb/probes_manager.h>
+#include <spb/Probe.h>
 #include <boost/uuid.hpp>
 #include <utility>
 #include <functional>
 
 using namespace std::placeholders;
 
+namespace {
+
+void displayProbeInfo(ProbeBase *probe, const std::string &device)
+{
+    ProbeBase::ProbeInformations_t probeInfo;
+    if (probe->GetInformations(&probeInfo) && probeInfo.Id.size() != 0) {
+        INF("Found probe: port {} = {} ({}) / v{}.{}.{} ({})", device, probeInfo.Id, probeInfo.Name,
+            probeInfo.VersionMajor, probeInfo.VersionMinor, probeInfo.VersionRevision,
+            probeInfo.Timestamp);
+    }
+}
+
+} // namespace
+
 namespace scorbit {
 namespace detail {
 
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
+    , m_probesManager {std::make_shared<spb::ProbesManager>()}
 {
-    m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
+    m_probesManager->enumerate(spb::ProbeType::NFC, displayProbeInfo);
+    m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
+    m_net->setProbesManager(m_probesManager);
+    m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
 
     const auto &deviceInfo = m_net->deviceInfo();
@@ -48,11 +68,15 @@ void GameStateImpl::setEventCallback(EventCallback &&callback)
 
 void GameStateImpl::setGameStarted()
 {
+    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
+
     startGame(1, GameStartOrigin::StartButton);
 }
 
 void GameStateImpl::setGameFinished()
 {
+    m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
+
     m_data.isGameActive = false;
     sendGameData();
 

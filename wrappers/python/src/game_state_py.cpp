@@ -319,6 +319,11 @@ PYBIND11_MODULE(scorbit, m)
                 If `score_features` is empty, this entry will be ignored.
             )doc")
 
+            .def_readwrite("start_game_capable", &DeviceInfo::startGameCapable, R"doc(
+                Mandatory. Indicates whether the game can be started when requested by the SDK.
+                See `EventType.GameStartRequested`.
+            )doc")
+
             .def("__repr__", [](const DeviceInfo &d) {
                 std::stringstream ss;
                 ss << std::hex << std::showbase << reinterpret_cast<std::uintptr_t>(&d);

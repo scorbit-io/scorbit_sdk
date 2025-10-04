@@ -28,6 +28,7 @@
 #include "utils/jwt_parser.h"
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
+#include <spb/probes_manager.h>
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
@@ -59,6 +60,8 @@ constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
+
+constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
@@ -282,8 +285,7 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
     // task for that game session.
 
     // TODO: check if centrifugo is connected, if not, skip sending game data
-    if (!sessionUuid.empty()
-        && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
+    if (!sessionUuid.empty() && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
         // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
         // TODO: check if it's needed to lock mutex here
@@ -571,6 +573,39 @@ void Net::patchScorbitron(std::string body, StringCallback callback)
             }));
 }
 
+std::string Net::consumeNonce()
+{
+    std::lock_guard lock(m_noncesMutex);
+
+    if (m_nonces.empty()) {
+        WRN("No NFC nonces available");
+        createNfcNonces();
+        return {}; // RVO applies here
+    }
+
+    // 1. If there are 10 nonces, then create new ones. This is normal path, so we avoid double
+    //    creating nonces if it was 10 and then quickly 9, while already creating nonces
+    // 2. Safety net, if there are 5 or less nonces, create more even if it's double creating
+    if (m_nonces.size() == 10 || m_nonces.size() <= 5) {
+        INF("NFC nonces running low, creating more");
+        createNfcNonces();
+    }
+
+    auto nonce = std::move(m_nonces.back());
+    m_nonces.pop_back();
+    return nonce;
+}
+
+void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
+{
+    m_probesManager = manager;
+    m_deviceInfo.nfcCapable = (m_probesManager && m_probesManager->nfc());
+
+    if (m_deviceInfo.nfcCapable) {
+        startNfcCheckTimer();
+    }
+}
+
 task_t Net::createAuthenticateTask()
 {
     return [this]() {
@@ -634,9 +669,11 @@ task_t Net::createAuthenticateTask()
 
                     if (startServices) {
                         getConfig(); // Get config after authentication, it also checks pair status
+                        updateScorbitronConfig();
                         sendHeartbeat();
                         startHeartbeatTimer();
                         centrifugoConnect();
+                        createNfcNonces();
                     }
                     break;
                 } catch (const std::exception &e) {
@@ -1485,6 +1522,76 @@ std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
 {
     std::shared_lock tokenLock(m_tokenMutex);
     return getJwtTokenTimeUntilExpiration(m_stoken);
+}
+
+void Net::updateScorbitronConfig()
+{
+    json j {
+            {JKEY_SCFG_START_GAME_CAPABLE, m_deviceInfo.startGameCapable},
+            {JKEY_SCFG_NFC_CAPABLE, m_deviceInfo.nfcCapable},
+    };
+
+    patchScorbitron(j.dump(), [](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API send Scorbitron config: ok, {}", reply);
+        } else {
+            ERR("API send Scorbitron config: failed, error code: {}, reply: {}",
+                static_cast<int>(error), reply);
+        }
+    });
+}
+
+void Net::createNfcNonces()
+{
+    m_worker.postQueue(createPostRequestTask(
+            [this](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API create NFC nonces: ok");
+                    try {
+                        json j = json::parse(reply);
+                        if (const auto it = j.find(JVAL_NONCES); it != j.end() && it->is_array()) {
+                            {
+                                std::lock_guard lock(m_noncesMutex);
+                                it->get_to(m_nonces);
+                            }
+                            setNfcTag();
+                            INF("API created {} NFC nonces", m_nonces.size());
+                        } else {
+                            ERR("API create NFC nonces: can't find nonces in reply");
+                        }
+                    } catch (const std::exception &e) {
+                        ERR("API error parsing NFC nonces reply: {}", e.what());
+                    }
+                } else {
+                    ERR("API create NFC nonces: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this]() {
+                const auto endpoint = url(URL_SCORBITRON_NFC_NONCE_CREATE);
+                INF("API create NFC nonces: requesting new batch...");
+
+                return make_tuple(endpoint, cpr::Body {});
+            }));
+}
+
+void Net::startNfcCheckTimer()
+{
+    m_worker.startTimer(Worker::Timer::NfcCheckTag, NFC_CHECK_TIME, [this] {
+        startNfcCheckTimer();
+        if (m_probesManager && m_probesManager->isNfcTagRead()) {
+            setNfcTag();
+        }
+    });
+}
+
+void Net::setNfcTag()
+{
+    const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
+                                  fmt::arg("nonce", consumeNonce()));
+    if (m_probesManager->setNfcTag(tag)) {
+        INF("NFC tag set ok: {}", tag);
+    }
 }
 
 } // namespace detail

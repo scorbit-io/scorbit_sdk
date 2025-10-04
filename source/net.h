@@ -121,6 +121,9 @@ public:
 
     void patchScorbitron(std::string body, StringCallback callback) override;
 
+    std::string consumeNonce() override;
+    void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
@@ -180,6 +183,12 @@ private:
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
+    void updateScorbitronConfig();
+
+    void createNfcNonces();
+    void startNfcCheckTimer();
+    void setNfcTag();
+
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
@@ -222,8 +231,13 @@ private:
     MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
 
+    std::vector<std::string> m_nonces;
+    mutable std::mutex m_noncesMutex;
+
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
+
+    std::shared_ptr<spb::ProbesManager> m_probesManager;
 
     // -----------------------------------------------------------------------
 

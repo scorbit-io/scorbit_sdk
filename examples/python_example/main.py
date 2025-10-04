@@ -114,6 +114,10 @@ def setup_game_state():
     info.score_features = G_SCORE_FEATURES
     info.score_features_version = G_SCORE_FEATURES_VERSION
 
+    # Set to True if game can start itself without user pressing Start Button upon SDK request:
+    # scorbit.EventType.GameStartRequested
+    info.start_game_capable = False
+
     # Use encrypt_tool to generate your encrypted key from your private key
     encrypted_key = '8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA=='
     return scorbit.create_game_state(encrypted_key, info)

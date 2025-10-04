@@ -19,7 +19,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(cmake/tools.cmake)
-include(cmake/ArchDetect.cmake)
+include(${cmake_dir}/ArchDetect.cmake)
 
 # ---- Options ----
 
@@ -76,34 +76,33 @@ endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 
-CPMAddPackage(
-    NAME fmt
-    GIT_TAG 11.2.0
-    GITHUB_REPOSITORY fmtlib/fmt
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    OPTIONS "FMT_INSTALL YES"
-    GIT_SHALLOW TRUE
-)
+include(${cmake_dir}/lib_fmt.cmake)
 
 find_package(OpenSSL REQUIRED)
 
-include(cmake/lib_cpr.cmake)
+include(${cmake_dir}/lib_cpr.cmake)
 
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
-include(cmake/lib_centrifugo-cpp.cmake)
+include(${cmake_dir}/lib_centrifugo-cpp.cmake)
 
 # Boost -----------
 
 set(BOOST_COMPILED_COMPONENTS filesystem thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
-include(cmake/lib_boost.cmake)
+include(${cmake_dir}/lib_boost.cmake)
 
-include(cmake/lib_nlohmann_json.cmake)
+include(${cmake_dir}/lib_nlohmann_json.cmake)
+
+CPMAddPackage(
+    NAME spb
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/spb
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
 
 # ---- Create library ----
 
@@ -215,6 +214,7 @@ target_link_libraries(
         OpenSSL::Crypto
         LibArchive::LibArchive
         centrifugo-cpp
+        spb
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)
@@ -227,7 +227,7 @@ target_include_directories(
     # $<INSTALL_INTERFACE:include>
 )
 
-include(cmake/encrypt.cmake)
+include(${cmake_dir}/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE

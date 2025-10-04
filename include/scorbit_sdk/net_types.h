@@ -104,8 +104,15 @@ struct DeviceInfo {
      */
     int scoreFeaturesVersion {0};
 
+    /**
+     * Mandatory. Indicates whether the game can be started when requested by the SDK.
+     * See @ref scorbit::EventType::GameStartRequested.
+     */
+    bool startGameCapable {false};
 
     // ------------ FOR INTERNAL USE ---------------------------------------------------------
+
+    bool nfcCapable {false};
 
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
@@ -119,6 +126,7 @@ struct DeviceInfo {
         , serialNumber {di.serial_number}
         , autoDownloadPlayerPics {di.auto_download_player_pics}
         , scoreFeaturesVersion {di.score_features_version}
+        , startGameCapable {di.start_game_capable}
     {
         if (di.score_features && di.score_features_count > 0) {
             scoreFeatures.reserve(di.score_features_count);

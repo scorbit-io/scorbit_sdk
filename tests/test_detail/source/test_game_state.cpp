@@ -80,6 +80,7 @@ public:
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback) override { };
+    std::string consumeNonce() override { return {}; };
 
     // Expose the emitGameStartRequested method for testing
     using NetBase::emitGameStartRequested;

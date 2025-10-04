@@ -21,6 +21,7 @@
 
 #include "scorbit_sdk/common_types_c.h"
 #include "scorbit_sdk/event_types.h"
+#include <spb/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
 #include "event_classes.h"
@@ -84,6 +85,8 @@ private:
     GameData m_prevData;
     int m_sessionId {0};
     std::atomic_bool m_isGameStartRequested {false};
+
+    std::shared_ptr<spb::ProbesManager> m_probesManager;
 };
 
 } // namespace detail
