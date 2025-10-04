@@ -5,7 +5,7 @@ else()
     unset(CURL_LIBRARIES)
 endif()
 
-set(cpr_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch")
+set(cpr_PATCH_FILE "${CMAKE_CURRENT_LIST_DIR}/patches/cpr-gcc-9.3-build-fix.patch")
 
 # Use CPMAddPackages patches option only if CPM_SOURCE_CACHE is defined
 # Otherwise it will fail on the second cmake run
@@ -26,9 +26,9 @@ CPMAddPackage(
 
 # If the patches option is not defined, apply the patch manually
 if(NOT DEFINED cpr_PATCHES_OPTION)
-    include(${CMAKE_SOURCE_DIR}/cmake/patch.cmake)
+    include(${CMAKE_CURRENT_LIST_DIR}/patch.cmake)
     apply_patch(
-        "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch"
+        "${cpr_PATCH_FILE}"
         "${cpr_SOURCE_DIR}"
     )
 endif()
