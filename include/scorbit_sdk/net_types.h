@@ -112,6 +112,8 @@ struct DeviceInfo {
 
     // ------------ FOR INTERNAL USE ---------------------------------------------------------
 
+    bool nfcCapable {false};
+
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
 

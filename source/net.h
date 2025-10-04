@@ -182,6 +182,8 @@ private:
 
     void updateScorbitronConfig();
 
+    void createNfcNonces();
+
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
@@ -223,6 +225,9 @@ private:
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
+
+    std::vector<std::string> m_nonces;
+    mutable std::mutex m_noncesMutex;
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;

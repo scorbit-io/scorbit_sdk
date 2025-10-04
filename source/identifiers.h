@@ -21,8 +21,10 @@ constexpr auto URL_SCORBITRON_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/token/"};
 constexpr auto URL_SCORBITRON_CF_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/socket/"};
 constexpr auto URL_SCORBITRON_CONFIG {"v2/scorbitrons/{scorbitron_uuid}/config/"};
 constexpr auto URL_SCORBITRON_SESSIONS {"v2/scorbitrons/{scorbitron_uuid}/sessions/"};
-constexpr auto URL_SCORBITRON_SESSION_UPDATE {"v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
+constexpr auto URL_SCORBITRON_SESSION_UPDATE {
+        "v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
 constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
+constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
 
@@ -166,6 +168,8 @@ constexpr auto JKEY_URL {"url"};
 
 constexpr auto JKEY_ACTION_NAME {"name"};
 constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
+
+constexpr auto JVAL_NONCES {"nonces"};
 
 } // namespace detail
 } // namespace scorbit

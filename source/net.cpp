@@ -637,6 +637,7 @@ task_t Net::createAuthenticateTask()
                         sendHeartbeat();
                         startHeartbeatTimer();
                         centrifugoConnect();
+                        createNfcNonces();
                     }
                     break;
                 } catch (const std::exception &e) {
@@ -1501,6 +1502,37 @@ void Net::updateScorbitronConfig()
                 static_cast<int>(error), reply);
         }
     });
+}
+
+void Net::createNfcNonces()
+{
+    m_worker.postQueue(createPostRequestTask(
+            [this](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API create NFC nonces: ok, {}", reply);
+                    try {
+                        json j = json::parse(reply);
+                        if (const auto it = j.find(JVAL_NONCES); it != j.end() && it->is_array()) {
+                            std::lock_guard lock(m_noncesMutex);
+                            it->get_to(m_nonces);
+                            INF("API created {} NFC nonces", m_nonces.size());
+                        } else {
+                            ERR("API create NFC nonces: can't find nonces in reply");
+                        }
+                    } catch (const std::exception &e) {
+                        ERR("API error parsing NFC nonces reply: {}", e.what());
+                    }
+                } else {
+                    ERR("API create NFC nonces: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this]() {
+                const auto endpoint = url(URL_SCORBITRON_NFC_NONCE_CREATE);
+                INF("API create NFC nonces: requesting new batch...");
+
+                return make_tuple(endpoint, cpr::Body {});
+            }));
 }
 
 } // namespace detail
