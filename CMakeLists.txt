@@ -19,7 +19,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(cmake/tools.cmake)
-include(cmake/ArchDetect.cmake)
+include(${cmake_dir}/ArchDetect.cmake)
 
 # ---- Options ----
 
@@ -88,22 +88,22 @@ CPMAddPackage(
 
 find_package(OpenSSL REQUIRED)
 
-include(cmake/lib_cpr.cmake)
+include(${cmake_dir}/lib_cpr.cmake)
 
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
-include(cmake/lib_centrifugo-cpp.cmake)
+include(${cmake_dir}/lib_centrifugo-cpp.cmake)
 
 # Boost -----------
 
 set(BOOST_COMPILED_COMPONENTS filesystem thread url)
 set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
-include(cmake/lib_boost.cmake)
+include(${cmake_dir}/lib_boost.cmake)
 
-include(cmake/lib_nlohmann_json.cmake)
+include(${cmake_dir}/lib_nlohmann_json.cmake)
 
 # ---- Create library ----
 
@@ -227,7 +227,7 @@ target_include_directories(
     # $<INSTALL_INTERFACE:include>
 )
 
-include(cmake/encrypt.cmake)
+include(${cmake_dir}/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE
