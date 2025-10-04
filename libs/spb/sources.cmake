@@ -1,0 +1,19 @@
+set(headers
+    include/spb/Cable.h
+    include/spb/Probe.h
+    include/spb/SLB.h
+    include/spb/Serial.h
+    include/spb/Util.h
+    include/spb/md5.h
+    include/spb/stb_image/stb_image.h
+    include/spb/stb_image/stb_image_resize2.h
+    include/spb/stb_image/stb_include_once.h
+    include/spb/probes_manager.h
+)
+
+set(sources
+    source/stb_image_impl.cpp
+    source/probes_manager.cpp
+    source/list_usb_devices.h
+    source/list_usb_devices.cpp
+)
