@@ -28,6 +28,10 @@
 #include <string>
 #include <optional>
 
+namespace spb {
+class ProbesManager;
+}
+
 namespace scorbit {
 namespace detail {
 
@@ -73,6 +77,9 @@ public:
     virtual PlayerProfilesManager &playersManager() = 0;
 
     virtual void patchScorbitron(std::string body, StringCallback callback) = 0;
+
+    virtual std::string consumeNonce() = 0;
+    virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };
 
     // --------------------------------------------------------------------------------------
 

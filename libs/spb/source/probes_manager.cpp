@@ -83,4 +83,12 @@ auto ProbesManager::isNfcTagRead() const -> bool
     return false;
 }
 
+bool ProbesManager::setNfcTag(const std::string &tag)
+{
+    if (m_nfc) {
+        return m_nfc->SetUri(tag);
+    }
+    return false;
+}
+
 } // namespace spb

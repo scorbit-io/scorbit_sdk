@@ -43,6 +43,7 @@ public:
     auto nfc() const -> ProbeNFC * { return m_nfc.get(); }
 
     auto isNfcTagRead() const -> bool;
+    auto setNfcTag(const std::string &tag) -> bool;
 
 private:
     std::shared_ptr<ProbeCPU> m_cpu;

@@ -121,6 +121,9 @@ public:
 
     void patchScorbitron(std::string body, StringCallback callback) override;
 
+    std::string consumeNonce() override;
+    void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
@@ -183,6 +186,8 @@ private:
     void updateScorbitronConfig();
 
     void createNfcNonces();
+    void startNfcCheckTimer();
+    void setNfcTag();
 
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>
@@ -231,6 +236,8 @@ private:
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
+
+    std::shared_ptr<spb::ProbesManager> m_probesManager;
 
     // -----------------------------------------------------------------------
 

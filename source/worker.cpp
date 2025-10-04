@@ -38,6 +38,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::TokenRefresh:
             name = "TokenRefresh";
             break;
+        case Worker::Timer::NfcCheckTag:
+            name = "NfcCheckTag";
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }
