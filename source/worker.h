@@ -80,8 +80,7 @@ private:
 
     boost::thread_group m_threads;
 
-    boost::asio::steady_timer m_heartbeatTimer {m_ioc};
-    boost::asio::steady_timer m_tokenRefreshTimer {m_ioc};
+    std::unordered_map<Timer, std::optional<boost::asio::steady_timer>> m_timers;
 };
 
 } // namespace detail
