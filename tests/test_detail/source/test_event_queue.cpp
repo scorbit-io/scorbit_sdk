@@ -27,6 +27,7 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <atomic>
 
 using namespace scorbit;
 using namespace scorbit::detail;

@@ -384,7 +384,7 @@ class ProbeBase
                 // Convert timestamp to uint64_t (same format as probe Timestamp64)
                 const auto now_sys = std::chrono::system_clock::now();
                 const auto now_file = std::filesystem::file_time_type::clock::now();
-                auto tp = floor<std::chrono::seconds>(std::chrono::time_point_cast<std::chrono::system_clock::duration>(ft - now_file + now_sys));
+                auto tp = std::chrono::floor<std::chrono::seconds>(std::chrono::time_point_cast<std::chrono::system_clock::duration>(ft - now_file + now_sys));
                 std::time_t tt = std::chrono::system_clock::to_time_t(tp);
                 std::tm tm{};
                 #if defined(_WIN32)
