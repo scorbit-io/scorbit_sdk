@@ -1543,6 +1543,10 @@ void Net::updateScorbitronConfig()
 
 void Net::createNfcNonces()
 {
+    if (!m_deviceInfo.nfcCapable) {
+        return;
+    }
+
     m_worker.postQueue(createPostRequestTask(
             [this](Error error, std::string reply) {
                 if (error == Error::Success) {
