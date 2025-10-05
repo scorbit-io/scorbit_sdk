@@ -41,7 +41,7 @@ class ProbesManager
 public:
     ProbesManager() = default;
 
-    auto enumerate(ProbeType probesSet, const ProbeDisplayCallback &callback = nullptr) -> void;
+    auto enumerate(probe_t probesSet, const ProbeDisplayCallback &callback = nullptr) -> void;
 
     auto cpu() const -> ProbeCPU * { return m_cpu.get(); }
     auto dmd() const -> ProbeDMD * { return m_dmd.get(); }

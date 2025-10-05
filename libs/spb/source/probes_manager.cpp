@@ -19,12 +19,12 @@ constexpr auto NFC_PROBE_ID = "NFC";
 constexpr int NFC_SESSION_BRIGHTNESS = 0;
 constexpr int NFC_IDLE_BRIGHTNESS = 30;
 
-static bool has_flag(ProbeType probesSet, ProbeType flag)
+static bool has_flag(probe_t probesSet, ProbeType flag)
 {
     return static_cast<probe_t>(probesSet) & static_cast<probe_t>(flag);
 }
 
-void ProbesManager::enumerate(ProbeType probesSet, const ProbeDisplayCallback &callback)
+void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &callback)
 {
     // INF("Enumerating probes...");
 
