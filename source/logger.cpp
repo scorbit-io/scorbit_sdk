@@ -23,8 +23,6 @@
 
 namespace {
 
-constexpr size_t MAX_LOG_MESSAGE_LENGTH = 511;
-
 #if defined(__GNUC__) || defined(__clang__)
 #    define LIKELY(x) __builtin_expect(!!(x), 1)
 #    define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -68,10 +66,10 @@ Logger::~Logger()
     }
 }
 
-void Logger::addCallback(LoggerCallback &&callback, void *userData)
+void Logger::addCallback(LoggerCallback &&callback, void *userData, size_t maxLength)
 {
     std::lock_guard<std::mutex> lock {m_cbMutex};
-    m_callbacks.emplace_back(CallbackAndData {std::move(callback), userData});
+    m_callbacks.emplace_back(CallbackAndData {std::move(callback), userData, maxLength});
 }
 
 void Logger::clear()
@@ -112,11 +110,12 @@ void Logger::processLogs()
                 cbLock.unlock();
 
                 if (LIKELY(item.callback)) {
-                    if (LIKELY(logData.message.length() <= MAX_LOG_MESSAGE_LENGTH)) {
+                    if (LIKELY(logData.message.length() < item.maxLength)) {
                         item.callback(logData.message, logData.level, logData.file, logData.line,
                                       logData.timestamp);
                     } else {
-                        item.callback(cutLongString(logData.message, MAX_LOG_MESSAGE_LENGTH),
+                        // C strings must be null-terminated, so we cut the message at maxLength - 1
+                        item.callback(cutLongString(logData.message, item.maxLength - 1),
                                       logData.level, logData.file, logData.line, logData.timestamp);
                     }
                 }

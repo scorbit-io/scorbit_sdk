@@ -45,6 +45,7 @@ class Logger
     struct CallbackAndData {
         LoggerCallback callback;
         void *userData {nullptr};
+        size_t maxLength {511};
     };
 
 public:
@@ -52,7 +53,7 @@ public:
 
     ~Logger();
 
-    void addCallback(LoggerCallback &&callback, void *userData = nullptr);
+    void addCallback(LoggerCallback &&callback, void *userData, size_t maxLength);
     void clear();
 
     void log(const std::string &message, LogLevel level, const char *file, int line);

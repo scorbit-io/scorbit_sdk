@@ -65,7 +65,7 @@ TEST_CASE("logger using functor object callback")
     {
         // We have to use std::ref to pass the reference to the object, otherwise we can't reach
         // the object's data as the object will be copied
-        scorbit::addLoggerCallback(std::ref(l));
+        scorbit::addLoggerCallback(std::ref(l), 512);
         INF("Hello");
         sleepForLogger();
         int line = __LINE__ - 2;
@@ -78,7 +78,7 @@ TEST_CASE("logger using functor object callback")
 
     SECTION("Log levels")
     {
-        scorbit::addLoggerCallback(std::ref(l));
+        scorbit::addLoggerCallback(std::ref(l), 512);
         DBG("Debug");
         sleepForLogger();
         CHECK(l.data.level == scorbit::LogLevel::Debug);
@@ -119,7 +119,7 @@ TEST_CASE("Logger with function callback using trompeloeil")
         REQUIRE_CALL(mockCallback, callbackFunc(eq<std::string_view>("Hello"), eq(LogLevel::Info),
                                                 _, _));
 
-        scorbit::addLoggerCallback(callbackFunc);
+        scorbit::addLoggerCallback(callbackFunc, 512);
         INF("Hello");
         sleepForLogger();
     }
@@ -149,7 +149,7 @@ TEST_CASE("logger using lambda callback")
                 userData.fileName = file;
                 userData.line = line;
                 userData.msg = msg;
-            });
+            }, 512);
     INF("Hello");
     sleepForLogger();
     int line = __LINE__ - 2;
@@ -168,7 +168,7 @@ TEST_CASE("logger using bind callback")
 
     scorbit::addLoggerCallback(std::bind(callback, std::placeholders::_1, std::placeholders::_2,
                                          std::placeholders::_3, std::placeholders::_4,
-                                         std::placeholders::_5, &userData));
+                                         std::placeholders::_5, &userData), 512);
     INF("Hello");
     sleepForLogger();
     int line = __LINE__ - 2;
@@ -185,7 +185,7 @@ TEST_CASE("logger multithread")
 {
     std::vector<std::string> logs;
     scorbit::addLoggerCallback([&logs](std::string_view msg, scorbit::LogLevel, const char *, int,
-                                       int64_t) { logs.emplace_back(msg); });
+                                       int64_t) { logs.emplace_back(msg); }, 512);
 
     // Set up the random number generator
     std::random_device rd;

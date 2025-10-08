@@ -208,7 +208,7 @@ PYBIND11_MODULE(scorbit, m)
     // Wrapper for addLoggerCallback
     m.def(
             "add_logger_callback",
-            [](py::function callback) {
+            [](py::function callback, size_t max_length) {
                 auto safe_callback =
                         makeSafeCallback([callback = std::move(callback)](
                                                  const std::string &message, LogLevel level,
@@ -217,9 +217,10 @@ PYBIND11_MODULE(scorbit, m)
                         });
 
                 // Call the C++ method with our wrapped callback.
-                addLoggerCallback(std::move(safe_callback));
+                addLoggerCallback(std::move(safe_callback), max_length);
             },
             py::arg("callback"),
+            py::arg("max_length"),
             R"doc(
                 Add a logger callback function to be invoked for log messages.
 
@@ -232,9 +233,8 @@ PYBIND11_MODULE(scorbit, m)
                     callback (Callable[[str, scorbit.LogLevel, str, int, Any], None]):
                         The logger callback function to be registered. It should match
                         the `LoggerCallback` signature.
-                    user_data (Any, optional):
-                        A user-defined data object that will be passed to the logger
-                        callback each time it is invoked. Defaults to `None`.
+                    max_length (int):
+                        Maximum length of the log message that will be passed to the callback.
 
                 See Also:
                     - `reset_logger()`

@@ -52,13 +52,14 @@ inline void cLogCallback(const char *message, sb_log_level_t level, const char *
  *
  * @param callback The logger callback function to be registered. It should have the signature
  * specified by @ref LoggerCallback.
+ * @param maxLength Maximum length of the log message that will be passed to the callback.
  *
  * @note The logger function does not need to be thread-safe, as the logging mechanism ensure thread
  * safety internally.
  *
  * @see resetLogger
  */
-inline void addLoggerCallback(LoggerCallback &&callback)
+inline void addLoggerCallback(LoggerCallback &&callback, size_t maxLength)
 {
     // Store callback in the heap
     auto *callbackPtr = new LoggerCallback(std::move(callback));
@@ -67,7 +68,7 @@ inline void addLoggerCallback(LoggerCallback &&callback)
     detail::g_callbacks.push_back(callbackPtr);
 
     // Register with C API
-    sb_add_logger_callback(detail::cLogCallback, callbackPtr);
+    sb_add_logger_callback(detail::cLogCallback, callbackPtr, maxLength);
 }
 
 /**

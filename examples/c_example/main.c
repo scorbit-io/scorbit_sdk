@@ -309,8 +309,8 @@ int main(void)
 
     printf("Simple example of Scorbit SDK usage\n");
 
-    // Setup logger
-    sb_add_logger_callback(loggerCallback, NULL);
+    // Setup logger with 512 chars max message length
+    sb_add_logger_callback(loggerCallback, NULL, 512);
 
     sb_game_handle_t gs = setup_game_state();
 
