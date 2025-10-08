@@ -73,6 +73,7 @@ void Worker::stop()
     if (!m_running)
         return;
 
+    stopAllTimers();
     m_workGuard.reset();
     m_threads.join_all();
     m_running = false;
@@ -145,6 +146,22 @@ auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
     }
 
     return &m_timers[timerType].value();
+}
+
+void Worker::stopAllTimers()
+{
+    DBG("Stopping all timers...");
+
+    for (auto &[timerType, timer] : m_timers) {
+        if (timer.has_value()) {
+            try {
+                timer->cancel();
+                DBG("Timer {} stopped", timerType);
+            } catch (const std::exception &e) {
+                ERR("Failed to cancel timer {}: {}", timerType, e.what());
+            }
+        }
+    }
 }
 
 } // namespace detail

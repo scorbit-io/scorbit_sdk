@@ -63,6 +63,7 @@ public:
 private:
     void run();
     auto getTimer(Timer timerType) -> boost::asio::steady_timer *;
+    auto stopAllTimers() -> void;
 
 private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
