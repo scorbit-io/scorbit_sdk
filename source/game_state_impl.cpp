@@ -68,8 +68,6 @@ void GameStateImpl::setEventCallback(EventCallback &&callback)
 
 void GameStateImpl::setGameStarted()
 {
-    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
-
     startGame(1, GameStartOrigin::StartButton);
 }
 
@@ -267,6 +265,8 @@ bool GameStateImpl::isBallValid(sb_ball_t ball) const
 
 bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 {
+    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
+
     if (m_data.isGameActive) {
         DBG("Game is already active, ignore starting game");
         return false;
