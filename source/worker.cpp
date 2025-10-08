@@ -100,7 +100,7 @@ void Worker::postHeartbeatQueue(task_t func)
 
 void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)
 {
-    auto *timer = timerStrand(timerType);
+    auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
     }
@@ -123,7 +123,7 @@ void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration del
 
 void Worker::stopTimer(Timer timerType)
 {
-    auto *timer = timerStrand(timerType);
+    auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
     }
@@ -138,7 +138,7 @@ void Worker::stopTimer(Timer timerType)
     }
 }
 
-auto Worker::timerStrand(Timer timerType) -> boost::asio::steady_timer *
+auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
 {
     if (m_timers.count(timerType) == 0) {
         m_timers[timerType] = boost::asio::steady_timer {m_ioc};
