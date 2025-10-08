@@ -63,8 +63,9 @@ public:
     void requestTopScores(sb_score_t, StringCallback) override {};
     void requestUnpair(StringCallback) override {};
     void authenticate() override { };
-    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin) override { };
-    void sendGameData(const GameData &, bool) override { };
+    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
+                       std::function<void()>) override { };
+    bool sendGameData(const GameData &, bool) override { };
     void sessionUpdate(const GameData &, bool) override { };
     void getConfig() override { };
 

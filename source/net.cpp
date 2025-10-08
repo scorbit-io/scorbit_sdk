@@ -245,7 +245,8 @@ void Net::updateConfig(const std::string &type, const std::string &version, bool
     m_worker.postQueue(updateConfigTask(type, version, std::move(installed), std::move(log)));
 }
 
-void Net::sessionCreate(const GameData &data, GameStartOrigin origin)
+void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
+                        std::function<void()> onCreated)
 {
     {
         std::lock_guard lock(m_gameSessionsMutex);
@@ -255,7 +256,7 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin)
     }
 
     INF("API post queue create session, id: {}", data.id);
-    m_worker.postQueue(createSessionCreateTask(data.id, origin));
+    m_worker.postQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
@@ -265,7 +266,7 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.postQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
+bool Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
 {
     const auto sessionId = data.id;
     std::string sessionUuid;
@@ -284,70 +285,76 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
     // However, if game session is finished (not active), post task anyway, because this is the last
     // task for that game session.
 
-    // TODO: check if centrifugo is connected, if not, skip sending game data
-    if (!sessionUuid.empty() && m_centrifugo->state() == centrifugo::ConnectionState::Connected) {
-        // m_worker.postGameDataQueue(createGameDataTask(data.id));
-
-        // TODO: check if it's needed to lock mutex here
-        const auto sessionCounter = ++gameSession->sessionCounter;
-        const auto modes = json::parse(gameData.modes.jsonStr());
-        const auto updatedAt = to_iso8601(chrono::system_clock::now());
-        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
-
-        json::array_t scores;
-        for (const auto &[playerNum, playerState] : gameData.players) {
-            json playerProfileJson = nullptr;
-            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
-                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
-            }
-
-            const auto valBallInProgress =
-                    gameData.isGameActive && (gameData.activePlayer == playerNum);
-
-            json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
-                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                                  {JKEY_SCR_IS_NFC_VERIFIED,
-                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
-                                  {JKEY_SCR_PLAYER, playerProfileJson},
-                                  {JKEY_SCR_SCORE, playerState.score()},
-                                  {JKEY_SCR_BALL, gameData.ball},
-                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                                  {JKEY_SCR_MODES, modes}};
-
-            scores.emplace_back(playerScoreJson);
-        }
-
-        const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
-        const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
-
-        json j {{JKEY_CHN_TYPE, valType},
-                {JKEY_CHN_PAYLOAD,
-                 {
-                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                         {keyScores, scores},
-                 }},
-                {JKEY_SCR_METADATA,
-                 {
-                         {JKEY_SCR_GAME, sessionUuid},
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
-                                                  ? json(nullptr)
-                                                  : json(m_machineInfo.venueUuid)},
-                         {JKEY_SCR_SEQUENCE, sessionCounter},
-                         {JKEY_SCR_CREATED_AT, createdAt},
-                         {JKEY_SCR_UPDATED_AT, updatedAt},
-                 }}};
-
-        const auto jstr = j.dump();
-        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
-
-        const auto r = m_centrifugo->publish(m_machineChannel, j);
-        if (!r) {
-            WRN("API failed to send game data: {}", r.error().message);
-        }
+    if (sessionUuid.empty() || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+        INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
+            !sessionUuid.empty(), m_centrifugo->state() == centrifugo::ConnectionState::Connected);
+        return false;
     }
+
+    // m_worker.postGameDataQueue(createGameDataTask(data.id));
+
+    // TODO: check if it's needed to lock mutex here
+    const auto sessionCounter = ++gameSession->sessionCounter;
+    const auto modes = json::parse(gameData.modes.jsonStr());
+    const auto updatedAt = to_iso8601(chrono::system_clock::now());
+    const auto createdAt = to_iso8601(gameSession->startedSystemTime);
+
+    json::array_t scores;
+    for (const auto &[playerNum, playerState] : gameData.players) {
+        json playerProfileJson = nullptr;
+        if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+            playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
+                                 {JKEY_AVATAR, playerProfile->pictureUrl}};
+        }
+
+        const auto valBallInProgress =
+                gameData.isGameActive && (gameData.activePlayer == playerNum);
+
+        json playerScoreJson {
+                {JKEY_SCR_POSITION, playerNum},
+                {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                {JKEY_SCR_IS_NFC_VERIFIED, gameSession->scoresMetadata[playerNum].isNfcVerified},
+                {JKEY_SCR_PLAYER, playerProfileJson},
+                {JKEY_SCR_SCORE, playerState.score()},
+                {JKEY_SCR_BALL, gameData.ball},
+                {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                {JKEY_SCR_MODES, modes}};
+
+        scores.emplace_back(playerScoreJson);
+    }
+
+    const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
+    const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
+
+    json j {{JKEY_CHN_TYPE, valType},
+            {JKEY_CHN_PAYLOAD,
+             {
+                     {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                     {keyScores, scores},
+             }},
+            {JKEY_SCR_METADATA,
+             {
+                     {JKEY_SCR_GAME, sessionUuid},
+                     {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                     {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                     {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
+                                              ? json(nullptr)
+                                              : json(m_machineInfo.venueUuid)},
+                     {JKEY_SCR_SEQUENCE, sessionCounter},
+                     {JKEY_SCR_CREATED_AT, createdAt},
+                     {JKEY_SCR_UPDATED_AT, updatedAt},
+             }}};
+
+    const auto jstr = j.dump();
+    INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
+
+    const auto r = m_centrifugo->publish(m_machineChannel, j);
+    if (!r) {
+        WRN("API failed to send game data: {}", r.error().message);
+        return false;
+    }
+
+    return true;
 }
 
 void Net::sendHeartbeat()
@@ -659,6 +666,7 @@ task_t Net::createAuthenticateTask()
                     {
                         std::unique_lock tokenLock(m_tokenMutex);
                         json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
+                        INF("Token: {}", m_stoken);
                     }
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;
@@ -761,7 +769,8 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
     };
 }
 
-task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
+task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
+                                    std::function<void()> onCreated)
 {
     INF("API session create for id: {}, started by: {} ...", sessionId, origin);
     int sessionCounter;
@@ -798,7 +807,8 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
         return std::make_tuple(url(URL_SCORBITRON_SESSIONS), cpr::Body {body});
     };
 
-    auto callback = [this, sessionId](Error error, std::string reply) {
+    auto callback = [this, sessionId, onCreated = std::move(onCreated)](Error error,
+                                                                        std::string reply) {
         if (error == Error::Success) {
             INF("API create session: ok, id: {}, {}", sessionId, reply);
 
@@ -824,6 +834,10 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin)
                         processScoresAndPlayersProfiles(*it, *gameSession);
                     } else {
                         WRN("API create session: can't find scores in reply");
+                    }
+
+                    if (onCreated) {
+                        onCreated();
                     }
                 } else {
                     ERR("API create session: can't find session UUID in reply");
@@ -1592,7 +1606,7 @@ void Net::startNfcCheckTimer()
 void Net::setNfcTag()
 {
     const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
-                                  fmt::arg("nonce", consumeNonce()));
+                                 fmt::arg("nonce", consumeNonce()));
     if (m_probesManager->setNfcTag(tag)) {
         INF("NFC tag set ok: {}", tag);
     }

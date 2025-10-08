@@ -53,9 +53,10 @@ public:
 
     virtual void updateConfig(const std::string &type, const std::string &version, bool installed,
                               std::optional<std::string> log = std::nullopt) = 0;
-    virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin) = 0;
+    virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
+                               std::function<void()> onCreated) = 0;
     virtual void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) = 0;
-    virtual void sendGameData(const detail::GameData &data, bool isGameJustFinished) = 0;
+    virtual bool sendGameData(const detail::GameData &data, bool isGameJustFinished) = 0;
     virtual void sendHeartbeat() = 0;
     virtual void getConfig() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;

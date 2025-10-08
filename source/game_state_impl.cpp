@@ -223,7 +223,9 @@ void GameStateImpl::sendGameData()
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
         // Publish game data
-        m_net->sendGameData(m_data, isGameJustFinished);
+        if (!m_net->sendGameData(m_data, isGameJustFinished)) {
+            return;
+        }
 
         // Skip session update right after game start
         if (!isGameJustStarted) {
@@ -288,7 +290,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
 
-    m_net->sessionCreate(m_data, origin);
+    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::commit, this));
+
     return true;
 }
 

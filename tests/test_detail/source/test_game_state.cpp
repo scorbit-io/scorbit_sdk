@@ -40,7 +40,7 @@ class MockNetBase : public NetBase
 {
 public:
     virtual ~MockNetBase() = default;
-    
+
     void setEventCallback(EventCallback &&) override { };
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
@@ -68,9 +68,10 @@ public:
     };
     void requestTopScores(sb_score_t, StringCallback) override {};
     void requestUnpair(StringCallback) override {};
-    MAKE_MOCK2(sendGameData, void(const scorbit::detail::GameData &, bool), override);
+    MAKE_MOCK2(sendGameData, bool(const scorbit::detail::GameData &, bool), override);
     MAKE_MOCK0(authenticate, void(), override);
-    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin) override { };
+    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
+                       std::function<void()>) override { };
     void sessionUpdate(const scorbit::detail::GameData &, bool) override { };
     void getConfig() override { };
     MAKE_MOCK4(updateConfig,
@@ -79,7 +80,7 @@ public:
     void download(StringCallback, const std::string &, const std::string &) override { };
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
-    void patchScorbitron(std::string, StringCallback) override { };
+    void patchScorbitron(std::string, StringCallback) override {};
     std::string consumeNonce() override { return {}; };
 
     // Expose the emitGameStartRequested method for testing
@@ -144,7 +145,8 @@ TEST_CASE("setGameStarted functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData), false))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // When setGameStarted is called without setting any scores or players,
         // it should set player 1 as the active player with a score of 0.
@@ -161,7 +163,8 @@ TEST_CASE("setGameStarted functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData), false))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Set ball and active player and score before starting the game
         gameState.setCurrentBall(2);
@@ -203,13 +206,15 @@ TEST_CASE("setGameFinished functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, false))
                 .WITH(_1.isGameActive == true)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Second call will be when the game is finished
         REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData), true))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act
         gameState.setGameStarted();
@@ -224,7 +229,7 @@ TEST_CASE("setGameFinished functionality")
 
     SECTION("Prevents changes to player scores after finishing")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
 
         // Start the game and set some initial player scores
         gameState.setScore(1, 100);
@@ -259,13 +264,21 @@ TEST_CASE("setCurrentBall functionality")
     SECTION("Sets a valid ball number")
     {
         // Assert: Check that the ball number is set correctly 1
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).WITH(_1.ball == 1).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _))
+                .WITH(_1.ball == 1)
+                .IN_SEQUENCE(seq)
+                .TIMES(1)
+                .RETURN(true);
         // Act: Set a valid ball number
         gameState.setCurrentBall(1);
         gameState.commit();
 
         // Assert: Check that the ball number is set correctly to 3
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _))
+                .WITH(_1.ball == 3)
+                .IN_SEQUENCE(seq)
+                .TIMES(1)
+                .RETURN(true);
         // Set another valid ball number
         gameState.setCurrentBall(3);
         gameState.commit();
@@ -274,7 +287,11 @@ TEST_CASE("setCurrentBall functionality")
     SECTION("Invalid ball numbers ignored")
     {
         // Assert: Check that the ball number is set correctly
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).WITH(_1.ball == 9).IN_SEQUENCE(seq).TIMES(3);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _))
+                .WITH(_1.ball == 9)
+                .IN_SEQUENCE(seq)
+                .TIMES(3)
+                .RETURN(true);
         // Act: Set an initial valid ball number 9
         gameState.setCurrentBall(9);
         gameState.commit();
@@ -312,7 +329,8 @@ TEST_CASE("setActivePlayer functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.activePlayer == 1)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Set player 1 as active
         gameState.setActivePlayer(1);
         gameState.commit();
@@ -321,7 +339,8 @@ TEST_CASE("setActivePlayer functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.activePlayer == 3)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Set player 3 as active
         gameState.setActivePlayer(3);
         gameState.commit();
@@ -333,7 +352,8 @@ TEST_CASE("setActivePlayer functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.activePlayer == 9)
                 .IN_SEQUENCE(seq)
-                .TIMES(3);
+                .TIMES(3)
+                .RETURN(true);
         // Act: Set an initial valid player
         gameState.setActivePlayer(9);
         gameState.commit();
@@ -359,7 +379,8 @@ TEST_CASE("setActivePlayer functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.activePlayer == 4 && _1.players.at(4).score() == 0)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Set player 4 as active when player 4 doesn't exist yet
         gameState.setActivePlayer(4);
         gameState.commit();
@@ -368,7 +389,8 @@ TEST_CASE("setActivePlayer functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.activePlayer == 2 && _1.players.at(2).score() == 1000)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Set player 2 as active (another non-existing player)
         gameState.setActivePlayer(2);
         gameState.setScore(2, 1000);
@@ -388,7 +410,8 @@ TEST_CASE("setScore functionality")
     REQUIRE_CALL(mockNetRef, sendGameData(_, _))
             .WITH(_1.players.at(1).score() == 0)
             .IN_SEQUENCE(seq)
-            .TIMES(1);
+            .TIMES(1)
+            .RETURN(true);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -400,7 +423,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(1).score() == 500)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Add player 1 with initial score
         gameState.setScore(1, 500);
         gameState.commit();
@@ -409,7 +433,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(1).score() == 1000)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Update score for player 1
         gameState.setScore(1, 1000);
@@ -421,7 +446,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(2).score() == 1500)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Add player 2 with initial score
         gameState.setScore(2, 1500);
         gameState.commit();
@@ -440,7 +466,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(3).score() == 800)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Add player 3 with a score of 800
         gameState.setScore(3, 800);
@@ -464,7 +491,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(1).score() == 500)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         gameState.setScore(1, 500);
         gameState.commit();
 
@@ -472,7 +500,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(1).score() == 700)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Update score for player 1
         gameState.setScore(1, 700);
         gameState.commit();
@@ -481,7 +510,8 @@ TEST_CASE("setScore functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.players.at(2).score() == 1500)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
         // Act: Add player 2
         gameState.setScore(2, 1500);
         gameState.commit();
@@ -497,7 +527,7 @@ TEST_CASE("addMode functionality")
     ALLOW_CALL(mockNetRef, authenticate());
     ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -510,7 +540,8 @@ TEST_CASE("addMode functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Add mode "MB:Multiball"
         gameState.addMode("MB:Multiball");
@@ -520,7 +551,8 @@ TEST_CASE("addMode functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.contains("SP:SuperPlay"))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Add another mode "SP:SuperPlay"
         gameState.addMode("SP:SuperPlay");
@@ -533,7 +565,8 @@ TEST_CASE("addMode functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.str() == "MB:Multiball")
                 .IN_SEQUENCE(seq)
-                .TIMES(2);
+                .TIMES(2)
+                .RETURN(true);
 
         // Add mode "MB:Multiball"
         gameState.addMode("MB:Multiball");
@@ -555,7 +588,7 @@ TEST_CASE("removeMode functionality")
     ALLOW_CALL(mockNetRef, authenticate());
     ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -568,7 +601,8 @@ TEST_CASE("removeMode functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Add mode "MB:Multiball"
         gameState.addMode("MB:Multiball");
@@ -578,7 +612,8 @@ TEST_CASE("removeMode functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(!_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Remove mode "MB:Multiball"
         gameState.removeMode("MB:Multiball");
@@ -605,7 +640,7 @@ TEST_CASE("clearModes functionality")
     ALLOW_CALL(mockNetRef, authenticate());
     ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -618,7 +653,8 @@ TEST_CASE("clearModes functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.str() == "MB:Multiball;SP:SuperPlay")
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Add some modes
         gameState.addMode("MB:Multiball");
@@ -629,7 +665,8 @@ TEST_CASE("clearModes functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.isEmpty())
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Clear all modes
         gameState.clearModes();
@@ -656,7 +693,7 @@ TEST_CASE("commit functionality")
     ALLOW_CALL(mockNetRef, authenticate());
     ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -672,7 +709,8 @@ TEST_CASE("commit functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Call commit to apply changes
         gameState.commit();
@@ -699,7 +737,8 @@ TEST_CASE("commit functionality")
                 .WITH(_1.modes.contains("MB:Multiball") && _1.players.at(1).score() == 500
                       && _1.activePlayer == 2)
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Call commit to apply all changes
         gameState.commit();
@@ -707,7 +746,7 @@ TEST_CASE("commit functionality")
 
     SECTION("Commits only once if the same changes are made repeatedly")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
         // Add a mode and call commit
         gameState.addMode("MB:Multiball");
         gameState.commit();
@@ -721,7 +760,7 @@ TEST_CASE("commit functionality")
 
     SECTION("Commits after clearing modes")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1).RETURN(true);
         // Add modes first
         gameState.addMode("MB:Multiball");
         gameState.addMode("SP:SuperPlay");
@@ -734,7 +773,8 @@ TEST_CASE("commit functionality")
         REQUIRE_CALL(mockNetRef, sendGameData(_, _))
                 .WITH(_1.modes.isEmpty())
                 .IN_SEQUENCE(seq)
-                .TIMES(1);
+                .TIMES(1)
+                .RETURN(true);
 
         // Act: Call commit to apply changes
         gameState.commit();
@@ -775,7 +815,7 @@ TEST_CASE("isGameStartRequested functionality")
     {
         int playersCount = 0;
         bool result = gameState.isGameStartRequested(&playersCount);
-        
+
         REQUIRE(result == false);
         REQUIRE(playersCount == 0); // No players when game hasn't started
     }
@@ -791,13 +831,13 @@ TEST_CASE("isGameStartRequested functionality")
         // Simulate a game start request from the network layer
         // This would normally be called when a "start_game" message is received via Centrifugo
         mockNetRef.emitGameStartRequested(3); // Request game start with 3 players
-        
+
         int playersCount = 0;
         bool result = gameState.isGameStartRequested(&playersCount);
-        
-        REQUIRE(result == true); // Should return true since game start was requested
+
+        REQUIRE(result == true);    // Should return true since game start was requested
         REQUIRE(playersCount == 3); // Should return the number of players from the request
-        
+
         // Second call should return false since the flag was reset
         int playersCount2 = 0;
         bool result2 = gameState.isGameStartRequested(&playersCount2);
@@ -809,22 +849,22 @@ TEST_CASE("isGameStartRequested functionality")
     {
         // First game start request
         mockNetRef.emitGameStartRequested(2);
-        
+
         int playersCount1 = 0;
         bool result1 = gameState.isGameStartRequested(&playersCount1);
         REQUIRE(result1 == true);
         REQUIRE(playersCount1 == 2);
-        
+
         // Second game start request after checking the first one
         // Since the game is already active, startGame will return false
         // and m_isGameStartRequested will be set to false
         mockNetRef.emitGameStartRequested(4);
-        
+
         int playersCount2 = 0;
         bool result2 = gameState.isGameStartRequested(&playersCount2);
-        REQUIRE(result2 == false); // Should be false because game is already active
+        REQUIRE(result2 == false);   // Should be false because game is already active
         REQUIRE(playersCount2 == 2); // Player count should still be from the first request
-        
+
         // Third call should also return false
         int playersCount3 = 0;
         bool result3 = gameState.isGameStartRequested(&playersCount3);
