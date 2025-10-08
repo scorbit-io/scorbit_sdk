@@ -46,7 +46,7 @@ static MunitResult test_sb_add_logger_callback(const MunitParameter params[], vo
     (void)user_data;
 
     UserData data;
-    sb_add_logger_callback(logCallback, &data);
+    sb_add_logger_callback(logCallback, &data, 512);
     sb_reset_logger();
 
     return MUNIT_OK;

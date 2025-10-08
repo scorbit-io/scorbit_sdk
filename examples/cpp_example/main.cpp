@@ -261,8 +261,8 @@ int main()
 
     cout << "Simple example of Scorbit SDK usage" << endl;
 
-    // Setup logger
-    scorbit::addLoggerCallback(loggerCallback);
+    // Setup logger with max 512 chars message length
+    scorbit::addLoggerCallback(loggerCallback, 512);
 
     // Create game state object
     scorbit::GameState gs = setupGameState();
