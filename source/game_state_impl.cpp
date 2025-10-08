@@ -167,7 +167,7 @@ bool GameStateImpl::isPlayersInfoUpdated()
     return m_net->playersManager().hasUpdate();
 }
 
-const PlayerProfile *GameStateImpl::getPlayerProfile(sb_player_t player) const
+std::optional<PlayerProfile> GameStateImpl::getPlayerProfile(sb_player_t player) const
 {
     return m_net->playersManager().profile(player);
 }

@@ -53,7 +53,7 @@ TEST_CASE("PlayerProfile 1 player")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
+    REQUIRE(p1.has_value());
     CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
     CHECK(p1->name == "Dilshod M");
     CHECK(p1->initials == "DTM");
@@ -128,14 +128,14 @@ TEST_CASE("PlayerProfile 2 players")
     REQUIRE(hasUpdate);
 
     auto p2 = pm.profile(2);
-    CHECK(p2 == nullptr);
+    CHECK_FALSE(p2.has_value());
 
     pm.setProfiles(profiles2);
     hasUpdate = pm.hasUpdate();
     REQUIRE(hasUpdate);
 
     p2 = pm.profile(2);
-    REQUIRE(p2 != nullptr);
+    REQUIRE(p2.has_value());
     CHECK(p2->id == "821eb8c8-e48f-4b71-84b2-7ae9382f0e60");
     CHECK(p2->name == "Dilshod M2");
     CHECK(p2->initials == "DT2");
@@ -143,7 +143,7 @@ TEST_CASE("PlayerProfile 2 players")
     CHECK(p2->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
 
     auto p3 = pm.profile(3);
-    CHECK(p3 == nullptr);
+    CHECK_FALSE(p3.has_value());
 
     // Check pictures to download. We will set p1 picture, so only p2 has to be downloaded
     Picture picture {1, 2, 3};
@@ -179,7 +179,7 @@ TEST_CASE("Player profile with null profile_picture")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
+    REQUIRE(p1.has_value());
     CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
     CHECK(p1->pictureUrl.empty());
 }
@@ -209,6 +209,6 @@ TEST_CASE("Player profile without profile_picture")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
+    REQUIRE(p1.has_value());
     CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
 }

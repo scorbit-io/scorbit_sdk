@@ -60,7 +60,7 @@ public:
     const std::string &getClaimDeeplink(int player) const;
 
     bool isPlayersInfoUpdated();
-    const PlayerProfile *getPlayerProfile(sb_player_t player) const;
+    std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
     const Picture &getPlayerPicture(sb_player_t player) const;
 
     bool isGameStartRequested(int *playersCount);
