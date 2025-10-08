@@ -96,9 +96,10 @@ public:
     void authenticate() override;
     void updateConfig(const std::string &type, const std::string &version, bool installed,
                       std::optional<std::string> log = std::nullopt) override;
-    void sessionCreate(const detail::GameData &data, GameStartOrigin origin) override;
+    void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
+                       std::function<void()> onCreated) override;
     void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) override;
-    void sendGameData(const detail::GameData &data, bool isGameJustFinished) override;
+    bool sendGameData(const detail::GameData &data, bool isGameJustFinished) override;
     void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;
@@ -128,7 +129,8 @@ private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
                             std::optional<std::string> log);
-    task_t createSessionCreateTask(int sessionId, GameStartOrigin origin);
+    task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
+                                   std::function<void()> onCreated);
     task_t createSessionUpdateTask(int sessionId, bool uploadHistoryLogs);
     task_t createHeartbeatTask();
 

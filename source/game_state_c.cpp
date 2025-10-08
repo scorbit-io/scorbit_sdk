@@ -202,7 +202,7 @@ bool sb_is_players_info_updated(sb_game_handle_t handle)
 
 bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player)
 {
-    return handle->gameState.getPlayerProfile(player) != nullptr;
+    return handle->gameState.getPlayerProfile(player).has_value();
 }
 
 int64_t sb_get_player_id(sb_game_handle_t /*handle*/, sb_player_t /*player*/)

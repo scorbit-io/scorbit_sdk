@@ -30,6 +30,7 @@
 #include <map>
 #include <mutex>
 #include <atomic>
+#include <optional>
 
 namespace scorbit {
 namespace detail {
@@ -72,7 +73,7 @@ public:
     void removePicture(sb_player_t player);
 
     bool hasUpdate();
-    const PlayerProfile *profile(sb_player_t player) const;
+    std::optional<PlayerProfile> profile(sb_player_t player) const;
 
     bool hasPicture(sb_player_t player) const;
     const Picture &picture(sb_player_t player) const;
@@ -82,7 +83,6 @@ public:
 private:
     std::atomic_bool m_updated {false}; // Flag to indicate if any profile has been changed
     std::map<sb_player_t, PlayerProfile> m_profiles;
-    std::map<sb_player_t, PlayerProfile> m_storedProfiles;
     mutable Picture m_storedPicture;
     mutable LRUCache<sb_player_t, Picture> m_picturesCache {MAX_PICTURES_CACHED};
     mutable std::mutex m_profilesMutex; // Mutex to protect access to profiles

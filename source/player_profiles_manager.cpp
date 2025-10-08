@@ -112,19 +112,17 @@ void PlayerProfilesManager::removePicture(sb_player_t player)
  */
 bool PlayerProfilesManager::hasUpdate()
 {
-    if (m_updated) {
-        std::lock_guard<std::mutex> lock(m_profilesMutex);
-        m_storedProfiles = m_profiles;
-    }
     return m_updated.exchange(false); // return result and clear update flag
 }
 
-const PlayerProfile *PlayerProfilesManager::profile(sb_player_t player) const
+std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) const
 {
-    if (m_storedProfiles.count(player) == 0)
-        return nullptr;
+    std::lock_guard<std::mutex> lock(m_profilesMutex);
+    if (m_profiles.count(player) == 0) {
+        return std::nullopt;
+    }
 
-    return &m_storedProfiles.at(player);
+    return m_profiles.at(player);
 }
 
 bool PlayerProfilesManager::hasPicture(sb_player_t player) const
@@ -144,7 +142,9 @@ const Picture &PlayerProfilesManager::picture(sb_player_t player) const
 std::map<sb_player_t, std::string> PlayerProfilesManager::picturesToDownload() const
 {
     std::map<sb_player_t, std::string> picturesToDownload;
-    std::lock_guard<std::mutex> lock(m_profilesMutex);
+
+    std::scoped_lock lock(m_profilesMutex, m_picturesMutex);
+
     for (const auto &[playerNum, profile] : m_profiles) {
         if (profile.pictureUrl.empty())
             continue;
