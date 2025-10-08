@@ -35,6 +35,7 @@
 #include <condition_variable>
 #include <shared_mutex>
 #include <unordered_map>
+#include <optional>
 
 namespace scorbit {
 namespace detail {
@@ -59,6 +60,7 @@ class Net : public NetBase
     struct ScoreMetadata {
         uint64_t id {0}; // score id
         bool isNfcVerified {false};
+        std::optional<std::string> tournamentUuid;
     };
 
     struct GameSession {
