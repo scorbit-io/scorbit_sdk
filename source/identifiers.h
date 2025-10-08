@@ -92,6 +92,7 @@ constexpr auto JKEY_AUTH_SERIAL_NUMBER {"serial_number"};
 constexpr auto JKEY_SCR_POSITION {"position"};
 constexpr auto JKEY_SCR_ID {"id"};
 constexpr auto JKEY_SCR_IS_NFC_VERIFIED {"is_nfc_verified"};
+constexpr auto JKEY_SCR_TOURNAMENT_UUID {"tournament_id"};
 constexpr auto JKEY_SCR_PLAYER {"player"};
 constexpr auto JKEY_SCR_SCORE {"score"};
 constexpr auto JKEY_SCR_BALL {"ball"};

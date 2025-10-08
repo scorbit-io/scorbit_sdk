@@ -314,6 +314,10 @@ bool Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
                 {JKEY_SCR_POSITION, playerNum},
                 {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
                 {JKEY_SCR_IS_NFC_VERIFIED, gameSession->scoresMetadata[playerNum].isNfcVerified},
+                {JKEY_SCR_TOURNAMENT_UUID,
+                 gameSession->scoresMetadata[playerNum].tournamentUuid
+                         ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
+                         : json(nullptr)},
                 {JKEY_SCR_PLAYER, playerProfileJson},
                 {JKEY_SCR_SCORE, playerState.score()},
                 {JKEY_SCR_BALL, gameData.ball},
@@ -1394,6 +1398,11 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
             obj[JKEY_SCR_ID].get_to(gameSession.scoresMetadata[playerNum].id);
             obj[JKEY_SCR_IS_NFC_VERIFIED].get_to(
                     gameSession.scoresMetadata[playerNum].isNfcVerified);
+
+            if (const auto it = obj.find(JKEY_SCR_TOURNAMENT_UUID);
+                it != obj.end() && it->is_string()) {
+                it->get_to(*gameSession.scoresMetadata[playerNum].tournamentUuid);
+            }
         }
     } catch (const std::exception &e) {
         ERR("Error parsing player score: {}", e.what());
