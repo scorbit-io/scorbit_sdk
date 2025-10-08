@@ -73,6 +73,7 @@ void Worker::stop()
     if (!m_running)
         return;
 
+    stopAllTimers();
     m_workGuard.reset();
     m_threads.join_all();
     m_running = false;
@@ -100,7 +101,7 @@ void Worker::postHeartbeatQueue(task_t func)
 
 void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)
 {
-    auto *timer = timerStrand(timerType);
+    auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
     }
@@ -123,7 +124,7 @@ void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration del
 
 void Worker::stopTimer(Timer timerType)
 {
-    auto *timer = timerStrand(timerType);
+    auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
     }
@@ -138,13 +139,29 @@ void Worker::stopTimer(Timer timerType)
     }
 }
 
-auto Worker::timerStrand(Timer timerType) -> boost::asio::steady_timer *
+auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
 {
     if (m_timers.count(timerType) == 0) {
         m_timers[timerType] = boost::asio::steady_timer {m_ioc};
     }
 
     return &m_timers[timerType].value();
+}
+
+void Worker::stopAllTimers()
+{
+    DBG("Stopping all timers...");
+
+    for (auto &[timerType, timer] : m_timers) {
+        if (timer.has_value()) {
+            try {
+                timer->cancel();
+                DBG("Timer {} stopped", timerType);
+            } catch (const std::exception &e) {
+                ERR("Failed to cancel timer {}: {}", timerType, e.what());
+            }
+        }
+    }
 }
 
 } // namespace detail

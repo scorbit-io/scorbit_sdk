@@ -666,7 +666,6 @@ task_t Net::createAuthenticateTask()
                     {
                         std::unique_lock tokenLock(m_tokenMutex);
                         json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
-                        INF("Token: {}", m_stoken);
                     }
 
                     m_status = AuthStatus::AuthenticatedCheckingPairing;

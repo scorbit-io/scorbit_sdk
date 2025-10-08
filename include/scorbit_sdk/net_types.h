@@ -148,6 +148,7 @@ struct DeviceInfo {
         di.serial_number = serialNumber;
         di.auto_download_player_pics = autoDownloadPlayerPics;
         di.score_features_version = scoreFeaturesVersion;
+        di.start_game_capable = startGameCapable;
 
         // Temporary array of C-string pointers (valid as long as `*this` lives)
         if (!scoreFeatures.empty()) {
