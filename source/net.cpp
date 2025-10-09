@@ -1219,6 +1219,11 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
                 r.status_code, r.error.message, reply);
 
+            if (r.status_code == 0) {
+                std::this_thread::sleep_for(1000ms);
+                continue;
+            }
+
             if (r.status_code != 401) {
                 break;
             }
