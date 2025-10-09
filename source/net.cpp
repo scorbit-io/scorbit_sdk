@@ -261,9 +261,9 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
 {
-    INF("API post queue update session, id: {}, upload history logs: {}", data.id,
+    INF("API post update session, id: {}, upload history logs: {}", data.id,
         uploadHistoryLog);
-    m_worker.postQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
+    m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
 bool Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
@@ -572,7 +572,7 @@ PlayerProfilesManager &Net::playersManager()
 
 void Net::patchScorbitron(std::string body, StringCallback callback)
 {
-    m_worker.postQueue(createPatchRequestTask(
+    m_worker.post(createPatchRequestTask(
             [callback = std::move(callback)](Error error, std::string reply) {
                 callback(error, reply);
             },
@@ -1118,7 +1118,7 @@ void Net::requestSessionData(const std::string &sessionUuid)
         return make_tuple(endpoint, parameters);
     };
 
-    m_worker.postQueue(createGetRequestTask(std::move(callback), std::move(deferredSetup)));
+    m_worker.post(createGetRequestTask(std::move(callback), std::move(deferredSetup)));
 }
 
 void Net::postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid)
@@ -1569,7 +1569,7 @@ void Net::createNfcNonces()
         return;
     }
 
-    m_worker.postQueue(createPostRequestTask(
+    m_worker.post(createPostRequestTask(
             [this](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API create NFC nonces: ok");
