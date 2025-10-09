@@ -255,8 +255,8 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
         session.history.push_back(data);
     }
 
-    INF("API post queue create session, id: {}", data.id);
-    m_worker.postQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
+    INF("API post create session, id: {}", data.id);
+    m_worker.post(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
