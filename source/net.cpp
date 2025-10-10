@@ -620,16 +620,19 @@ void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
 task_t Net::createAuthenticateTask()
 {
     return [this]() {
-        std::lock_guard lock(m_authMutex);
+        const auto normalAuthentication = !m_isRefreshingToken;
+        std::optional<std::lock_guard<std::mutex>> lockOpt;
 
-        const auto startServices = !m_isRefreshingToken;
-
-        if (m_status != AuthStatus::NotAuthenticated && !m_isRefreshingToken) {
+        if (m_status != AuthStatus::NotAuthenticated && normalAuthentication) {
             return;
         }
 
+        if (normalAuthentication) {
+            lockOpt.emplace(m_authMutex);
+            m_status = AuthStatus::Authenticating;
+        }
         m_isRefreshingToken = true;
-        m_status = AuthStatus::Authenticating;
+
         std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
         ByteArray message(m_deviceInfo.uuid);
 
@@ -672,19 +675,22 @@ task_t Net::createAuthenticateTask()
                         json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
                     }
 
-                    m_status = AuthStatus::AuthenticatedCheckingPairing;
-                    INF("API authentication successful! Checking pairing status...");
-
                     startTokenRefreshTimer(); // Start/restart token refresh timer
                     m_authCV.notify_all();
 
-                    if (startServices) {
+                    if (normalAuthentication) {
+                        m_status = AuthStatus::AuthenticatedCheckingPairing;
+                        INF("API authentication successful! Checking pairing status...");
+
+
                         getConfig(); // Get config after authentication, it also checks pair status
                         updateScorbitronConfig();
                         sendHeartbeat();
                         startHeartbeatTimer();
                         centrifugoConnect();
                         createNfcNonces();
+                    } else {
+                        INF("API token refreshed successful!");
                     }
                     break;
                 } catch (const std::exception &e) {
@@ -1075,6 +1081,7 @@ void Net::startTokenRefreshTimer()
 void Net::stopTokenRefreshTimer()
 {
     m_worker.stopTimer(Worker::Timer::TokenRefresh);
+    m_isRefreshingToken = false;
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
