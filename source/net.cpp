@@ -1523,6 +1523,10 @@ void Net::centrifugoSetup()
                             if (type == JVAL_CHN_TYPE_START_GAME) {
                                 const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
                                 emitGameStartRequested(playerCount);
+
+                                m_eventManager->push(
+                                        std::make_shared<GameStartRequestedEvent>(playerCount));
+
                             } else if (type == JVAL_TYPE_ACTION) {
                                 const auto method = payloadIt->value(JKEY_METHOD, "");
                                 const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
