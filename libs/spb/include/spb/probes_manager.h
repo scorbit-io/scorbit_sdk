@@ -43,9 +43,9 @@ public:
 
     auto enumerate(probe_t probesSet, const ProbeDisplayCallback &callback = nullptr) -> void;
 
-    auto cpu() const -> ProbeCPU * { return m_cpu.get(); }
-    auto dmd() const -> ProbeDMD * { return m_dmd.get(); }
-    auto nfc() const -> ProbeNFC * { return m_nfc.get(); }
+    auto cpu() const -> const std::shared_ptr<ProbeCPU> & { return m_cpu; }
+    auto dmd() const -> const std::shared_ptr<ProbeDMD> & { return m_dmd; }
+    auto nfc() const -> const std::shared_ptr<ProbeNFC> & { return m_nfc; }
 
     auto isNfcTagRead() const -> bool;
     auto setNfcTag(const std::string &tag) -> bool;

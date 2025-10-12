@@ -107,7 +107,7 @@ class ProbeBase
 
     public:
     ProbeBase() {}
-    ~ProbeBase() { Cable.Close(); }
+    virtual ~ProbeBase() { Cable.Close(); }
 
     protected:
     virtual bool OnInitialized() { return true; }
@@ -127,7 +127,8 @@ class ProbeBase
         if (!DeviceName.empty() && !Cable.Initialize(DeviceName))
         {
             if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
-                std::cerr << "Device \"" << DeviceName << "\" can't be initialized !\n"; return false;
+                std::cerr << "Device \"" << DeviceName << "\" can't be initialized !\n";
+            return false;
         }
         if (DeviceName.empty() && !Cable.Initialize(DeviceIndex))
         {
@@ -160,7 +161,8 @@ class ProbeBase
         uint8_t UsbFlags;
         uint8_t ReservedForAlignment1;
         uint32_t UID;
-        uint8_t Reserved[60];
+        uint8_t TpmSerial[9];
+        uint8_t Reserved[51];
     } ProbeInformations_t;
 
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
@@ -237,18 +239,25 @@ class ProbeBase
             unsigned day = ymdhms % 100; ymdhms /= 100;
             unsigned mon = ymdhms % 100; ymdhms /= 100;
             int      year = (int)ymdhms;
-            // Create a time_point
-            date::sys_days d{ date::year{year} / date::month{mon} / date::day{day} };
-            date::sys_seconds tp = d + std::chrono::hours{ hour } + std::chrono::minutes{ min } + std::chrono::seconds{ sec };
+
             // Create the timestamp string
-            pbi->Timestamp = fmt::format("{:%b %d %Y %H:%M:%S}", tp);
+            std::ostringstream oss;
+            oss << std::setfill('0')
+                << std::setw(4) << year << "-"
+                << std::setw(2) << mon << "-"
+                << std::setw(2) << day << " "
+                << std::setw(2) << hour << ":"
+                << std::setw(2) << min << ":"
+                << std::setw(2) << sec;
+            pbi->Timestamp = oss.str();
         }
         pbi->TimeMs = Util::Util::UInt32FromBuffer(data, 54);
         pbi->SysClockFrequency = Util::UInt32FromBuffer(data, 58);
         pbi->UsbFlags = data[62];
         pbi->ReservedForAlignment1 = data[63];
         pbi->UID = Util::UInt32FromBuffer(data, 64);
-        std::memcpy(pbi->Reserved, data.data() + 60, sizeof(pbi->Reserved));
+        std::memcpy(pbi->TpmSerial, data.data() + 68, sizeof(pbi->TpmSerial));
+        std::memcpy(pbi->Reserved, data.data() + 77, sizeof(pbi->Reserved));
         return true;
     }
 
@@ -899,7 +908,7 @@ class ProbeCPU : public ProbeBase
     {
         return Cable.CommandWrite(ProbeCommand_t::WriteCpuType, 0, { (uint8_t)type, (uint8_t)((bMITM) ? 1 : 0) });
     }
-    bool SetParameters(uint32_t delayAfterOE, uint32_t delayAfterHalt, uint32_t delayBusSettle, uint32_t delayAfterClockLow, uint32_t delayAfterClockHigh, bool bWaitClockHigh)
+    bool SetTimings(uint32_t delayAfterOE, uint32_t delayAfterHalt, uint32_t delayBusSettle, uint32_t delayAfterClockLow, uint32_t delayAfterClockHigh, bool bWaitClockHigh)
     {
         return Cable.CommandWrite(ProbeCommand_t::WriteCpuType, 0,
             {
@@ -911,7 +920,32 @@ class ProbeCPU : public ProbeBase
                 (uint8_t)delayAfterClockLow, (uint8_t)(delayAfterClockLow >> 8), (uint8_t)(delayAfterClockLow >> 16), (uint8_t)(delayAfterClockLow >> 24),
                 (uint8_t)delayAfterClockHigh, (uint8_t)(delayAfterClockHigh >> 8), (uint8_t)(delayAfterClockHigh >> 16), (uint8_t)(delayAfterClockHigh >> 24),
                 (uint8_t)((bWaitClockHigh) ? 1 : 0),
+                0xff, // Invalid NvRamUnlockValue
+                0xff, 0xff, // Invalid NvRamLockAddr
+                0xff, 0xff, // Invalid NvRamAddr
+                0xff, 0xff, // Invalid NvRamLength
+                0xff, // Invalid NvRamLockValue
             });
+    }    
+    bool SetNvRamParameters(uint16_t NvRamAddr, uint16_t NvRamLength, uint16_t NvRamLockAddr, uint8_t NvRamUnlockValue, uint8_t NvRamLockValue)
+    {
+        return Cable.CommandWrite(ProbeCommand_t::WriteCpuType, 0,
+            {
+                0xfe, // Invalid CPU
+                0xff, // Invalid bMITM
+                0xff, 0xff, 0xff, 0xff, // Invalid delayAfterOE
+                0xff, 0xff, 0xff, 0xff, // Invalid delayAfterHalt
+                0xff, 0xff, 0xff, 0xff, // Invalid delayBusSettle
+                0xff, 0xff, 0xff, 0xff, // Invalid delayAfterClockLow 
+                0xff, 0xff, 0xff, 0xff, // Invalid delayAfterClockHigh
+                0xff, //  Invalid bWaitClockHigh
+                NvRamUnlockValue, 
+                (uint8_t)NvRamLockAddr, (uint8_t)(NvRamLockAddr >> 8),
+                (uint8_t)NvRamAddr, (uint8_t)(NvRamAddr >> 8),
+                (uint8_t)NvRamLength, (uint8_t)(NvRamLength >> 8),
+                NvRamLockValue,
+            });
+        return false;
     }
     typedef struct
     {
@@ -920,10 +954,14 @@ class ProbeCPU : public ProbeBase
         uint32_t ClockFrequency;
         uint32_t delayAfterOE, delayAfterHalt, delayBusSettle, delayAfterClockLow, delayAfterClockHigh;
         bool bWaitClockHigh, bMITM;
+        uint8_t NvRamUnlockValue, NvRamLockValue;
+        uint16_t NvRamLockAddr;
+        uint16_t NvRamAddr;
+        uint16_t NvRamLength;
     } CpuInformations_t;
     bool GetCpuInformations(CpuInformations_t* Infos, bool bExtended = false)
     {
-        int Len = (bExtended) ? 27 : 2;
+        int Len = (bExtended) ? 35 : 2;
         auto CpuInfos = Cable.CommandRead(ProbeCommand_t::ReadCpuInfos, 0, Len);
         if (CpuInfos.size() != Len) return false;
         Infos->Type = (CpuType_t)CpuInfos[0];
@@ -937,6 +975,11 @@ class ProbeCPU : public ProbeBase
             Infos->delayAfterClockLow = Util::UInt32FromBuffer(CpuInfos, 18);
             Infos->delayAfterClockHigh = Util::UInt32FromBuffer(CpuInfos, 22);
             Infos->bWaitClockHigh = (CpuInfos[26] != 0);
+            Infos->NvRamUnlockValue = CpuInfos[27];
+            Infos->NvRamLockAddr = Util::UInt16FromBuffer(CpuInfos, 28);
+            Infos->NvRamAddr = Util::UInt16FromBuffer(CpuInfos, 30);
+            Infos->NvRamLength = Util::UInt16FromBuffer(CpuInfos, 32);
+            Infos->NvRamLockValue = CpuInfos[34];
         }
         else
             Infos->ClockFrequency = 0;

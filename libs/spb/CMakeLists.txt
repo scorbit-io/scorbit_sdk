@@ -18,6 +18,8 @@ add_library(${PROJECT_NAME} STATIC ${headers} ${sources})
 target_compile_definitions(${PROJECT_NAME} PUBLIC USE_FMT_LIBRARY USE_DATE_LIBRARY)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt date::date)
 
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC
