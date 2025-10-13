@@ -270,7 +270,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
 
     if (m_data.isGameActive) {
-        DBG("Game is already active, ignore starting game");
+        INF("Game is already active, ignore starting game");
         return false;
     }
 
