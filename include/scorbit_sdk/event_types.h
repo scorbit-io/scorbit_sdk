@@ -21,6 +21,7 @@
 
 #include "event_types_c.h"
 #include <scorbit_sdk/event_types_c.h>
+#include <fmt/format.h>
 
 namespace scorbit {
 
@@ -36,3 +37,30 @@ enum class EventType {
 };
 
 } // namespace scorbit
+
+template<>
+struct fmt::formatter<scorbit::EventType> : fmt::formatter<std::string_view> {
+    auto format(scorbit::EventType c, fmt::format_context &ctx) const
+    {
+        using namespace scorbit;
+        std::string_view name = "unknown";
+        switch (c) {
+        case EventType::GameStartRequested:
+            name = "GameStartRequested";
+            break;
+        case EventType::CreditsAddRequested:
+            name = "CreditsAddRequested";
+            break;
+        case EventType::CreditsNumberRequested:
+            name = "CreditsNumberRequested";
+            break;
+        case EventType::None:
+            name = "None";
+            break;
+        case EventType::ConfigReceived:
+            name = "ConfigReceived";
+            break;
+        }
+        return fmt::formatter<std::string_view>::format(name, ctx);
+    }
+};
