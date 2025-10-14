@@ -88,6 +88,10 @@ void GameStateImpl::setGameFinished()
 
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isBallValid(ball)) {
         WRN("Ignoring attempt to set current ball to {}", ball);
         return;
@@ -98,6 +102,10 @@ void GameStateImpl::setCurrentBall(sb_ball_t ball)
 
 void GameStateImpl::setActivePlayer(sb_player_t player)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isPlayerValid(player)) {
         WRN("Ignoring attempt to set active player to {}", player);
         return;
@@ -112,6 +120,10 @@ void GameStateImpl::setActivePlayer(sb_player_t player)
 
 void GameStateImpl::setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isPlayerValid(player)) {
         WRN("Ignoring attempt to set score for invalid player {}, score: {}", player, score);
         return;
@@ -126,16 +138,28 @@ void GameStateImpl::setScore(sb_player_t player, sb_score_t score, sb_score_feat
 
 void GameStateImpl::addMode(std::string mode)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.addMode(std::move(mode));
 }
 
 void GameStateImpl::removeMode(const std::string &mode)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.removeMode(mode);
 }
 
 void GameStateImpl::clearModes()
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.clear();
 }
 
