@@ -73,6 +73,11 @@ void Worker::postHeartbeatQueue(task_t func)
     boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
+void Worker::postCommitTask(task_t func)
+{
+    boost::asio::post(m_commitStrand, std::move(func));
+}
+
 void Worker::runTimer(std::chrono::steady_clock::duration delay, task_t func)
 {
     m_heartbeatTimer.expires_after(delay);
