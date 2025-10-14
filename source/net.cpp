@@ -185,19 +185,21 @@ void Net::sendInstalled(const std::string &type, const std::string &version,
 
 void Net::sendGameData(const detail::GameData &data)
 {
-    {
-        std::lock_guard lock(m_gameSessionsMutex);
-        auto &session = m_gameSessions[data.sessionUuid];
-        session.gameData = data;
-        session.history.push_back(data);
-    }
+    m_worker.postCommitTask([this, data]() {
+        {
+            std::lock_guard lock(m_gameSessionsMutex);
+            auto &session = m_gameSessions[data.sessionUuid];
+            session.gameData = std::move(data);
+            session.history.push_back(data);
+        }
 
-    // Ensure that only single task in the queue (while another can be running).
-    // However, if game session is finished (not active), post task anyway, because this is the last
-    // task for that game session.
-    if (!data.isGameActive || !m_isGameDataInQueue.exchange(true)) {
-        m_worker.postGameDataQueue(createGameDataTask(data.sessionUuid));
-    }
+        // Ensure that only single task in the queue (while another can be running).
+        // However, if game session is finished (not active), post task anyway, because this is the
+        // last task for that game session.
+        if (!data.isGameActive || !m_isGameDataInQueue.exchange(true)) {
+            m_worker.postGameDataQueue(createGameDataTask(data.sessionUuid));
+        }
+    });
 }
 
 void Net::sendHeartbeat()
@@ -577,13 +579,17 @@ task_t Net::createGameDataTask(const std::string &sessionUuid)
         if (session && !session->gameData.isGameActive) {
             std::optional<GameHistory> finishedSessionHistory;
 
+            bool isGameSessionCleared = false;
             {
                 std::lock_guard lock(m_gameSessionsMutex);
                 if (m_gameSessions.count(sessionUuid) > 0) {
                     finishedSessionHistory = std::move(m_gameSessions[sessionUuid].history);
                     m_gameSessions.erase(sessionUuid);
-                    INF("Game session {} finished", sessionUuid);
+                    isGameSessionCleared = true;
                 }
+            }
+            if (isGameSessionCleared) {
+                INF("Game session {} finished", sessionUuid);
             }
 
             if (finishedSessionHistory) {
