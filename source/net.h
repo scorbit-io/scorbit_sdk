@@ -101,7 +101,7 @@ public:
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                        std::function<void()> onCreated) override;
     void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) override;
-    bool sendGameData(const detail::GameData &data, bool isGameJustFinished) override;
+    void sendGameData(const detail::GameData &data, bool isGameJustFinished) override;
     void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;

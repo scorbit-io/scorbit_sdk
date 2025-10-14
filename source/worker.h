@@ -53,6 +53,7 @@ public:
     void postQueue(task_t func);
     void postGameDataQueue(task_t func);
     void postHeartbeatQueue(task_t func);
+    void postCommitTask(task_t func);
 
     void startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func);
     void stopTimer(Timer timerType);
@@ -79,6 +80,7 @@ private:
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
     asio_strand m_centrifugoStrand {m_ioc.get_executor()};
     asio_strand m_eventsStrand {m_ioc.get_executor()};
+    asio_strand m_commitStrand {m_ioc.get_executor()};
 
     boost::thread_group m_threads;
 
