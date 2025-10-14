@@ -73,6 +73,10 @@ void GameStateImpl::setGameStarted()
 
 void GameStateImpl::setGameFinished()
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_data.isGameActive = false;
@@ -267,12 +271,11 @@ bool GameStateImpl::isBallValid(sb_ball_t ball) const
 
 bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 {
-    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
-
     if (m_data.isGameActive) {
-        INF("Game is already active, ignore starting game");
         return false;
     }
+
+    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
 
     // Reset game data
     m_prevData = m_data = GameData {};
