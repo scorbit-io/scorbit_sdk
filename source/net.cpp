@@ -261,104 +261,106 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
 {
-    INF("API post update session, id: {}, upload history logs: {}", data.id,
-        uploadHistoryLog);
+    INF("API post update session, id: {}, upload history logs: {}", data.id, uploadHistoryLog);
     m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-bool Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
+void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
 {
-    const auto sessionId = data.id;
-    std::string sessionUuid;
-    GameSession *gameSession = nullptr;
-    {
-        std::lock_guard lock(m_gameSessionsMutex);
-        gameSession = &m_gameSessions[sessionId];
-        gameSession->gameData = data;
-        gameSession->history.push_back(data);
-        sessionUuid = gameSession->sessionUuid;
-    }
-
-    const auto &gameData = gameSession->gameData;
-
-    // Ensure that only single task in the queue (while another can be running).
-    // However, if game session is finished (not active), post task anyway, because this is the last
-    // task for that game session.
-
-    if (sessionUuid.empty() || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
-        INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
-            !sessionUuid.empty(), m_centrifugo->state() == centrifugo::ConnectionState::Connected);
-        return false;
-    }
-
-    // m_worker.postGameDataQueue(createGameDataTask(data.id));
-
-    // TODO: check if it's needed to lock mutex here
-    const auto sessionCounter = ++gameSession->sessionCounter;
-    const auto modes = json::parse(gameData.modes.jsonStr());
-    const auto updatedAt = to_iso8601(chrono::system_clock::now());
-    const auto createdAt = to_iso8601(gameSession->startedSystemTime);
-
-    json::array_t scores;
-    for (const auto &[playerNum, playerState] : gameData.players) {
-        json playerProfileJson = nullptr;
-        if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-            playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
-                                 {JKEY_AVATAR, playerProfile->pictureUrl}};
+    m_worker.postCommitTask([this, data, isGameJustFinished]() {
+        const auto sessionId = data.id;
+        std::string sessionUuid;
+        GameSession *gameSession = nullptr;
+        {
+            std::lock_guard lock(m_gameSessionsMutex);
+            gameSession = &m_gameSessions[sessionId];
+            gameSession->gameData = data;
+            gameSession->history.push_back(data);
+            sessionUuid = gameSession->sessionUuid;
         }
 
-        const auto valBallInProgress =
-                gameData.isGameActive && (gameData.activePlayer == playerNum);
+        const auto &gameData = gameSession->gameData;
 
-        json playerScoreJson {
-                {JKEY_SCR_POSITION, playerNum},
-                {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                {JKEY_SCR_IS_NFC_VERIFIED, gameSession->scoresMetadata[playerNum].isNfcVerified},
-                {JKEY_SCR_TOURNAMENT_UUID,
-                 gameSession->scoresMetadata[playerNum].tournamentUuid
-                         ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
-                         : json(nullptr)},
-                {JKEY_SCR_PLAYER, playerProfileJson},
-                {JKEY_SCR_SCORE, playerState.score()},
-                {JKEY_SCR_BALL, gameData.ball},
-                {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                {JKEY_SCR_MODES, modes}};
+        // Ensure that only single task in the queue (while another can be running).
+        // However, if game session is finished (not active), post task anyway, because this is the
+        // last task for that game session.
 
-        scores.emplace_back(playerScoreJson);
-    }
+        if (sessionUuid.empty()
+            || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+            INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
+                !sessionUuid.empty(),
+                m_centrifugo->state() == centrifugo::ConnectionState::Connected);
+            return;
+        }
 
-    const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
-    const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
+        // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
-    json j {{JKEY_CHN_TYPE, valType},
-            {JKEY_CHN_PAYLOAD,
-             {
-                     {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                     {keyScores, scores},
-             }},
-            {JKEY_SCR_METADATA,
-             {
-                     {JKEY_SCR_GAME, sessionUuid},
-                     {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                     {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                     {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
-                                              ? json(nullptr)
-                                              : json(m_machineInfo.venueUuid)},
-                     {JKEY_SCR_SEQUENCE, sessionCounter},
-                     {JKEY_SCR_CREATED_AT, createdAt},
-                     {JKEY_SCR_UPDATED_AT, updatedAt},
-             }}};
+        // TODO: check if it's needed to lock mutex here
+        const auto sessionCounter = ++gameSession->sessionCounter;
+        const auto modes = json::parse(gameData.modes.jsonStr());
+        const auto updatedAt = to_iso8601(chrono::system_clock::now());
+        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
 
-    const auto jstr = j.dump();
-    INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
+        json::array_t scores;
+        for (const auto &[playerNum, playerState] : gameData.players) {
+            json playerProfileJson = nullptr;
+            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
+                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
+            }
 
-    const auto r = m_centrifugo->publish(m_machineChannel, j);
-    if (!r) {
-        WRN("API failed to send game data: {}", r.error().message);
-        return false;
-    }
+            const auto valBallInProgress =
+                    gameData.isGameActive && (gameData.activePlayer == playerNum);
 
-    return true;
+            json playerScoreJson {
+                    {JKEY_SCR_POSITION, playerNum},
+                    {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                    {JKEY_SCR_IS_NFC_VERIFIED,
+                     gameSession->scoresMetadata[playerNum].isNfcVerified},
+                    {JKEY_SCR_TOURNAMENT_UUID,
+                     gameSession->scoresMetadata[playerNum].tournamentUuid
+                             ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
+                             : json(nullptr)},
+                    {JKEY_SCR_PLAYER, playerProfileJson},
+                    {JKEY_SCR_SCORE, playerState.score()},
+                    {JKEY_SCR_BALL, gameData.ball},
+                    {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                    {JKEY_SCR_MODES, modes}};
+
+            scores.emplace_back(playerScoreJson);
+        }
+
+        const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
+        const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
+
+        json j {{JKEY_CHN_TYPE, valType},
+                {JKEY_CHN_PAYLOAD,
+                 {
+                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                         {keyScores, scores},
+                 }},
+                {JKEY_SCR_METADATA,
+                 {
+                         {JKEY_SCR_GAME, sessionUuid},
+                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
+                                                  ? json(nullptr)
+                                                  : json(m_machineInfo.venueUuid)},
+                         {JKEY_SCR_SEQUENCE, sessionCounter},
+                         {JKEY_SCR_CREATED_AT, createdAt},
+                         {JKEY_SCR_UPDATED_AT, updatedAt},
+                 }}};
+
+        const auto jstr = j.dump();
+        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
+
+        const auto r = m_centrifugo->publish(m_machineChannel, j);
+        if (!r) {
+            WRN("API failed to send game data: {}", r.error().message);
+            return;
+        }
+    });
 }
 
 void Net::sendHeartbeat()
@@ -681,7 +683,6 @@ task_t Net::createAuthenticateTask()
                     if (normalAuthentication) {
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
-
 
                         getConfig(); // Get config after authentication, it also checks pair status
                         updateScorbitronConfig();

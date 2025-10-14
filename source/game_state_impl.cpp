@@ -73,6 +73,10 @@ void GameStateImpl::setGameStarted()
 
 void GameStateImpl::setGameFinished()
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_data.isGameActive = false;
@@ -223,9 +227,7 @@ void GameStateImpl::sendGameData()
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
         // Publish game data
-        if (!m_net->sendGameData(m_data, isGameJustFinished)) {
-            return;
-        }
+        m_net->sendGameData(m_data, isGameJustFinished);
 
         // Skip session update right after game start
         if (!isGameJustStarted) {
@@ -267,12 +269,11 @@ bool GameStateImpl::isBallValid(sb_ball_t ball) const
 
 bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 {
-    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
-
     if (m_data.isGameActive) {
-        DBG("Game is already active, ignore starting game");
         return false;
     }
+
+    m_probesManager->setNfcLeds(spb::NfcLedMode::GameSession);
 
     // Reset game data
     m_prevData = m_data = GameData {};
