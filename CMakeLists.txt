@@ -176,7 +176,7 @@ target_sources(
         source/player_profiles_manager.cpp
         source/utils/lru_cache.hpp
         source/safe_multipart.h
-        source/game_start_origin.h
+        source/fmt_formatters.h
         source/identifiers.h
         source/event_helpers_c.cpp
         source/event_classes.h

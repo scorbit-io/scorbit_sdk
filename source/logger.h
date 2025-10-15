@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/log_types.h>
 #include <scorbit_sdk/export.h>
+#include "fmt_formatters.h"
 
 #include <fmt/format.h>
 #include <mutex>

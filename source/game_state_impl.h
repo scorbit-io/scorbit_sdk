@@ -20,7 +20,6 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
-#include "scorbit_sdk/event_types.h"
 #include <spb/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
@@ -39,7 +38,7 @@ public:
 
     void setEventCallback(EventCallback &&callback);
 
-    void setGameStarted();
+    void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
 
     void setCurrentBall(sb_ball_t ball);
@@ -63,8 +62,6 @@ public:
     std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
     const Picture &getPlayerPicture(sb_player_t player) const;
 
-    bool isGameStartRequested(int *playersCount);
-
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 
     void requestPairCode(StringCallback callback) const;
@@ -72,19 +69,17 @@ public:
 
 private:
     void addNewPlayer(sb_player_t player);
-    void sendGameData();
+    void sendGameData(bool forceSending);
     bool isChanged() const;
     bool isPlayerValid(sb_player_t player) const;
     bool isBallValid(sb_ball_t ball) const;
     bool startGame(int playersCount, GameStartOrigin origin);
-    void gameStartRequested(int playersCount);
 
 private:
     std::unique_ptr<NetBase> m_net;
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
-    std::atomic_bool m_isGameStartRequested {false};
 
     std::shared_ptr<spb::ProbesManager> m_probesManager;
 };

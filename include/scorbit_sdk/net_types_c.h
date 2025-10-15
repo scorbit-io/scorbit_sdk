@@ -53,6 +53,11 @@ typedef enum {
     SB_NET_AUTHENTICATION_FAILED = 5,          // AuthenticationFailed,
 } sb_auth_status_t;
 
+typedef enum {
+    SB_GAME_STARTED_BY_BUTTON = 0, // started by the machine when player press Start button
+    SB_GAME_STARTED_FROM_LOBBY = 1,   // started explicitly via Scorbit app request
+} sb_game_start_origin_t;
+
 typedef struct {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;

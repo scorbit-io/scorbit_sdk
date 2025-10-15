@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <pthread.h>
 
 #ifdef _WIN32
 #    include <windows.h>
@@ -40,6 +41,26 @@ const size_t G_SCORE_FEATURES_COUNT = sizeof(G_SCORE_FEATURES) / sizeof(G_SCORE_
 
 // Increment only if new entries added in new game releases
 const int G_SCORE_FEATURES_VERSION = 1;
+
+int gNumberOfPlayersRequested;
+bool gGameStartRequestedFromLobby = false;
+pthread_mutex_t gGameStartRequestMutex = PTHREAD_MUTEX_INITIALIZER;
+
+void set_game_start_requested(bool val)
+{
+    pthread_mutex_lock(&gGameStartRequestMutex);
+    gGameStartRequestedFromLobby = val;
+    pthread_mutex_unlock(&gGameStartRequestMutex);
+}
+
+bool is_game_start_requested(void)
+{
+    pthread_mutex_lock(&gGameStartRequestMutex);
+    bool val = gGameStartRequestedFromLobby;
+    gGameStartRequestedFromLobby = false; // reset after read
+    pthread_mutex_unlock(&gGameStartRequestMutex);
+    return val;
+}
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 int isGameFinished(int i)
@@ -173,7 +194,8 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         int players = 0;
         if (sb_event_game_start_requested(event, &players)) {
             printf("Game start requested with %d player(s)\n", players);
-            // Start your game here
+            gNumberOfPlayersRequested = players;
+            set_game_start_requested(true);
         }
     } break;
 
@@ -347,13 +369,14 @@ int main(void)
             // In the same game cycle before commit it can be set new score, active player, etc.
             // This will start new game session with player1 score 0 and current ball 1.
             // So, player1's initial score will be not 0, but the one set in the current cycle
-            sb_set_game_started(gs);
-        } else if (sb_is_game_start_requested(gs, &players_count)) {
+            sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
+        } else if (is_game_start_requested()) {
             // Game was started from the app and requested to start the game on the machine
             // call function to start the game on the machine with players_count players ...
-
-            // It's not necessary to call sb_set_game_started, as it's automaticlly called when
-            // request arrived and will be be ignored here
+            sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
+            for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
+                sb_set_score(gs, i, 0, 0);
+            }
             printf("Started from mobile app with %d players!\n", players_count);
         }
 

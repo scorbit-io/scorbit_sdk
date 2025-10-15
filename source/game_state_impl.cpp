@@ -53,7 +53,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_net->setProbesManager(m_probesManager);
-    m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
+    // m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
 
     const auto &deviceInfo = m_net->deviceInfo();
@@ -66,9 +66,9 @@ void GameStateImpl::setEventCallback(EventCallback &&callback)
     m_net->setEventCallback(std::move(callback));
 }
 
-void GameStateImpl::setGameStarted()
+void GameStateImpl::setGameStarted(GameStartOrigin origin)
 {
-    startGame(1, GameStartOrigin::StartButton);
+    startGame(1, origin);
 }
 
 void GameStateImpl::setGameFinished()
@@ -80,7 +80,7 @@ void GameStateImpl::setGameFinished()
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_data.isGameActive = false;
-    sendGameData();
+    sendGameData(false);
 
     // Reset game data
     m_data = GameData {};
@@ -88,6 +88,10 @@ void GameStateImpl::setGameFinished()
 
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isBallValid(ball)) {
         WRN("Ignoring attempt to set current ball to {}", ball);
         return;
@@ -98,6 +102,10 @@ void GameStateImpl::setCurrentBall(sb_ball_t ball)
 
 void GameStateImpl::setActivePlayer(sb_player_t player)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isPlayerValid(player)) {
         WRN("Ignoring attempt to set active player to {}", player);
         return;
@@ -112,6 +120,10 @@ void GameStateImpl::setActivePlayer(sb_player_t player)
 
 void GameStateImpl::setScore(sb_player_t player, sb_score_t score, sb_score_feature_t feature)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     if (!isPlayerValid(player)) {
         WRN("Ignoring attempt to set score for invalid player {}, score: {}", player, score);
         return;
@@ -126,23 +138,35 @@ void GameStateImpl::setScore(sb_player_t player, sb_score_t score, sb_score_feat
 
 void GameStateImpl::addMode(std::string mode)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.addMode(std::move(mode));
 }
 
 void GameStateImpl::removeMode(const std::string &mode)
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.removeMode(mode);
 }
 
 void GameStateImpl::clearModes()
 {
+    if (!m_data.isGameActive) {
+        return;
+    }
+
     m_data.modes.clear();
 }
 
 void GameStateImpl::commit()
 {
     if (m_data.isGameActive) {
-        sendGameData();
+        sendGameData(false);
     }
 }
 
@@ -181,17 +205,6 @@ const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
     return m_net->playersManager().picture(player);
 }
 
-bool GameStateImpl::isGameStartRequested(int *playersCount)
-{
-    if (playersCount) {
-        *playersCount = static_cast<int>(m_data.players.size());
-    }
-    if (m_isGameStartRequested) {
-        INF("GameStart requested");
-    }
-    return m_isGameStartRequested.exchange(false);
-}
-
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));
@@ -218,9 +231,9 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
     DBG("Player {} added", player);
 }
 
-void GameStateImpl::sendGameData()
+void GameStateImpl::sendGameData(bool forceSending)
 {
-    if (isChanged()) {
+    if (isChanged() || forceSending) {
         m_data.timestamp = std::chrono::system_clock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
@@ -291,15 +304,12 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
 
-    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::commit, this));
+    // Create session and send initial game data later when session uuid will be available,
+    // so it will publish initial state (which maybe 0) to centrifugo channel.
+    // This prevents situation when just started game doesn't publish 0 and app stuck waiting
+    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::sendGameData, this, true));
 
     return true;
-}
-
-void GameStateImpl::gameStartRequested(int playersCount)
-{
-    INF("Game start requested from mobile app, players count: {}", playersCount);
-    m_isGameStartRequested = startGame(playersCount, GameStartOrigin::FromLobby);
 }
 
 } // namespace detail

@@ -100,9 +100,9 @@ void sb_destroy_game_state(sb_game_handle_t handle)
     delete handle;
 }
 
-void sb_set_game_started(sb_game_handle_t handle)
+void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin)
 {
-    handle->gameState.setGameStarted();
+    handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
 }
 
 void sb_set_game_finished(sb_game_handle_t handle)
@@ -255,11 +255,6 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
     }
     *size = 0;
     return nullptr;
-}
-
-bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count)
-{
-    return handle->gameState.isGameStartRequested(players_count);
 }
 
 void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)

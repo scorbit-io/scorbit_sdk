@@ -50,6 +50,11 @@ enum class AuthStatus {
     AuthenticationFailed = SB_NET_AUTHENTICATION_FAILED,
 };
 
+enum class GameStartOrigin {
+    StartButton = SB_GAME_STARTED_BY_BUTTON, // started by machine when player press Start button
+    FromLobby = SB_GAME_STARTED_FROM_LOBBY,  // started explicitly via Scorbit app request
+};
+
 struct DeviceInfo {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;

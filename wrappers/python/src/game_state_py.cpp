@@ -105,6 +105,14 @@ PYBIND11_MODULE(scorbit, m)
             .value("AuthenticationFailed", AuthStatus::AuthenticationFailed,
                    "Authentication process failed.");
 
+    // GameStateOrigin enum
+    py::enum_<GameStartOrigin>(m, "GameStartOrigin", "Enumeration of game start origins.")
+            .value("StartButton", GameStartOrigin::StartButton,
+                   "Game started by machine when player presses Start button.")
+            .value("FromLobby", GameStartOrigin::FromLobby,
+                   "Game started explicitly via Scorbit app request. See "
+                   "EventType.GameStartRequested.");
+
     // Bind EventType enum
     py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
             .value("GameStartRequested", EventType::GameStartRequested,
@@ -397,7 +405,7 @@ PYBIND11_MODULE(scorbit, m)
                 be ignored.
         )doc"}
 
-            .def("set_game_started", &GameState::setGameStarted, R"doc(
+            .def("set_game_started", &GameState::setGameStarted, py::arg("origin"), R"doc(
                 Mark the game as started.
 
                 This function sets the game session active, resetting the game state. It initializes the
@@ -408,6 +416,12 @@ PYBIND11_MODULE(scorbit, m)
                 Note:
                     After starting the game, `commit()` must be called to notify the cloud. Optionally,
                     before calling `commit()`, the active player, scores, modes, or current ball can be modified.
+
+                Args:
+                    origin (GameStartOrigin): The origin of the game start. This indicates how the game was
+                        started, such as by pressing the start button or via a request from the lobby
+                        (mobile app). See `GameStartOrigin` for details and `EventType.GameStartRequested`
+                        event.
             )doc")
 
             .def("set_game_finished", &GameState::setGameFinished, R"doc(
@@ -693,39 +707,7 @@ PYBIND11_MODULE(scorbit, m)
                             PlayerInfo: The player's profile information.
                     )doc")
 
-            // -------------------------- GAME START FROM MOBILE APP -------------------------------
-
-            .def(
-                    "is_game_start_requested",
-                    [](GameState &self) {
-                        int players_count = 0;
-                        bool requested = self.isGameStartRequested(players_count);
-                        return std::make_tuple(requested, players_count);
-                    },
-                    R"doc(
-                        Check if a game start has been requested from the mobile app.
-
-                        This function checks if a game start has been requested from the mobile app. If a request is
-                        found, it retrieves the number of players specified in the request.
-
-                        It only checks for new requests, and after this function is called, the internal state is
-                        cleared. Subsequent calls will return false until a new request arrives.
-
-                        Note:
-                            This function should be called periodically while game is in idle state to check for
-                            new game start requests. If a request is found, the function returns true and provides the
-                            number of players. If no request is found, it returns false.
-
-                        Returns:
-                            tuple: (requested, players_count)
-                                - requested (bool): True if a game start has been requested; False otherwise.
-                                - players_count (int): Number of players requested (valid only if requested=True).
-
-                        Example:
-                            requested, players_count = game_state.is_game_start_requested()
-                            if requested:
-                                print(f"Game start requested with {players_count} players")
-                    )doc")
+            // -------------------------- EVENTS FROM BACKEND -------------------------------
 
             .def(
                     "set_event_callback",

@@ -27,6 +27,7 @@
 #include "identifiers.h"
 #include "event_manager.h"
 #include <centrifugo.h>
+#include <fmt/format.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
 #include <string>
