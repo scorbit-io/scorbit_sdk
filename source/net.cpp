@@ -805,12 +805,14 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                     .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
+    const auto isUseLobby = (origin == GameStartOrigin::FromLobby);
+
     json j {
-            {JKEY_SESS_PLAYER_COUNT, playerCount},
+            {JKEY_SESS_PLAYER_COUNT, isUseLobby ? numberOfPlayersRequested() : playerCount},
             {JKEY_SESS_SEQUENCE_NUMBER, sessionCounter},
             {JKEY_SESS_SESSION_TIME, elapsedMilliseconds},
             {JKEY_SESS_ACTIVE_ON, currentDateTime},
-            {JKEY_SESS_USE_LOBBY, origin == GameStartOrigin::FromLobby},
+            {JKEY_SESS_USE_LOBBY, isUseLobby},
     };
 
     auto deferredSetup = [this, body = j.dump()]() {
@@ -1523,6 +1525,7 @@ void Net::centrifugoSetup()
 
                             if (type == JVAL_CHN_TYPE_START_GAME) {
                                 const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
+                                setNumberOfPlayersRequested(playerCount);
                                 m_eventManager->push(
                                         std::make_shared<GameStartRequestedEvent>(playerCount));
 

@@ -26,6 +26,7 @@
 #include <boost/signals2.hpp>
 #include <string>
 #include <optional>
+#include <atomic>
 
 namespace spb {
 class ProbesManager;
@@ -79,8 +80,14 @@ public:
     virtual std::string consumeNonce() = 0;
     virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };
 
+    // ---------------------------------------------------------------------------------
+
+    void setNumberOfPlayersRequested(int count) { m_numberOfPlayersRequested = count; }
+    int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }
+
 private:
     EventCallback m_eventCallback;
+    std::atomic<int> m_numberOfPlayersRequested {0};
 };
 
 } // namespace detail
