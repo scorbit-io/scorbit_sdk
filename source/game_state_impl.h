@@ -72,7 +72,7 @@ public:
 
 private:
     void addNewPlayer(sb_player_t player);
-    void sendGameData();
+    void sendGameData(bool forceSending);
     bool isChanged() const;
     bool isPlayerValid(sb_player_t player) const;
     bool isBallValid(sb_ball_t ball) const;
