@@ -347,7 +347,7 @@ int main(void)
             // In the same game cycle before commit it can be set new score, active player, etc.
             // This will start new game session with player1 score 0 and current ball 1.
             // So, player1's initial score will be not 0, but the one set in the current cycle
-            sb_set_game_started(gs);
+            sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
         } else if (sb_is_game_start_requested(gs, &players_count)) {
             // Game was started from the app and requested to start the game on the machine
             // call function to start the game on the machine with players_count players ...

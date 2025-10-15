@@ -20,7 +20,6 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
-#include "scorbit_sdk/event_types.h"
 #include <spb/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
@@ -39,7 +38,7 @@ public:
 
     void setEventCallback(EventCallback &&callback);
 
-    void setGameStarted();
+    void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
 
     void setCurrentBall(sb_ball_t ball);

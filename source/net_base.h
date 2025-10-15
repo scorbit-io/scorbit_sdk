@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include "game_start_origin.h"
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
 #include "player_profiles_manager.h"
@@ -39,8 +38,6 @@ struct GameData;
 
 class NetBase
 {
-    using GameStartRequestedSignal = boost::signals2::signal<void(int playersCount)>;
-
 public:
     NetBase() = default;
     virtual ~NetBase() = default;
@@ -82,21 +79,8 @@ public:
     virtual std::string consumeNonce() = 0;
     virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };
 
-    // --------------------------------------------------------------------------------------
-
-    void connectToGameStartRequested(const GameStartRequestedSignal::slot_type &subscriber)
-    {
-        m_gameStartRequestedSignal.connect(subscriber);
-    }
-
-    void emitGameStartRequested(int playersCount)
-    {
-        m_gameStartRequestedSignal(playersCount);
-    }
-
 private:
     EventCallback m_eventCallback;
-    GameStartRequestedSignal m_gameStartRequestedSignal;
 };
 
 } // namespace detail

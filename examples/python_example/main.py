@@ -171,7 +171,7 @@ def main():
             ))
 
         if is_game_just_started(i): # started by Start Button
-            gs.set_game_started()
+            gs.set_game_started(scorbit.GameStartOrigin.StartButton)
         else:
             is_requested, players_count = gs.is_game_start_requested()
             if is_requested:

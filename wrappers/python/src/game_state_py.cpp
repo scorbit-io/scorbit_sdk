@@ -105,6 +105,14 @@ PYBIND11_MODULE(scorbit, m)
             .value("AuthenticationFailed", AuthStatus::AuthenticationFailed,
                    "Authentication process failed.");
 
+    // GameStateOrigin enum
+    py::enum_<GameStartOrigin>(m, "GameStartOrigin", "Enumeration of game start origins.")
+            .value("StartButton", GameStartOrigin::StartButton,
+                   "Game started by machine when player presses Start button.")
+            .value("FromLobby", GameStartOrigin::FromLobby,
+                   "Game started explicitly via Scorbit app request. See "
+                   "EventType.GameStartRequested.");
+
     // Bind EventType enum
     py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
             .value("GameStartRequested", EventType::GameStartRequested,
@@ -397,7 +405,7 @@ PYBIND11_MODULE(scorbit, m)
                 be ignored.
         )doc"}
 
-            .def("set_game_started", &GameState::setGameStarted, R"doc(
+            .def("set_game_started", &GameState::setGameStarted, py::arg("origin"), R"doc(
                 Mark the game as started.
 
                 This function sets the game session active, resetting the game state. It initializes the
@@ -408,6 +416,12 @@ PYBIND11_MODULE(scorbit, m)
                 Note:
                     After starting the game, `commit()` must be called to notify the cloud. Optionally,
                     before calling `commit()`, the active player, scores, modes, or current ball can be modified.
+
+                Args:
+                    origin (GameStartOrigin): The origin of the game start. This indicates how the game was
+                        started, such as by pressing the start button or via a request from the lobby
+                        (mobile app). See `GameStartOrigin` for details and `EventType.GameStartRequested`
+                        event.
             )doc")
 
             .def("set_game_finished", &GameState::setGameFinished, R"doc(

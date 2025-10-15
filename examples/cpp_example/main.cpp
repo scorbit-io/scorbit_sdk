@@ -340,7 +340,7 @@ int main()
             // In the same game cycle before commit it can be set new score, active player, etc.
             // So, player1's initial score will be not 0, but the one set in the current cycle
             // This will start new game session with player1 score 0 and current ball 1.
-            gs.setGameStarted();
+            gs.setGameStarted(scorbit::GameStartOrigin::StartButton);
         } else if (gs.isGameStartRequested(playersCount)) {
             // Game was started from the app and requested to start the game on the machine
             // call function to start the game on the machine with players_count players ...

@@ -100,9 +100,9 @@ void sb_destroy_game_state(sb_game_handle_t handle)
     delete handle;
 }
 
-void sb_set_game_started(sb_game_handle_t handle)
+void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin)
 {
-    handle->gameState.setGameStarted();
+    handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
 }
 
 void sb_set_game_finished(sb_game_handle_t handle)

@@ -77,8 +77,15 @@ public:
      * before calling @ref commit, the active player, scores, modes, or current ball can be
      * modified.
      *
+     * @param origin The origin of the game start. This indicates how the game was started, such as
+     * by pressing the start button or via a request from the lobby (mobile app). See
+     * @ref scorbit::GameStartOrigin for details and @ref scobit::EventType::GameStartRequested
+     * event.
      */
-    void setGameStarted() { sb_set_game_started(m_handle.get()); }
+    void setGameStarted(GameStartOrigin origin)
+    {
+        sb_set_game_started(m_handle.get(), static_cast<sb_game_start_origin_t>(origin));
+    }
 
     /**
      * @brief Mark the game as finished.

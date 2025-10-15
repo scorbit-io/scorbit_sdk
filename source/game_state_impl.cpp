@@ -53,7 +53,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_net->setProbesManager(m_probesManager);
-    m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
+    // m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
 
     const auto &deviceInfo = m_net->deviceInfo();
@@ -66,9 +66,9 @@ void GameStateImpl::setEventCallback(EventCallback &&callback)
     m_net->setEventCallback(std::move(callback));
 }
 
-void GameStateImpl::setGameStarted()
+void GameStateImpl::setGameStarted(GameStartOrigin origin)
 {
-    startGame(1, GameStartOrigin::StartButton);
+    startGame(1, origin);
 }
 
 void GameStateImpl::setGameFinished()

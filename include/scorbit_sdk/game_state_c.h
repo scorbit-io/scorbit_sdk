@@ -87,9 +87,13 @@ void sb_destroy_game_state(sb_game_handle_t handle);
  * modified.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
+ * @param origin The origin of the game start. This indicates how the game was started, such as
+ * by pressing the start button or via a request from the lobby. See
+ * @ref sb_game_start_origin_t for details and @ref SB_EVENT_GAME_START_REQUESTED
+ * event.
  */
 SCORBIT_SDK_EXPORT
-void sb_set_game_started(sb_game_handle_t handle);
+void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin);
 
 /**
  * @brief Mark the game as finished.

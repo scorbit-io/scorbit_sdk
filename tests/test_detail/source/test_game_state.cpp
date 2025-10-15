@@ -83,9 +83,6 @@ public:
     void patchScorbitron(std::string, StringCallback) override {};
     std::string consumeNonce() override { return {}; };
 
-    // Expose the emitGameStartRequested method for testing
-    using NetBase::emitGameStartRequested;
-
 private:
     PlayerProfilesManager m_playersManager;
 };
@@ -149,10 +146,11 @@ TEST_CASE("setGameStarted functionality")
 
         // When setGameStarted is called without setting any scores or players,
         // it should set player 1 as the active player with a score of 0.
-        gameState.setGameStarted();
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
 
-        gameState.setGameStarted(); // This should do nothing, since it's already started
+        // This should do nothing, since it's already started
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
     }
 
@@ -171,10 +169,11 @@ TEST_CASE("setGameStarted functionality")
         gameState.setScore(2, 2000);
 
         // Call setGameStarted, which should commit the changes and send the updated game state
-        gameState.setGameStarted(); // This should trigger sendGameData
+        gameState.setGameStarted(GameStartOrigin::StartButton); // This should trigger sendGameData
         gameState.commit();
 
-        gameState.setGameStarted(); // This should do nothing, since it's already started
+        // This should do nothing, since it's already started
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
     }
 }
@@ -213,7 +212,7 @@ TEST_CASE("setGameFinished functionality")
                 .TIMES(1);
 
         // Act
-        gameState.setGameStarted();
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
 
         gameState.setCurrentBall(3);
@@ -225,7 +224,7 @@ TEST_CASE("setGameFinished functionality")
 
     SECTION("Prevents changes to player scores after finishing")
     {
-        gameState.setGameStarted();
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
         REQUIRE_CALL(mockNetRef, sendGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -257,7 +256,7 @@ TEST_CASE("setCurrentBall functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
     SECTION("Sets a valid ball number")
     {
@@ -307,7 +306,7 @@ TEST_CASE("setActivePlayer functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
     SECTION("Sets a valid active player")
     {
@@ -395,7 +394,7 @@ TEST_CASE("setScore functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Sets the score for an existing player")
@@ -504,7 +503,7 @@ TEST_CASE("addMode functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Adds a new mode to the active modes list")
@@ -562,7 +561,7 @@ TEST_CASE("removeMode functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Removes an existing mode from the active modes list")
@@ -612,7 +611,7 @@ TEST_CASE("clearModes functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Removes all modes from the active modes list")
@@ -663,7 +662,7 @@ TEST_CASE("commit functionality")
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit(); // Initial commit after starting the game
 
     SECTION("Commits changes when the game state is modified")
@@ -787,51 +786,5 @@ TEST_CASE("isGameStartRequested functionality")
     {
         bool result = gameState.isGameStartRequested(nullptr);
         REQUIRE(result == false);
-    }
-
-    SECTION("Returns true after game start is requested via network callback and resets the flag")
-    {
-        // Simulate a game start request from the network layer
-        // This would normally be called when a "start_game" message is received via Centrifugo
-        mockNetRef.emitGameStartRequested(3); // Request game start with 3 players
-
-        int playersCount = 0;
-        bool result = gameState.isGameStartRequested(&playersCount);
-
-        REQUIRE(result == true);    // Should return true since game start was requested
-        REQUIRE(playersCount == 3); // Should return the number of players from the request
-
-        // Second call should return false since the flag was reset
-        int playersCount2 = 0;
-        bool result2 = gameState.isGameStartRequested(&playersCount2);
-        REQUIRE(result2 == false);
-        REQUIRE(playersCount2 == 3); // Player count should still be 3
-    }
-
-    SECTION("Ignores other game start requests if game is active")
-    {
-        // First game start request
-        mockNetRef.emitGameStartRequested(2);
-
-        int playersCount1 = 0;
-        bool result1 = gameState.isGameStartRequested(&playersCount1);
-        REQUIRE(result1 == true);
-        REQUIRE(playersCount1 == 2);
-
-        // Second game start request after checking the first one
-        // Since the game is already active, startGame will return false
-        // and m_isGameStartRequested will be set to false
-        mockNetRef.emitGameStartRequested(4);
-
-        int playersCount2 = 0;
-        bool result2 = gameState.isGameStartRequested(&playersCount2);
-        REQUIRE(result2 == false);   // Should be false because game is already active
-        REQUIRE(playersCount2 == 2); // Player count should still be from the first request
-
-        // Third call should also return false
-        int playersCount3 = 0;
-        bool result3 = gameState.isGameStartRequested(&playersCount3);
-        REQUIRE(result3 == false);
-        REQUIRE(playersCount3 == 2); // Player count should still be from the first request
     }
 }
