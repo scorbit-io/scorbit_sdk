@@ -137,7 +137,7 @@ def main():
     print(f"Simple example of Scorbit SDK {scorbit.__version__} usage")
 
     # Setup logger
-    scorbit.add_logger_callback(logger_callback)
+    scorbit.add_logger_callback(logger_callback, 512) # 512 bytes max message length)
 
     # Create game state object
     gs = setup_game_state()
