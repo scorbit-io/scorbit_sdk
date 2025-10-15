@@ -205,17 +205,6 @@ const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
     return m_net->playersManager().picture(player);
 }
 
-bool GameStateImpl::isGameStartRequested(int *playersCount)
-{
-    if (playersCount) {
-        *playersCount = static_cast<int>(m_data.players.size());
-    }
-    if (m_isGameStartRequested) {
-        INF("GameStart requested");
-    }
-    return m_isGameStartRequested.exchange(false);
-}
-
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));
@@ -321,12 +310,6 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::sendGameData, this, true));
 
     return true;
-}
-
-void GameStateImpl::gameStartRequested(int playersCount)
-{
-    INF("Game start requested from mobile app, players count: {}", playersCount);
-    m_isGameStartRequested = startGame(playersCount, GameStartOrigin::FromLobby);
 }
 
 } // namespace detail

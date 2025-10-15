@@ -62,8 +62,6 @@ public:
     std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
     const Picture &getPlayerPicture(sb_player_t player) const;
 
-    bool isGameStartRequested(int *playersCount);
-
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 
     void requestPairCode(StringCallback callback) const;
@@ -76,14 +74,12 @@ private:
     bool isPlayerValid(sb_player_t player) const;
     bool isBallValid(sb_ball_t ball) const;
     bool startGame(int playersCount, GameStartOrigin origin);
-    void gameStartRequested(int playersCount);
 
 private:
     std::unique_ptr<NetBase> m_net;
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
-    std::atomic_bool m_isGameStartRequested {false};
 
     std::shared_ptr<spb::ProbesManager> m_probesManager;
 };

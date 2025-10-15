@@ -257,11 +257,6 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
     return nullptr;
 }
 
-bool sb_is_game_start_requested(sb_game_handle_t handle, int *players_count)
-{
-    return handle->gameState.isGameStartRequested(players_count);
-}
-
 void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)
 {
     handle->gameState.setEventCallback([callback, user_data](const EventBase &event) {

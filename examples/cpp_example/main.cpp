@@ -25,6 +25,7 @@
 #include <ctime>
 #include <thread>
 #include <map>
+#include <atomic>
 
 using namespace std;
 
@@ -38,6 +39,9 @@ const std::vector<std::string> G_SCORE_FEATURES {"ramp", "left spinner", "right 
 
 // Increment only if new entries added in new game releases
 constexpr int G_SCORE_FEATURES_VERSION = 1;
+
+atomic_int gNumberOfPlayersRequested;
+atomic_bool gGameStartRequestedFromLobby {false};
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 bool isGameFinished(int i)
@@ -172,7 +176,8 @@ void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
         int playersCount = 0;
         if (event.getGameStartRequested(playersCount)) {
             cout << "Game start requested with " << playersCount << " player(s)" << endl;
-            // Start the game ...
+            gGameStartRequestedFromLobby = true;
+            gNumberOfPlayersRequested = playersCount;
         }
     } break;
 
@@ -341,9 +346,13 @@ int main()
             // So, player1's initial score will be not 0, but the one set in the current cycle
             // This will start new game session with player1 score 0 and current ball 1.
             gs.setGameStarted(scorbit::GameStartOrigin::StartButton);
-        } else if (gs.isGameStartRequested(playersCount)) {
-            // Game was started from the app and requested to start the game on the machine
-            // call function to start the game on the machine with players_count players ...
+
+        } else if (gGameStartRequestedFromLobby.exchange(false)) { // Reset the flag
+
+            for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
+                gs.setScore(i, 0);
+            }
+            gs.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
             // It's not necessary to call setGameStarted, as it's automaticlly called when
             // request arrived and will be be ignored here

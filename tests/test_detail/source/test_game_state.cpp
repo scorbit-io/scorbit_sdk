@@ -760,31 +760,3 @@ TEST_CASE("Sending version of sdk and game_code")
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
 }
-
-TEST_CASE("isGameStartRequested functionality")
-{
-    auto mockNet = std::make_unique<MockNetBase>();
-    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
-    sequence seq;
-
-    ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
-
-    // Create GameState object with mocked NetBase
-    GameStateImpl gameState(std::move(mockNet));
-
-    SECTION("Returns false when no game start has been requested")
-    {
-        int playersCount = 0;
-        bool result = gameState.isGameStartRequested(&playersCount);
-
-        REQUIRE(result == false);
-        REQUIRE(playersCount == 0); // No players when game hasn't started
-    }
-
-    SECTION("Returns false when no game start has been requested (nullptr parameter)")
-    {
-        bool result = gameState.isGameStartRequested(nullptr);
-        REQUIRE(result == false);
-    }
-}
