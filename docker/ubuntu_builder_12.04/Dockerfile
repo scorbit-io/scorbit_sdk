@@ -105,5 +105,7 @@ RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE
     && make install \
     && cd ../.. && rm -rf $LIBARCHIVE
 
-RUN apt-get install -y \
+RUN apt-get install -y --no-install-recommends \
+        uuid-dev \
+        libusb-1.0-0-dev \
         libstdc++-9-pic
