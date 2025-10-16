@@ -4,6 +4,7 @@ set(headers
     include/spb/SLB.h
     include/spb/Serial.h
     include/spb/Util.h
+    include/spb/Spike.h
     include/spb/md5.h
     include/spb/stb_image/stb_image.h
     include/spb/stb_image/stb_image_resize2.h
