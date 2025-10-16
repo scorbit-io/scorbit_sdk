@@ -385,7 +385,7 @@ class SLB_Serial
 		return false;
 	}
 
-	bool SendAndReceiveLines(const char* Cmd=NULL, std::string* Response= NULL, std::atomic<bool> *ptrAbort =NULL, int TimeoutFirsLineMs=1000, int TimeoutOtherLinesMs = 500)
+	bool SendAndReceiveLines(const char* Cmd=NULL, std::string* Response= NULL, std::atomic<bool> *ptrAbort =NULL, int TimeoutFirsLineMs=1000, int TimeoutOtherLinesMs = 500, int nLinesExpected = 10000)
 	{
 		// Serial port has to be open
 		if (hSerial < 0) return false;
@@ -414,7 +414,8 @@ class SLB_Serial
 				if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Echo received, waiting for real answer..." << std::endl;
 				*Response = "";
 				// Waiting for the response
-				while (true)
+				int nLines = 0;
+				while (nLines < nLinesExpected)
 				{
 					// Wait for 1 line
 					std::string s = ""; if (!ReceiveLine(&s, ptrAbort, TimeoutOtherLinesMs)) break;
@@ -423,6 +424,7 @@ class SLB_Serial
 					if (Response->size() > 0) *Response += "\n";
 					// Add this new line to the response
 					*Response += s;
+					nLines++;
 				}
 				// Return an error if nothing has been received
 				return (Response->size() > 0);
@@ -445,7 +447,6 @@ class SLB_Sam : public SLB_Serial
 	{ 
 		if (!SLB_Serial::Initialize("/dev/serial0", 57600, 8, 1, 'n')) 
 			return false;
-		SendCommand("");
 		return true;
 	}
 	void Reboot() { SendCommand("zc run 0"); } // Don't expect an answer from this function !
@@ -470,7 +471,7 @@ class SLB_Sam : public SLB_Serial
 	std::string SendCommand(const char* Cmd)
 	{
 		std::string Response;
-		if (!SendAndReceiveLines(Cmd, &Response)) return "";
+		if (!SendAndReceiveLines(Cmd, &Response, NULL, 500, 1000, 1)) return "";
 		return Response;
 	}
 };
