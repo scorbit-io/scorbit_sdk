@@ -7,6 +7,7 @@
 
 #include "spb/probes_manager.h"
 #include "spb/Probe.h"
+#include "spb/SLB.h"
 #include "list_usb_devices.h"
 // #include <logger.h>
 
@@ -63,6 +64,14 @@ void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &cal
                     callback(m_nfc.get(), device);
                 }
             }
+        }
+    }
+
+    // Try to initialize SAM
+    if (has_flag(probesSet, ProbeType::SAM)) {
+        m_sam = std::make_shared<SLB_Sam>();
+        if (!m_sam->Initialize()) {
+            m_sam.reset();
         }
     }
 
