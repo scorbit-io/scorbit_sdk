@@ -15,6 +15,7 @@ class ProbeBase;
 class ProbeCPU;
 class ProbeDMD;
 class ProbeNFC;
+class SLB_Sam;
 
 namespace spb {
 
@@ -25,8 +26,9 @@ enum ProbeType : probe_t {
     CPU = 1 << 0,
     DMD = 1 << 1,
     NFC = 1 << 2,
+    SAM = 1 << 3,
 
-    All = CPU | DMD | NFC
+    All = CPU | DMD | NFC | SAM
 };
 
 enum class NfcLedMode {
@@ -46,6 +48,7 @@ public:
     auto cpu() const -> const std::shared_ptr<ProbeCPU> & { return m_cpu; }
     auto dmd() const -> const std::shared_ptr<ProbeDMD> & { return m_dmd; }
     auto nfc() const -> const std::shared_ptr<ProbeNFC> & { return m_nfc; }
+    auto sam() const -> const std::shared_ptr<SLB_Sam> & { return m_sam; }
 
     auto isNfcTagRead() const -> bool;
     auto setNfcTag(const std::string &tag) -> bool;
@@ -55,6 +58,7 @@ private:
     std::shared_ptr<ProbeCPU> m_cpu;
     std::shared_ptr<ProbeDMD> m_dmd;
     std::shared_ptr<ProbeNFC> m_nfc;
+    std::shared_ptr<SLB_Sam> m_sam;
 };
 
 } // namespace spb

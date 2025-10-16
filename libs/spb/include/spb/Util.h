@@ -141,7 +141,7 @@ class Util
         out->flush();
     }
 
-    enum DumpFlags : uint8_t { None = 0x00, Append = 0x01, NoAddresses = 0x02, NoMD5 = 0x04, Compact = 0x08 };
+    enum DumpFlags : uint8_t { None = 0x00, Append = 0x01, NoAddresses = 0x02, NoText = 0x04, NoMD5 = 0x08, Compact = 0x10 };
     static void Dump(const std::vector<uint8_t>& data, const std::string& filename = "", uint8_t Flags = DumpFlags::None)
     {
         // Output to file ?
@@ -163,7 +163,7 @@ class Util
                     if (!(Flags & DumpFlags::Compact)) std::cout << " ";
 
                 }
-                if (!(Flags & DumpFlags::Compact))
+                if (!(Flags & DumpFlags::NoText))
                 {
                     std::cout << "  ";
                     for (size_t j = i; j < i + 16 && j < data.size(); ++j)

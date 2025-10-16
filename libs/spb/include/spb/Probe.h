@@ -67,6 +67,7 @@ typedef enum
     ReadProbeStatus = 0x06,
     ReadUserFlash = 0x0a,
     WriteUserFlash = 0x0b,
+    ReadTpmFlash = 0x0e,
     WriteLedConfig = 0x13,
     ReadSwitch = 0x16,
     
@@ -162,7 +163,8 @@ class ProbeBase
         uint8_t ReservedForAlignment1;
         uint32_t UID;
         uint8_t TpmSerial[9];
-        uint8_t Reserved[51];
+        uint8_t TpmType; // 0:None, 1:Hard, 2:Soft
+        uint8_t Reserved[50];
     } ProbeInformations_t;
 
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
@@ -257,7 +259,8 @@ class ProbeBase
         pbi->ReservedForAlignment1 = data[63];
         pbi->UID = Util::UInt32FromBuffer(data, 64);
         std::memcpy(pbi->TpmSerial, data.data() + 68, sizeof(pbi->TpmSerial));
-        std::memcpy(pbi->Reserved, data.data() + 77, sizeof(pbi->Reserved));
+        pbi->TpmType = data[77];
+        std::memcpy(pbi->Reserved, data.data() + 78, sizeof(pbi->Reserved));
         return true;
     }
 
