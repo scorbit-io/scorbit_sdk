@@ -104,6 +104,26 @@ CPMAddPackage(
     SYSTEM YES
 )
 
+# --- Add resources ---
+
+include(${cmake_dir}/CMakeRC.cmake)
+
+# download certs
+include(${cmake_dir}/download_file.cmake)
+download_file(
+    "https://curl.se/ca/cacert.pem"
+    "${CMAKE_CURRENT_BINARY_DIR}/"
+)
+set(CA_CERT_FILE "${DOWNLOADED_FILE}")
+
+cmrc_add_resource_library(
+    my-resources
+    ALIAS scorbit::rc
+    NAMESPACE scorbit
+    WHENCE "${CMAKE_CURRENT_BINARY_DIR}/"
+    ${CA_CERT_FILE}
+)
+
 # ---- Create library ----
 
 add_library(scorbit_sdk ${BUILD_TYPE})
@@ -208,6 +228,7 @@ endif()
 target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
+        $<BUILD_INTERFACE:scorbit::rc>
         ${BOOST_LIBS}
         fmt::fmt
         cpr::cpr

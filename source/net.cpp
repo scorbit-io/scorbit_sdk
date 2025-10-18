@@ -29,6 +29,7 @@
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
 #include <spb/probes_manager.h>
+#include <cmrc/cmrc.hpp>
 #include <fmt/format.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
@@ -37,6 +38,8 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <optional>
+
+CMRC_DECLARE(scorbit);
 
 using namespace std;
 namespace fs = boost::filesystem;
@@ -1480,6 +1483,19 @@ void Net::centrifugoSetup()
     const auto cfUrl = fmt::format("{}/{}", m_cfHostname, URL_CENTRIFUGO);
     INF("API centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+
+    m_centrifugo->onSslContextConfigure([](boost::asio::ssl::context &ctx) {
+        try {
+            // Boost.Asio can parse PEM format directly from memory
+            auto fs = cmrc::scorbit::get_filesystem();
+            auto certFile = fs.open("cacert.pem");
+            ctx.add_certificate_authority(boost::asio::buffer(certFile.begin(), certFile.size()));
+            return true;
+        } catch (const std::exception &e) {
+            ERR("Failed to load embedded CA certificates: {}", e.what());
+            return false;
+        }
+    });
 
     m_centrifugo->onError([](const centrifugo::Error &error) {
         ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
