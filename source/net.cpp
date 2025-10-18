@@ -94,26 +94,28 @@ std::string getJwtToken(const std::string &url, const std::string &authToken)
 {
     INF("API-CF getting JWT token from: {}", url);
 
-    auto r = cpr::Get(cpr::Url {url},
-                      cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
-                      cpr::Timeout {NET_TIMEOUT});
+    // Note: This is synchronous as required by centrifugo library callback
+    const auto r = cpr::Get(cpr::Url {url},
+                            cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
+                            cpr::Timeout {NET_TIMEOUT});
 
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
-    } else {
-        try {
-            const auto json = json::parse(r.text);
-            if (const auto it = json.find(JKEY_CF_TOKEN); it != json.end() && it->is_string()) {
-                const auto token = it->get<std::string>();
-                INF("API-CF received JWT token successfully");
-                return token;
-            } else {
-                ERR("API-CF JWT token not found in response");
-            }
-        } catch (const std::exception &e) {
-            ERR("API-CF failed to parse JWT token response: {}", e.what());
-        }
+        return {};
     }
+
+    try {
+        const auto json = json::parse(r.text);
+        if (const auto it = json.find(JKEY_CF_TOKEN); it != json.end() && it->is_string()) {
+            const auto token = it->get<std::string>();
+            INF("API-CF received JWT token successfully");
+            return token;
+        }
+        ERR("API-CF JWT token not found in response");
+    } catch (const std::exception &e) {
+        ERR("API-CF failed to parse JWT token response: {}", e.what());
+    }
+
     return {};
 }
 
@@ -638,8 +640,8 @@ task_t Net::createAuthenticateTask()
         }
         m_isRefreshingToken = true;
 
+        // It will be updated inside the loop if system time is incorrect
         std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
-        ByteArray message(m_deviceInfo.uuid);
 
         for (;;) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
@@ -660,10 +662,13 @@ task_t Net::createAuthenticateTask()
                     {JKEY_AUTH_SERIAL_NUMBER, 0},
             };
 
+            const auto payload = j.dump();
             INF("API authenticating to {}", m_hostname);
 
-            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {j.dump()},
-                               cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}});
+            // Use custom HTTP request since authentication has special retry logic
+            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload},
+                               cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}},
+                               cpr::Timeout {NET_TIMEOUT});
 
             if (m_stop) {
                 m_status = AuthStatus::AuthenticationFailed;
@@ -732,54 +737,31 @@ task_t Net::createAuthenticateTask()
 task_t Net::updateConfigTask(const std::string &type, const std::string &version, bool installed,
                              std::optional<std::string> log)
 {
-    return [this, type, version, installed = std::move(installed), log = std::move(log)]() {
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-            });
+    // Create json string
+    json j {
+            {JKEY_SCFG_VERSION, version},
+            {JKEY_SCFG_TYPE, type},
+            {JKEY_SCFG_INSTALLED, installed},
+    };
+    if (log) {
+        j[JKEY_SCFG_LOG] = *log;
+    }
 
-            if (m_status == AuthStatus::AuthenticationFailed) {
-                DBG("Can't send installed task, authentication failed!");
-                break;
-            }
-
-            // Create json string
-            json j {
-                    {JKEY_SCFG_VERSION, version},
-                    {JKEY_SCFG_TYPE, type},
-                    {JKEY_SCFG_INSTALLED, installed},
-            };
-            if (log) {
-                j[JKEY_SCFG_LOG] = *log;
-            }
-
-            const auto payload = j.dump();
-            INF("API update config: {}", payload);
-
-            // TODO: Sentry
-
-            const auto r = cpr::Patch(url(URL_SCORBITRON_CONFIG), cpr::Body {payload}, authHeader(),
-                                      cpr::Timeout {NET_TIMEOUT});
-
-            if (r.status_code == 200) {
-                INF("API update config response: {}", r.text);
-                break;
-            }
-
-            ERR("API update config failed: code={}, {}", r.status_code, r.error.message);
-            ERR("{}", r.text);
-
-            if (r.status_code != 401) {
-                break;
-            }
-
-            m_status = AuthStatus::NotAuthenticated;
-            stopTokenRefreshTimer();
-            auto auth = createAuthenticateTask();
-            auth();
+    auto callback = [](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API update config: ok, {}", reply);
+        } else {
+            ERR("API update config: failed, error code: {}, reply: {}", static_cast<int>(error),
+                reply);
         }
     };
+
+    auto deferredSetup = [this, payload = j.dump()]() {
+        INF("API update config: {}", payload);
+        return std::make_tuple(url(URL_SCORBITRON_CONFIG), cpr::Body {payload});
+    };
+
+    return createPatchRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
 task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
@@ -1154,33 +1136,20 @@ task_t Net::createUploadHistoryTask(const GameHistory &history, const string &se
 task_t Net::createUploadTask(const std::string &endpoint, const std::string &filename,
                              SafeMultipart &&multipart)
 {
-    return [this, endpoint, filename, multipart = std::move(multipart)]() {
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-            });
-
-            if (m_status != AuthStatus::AuthenticatedPaired) {
-                DBG("API can't upload {}, device is not paired or authentication failed!",
-                    filename);
-                break;
-            }
-
-            INF("API upload to backend started: {} to {}", filename, endpoint);
-            auto r = cpr::Post(url(endpoint), multipart.get(), authHeader());
-
-            if (r.status_code == 200) {
-                INF("API upload to backend finished: ok! {} to {}", filename, endpoint);
-                break;
-            }
-
-            ERR("API try {} out of {} upload to backend failed! {} to {}, code={}, "
-                "error message: {}",
-                i + 1, NUM_RETRIES, filename, endpoint, r.status_code, r.error.message);
-            ERR("{}", r.text);
+    auto callback = [filename](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API upload to backend finished: ok! {}", filename);
+        } else {
+            ERR("API upload to backend failed! {}, error code: {}, reply: {}", filename,
+                static_cast<int>(error), reply);
         }
     };
+
+    auto deferredSetup = [this, endpoint, multipart = std::move(multipart)]() {
+        return std::make_tuple(url(endpoint), std::move(multipart));
+    };
+
+    return createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
 // Template implementation for generic HTTP request task
@@ -1270,6 +1239,20 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
             [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                const cpr::Timeout &timeout) { return cpr::Post(url, body, header, timeout); },
+            std::move(allowedStatuses));
+}
+
+task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
+                                           deferred_post_multipart_setup_t deferredSetup,
+                                           std::vector<AuthStatus> allowedStatuses)
+{
+    return createHttpRequestTask(
+            REST_POST, std::move(replyCallback), std::move(deferredSetup),
+            [](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
+               const cpr::Timeout &timeout) {
+                header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
+                return cpr::Post(url, multipart.get(), header, timeout);
+            },
             std::move(allowedStatuses));
 }
 

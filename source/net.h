@@ -55,6 +55,7 @@ class Net : public NetBase
 {
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
     using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
+    using deferred_post_multipart_setup_t = std::function<std::tuple<cpr::Url, SafeMultipart>()>;
     using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
     using deferred_patch_multipart_setup_t = std::function<std::tuple<cpr::Url, SafeMultipart>()>;
 
@@ -164,6 +165,10 @@ private:
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
+    task_t createPostMultipartRequestTask(StringCallback replyCallback,
+                                          deferred_post_multipart_setup_t deferredSetup,
+                                          std::vector<AuthStatus> allowedStatuses = {
+                                                  AuthStatus::AuthenticatedPaired});
     task_t createPatchRequestTask(StringCallback replyCallback,
                                   deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
