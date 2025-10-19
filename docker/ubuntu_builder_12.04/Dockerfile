@@ -39,7 +39,7 @@ RUN wget https://github.com/boostorg/boost/releases/download/$BOOST/$BOOST-b2-no
     && ./b2 -j$(nproc) threading=multi link=static cflags="-fPIC" cxxflags="-fPIC" --without-python install \
     && cd .. && rm -rf $BOOST
 
-ARG OPENSSL=openssl-3.5.2
+ARG OPENSSL=openssl-3.5.4
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
@@ -50,7 +50,7 @@ RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.
     && cd .. && rm -rf $OPENSSL
 
 # Install CMake
-ARG CMAKE_VERSION=4.0.1
+ARG CMAKE_VERSION=4.1.2
 RUN wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-armv7l.sh \
     && sh cmake-$CMAKE_VERSION-Linux-armv7l.sh --skip-license --prefix=/usr \
     && rm cmake-$CMAKE_VERSION-Linux-armv7l.sh
@@ -76,8 +76,8 @@ RUN wget https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/$LIB
     && make install \
     && cd .. && rm -rf $LIBPSL
 
-ARG CURL=curl-8.15.0
-ARG CURL_VER=8_15_0
+ARG CURL=curl-8.16.0
+ARG CURL_VER=8_16_0
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
@@ -94,7 +94,7 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
     && cmake --build build --target install \
     && cd ../.. && rm -rf $CURL
 
-ARG LIBARCHIVE_VER=3.8.0
+ARG LIBARCHIVE_VER=3.8.2
 ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
 RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
     && tar xf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \

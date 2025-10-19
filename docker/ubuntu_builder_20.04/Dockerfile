@@ -35,7 +35,7 @@ RUN wget https://github.com/boostorg/boost/releases/download/$BOOST/$BOOST-b2-no
     && ./b2 -j$(nproc) threading=multi link=static cflags="-fPIC" cxxflags="-fPIC" --without-python install \
     && cd .. && rm -rf $BOOST
 
-ARG OPENSSL=openssl-3.5.2
+ARG OPENSSL=openssl-3.5.4
 ARG OPENSSL_CONFIG_ARGS=""
 RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.tar.gz \
     && tar xf $OPENSSL.tar.gz && rm $OPENSSL.tar.gz && cd $OPENSSL \
@@ -46,7 +46,7 @@ RUN wget https://github.com/openssl/openssl/releases/download/$OPENSSL/$OPENSSL.
     && cd .. && rm -rf $OPENSSL
 
 # Install CMake
-ARG CMAKE_VERSION=4.0.1
+ARG CMAKE_VERSION=4.1.2
 RUN ARCH=$(uname -m) \
     && wget https://github.com/dilshodm/cmake-arm32v7/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-Linux-$ARCH.sh \
     && sh cmake-$CMAKE_VERSION-Linux-$ARCH.sh --skip-license --prefix=/usr \
@@ -73,8 +73,8 @@ RUN wget https://github.com/rockdaboot/libpsl/releases/download/$LIBPSL_VER/$LIB
     && make install \
     && cd .. && rm -rf $LIBPSL
 
-ARG CURL=curl-8.15.0
-ARG CURL_VER=8_15_0
+ARG CURL=curl-8.16.0
+ARG CURL_VER=8_16_0
 RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar.xz \
     && tar xvf $CURL.tar.xz && rm $CURL.tar.xz && cd $CURL \
     && cmake -GNinja -Bbuild \
@@ -84,14 +84,15 @@ RUN wget https://github.com/curl/curl/releases/download/curl-$CURL_VER/$CURL.tar
             -D BUILD_CURL_EXE=OFF \
             -D BUILD_TESTING=OFF \
             -D SSL_ENABLED=ON \
-            -D CURL_CA_PATH=auto \
+            -D CURL_CA_PATH=none \
+            -D CURL_CA_BUNDLE=none \
             -D CURL_USE_OPENSSL=ON \
             . \
     && cmake --build build --parallel \
     && cmake --build build --target install \
     && cd .. && rm -rf $CURL
 
-ARG LIBARCHIVE_VER=3.8.0
+ARG LIBARCHIVE_VER=3.8.2
 ARG LIBARCHIVE=libarchive-$LIBARCHIVE_VER
 RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE_VER/$LIBARCHIVE.tar.xz \
     && tar xf $LIBARCHIVE.tar.xz && rm $LIBARCHIVE.tar.xz && cd $LIBARCHIVE \
@@ -102,11 +103,13 @@ RUN wget https://github.com/libarchive/libarchive/releases/download/v$LIBARCHIVE
     && make install \
     && cd .. && rm -rf $LIBARCHIVE
 
-# Install Python versions and create virtual environments
-RUN add-apt-repository -y ppa:deadsnakes/ppa \
-    && apt update \
-    &&  for ver in 3.8 3.9 3.10 3.11 3.12 3.13; do \
-            apt install -y python$ver python$ver-dev python$ver-venv && \
+# Install Python versions and create virtual environments. Now deadsnakes ppa is not working on 20.04
+#RUN add-apt-repository -y ppa:deadsnakes/ppa \
+#    && apt-get update && \
+
+RUN    for ver in 3.8 3.9; do \
+            apt-get install -y --no-install-recommends \
+                python$ver python$ver-dev python$ver-venv && \
             python$ver -m venv /opt/venv$ver && \
             . /opt/venv$ver/bin/activate && \
             python$ver -m pip install --upgrade pip build && \
@@ -118,3 +121,4 @@ RUN apt-get install -y --no-install-recommends \
         libusb-1.0-0-dev \
         libsystemd-dev \
         libstdc++-9-pic
+
