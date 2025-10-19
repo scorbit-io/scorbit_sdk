@@ -184,6 +184,7 @@ private:
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
+    cpr::SslOptions sslOptions() const;
 
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);

@@ -90,14 +90,15 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
     return ByteArray(signature).hex();
 }
 
-std::string getJwtToken(const std::string &url, const std::string &authToken)
+std::string getJwtToken(const std::string &url, const std::string &authToken,
+                        const cpr::SslOptions &&sslOptions)
 {
     INF("API-CF getting JWT token from: {}", url);
 
     // Note: This is synchronous as required by centrifugo library callback
     const auto r = cpr::Get(cpr::Url {url},
                             cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
-                            cpr::Timeout {NET_TIMEOUT});
+                            cpr::Timeout {NET_TIMEOUT}, sslOptions);
 
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
@@ -668,7 +669,7 @@ task_t Net::createAuthenticateTask()
             // Use custom HTTP request since authentication has special retry logic
             auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload},
                                cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}},
-                               cpr::Timeout {NET_TIMEOUT});
+                               cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
                 m_status = AuthStatus::AuthenticationFailed;
@@ -973,7 +974,7 @@ task_t Net::createHeartbeatTask()
             INF("API sending heartbeat with session_active: {}", isActiveSession);
 
             const auto r = cpr::Get(url(HEARTBEAT_URL), parameters, authHeader(),
-                                    cpr::Timeout {NET_TIMEOUT});
+                                    cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (r.status_code == 200) {
                 INF("API heartbeat: ok, {}", r.text);
@@ -1227,8 +1228,10 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
 {
     return createHttpRequestTask(
             REST_GET, std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
-               const cpr::Timeout &timeout) { return cpr::Get(url, params, header, timeout); },
+            [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+                   const cpr::Timeout &timeout) {
+                return cpr::Get(url, params, header, timeout, sslOptions());
+            },
             std::move(allowedStatuses));
 }
 
@@ -1237,8 +1240,10 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
 {
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
-               const cpr::Timeout &timeout) { return cpr::Post(url, body, header, timeout); },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout) {
+                return cpr::Post(url, body, header, timeout, sslOptions());
+            },
             std::move(allowedStatuses));
 }
 
@@ -1248,10 +1253,10 @@ task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
 {
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
-               const cpr::Timeout &timeout) {
+            [this](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
+                   const cpr::Timeout &timeout) {
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
-                return cpr::Post(url, multipart.get(), header, timeout);
+                return cpr::Post(url, multipart.get(), header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
 }
@@ -1262,8 +1267,10 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
 {
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
-               const cpr::Timeout &timeout) { return cpr::Patch(url, body, header, timeout); },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout) {
+                return cpr::Patch(url, body, header, timeout, sslOptions());
+            },
             std::move(allowedStatuses));
 }
 
@@ -1273,10 +1280,10 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 {
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
-            [](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
-               const cpr::Timeout &timeout) {
+            [this](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
+                   const cpr::Timeout &timeout) {
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
-                return cpr::Patch(url, multipart.get(), header, timeout);
+                return cpr::Patch(url, multipart.get(), header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
 }
@@ -1384,6 +1391,16 @@ cpr::Header Net::authHeader() const
     return h;
 }
 
+cpr::SslOptions Net::sslOptions() const
+{
+    auto fs = cmrc::scorbit::get_filesystem();
+    auto certFile = fs.open("cacert.pem");
+    cpr::SslOptions ssl;
+    ssl.SetOption(cpr::ssl::CaBuffer {certFile.begin()});
+    ssl.SetOption(cpr::ssl::VerifyHost {true});
+    return ssl;
+}
+
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
 {
     return std::any_of(begin(allowedStatuses), end(allowedStatuses),
@@ -1449,7 +1466,7 @@ void Net::centrifugoSetup()
 
         // Get JWT token for Centrifugo connection
         std::shared_lock lock(m_tokenMutex);
-        return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken);
+        return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken, sslOptions());
     };
 
     config.logHandler = [](centrifugo::LogEntry entry) {
