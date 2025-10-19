@@ -8,6 +8,7 @@
 #include "spb/probes_manager.h"
 #include "spb/Probe.h"
 #include "spb/SLB.h"
+#include "spb/Spike.h"
 #include "list_usb_devices.h"
 // #include <logger.h>
 
@@ -72,6 +73,14 @@ void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &cal
         m_sam = std::make_shared<SLB_Sam>();
         if (!m_sam->Initialize()) {
             m_sam.reset();
+        }
+    }
+
+    // Try to initialize Spike
+    if (has_flag(probesSet, ProbeType::SPIKE)) {
+        m_spike = std::make_shared<Spike>();
+        if (!m_spike->Initialize()) {
+            m_spike.reset();
         }
     }
 
