@@ -30,4 +30,4 @@ run_build() {
 
 run_build arm64 linux/arm64
 run_build amd64 linux/amd64
-run_build arm   linux/arm/v7
+#run_build arm   linux/arm/v7

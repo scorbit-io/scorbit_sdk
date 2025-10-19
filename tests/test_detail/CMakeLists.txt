@@ -106,9 +106,9 @@ target_sources(
         ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
-        ../../source/net.h
-        ../../source/net.cpp
-        source/test_net.cpp
+        # ../../source/net.h
+        # ../../source/net.cpp
+        # source/test_net.cpp
         ../../source/utils/bytearray.h
         ../../source/utils/bytearray.cpp
         ../../source/net_util.h
