@@ -47,11 +47,11 @@ public:
 
     auto enumerate(probe_t probesSet, const ProbeDisplayCallback &callback = nullptr) -> void;
 
-    auto cpu() const -> const std::shared_ptr<ProbeCPU> & { return m_cpu; }
-    auto dmd() const -> const std::shared_ptr<ProbeDMD> & { return m_dmd; }
-    auto nfc() const -> const std::shared_ptr<ProbeNFC> & { return m_nfc; }
-    auto sam() const -> const std::shared_ptr<SLB_Sam> & { return m_sam; }
-    auto spike() const -> const std::shared_ptr<Spike> & { return m_spike; }
+    auto cpu() -> std::shared_ptr<ProbeCPU> & { return m_cpu; }
+    auto dmd() -> std::shared_ptr<ProbeDMD> & { return m_dmd; }
+    auto nfc() -> std::shared_ptr<ProbeNFC> & { return m_nfc; }
+    auto sam() -> std::shared_ptr<SLB_Sam> & { return m_sam; }
+    auto spike() -> std::shared_ptr<Spike> & { return m_spike; }
 
     auto isNfcTagRead() const -> bool;
     auto setNfcTag(const std::string &tag) -> bool;
