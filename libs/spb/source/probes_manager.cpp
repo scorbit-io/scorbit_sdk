@@ -71,7 +71,7 @@ void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &cal
     // Try to initialize SAM
     if (has_flag(probesSet, ProbeType::SAM)) {
         m_sam = std::make_shared<SLB_Sam>();
-        if (!m_sam->Initialize()) {
+        if (!m_sam->Initialize() || m_sam->GetPatchVersion().empty()) {
             m_sam.reset();
         }
     }
