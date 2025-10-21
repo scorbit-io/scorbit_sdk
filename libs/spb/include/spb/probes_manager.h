@@ -10,6 +10,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <string_view>
 
 class ProbeBase;
 class ProbeCPU;
@@ -45,7 +46,8 @@ class ProbesManager
 public:
     ProbesManager() = default;
 
-    auto enumerate(probe_t probesSet, const ProbeDisplayCallback &callback = nullptr) -> void;
+    auto enumerate(probe_t probesSet, const std::string pbspk2commPath = {},
+                   const ProbeDisplayCallback &callback = nullptr) -> void;
 
     auto cpu() const -> const std::shared_ptr<ProbeCPU> & { return m_cpu; }
     auto dmd() const -> const std::shared_ptr<ProbeDMD> & { return m_dmd; }
