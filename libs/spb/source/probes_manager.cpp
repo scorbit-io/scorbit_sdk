@@ -10,7 +10,6 @@
 #include "spb/SLB.h"
 #include "spb/Spike.h"
 #include "list_usb_devices.h"
-// #include <logger.h>
 
 namespace spb {
 
@@ -26,10 +25,9 @@ static bool has_flag(probe_t probesSet, ProbeType flag)
     return static_cast<probe_t>(probesSet) & static_cast<probe_t>(flag);
 }
 
-void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &callback)
+void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPath,
+                              const ProbeDisplayCallback &callback)
 {
-    // INF("Enumerating probes...");
-
     const auto devices = listUsbDevices();
 
     for (const auto &device : devices) {
@@ -45,7 +43,6 @@ void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &cal
         }
 
         if (hasProbe) {
-            // INF("Found probe {} ({})", probeInfo.Id, probeInfo.Name);
             if (has_flag(probesSet, ProbeType::CPU) && probeInfo.Id == CPU_PROBE_ID) {
                 m_cpu = std::make_shared<ProbeCPU>();
                 m_cpu->Initialize(0, device);
@@ -79,7 +76,7 @@ void ProbesManager::enumerate(probe_t probesSet, const ProbeDisplayCallback &cal
     // Try to initialize Spike
     if (has_flag(probesSet, ProbeType::SPIKE)) {
         m_spike = std::make_shared<Spike>();
-        if (!m_spike->Initialize()) {
+        if (!m_spike->Initialize(pbspk2commPath.data())) {
             m_spike.reset();
         }
     }

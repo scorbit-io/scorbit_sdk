@@ -59,19 +59,17 @@ class Spike
 	Spike()
 	{
 	}
-	bool Initialize()
+	bool Initialize(const char *Pbspk2commFilename = "pbspk2comm")
 	{
-		// Read vector file from pbspk2comm.dat
-		int fn = open("pbspk2comm.dat", O_RDONLY);
-		if (fn == -1)
-		{
-			// Read vector file from pbspk2comm instead
-			fn = open("pbspk2comm", O_RDONLY);
-			if (fn == -1) { std::cerr << "Can't open pbspk2comm !" << std::endl; return false; }
-			// Go to the beginning of vectors
-			lseek(fn, -1024, SEEK_END);
-		}
-		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { std::cerr << "pbspk2comm is invalid !" << std::endl; return false; }
+		// Read vector file from pbspk2comm or pbspk2comm.dat
+		int fn = open(Pbspk2commFilename, O_RDONLY);
+		if (fn == -1) { std::cerr << "Can't open pbspk2comm !" << std::endl; return false; }
+
+		// Go to the beginning of vectors
+		if (lseek(fn, -1024, SEEK_END) == -1) { std::cerr << "Can't find vectors in pbspk2comm !" << std::endl; close(fn); return false; }
+
+		// Read the vectors
+		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { std::cerr << "pbspk2comm is invalid !" << std::endl; close(fn); return false; }
 		close(fn);
 
 		// Compute Crc

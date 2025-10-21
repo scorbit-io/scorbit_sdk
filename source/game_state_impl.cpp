@@ -49,7 +49,7 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_net {std::move(net)}
     , m_probesManager {std::make_shared<spb::ProbesManager>()}
 {
-    m_probesManager->enumerate(spb::ProbeType::NFC, displayProbeInfo);
+    m_probesManager->enumerate(spb::ProbeType::NFC, std::string {}, displayProbeInfo);
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_net->setProbesManager(m_probesManager);
