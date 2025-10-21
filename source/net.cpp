@@ -1291,7 +1291,7 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
                                    std::string filename)
 {
-    return [callback = std::move(replyCallback), url = std::move(url),
+    return [this, callback = std::move(replyCallback), url = std::move(url),
             filename = std::move(filename)]() {
         Error error {Error::ApiError};
         std::string reply;
@@ -1304,7 +1304,8 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             for (int i = 0; i < NUM_RETRIES; ++i) {
                 INF("Download file: {}", url);
 
-                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT});
+                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT},
+                                       sslOptions());
                 reply = std::move(r.text);
 
                 if (r.status_code == 200) {
@@ -1333,7 +1334,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
                                      size_t reserveBufferSize)
 {
-    return [callback = std::move(replyCallback), url = std::move(url), reserveBufferSize]() {
+    return [this, callback = std::move(replyCallback), url = std::move(url), reserveBufferSize]() {
         Error error {Error::ApiError};
         std::vector<uint8_t> buffer;
         if (reserveBufferSize > 0) {
@@ -1343,6 +1344,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         cpr::Session session;
         session.SetUrl(cpr::Url {url});
         session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
+        session.SetSslOptions(sslOptions());
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             INF("Download buffer: {}", url);
