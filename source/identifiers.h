@@ -132,6 +132,8 @@ constexpr auto JKEY_SCFG_OPDB_ID {"opdb_id"};
 constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
 constexpr auto JKEY_SCFG_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SCFG_NFC_CAPABLE {"nfc_capable"};
+constexpr auto JKEY_SCFG_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
+constexpr auto JKEY_SCFG_OWNER {"owner"};
 
 constexpr auto JKEY_SCFG_VERSION {"version"};
 constexpr auto JKEY_SCFG_TYPE {"type"};

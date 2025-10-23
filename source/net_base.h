@@ -78,9 +78,13 @@ public:
     virtual void patchScorbitron(std::string body, StringCallback callback) = 0;
 
     virtual std::string consumeNonce() = 0;
-    virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };
+
+    virtual void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                                    StringCallback callback) = 0;
 
     // ---------------------------------------------------------------------------------
+
+    virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };
 
     void setNumberOfPlayersRequested(int count) { m_numberOfPlayersRequested = count; }
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }

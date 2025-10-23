@@ -67,6 +67,9 @@ public:
     void requestPairCode(StringCallback callback) const;
     void requestUnpair(StringCallback callback) const;
 
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback);
+
 private:
     void addNewPlayer(sb_player_t player);
     void sendGameData(bool forceSending);

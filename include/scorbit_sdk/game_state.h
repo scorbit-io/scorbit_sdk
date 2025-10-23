@@ -352,7 +352,7 @@ public:
         return info;
     }
 
-    // -------------------------- EVENTS FROM MOBILE BACKEND --------------------------------------
+    // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
 
 
     void setEventCallback(EventCallback callback)
@@ -361,9 +361,19 @@ public:
         sb_set_event_callback(m_handle.get(), cbPair.first, cbPair.second);
     }
 
+    // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
+
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback)
+    {
+        auto cbPair = prepareStringCallback(std::move(callback));
+        sb_game_request_pair_machine(m_handle.get(), machineUuid.c_str(), ownerUuid.c_str(),
+                                     cbPair.first, cbPair.second);
+    }
+
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
-private:
+    private:
     static void string_callback_c(sb_error_t error, const char *reply, void *user_data)
     {
         auto *cb = static_cast<StringCallback *>(user_data);

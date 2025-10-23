@@ -129,6 +129,9 @@ public:
     std::string consumeNonce() override;
     void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) override;
 
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,

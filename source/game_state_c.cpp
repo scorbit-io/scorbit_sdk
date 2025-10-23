@@ -265,3 +265,15 @@ void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback
         }
     });
 }
+
+void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
+                                  const char *owner_uuid, sb_string_callback_t callback,
+                                  void *user_data)
+{
+    handle->gameState.requestPairMachine(
+            machine_uuid, owner_uuid, [callback, user_data](Error error, const std::string &reply) {
+                if (callback) {
+                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                }
+            });
+}
