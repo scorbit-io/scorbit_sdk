@@ -447,7 +447,7 @@ const char *sb_get_player_picture_url(sb_game_handle_t handle, sb_player_t playe
 SCORBIT_SDK_EXPORT
 const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player, size_t *size);
 
-// -------------------------- EVENTS FOMR BACKEND --------------------------------------
+// -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
 
 /**
  * @brief Sets a callback function to handle incoming events.
@@ -466,6 +466,13 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
  */
 SCORBIT_SDK_EXPORT
 void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data);
+
+// -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
+
+SCORBIT_SDK_EXPORT
+void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
+                                  const char *owner_uuid, sb_string_callback_t callback,
+                                  void *user_data);
 
 #ifdef __cplusplus
 }

@@ -625,6 +625,17 @@ void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
     }
 }
 
+void Net::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                             StringCallback callback)
+{
+    json j {
+            {JKEY_SCFG_SCORBITRON_MACHINE, machineUuid},
+            {JKEY_SCFG_OWNER, ownerUuid},
+    };
+
+    patchScorbitron(j.dump(), std::move(callback));
+}
+
 task_t Net::createAuthenticateTask()
 {
     return [this]() {

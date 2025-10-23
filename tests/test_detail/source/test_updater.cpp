@@ -78,6 +78,7 @@ public:
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback) override { };
     std::string consumeNonce() override { return {}; };
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
 
 private:
     PlayerProfilesManager m_playersManager;

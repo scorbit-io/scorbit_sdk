@@ -220,6 +220,12 @@ void GameStateImpl::requestUnpair(StringCallback callback) const
     m_net->requestUnpair(std::move(callback));
 }
 
+void GameStateImpl::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                                       StringCallback callback)
+{
+    m_net->requestPairMachine(machineUuid, ownerUuid, std::move(callback));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {
