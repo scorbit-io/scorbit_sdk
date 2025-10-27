@@ -76,7 +76,7 @@ public:
 
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
-    void patchScorbitron(std::string, StringCallback) override { };
+    void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
     void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
 
