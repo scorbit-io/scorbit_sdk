@@ -635,7 +635,15 @@ void Net::requestPairMachine(const std::string &machineUuid, const std::string &
             {JKEY_SCFG_OWNER, ownerUuid},
     };
 
-    patchScorbitron(j.dump(), std::move(callback),
+    patchScorbitron(j.dump(),
+                    [this, callback = std::move(callback)](Error error, const std::string &reply) {
+                        if (error == Error::Success) {
+                            initializeConnectionState();
+                        }
+                        if (callback) {
+                            callback(error, reply);
+                        }
+                    },
                     {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired});
 }
 
@@ -706,13 +714,7 @@ task_t Net::createAuthenticateTask()
                     if (normalAuthentication) {
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
-
-                        getConfig(); // Get config after authentication, it also checks pair status
-                        updateScorbitronConfig();
-                        sendHeartbeat();
-                        startHeartbeatTimer();
-                        centrifugoConnect();
-                        createNfcNonces();
+                        initializeConnectionState();
                     } else {
                         INF("API token refreshed successful!");
                     }
@@ -1085,6 +1087,16 @@ void Net::stopTokenRefreshTimer()
 {
     m_worker.stopTimer(Worker::Timer::TokenRefresh);
     m_isRefreshingToken = false;
+}
+
+void Net::initializeConnectionState()
+{
+    getConfig(); // Get config after authentication, it also checks pair status
+    updateScorbitronConfig();
+    sendHeartbeat();
+    startHeartbeatTimer();
+    centrifugoConnect();
+    createNfcNonces();
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
