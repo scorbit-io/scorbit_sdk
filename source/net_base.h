@@ -75,7 +75,8 @@ public:
 
     virtual PlayerProfilesManager &playersManager() = 0;
 
-    virtual void patchScorbitron(std::string body, StringCallback callback) = 0;
+    virtual void patchScorbitron(std::string body, StringCallback callback,
+                                 std::vector<AuthStatus> allowedStatuses) = 0;
 
     virtual std::string consumeNonce() = 0;
 

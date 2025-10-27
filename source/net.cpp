@@ -578,7 +578,8 @@ PlayerProfilesManager &Net::playersManager()
     return m_playersManager;
 }
 
-void Net::patchScorbitron(std::string body, StringCallback callback)
+void Net::patchScorbitron(std::string body, StringCallback callback,
+                          std::vector<AuthStatus> allowedStatuses)
 {
     m_worker.post(createPatchRequestTask(
             [callback = std::move(callback)](Error error, std::string reply) {
@@ -589,7 +590,8 @@ void Net::patchScorbitron(std::string body, StringCallback callback)
                 INF("API patching Scorbitron with {}", body);
 
                 return make_tuple(endpoint, cpr::Body {body});
-            }));
+            },
+            std::move(allowedStatuses)));
 }
 
 std::string Net::consumeNonce()
@@ -633,7 +635,8 @@ void Net::requestPairMachine(const std::string &machineUuid, const std::string &
             {JKEY_SCFG_OWNER, ownerUuid},
     };
 
-    patchScorbitron(j.dump(), std::move(callback));
+    patchScorbitron(j.dump(), std::move(callback),
+                    {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired});
 }
 
 task_t Net::createAuthenticateTask()

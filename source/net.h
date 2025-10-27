@@ -124,7 +124,9 @@ public:
 
     PlayerProfilesManager &playersManager() override;
 
-    void patchScorbitron(std::string body, StringCallback callback) override;
+    void patchScorbitron(std::string body, StringCallback callback,
+                         std::vector<AuthStatus> allowedStatuses = {
+                                 AuthStatus::AuthenticatedPaired}) override;
 
     std::string consumeNonce() override;
     void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) override;
