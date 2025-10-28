@@ -311,7 +311,11 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
         for (const auto &[playerNum, playerState] : gameData.players) {
             json playerProfileJson = nullptr;
             if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerProfileJson = {{JKEY_USERNAME, playerProfile->username},
+                playerProfileJson = {{JKEY_PLAYER_ID, playerProfile->id},
+                                     {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
+                                     {JKEY_USERNAME, playerProfile->username},
+                                     {JKEY_PLAYER_DISPLAY_NAME, playerProfile->name},
+                                     {JKEY_PLAYER_INITIALS, playerProfile->initials},
                                      {JKEY_AVATAR, playerProfile->pictureUrl}};
             }
 
