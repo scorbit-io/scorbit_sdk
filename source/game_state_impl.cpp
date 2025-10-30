@@ -246,7 +246,7 @@ void GameStateImpl::submitGameData(bool forceSending)
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
         // Publish game data
-        m_net->submitGameData(m_data, isGameJustFinished);
+        m_net->submitGameData(m_data);
 
         // Skip session update right after game start
         if (!isGameJustStarted) {

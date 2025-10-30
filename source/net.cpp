@@ -271,9 +271,9 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::submitGameData(const detail::GameData &data, bool isGameJustFinished)
+void Net::submitGameData(const detail::GameData &data)
 {
-    m_worker.postCommitTask([this, data, isGameJustFinished]() {
+    m_worker.postCommitTask([this, data]() {
         const auto sessionId = data.id;
         std::string sessionUuid;
         GameSession *gameSession = nullptr;
@@ -338,8 +338,8 @@ void Net::submitGameData(const detail::GameData &data, bool isGameJustFinished)
             scores.emplace_back(playerScoreJson);
         }
 
-        const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
-        const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
+        const auto valType = (data.isGameActive ? JVAL_SCR_SCORE_UPDATE : JVAL_SCR_GAME_END);
+        const auto keyScores = (data.isGameActive ? JKEY_SCR_SCORES : JKEY_SCR_FINAL_SCORES);
 
         json j {{JKEY_CHN_TYPE, valType},
                 {JKEY_CHN_PAYLOAD,
