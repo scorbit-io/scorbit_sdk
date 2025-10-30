@@ -271,7 +271,7 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
+void Net::submitGameData(const detail::GameData &data, bool isGameJustFinished)
 {
     m_worker.postCommitTask([this, data, isGameJustFinished]() {
         const auto sessionId = data.id;
@@ -298,8 +298,6 @@ void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
                 m_centrifugo->state() == centrifugo::ConnectionState::Connected);
             return;
         }
-
-        // m_worker.postGameDataQueue(createGameDataTask(data.id));
 
         // TODO: check if it's needed to lock mutex here
         const auto sessionCounter = ++gameSession->sessionCounter;

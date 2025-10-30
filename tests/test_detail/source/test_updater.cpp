@@ -65,7 +65,7 @@ public:
     void authenticate() override { };
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
                        std::function<void()>) override { };
-    void sendGameData(const GameData &, bool) override { };
+    void submitGameData(const GameData &, bool) override { };
     void sessionUpdate(const GameData &, bool) override { };
     void getConfig() override { };
 
