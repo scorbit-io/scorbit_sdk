@@ -80,7 +80,7 @@ void GameStateImpl::setGameFinished()
     m_probesManager->setNfcLeds(spb::NfcLedMode::Idle);
 
     m_data.isGameActive = false;
-    sendGameData(false);
+    submitGameData(false);
 
     // Reset game data
     m_data = GameData {};
@@ -166,7 +166,7 @@ void GameStateImpl::clearModes()
 void GameStateImpl::commit()
 {
     if (m_data.isGameActive) {
-        sendGameData(false);
+        submitGameData(false);
     }
 }
 
@@ -237,7 +237,7 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
     DBG("Player {} added", player);
 }
 
-void GameStateImpl::sendGameData(bool forceSending)
+void GameStateImpl::submitGameData(bool forceSending)
 {
     if (isChanged() || forceSending) {
         m_data.timestamp = std::chrono::system_clock::now();
@@ -246,7 +246,7 @@ void GameStateImpl::sendGameData(bool forceSending)
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
         // Publish game data
-        m_net->sendGameData(m_data, isGameJustFinished);
+        m_net->submitGameData(m_data);
 
         // Skip session update right after game start
         if (!isGameJustStarted) {
@@ -313,7 +313,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     // Create session and send initial game data later when session uuid will be available,
     // so it will publish initial state (which maybe 0) to centrifugo channel.
     // This prevents situation when just started game doesn't publish 0 and app stuck waiting
-    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::sendGameData, this, true));
+    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::submitGameData, this, true));
 
     return true;
 }

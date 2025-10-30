@@ -64,6 +64,8 @@ constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
+constexpr auto GAME_DATA_UPDATE_INTERVAL = 1000ms;
+
 constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
@@ -271,104 +273,21 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::sendGameData(const detail::GameData &data, bool isGameJustFinished)
+void Net::submitGameData(const detail::GameData &data)
 {
-    m_worker.postCommitTask([this, data, isGameJustFinished]() {
-        const auto sessionId = data.id;
-        std::string sessionUuid;
+    // Queue in worker, so that it will not block the caller while waiting for lock
+    m_worker.post([this, data]() {
         GameSession *gameSession = nullptr;
         {
             std::lock_guard lock(m_gameSessionsMutex);
-            gameSession = &m_gameSessions[sessionId];
+            gameSession = &m_gameSessions[data.id];
             gameSession->gameData = data;
             gameSession->history.push_back(data);
-            sessionUuid = gameSession->sessionUuid;
         }
 
-        const auto &gameData = gameSession->gameData;
-
-        // Ensure that only single task in the queue (while another can be running).
-        // However, if game session is finished (not active), post task anyway, because this is the
-        // last task for that game session.
-
-        if (sessionUuid.empty()
-            || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
-            INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
-                !sessionUuid.empty(),
-                m_centrifugo->state() == centrifugo::ConnectionState::Connected);
-            return;
-        }
-
-        // m_worker.postGameDataQueue(createGameDataTask(data.id));
-
-        // TODO: check if it's needed to lock mutex here
-        const auto sessionCounter = ++gameSession->sessionCounter;
-        const auto modes = json::parse(gameData.modes.jsonStr());
-        const auto updatedAt = to_iso8601(chrono::system_clock::now());
-        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
-
-        json::array_t scores;
-        for (const auto &[playerNum, playerState] : gameData.players) {
-            json playerProfileJson = nullptr;
-            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerProfileJson = {{JKEY_PLAYER_ID, playerProfile->id},
-                                     {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
-                                     {JKEY_USERNAME, playerProfile->username},
-                                     {JKEY_PLAYER_DISPLAY_NAME, playerProfile->name},
-                                     {JKEY_PLAYER_INITIALS, playerProfile->initials},
-                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
-            }
-
-            const auto valBallInProgress =
-                    gameData.isGameActive && (gameData.activePlayer == playerNum);
-
-            json playerScoreJson {
-                    {JKEY_SCR_POSITION, playerNum},
-                    {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                    {JKEY_SCR_IS_NFC_VERIFIED,
-                     gameSession->scoresMetadata[playerNum].isNfcVerified},
-                    {JKEY_SCR_TOURNAMENT_UUID,
-                     gameSession->scoresMetadata[playerNum].tournamentUuid
-                             ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
-                             : json(nullptr)},
-                    {JKEY_SCR_PLAYER, playerProfileJson},
-                    {JKEY_SCR_SCORE, playerState.score()},
-                    {JKEY_SCR_BALL, gameData.ball},
-                    {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                    {JKEY_SCR_MODES, modes}};
-
-            scores.emplace_back(playerScoreJson);
-        }
-
-        const auto valType = (isGameJustFinished ? JVAL_SCR_GAME_END : JVAL_SCR_SCORE_UPDATE);
-        const auto keyScores = (isGameJustFinished ? JKEY_SCR_FINAL_SCORES : JKEY_SCR_SCORES);
-
-        json j {{JKEY_CHN_TYPE, valType},
-                {JKEY_CHN_PAYLOAD,
-                 {
-                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                         {keyScores, scores},
-                 }},
-                {JKEY_SCR_METADATA,
-                 {
-                         {JKEY_SCR_GAME, sessionUuid},
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
-                                                  ? json(nullptr)
-                                                  : json(m_machineInfo.venueUuid)},
-                         {JKEY_SCR_SEQUENCE, sessionCounter},
-                         {JKEY_SCR_CREATED_AT, createdAt},
-                         {JKEY_SCR_UPDATED_AT, updatedAt},
-                 }}};
-
-        const auto jstr = j.dump();
-        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
-
-        const auto r = m_centrifugo->publish(m_machineChannel, j);
-        if (!r) {
-            WRN("API failed to send game data: {}", r.error().message);
-            return;
+        // If this is first data submission or it's finished send data right away
+        if (!data.isGameActive || gameSession->sessionCounter == 1) {
+            sendLatestGameData(data.id);
         }
     });
 }
@@ -1091,6 +1010,113 @@ void Net::stopTokenRefreshTimer()
 {
     m_worker.stopTimer(Worker::Timer::TokenRefresh);
     m_isRefreshingToken = false;
+}
+
+void Net::sendLatestGameData(int sessionId)
+{
+    m_worker.postCommitTask([this, sessionId]() {
+        // Cancel timer if any
+        m_worker.stopTimer(Worker::Timer::GameData);
+
+        GameSession *gameSession = nullptr;
+        GameData data;
+        std::string sessionUuid;
+        {
+            std::lock_guard lock(m_gameSessionsMutex);
+            gameSession = &m_gameSessions[sessionId];
+            data = gameSession->gameData;
+            sessionUuid = gameSession->sessionUuid;
+        }
+
+        const auto &gameData = gameSession->gameData;
+
+               // Ensure that only single task in the queue (while another can be running).
+               // However, if game session is finished (not active), post task anyway, because this is the
+               // last task for that game session.
+
+        if (sessionUuid.empty()
+            || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+            INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
+                !sessionUuid.empty(),
+                m_centrifugo->state() == centrifugo::ConnectionState::Connected);
+            return;
+        }
+
+               // TODO: check if it's needed to lock mutex here
+        const auto sessionCounter = ++gameSession->sessionCounter;
+        const auto modes = json::parse(gameData.modes.jsonStr());
+        const auto updatedAt = to_iso8601(chrono::system_clock::now());
+        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
+
+        json::array_t scores;
+        for (const auto &[playerNum, playerState] : gameData.players) {
+            json playerProfileJson = nullptr;
+            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                playerProfileJson = {{JKEY_PLAYER_ID, playerProfile->id},
+                                     {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
+                                     {JKEY_USERNAME, playerProfile->username},
+                                     {JKEY_PLAYER_DISPLAY_NAME, playerProfile->name},
+                                     {JKEY_PLAYER_INITIALS, playerProfile->initials},
+                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
+            }
+
+            const auto valBallInProgress =
+                    gameData.isGameActive && (gameData.activePlayer == playerNum);
+
+            json playerScoreJson {
+                                  {JKEY_SCR_POSITION, playerNum},
+                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                                  {JKEY_SCR_IS_NFC_VERIFIED,
+                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
+                                  {JKEY_SCR_TOURNAMENT_UUID,
+                                   gameSession->scoresMetadata[playerNum].tournamentUuid
+                                           ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
+                                           : json(nullptr)},
+                                  {JKEY_SCR_PLAYER, playerProfileJson},
+                                  {JKEY_SCR_SCORE, playerState.score()},
+                                  {JKEY_SCR_BALL, gameData.ball},
+                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                                  {JKEY_SCR_MODES, modes}};
+
+            scores.emplace_back(playerScoreJson);
+        }
+
+        const auto valType = (data.isGameActive ? JVAL_SCR_SCORE_UPDATE : JVAL_SCR_GAME_END);
+        const auto keyScores = (data.isGameActive ? JKEY_SCR_SCORES : JKEY_SCR_FINAL_SCORES);
+
+        json j {{JKEY_CHN_TYPE, valType},
+                {JKEY_CHN_PAYLOAD,
+                 {
+                  {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                  {keyScores, scores},
+                  }},
+                {JKEY_SCR_METADATA,
+                 {
+                  {JKEY_SCR_GAME, sessionUuid},
+                  {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                  {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                  {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
+                                           ? json(nullptr)
+                                           : json(m_machineInfo.venueUuid)},
+                  {JKEY_SCR_SEQUENCE, sessionCounter},
+                  {JKEY_SCR_CREATED_AT, createdAt},
+                  {JKEY_SCR_UPDATED_AT, updatedAt},
+                  }}};
+
+        const auto jstr = j.dump();
+        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
+
+        const auto r = m_centrifugo->publish(m_machineChannel, j);
+        if (!r) {
+            WRN("API failed to send game data: {}", r.error().message);
+        }
+
+        // Set timer for the next game data send if the game is still active
+        if (data.isGameActive) {
+            m_worker.startTimer(Worker::Timer::GameData, GAME_DATA_UPDATE_INTERVAL,
+                                [this, sessionId] { sendLatestGameData(sessionId); });
+        }
+    });
 }
 
 void Net::initializeConnectionState()
