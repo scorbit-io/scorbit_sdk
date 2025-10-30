@@ -148,6 +148,8 @@ private:
     void startTokenRefreshTimer();
     void stopTokenRefreshTimer();
 
+    void sendLatestGameData(int sessionId);
+
     void initializeConnectionState();
 
     void requestSessionData(const std::string &sessionUuid);

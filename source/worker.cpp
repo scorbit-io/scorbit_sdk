@@ -41,6 +41,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::NfcCheckTag:
             name = "NfcCheckTag";
             break;
+        case Worker::Timer::GameData:
+            name = "GameData";
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }

@@ -38,6 +38,7 @@ public:
         Heartbeat,
         TokenRefresh,
         NfcCheckTag,
+        GameData,
     };
 
 public:
