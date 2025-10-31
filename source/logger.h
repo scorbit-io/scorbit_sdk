@@ -46,7 +46,7 @@ class Logger
     struct CallbackAndData {
         LoggerCallback callback;
         void *userData {nullptr};
-        size_t maxLength {511};
+        size_t maxLength {512};
     };
 
 public:
