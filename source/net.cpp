@@ -1122,7 +1122,7 @@ void Net::sendLatestGameData(int sessionId)
 void Net::initializeConnectionState()
 {
     getConfig(); // Get config after authentication, it also checks pair status
-    updateScorbitronConfig();
+    updateScorbitronObject();
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
@@ -1638,7 +1638,7 @@ std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
     return getJwtTokenTimeUntilExpiration(m_stoken);
 }
 
-void Net::updateScorbitronConfig()
+void Net::updateScorbitronObject()
 {
     json j {
             {JKEY_SCFG_START_GAME_CAPABLE, m_deviceInfo.startGameCapable},
@@ -1647,9 +1647,9 @@ void Net::updateScorbitronConfig()
 
     patchScorbitron(j.dump(), [](Error error, std::string reply) {
         if (error == Error::Success) {
-            INF("API send Scorbitron config: ok, {}", reply);
+            INF("API update Scorbitron object: ok, {}", reply);
         } else {
-            ERR("API send Scorbitron config: failed, error code: {}, reply: {}",
+            ERR("API update Scorbitron object: failed, error code: {}, reply: {}",
                 static_cast<int>(error), reply);
         }
     });

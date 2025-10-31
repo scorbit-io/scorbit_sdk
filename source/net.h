@@ -203,7 +203,7 @@ private:
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
-    void updateScorbitronConfig();
+    void updateScorbitronObject();
 
     void createNfcNonces();
     void startNfcCheckTimer();
