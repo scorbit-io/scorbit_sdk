@@ -205,6 +205,11 @@ const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
     return m_net->playersManager().picture(player);
 }
 
+void GameStateImpl::setCapabilities(Capabilities capabilities)
+{
+    m_net->setCapabilities(capabilities);
+}
+
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));

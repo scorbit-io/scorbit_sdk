@@ -142,6 +142,9 @@ def main():
     # Create game state object
     gs = setup_game_state()
 
+    # Set capabilities. Here we set both start game and credit drop capabilities
+    gs.set_capabilities(scorbit.Capability.StartGame | scorbit.Capability.CreditDrop)
+
     # Setup events callback
     gs.set_event_callback(lambda event: events_callback(gs, event))
 

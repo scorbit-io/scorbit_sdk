@@ -134,6 +134,8 @@ public:
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                             StringCallback callback) override;
 
+    void setCapabilities(Capabilities capabilities) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
@@ -203,8 +205,6 @@ private:
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
-    void updateScorbitronObject();
-
     void createNfcNonces();
     void startNfcCheckTimer();
     void setNfcTag();
@@ -250,6 +250,7 @@ private:
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
+    bool m_isNfcCapable {false};
 
     std::vector<std::string> m_nonces;
     mutable std::mutex m_noncesMutex;

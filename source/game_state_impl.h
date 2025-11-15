@@ -62,6 +62,8 @@ public:
     std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
     const Picture &getPlayerPicture(sb_player_t player) const;
 
+    void setCapabilities(Capabilities capabilities);
+
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 
     void requestPairCode(StringCallback callback) const;

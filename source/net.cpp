@@ -543,9 +543,9 @@ std::string Net::consumeNonce()
 void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
 {
     m_probesManager = manager;
-    m_deviceInfo.nfcCapable = (m_probesManager && m_probesManager->nfc());
+    m_isNfcCapable = (m_probesManager && m_probesManager->nfc());
 
-    if (m_deviceInfo.nfcCapable) {
+    if (m_isNfcCapable) {
         startNfcCheckTimer();
     }
 }
@@ -568,6 +568,28 @@ void Net::requestPairMachine(const std::string &machineUuid, const std::string &
                         }
                     },
                     {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired});
+}
+
+void Net::setCapabilities(Capabilities capabilities)
+{
+    bool nfc = m_isNfcCapable;
+    bool startGame = capabilities & Capability::StartGame;
+    bool creditDrop = capabilities & Capability::CreditDrop;
+
+    json j {
+            {JKEY_SCFG_START_GAME_CAPABLE, startGame},
+            {JKEY_SCFG_NFC_CAPABLE, nfc},
+            {JKEY_SCFG_CREDIT_DROP_CAPABLE, creditDrop},
+    };
+
+    patchScorbitron(j.dump(), [](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API set capabilities: ok, {}", reply);
+        } else {
+            ERR("API set capabilities: failed, error code: {}, reply: {}",
+                static_cast<int>(error), reply);
+        }
+    });
 }
 
 task_t Net::createAuthenticateTask()
@@ -1122,7 +1144,7 @@ void Net::sendLatestGameData(int sessionId)
 void Net::initializeConnectionState()
 {
     getConfig(); // Get config after authentication, it also checks pair status
-    updateScorbitronObject();
+    setCapabilities(0); // Update capabilities with false values and nfc will be set automatically
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
@@ -1638,26 +1660,9 @@ std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
     return getJwtTokenTimeUntilExpiration(m_stoken);
 }
 
-void Net::updateScorbitronObject()
-{
-    json j {
-            {JKEY_SCFG_START_GAME_CAPABLE, m_deviceInfo.startGameCapable},
-            {JKEY_SCFG_NFC_CAPABLE, m_deviceInfo.nfcCapable},
-    };
-
-    patchScorbitron(j.dump(), [](Error error, std::string reply) {
-        if (error == Error::Success) {
-            INF("API update Scorbitron object: ok, {}", reply);
-        } else {
-            ERR("API update Scorbitron object: failed, error code: {}, reply: {}",
-                static_cast<int>(error), reply);
-        }
-    });
-}
-
 void Net::createNfcNonces()
 {
-    if (!m_deviceInfo.nfcCapable) {
+    if (!m_isNfcCapable) {
         return;
     }
 

@@ -352,6 +352,21 @@ public:
         return info;
     }
 
+    /**
+     * @brief Sets the device capabilities.
+     *
+     * Configures the device with the features it supports. The @p capabilities
+     * argument should contain a bitwise OR of one or more values from @ref scorbit::Capability.
+     *
+     * @note If this function is not called, all capabilities are assumed to be disabled by default.
+     *
+     * @param capabilities Bitwise OR of capability flags supported by the device.
+     */
+    void setCapabilities(Capabilities capabilities)
+    {
+        sb_set_capabilities(m_handle.get(), capabilities);
+    }
+
     // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
 
 

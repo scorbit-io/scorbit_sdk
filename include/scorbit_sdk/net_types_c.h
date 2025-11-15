@@ -58,6 +58,12 @@ typedef enum {
     SB_GAME_STARTED_FROM_LOBBY = 1,   // started explicitly via Scorbit app request
 } sb_game_start_origin_t;
 
+typedef enum {
+    SB_CAPABILITY_START_GAME = 1u << 0,  // Game can be started remotely
+    SB_CAPABILITY_CREDIT_DROP = 1u << 1, // Machine can accept coin drop events
+} sb_capability_t;
+typedef uint32_t sb_capabilities_t;
+
 typedef struct {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     const char *provider;
@@ -116,12 +122,6 @@ typedef struct {
      * Ignored if @ref score_features is empty.
      */
     int score_features_version;
-
-    /**
-     * Mandatory. Indicates whether the game can be started when requested by the SDK.
-     * See @ref SB_EVT_GAME_START_REQUESTED.
-     */
-    bool start_game_capable;
 
 } sb_device_info_t;
 

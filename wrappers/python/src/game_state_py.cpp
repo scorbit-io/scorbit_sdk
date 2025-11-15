@@ -113,6 +113,13 @@ PYBIND11_MODULE(scorbit, m)
                    "Game started explicitly via Scorbit app request. See "
                    "EventType.GameStartRequested.");
 
+    // Capability enum
+    py::enum_<Capability>(m, "Capability", "Enumeration of device capabilities.")
+            .value("StartGame", Capability::StartGame,
+                   "Game can be started remotely.")
+            .value("CreditDrop", Capability::CreditDrop,
+                   "Machine can accept coin drop events.");
+
     // Bind EventType enum
     py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
             .value("GameStartRequested", EventType::GameStartRequested,
@@ -325,11 +332,6 @@ PYBIND11_MODULE(scorbit, m)
                 Initially set to 1 if there are score features. It should be incremented if the
                 score features array has new entries.
                 If `score_features` is empty, this entry will be ignored.
-            )doc")
-
-            .def_readwrite("start_game_capable", &DeviceInfo::startGameCapable, R"doc(
-                Mandatory. Indicates whether the game can be started when requested by the SDK.
-                See `EventType.GameStartRequested`.
             )doc")
 
             .def("__repr__", [](const DeviceInfo &d) {
@@ -705,6 +707,22 @@ PYBIND11_MODULE(scorbit, m)
 
                         Returns:
                             PlayerInfo: The player's profile information.
+                    )doc")
+
+            .def("set_capabilities", &GameState::setCapabilities, py::arg("capabilities"),
+                 R"doc(
+                        Sets the device capabilities.
+
+                        Configures the device with the features it supports. The `capabilities`
+                        argument should be a bitwise OR of one or more values from `scorbit.Capability`.
+
+                        If this function is not called, all capabilities are assumed to be disabled
+                        by default.
+
+                        Parameters
+                        ----------
+                        capabilities : int
+                            Bitwise OR of capability flags supported by the device.
                     )doc")
 
             // -------------------------- EVENTS FROM BACKEND -------------------------------

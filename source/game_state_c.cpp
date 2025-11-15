@@ -257,6 +257,11 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
     return nullptr;
 }
 
+void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities)
+{
+    handle->gameState.setCapabilities(capabilities);
+}
+
 void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)
 {
     handle->gameState.setEventCallback([callback, user_data](const EventBase &event) {

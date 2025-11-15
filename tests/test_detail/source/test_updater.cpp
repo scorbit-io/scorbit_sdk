@@ -79,6 +79,7 @@ public:
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
     void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
+    void setCapabilities(Capabilities capabilities) override {};
 
 private:
     PlayerProfilesManager m_playersManager;

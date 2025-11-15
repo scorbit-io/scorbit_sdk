@@ -83,6 +83,8 @@ public:
     virtual void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                                     StringCallback callback) = 0;
 
+    virtual void setCapabilities(Capabilities capabilities) = 0;
+
     // ---------------------------------------------------------------------------------
 
     virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };

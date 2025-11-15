@@ -10,7 +10,6 @@
 #include <string>
 #include <memory>
 #include <functional>
-#include <string_view>
 
 class ProbeBase;
 class ProbeCPU;
@@ -25,11 +24,11 @@ using probe_t = uint32_t;
 
 enum ProbeType : probe_t {
     None = 0,
-    CPU = 1 << 0,
-    DMD = 1 << 1,
-    NFC = 1 << 2,
-    SAM = 1 << 3,
-    SPIKE = 1 << 4,
+    CPU = 1u << 0,
+    DMD = 1u << 1,
+    NFC = 1u << 2,
+    SAM = 1u << 3,
+    SPIKE = 1u << 4,
 
     All = CPU | DMD | NFC | SAM | SPIKE
 };

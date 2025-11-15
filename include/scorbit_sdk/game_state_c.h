@@ -447,6 +447,21 @@ const char *sb_get_player_picture_url(sb_game_handle_t handle, sb_player_t playe
 SCORBIT_SDK_EXPORT
 const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player, size_t *size);
 
+// -------------------------- SETTINGS ----------------------------------
+
+/**
+ * @brief Sets the device capabilities.
+ *
+ * Configures the device with the features it supports. The @p capabilities
+ * argument should contain a bitwise OR of one or more values of @ref sb_capability_t.
+ *
+ * @note If this function is not called, all capabilities are assumed to be disabled by default.
+ *
+ * @param capabilities Bitwise OR of capability flags supported by the device.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities);
+
 // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
 
 /**

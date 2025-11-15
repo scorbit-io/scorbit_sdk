@@ -55,6 +55,12 @@ enum class GameStartOrigin {
     FromLobby = SB_GAME_STARTED_FROM_LOBBY,  // started explicitly via Scorbit app request
 };
 
+enum Capability : sb_capabilities_t {
+    StartGame = SB_CAPABILITY_START_GAME,   // Game can be started remotely
+    CreditDrop = SB_CAPABILITY_CREDIT_DROP, // Machine can accept coin drop events
+};
+using Capabilities = sb_capabilities_t;
+
 struct DeviceInfo {
     /** Mandatory. The provider name, e.g., "scorbitron", "vpin". */
     std::string provider;
@@ -109,15 +115,7 @@ struct DeviceInfo {
      */
     int scoreFeaturesVersion {0};
 
-    /**
-     * Mandatory. Indicates whether the game can be started when requested by the SDK.
-     * See @ref scorbit::EventType::GameStartRequested.
-     */
-    bool startGameCapable {false};
-
     // ------------ FOR INTERNAL USE ---------------------------------------------------------
-
-    bool nfcCapable {false};
 
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
@@ -131,7 +129,6 @@ struct DeviceInfo {
         , serialNumber {di.serial_number}
         , autoDownloadPlayerPics {di.auto_download_player_pics}
         , scoreFeaturesVersion {di.score_features_version}
-        , startGameCapable {di.start_game_capable}
     {
         if (di.score_features && di.score_features_count > 0) {
             scoreFeatures.reserve(di.score_features_count);
@@ -153,7 +150,6 @@ struct DeviceInfo {
         di.serial_number = serialNumber;
         di.auto_download_player_pics = autoDownloadPlayerPics;
         di.score_features_version = scoreFeaturesVersion;
-        di.start_game_capable = startGameCapable;
 
         // Temporary array of C-string pointers (valid as long as `*this` lives)
         if (!scoreFeatures.empty()) {

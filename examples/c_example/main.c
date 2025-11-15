@@ -244,10 +244,6 @@ sb_game_handle_t setup_game_state(void)
             .score_features = G_SCORE_FEATURES,
             .score_features_count = G_SCORE_FEATURES_COUNT,
             .score_features_version = G_SCORE_FEATURES_VERSION,
-
-            // Set to true if game can start itself without user pressing Start Button upon SDK
-            // request: SB_EVT_GAME_START_REQUESTED event
-            .start_game_capable = false,
     };
 
     // Another example with default values:
@@ -335,6 +331,9 @@ int main(void)
     sb_add_logger_callback(loggerCallback, NULL, 512);
 
     sb_game_handle_t gs = setup_game_state();
+
+    // Set capabilities. Here we set both start game and credit drop capabilities
+    sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
     // Setup events callback
     sb_set_event_callback(gs, &eventsCallback, NULL);
