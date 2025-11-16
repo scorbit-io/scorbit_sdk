@@ -162,6 +162,8 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             SafeMultipart &&multipart);
 
+    void parseScorbitronObject(Error error, const std::string &reply);
+
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
     task_t createHttpRequestTask(const char *requestType, StringCallback replyCallback,
@@ -236,6 +238,7 @@ private:
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
+    std::atomic_bool m_isCapabilitiesInitialized {false};
 
     std::string m_hostname;
     std::string m_cfHostname;

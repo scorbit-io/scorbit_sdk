@@ -121,24 +121,26 @@ constexpr auto JVAL_SCR_SCORE_UPDATE {"score_update"};
 constexpr auto JVAL_SCR_GAME_END {"game_end"};
 
 // Scorbitron config
-constexpr auto JKEY_SCFG_IS_PAIRED {"is_paired"};
-constexpr auto JKEY_SCFG_SHORTCODE {"shortcode"};
-constexpr auto JKEY_SCFG_MACHINE_UUID {"machine_id"};
 constexpr auto JKEY_SCFG_MACHINE_ID {"machine_id"};
 constexpr auto JKEY_SCFG_VARIANT_ID {"variant_id"};
 constexpr auto JKEY_SCFG_VENUE_ID {"venue_id"};
 constexpr auto JKEY_SCFG_CONFIG {"config"};
 constexpr auto JKEY_SCFG_OPDB_ID {"opdb_id"};
 constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
-constexpr auto JKEY_SCFG_START_GAME_CAPABLE {"start_game_capable"};
-constexpr auto JKEY_SCFG_NFC_CAPABLE {"nfc_capable"};
-constexpr auto JKEY_SCFG_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SCFG_OWNER {"owner"};
 
 constexpr auto JKEY_SCFG_VERSION {"version"};
 constexpr auto JKEY_SCFG_TYPE {"type"};
 constexpr auto JKEY_SCFG_INSTALLED {"installed"};
 constexpr auto JKEY_SCFG_LOG {"log"};
+
+// Scorbitron ojbect
+constexpr auto JKEY_SOBJ_SHORTCODE {"shortcode"};
+constexpr auto JKEY_SOBJ_MACHINE_OBJ {"machine"};
+constexpr auto JKEY_SOBJ_ID {"id"};
+constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
+constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
+constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 
 // Session
 constexpr auto JKEY_SESS_UUID {"id"};

@@ -315,34 +315,6 @@ void Net::getConfig()
 
                 try {
                     json json = json::parse(reply);
-                    AuthStatus status {AuthStatus::AuthenticatedPaired};
-
-                    const auto isPaired = [&json]() {
-                        if (const auto it = json.find(JKEY_SCFG_IS_PAIRED);
-                            it != json.end() && it->is_boolean()) {
-                            return it->get<bool>();
-                        }
-                        return false;
-                    }();
-
-                    if (!isPaired) {
-                        status = AuthStatus::AuthenticatedUnpaired;
-                        m_machineInfo.opdbId.clear();
-                        m_machineInfo.machineUuid.clear();
-                        m_machineInfo.variantUuid.clear();
-                    }
-
-                    if (const auto it = json.find(JKEY_SCFG_SHORTCODE);
-                        it != json.end() && it->is_string()) {
-                        it->get_to(m_cachedShortCode);
-                        m_shortCodeCV.notify_all();
-                    }
-
-                    if (const auto it = json.find(JKEY_SCFG_MACHINE_UUID);
-                        it != json.end() && it->is_string()) {
-                        it->get_to(m_machineInfo.machineUuid);
-                        m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
-                    }
 
                     if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
                         it != json.end() && it->is_string()) {
@@ -371,10 +343,6 @@ void Net::getConfig()
 
                     m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
 
-                    if (m_status != status) {
-                        m_status = status;
-                        m_authCV.notify_all();
-                    }
                 } catch (const std::exception &e) {
                     ERR("API error parsing config reply: {}", e.what());
                 }
@@ -505,7 +473,8 @@ void Net::patchScorbitron(std::string body, StringCallback callback,
                           std::vector<AuthStatus> allowedStatuses)
 {
     m_worker.post(createPatchRequestTask(
-            [callback = std::move(callback)](Error error, std::string reply) {
+            [this, callback = std::move(callback)](Error error, std::string reply) {
+                parseScorbitronObject(error, reply);
                 callback(error, reply);
             },
             [this, body = std::move(body)]() {
@@ -572,24 +541,32 @@ void Net::requestPairMachine(const std::string &machineUuid, const std::string &
 
 void Net::setCapabilities(Capabilities capabilities)
 {
+    m_isCapabilitiesInitialized = true;
+
     bool nfc = m_isNfcCapable;
     bool startGame = capabilities & Capability::StartGame;
     bool creditDrop = capabilities & Capability::CreditDrop;
 
     json j {
-            {JKEY_SCFG_START_GAME_CAPABLE, startGame},
-            {JKEY_SCFG_NFC_CAPABLE, nfc},
-            {JKEY_SCFG_CREDIT_DROP_CAPABLE, creditDrop},
+            {JKEY_SOBJ_START_GAME_CAPABLE, startGame},
+            {JKEY_SOBJ_NFC_CAPABLE, nfc},
+            {JKEY_SOBJ_CREDIT_DROP_CAPABLE, creditDrop},
     };
 
-    patchScorbitron(j.dump(), [](Error error, std::string reply) {
-        if (error == Error::Success) {
-            INF("API set capabilities: ok, {}", reply);
-        } else {
-            ERR("API set capabilities: failed, error code: {}, reply: {}",
-                static_cast<int>(error), reply);
-        }
-    });
+    patchScorbitron(j.dump(),
+                    [](Error error, std::string reply) {
+                        if (error == Error::Success) {
+                            INF("API set capabilities: ok, {}", reply);
+                        } else {
+                            ERR("API set capabilities: failed, error code: {}, reply: {}",
+                                static_cast<int>(error), reply);
+                        }
+                    },
+                    {
+                            AuthStatus::AuthenticatedCheckingPairing,
+                            AuthStatus::AuthenticatedUnpaired,
+                            AuthStatus::AuthenticatedPaired,
+                    });
 }
 
 task_t Net::createAuthenticateTask()
@@ -1143,8 +1120,12 @@ void Net::sendLatestGameData(int sessionId)
 
 void Net::initializeConnectionState()
 {
-    getConfig(); // Get config after authentication, it also checks pair status
-    setCapabilities(0); // Update capabilities with false values and nfc will be set automatically
+    if (!m_isCapabilitiesInitialized) {
+        // Update capabilities with false values and nfc will be set automatically
+        // set authentication info and pair status
+        setCapabilities(0);
+    }
+    getConfig(); // Get template
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
@@ -1229,6 +1210,56 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
     };
 
     return createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
+}
+
+void Net::parseScorbitronObject(Error error, const std::string &reply)
+{
+    if (error != Error::Success) {
+        return;
+    }
+
+    try {
+        json json = json::parse(reply);
+
+        // "shortcode"
+        if (const auto it = json.find(JKEY_SOBJ_SHORTCODE); it != json.end() && it->is_string()) {
+            it->get_to(m_cachedShortCode);
+            m_shortCodeCV.notify_all();
+        }
+
+        bool isPaired {false};
+
+        // "machine"
+        if (const auto it = json.find(JKEY_SOBJ_MACHINE_OBJ); it != json.end()) {
+            isPaired = it->is_object();
+            if (isPaired) {
+                if (const auto idIt = it->find(JKEY_SOBJ_ID);
+                    idIt != it->end() && idIt->is_string()) {
+                    idIt->get_to(m_machineInfo.machineUuid);
+                    m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
+                }
+            }
+        }
+
+        AuthStatus status {AuthStatus::AuthenticatedPaired};
+
+        if (!isPaired) {
+            status = AuthStatus::AuthenticatedUnpaired;
+            m_machineInfo.opdbId.clear();
+            m_machineInfo.machineUuid.clear();
+            m_machineInfo.variantUuid.clear();
+        }
+
+        m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
+
+        if (m_status != status) {
+            m_status = status;
+            m_authCV.notify_all();
+        }
+
+    } catch (const std::exception &e) {
+        ERR("API error parsing config reply: {}", e.what());
+    }
 }
 
 // Template implementation for generic HTTP request task
