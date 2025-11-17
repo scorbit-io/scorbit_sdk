@@ -55,10 +55,6 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->setProbesManager(m_probesManager);
     // m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
-
-    const auto &deviceInfo = m_net->deviceInfo();
-    m_net->updateConfig("game_code", deviceInfo.gameCodeVersion, true);
-    m_net->updateConfig("sdk", SCORBIT_SDK_VERSION, true);
 }
 
 void GameStateImpl::setEventCallback(EventCallback &&callback)

@@ -123,6 +123,9 @@ typedef struct {
      */
     int score_features_version;
 
+    // ------ for internal use only -------
+    const char *scorbitd_version;
+
 } sb_device_info_t;
 
 /**

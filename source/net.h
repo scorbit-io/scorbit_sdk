@@ -153,6 +153,8 @@ private:
     void sendLatestGameData(int sessionId);
 
     void initializeConnectionState();
+    void initScorbitronObject();
+    void sendScorbitronObject();
 
     void requestSessionData(const std::string &sessionUuid);
 
@@ -238,7 +240,6 @@ private:
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
-    std::atomic_bool m_isCapabilitiesInitialized {false};
 
     std::string m_hostname;
     std::string m_cfHostname;
@@ -257,6 +258,9 @@ private:
 
     std::vector<std::string> m_nonces;
     mutable std::mutex m_noncesMutex;
+
+    mutable std::mutex m_scorbitronObjectMutex;
+    nlohmann::json m_scorbitronObject;
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;

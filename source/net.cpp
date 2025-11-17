@@ -165,6 +165,8 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
+    initScorbitronObject();
+
     centrifugoSetup();
 
     // Start worker thread
@@ -514,6 +516,11 @@ void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
     m_probesManager = manager;
     m_isNfcCapable = (m_probesManager && m_probesManager->nfc());
 
+    {
+        std::lock_guard lock(m_scorbitronObjectMutex);
+        m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
+    }
+
     if (m_isNfcCapable) {
         startNfcCheckTimer();
     }
@@ -541,15 +548,23 @@ void Net::requestPairMachine(const std::string &machineUuid, const std::string &
 
 void Net::setCapabilities(Capabilities capabilities)
 {
-    m_isCapabilitiesInitialized = true;
-
-    bool nfc = m_isNfcCapable;
     bool startGame = capabilities & Capability::StartGame;
     bool creditDrop = capabilities & Capability::CreditDrop;
 
+    {
+        // Update scorbitron object, so it can be sent once authenticated
+        std::lock_guard lock(m_scorbitronObjectMutex);
+        m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = startGame;
+        m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = creditDrop;
+    }
+
+    if (!isAuthenticated()) {
+        return;
+    }
+
+    // Send updated capabilities right away, because it's already authenticated
     json j {
             {JKEY_SOBJ_START_GAME_CAPABLE, startGame},
-            {JKEY_SOBJ_NFC_CAPABLE, nfc},
             {JKEY_SOBJ_CREDIT_DROP_CAPABLE, creditDrop},
     };
 
@@ -563,7 +578,6 @@ void Net::setCapabilities(Capabilities capabilities)
                         }
                     },
                     {
-                            AuthStatus::AuthenticatedCheckingPairing,
                             AuthStatus::AuthenticatedUnpaired,
                             AuthStatus::AuthenticatedPaired,
                     });
@@ -1029,9 +1043,9 @@ void Net::sendLatestGameData(int sessionId)
 
         const auto &gameData = gameSession->gameData;
 
-               // Ensure that only single task in the queue (while another can be running).
-               // However, if game session is finished (not active), post task anyway, because this is the
-               // last task for that game session.
+        // Ensure that only single task in the queue (while another can be running).
+        // However, if game session is finished (not active), post task anyway, because this is the
+        // last task for that game session.
 
         if (sessionUuid.empty()
             || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
@@ -1041,7 +1055,7 @@ void Net::sendLatestGameData(int sessionId)
             return;
         }
 
-               // TODO: check if it's needed to lock mutex here
+        // TODO: check if it's needed to lock mutex here
         const auto sessionCounter = ++gameSession->sessionCounter;
         const auto modes = json::parse(gameData.modes.jsonStr());
         const auto updatedAt = to_iso8601(chrono::system_clock::now());
@@ -1063,19 +1077,19 @@ void Net::sendLatestGameData(int sessionId)
                     gameData.isGameActive && (gameData.activePlayer == playerNum);
 
             json playerScoreJson {
-                                  {JKEY_SCR_POSITION, playerNum},
-                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                                  {JKEY_SCR_IS_NFC_VERIFIED,
-                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
-                                  {JKEY_SCR_TOURNAMENT_UUID,
-                                   gameSession->scoresMetadata[playerNum].tournamentUuid
-                                           ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
-                                           : json(nullptr)},
-                                  {JKEY_SCR_PLAYER, playerProfileJson},
-                                  {JKEY_SCR_SCORE, playerState.score()},
-                                  {JKEY_SCR_BALL, gameData.ball},
-                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                                  {JKEY_SCR_MODES, modes}};
+                    {JKEY_SCR_POSITION, playerNum},
+                    {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                    {JKEY_SCR_IS_NFC_VERIFIED,
+                     gameSession->scoresMetadata[playerNum].isNfcVerified},
+                    {JKEY_SCR_TOURNAMENT_UUID,
+                     gameSession->scoresMetadata[playerNum].tournamentUuid
+                             ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
+                             : json(nullptr)},
+                    {JKEY_SCR_PLAYER, playerProfileJson},
+                    {JKEY_SCR_SCORE, playerState.score()},
+                    {JKEY_SCR_BALL, gameData.ball},
+                    {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                    {JKEY_SCR_MODES, modes}};
 
             scores.emplace_back(playerScoreJson);
         }
@@ -1086,21 +1100,21 @@ void Net::sendLatestGameData(int sessionId)
         json j {{JKEY_CHN_TYPE, valType},
                 {JKEY_CHN_PAYLOAD,
                  {
-                  {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                  {keyScores, scores},
-                  }},
+                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                         {keyScores, scores},
+                 }},
                 {JKEY_SCR_METADATA,
                  {
-                  {JKEY_SCR_GAME, sessionUuid},
-                  {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                  {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                  {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
-                                           ? json(nullptr)
-                                           : json(m_machineInfo.venueUuid)},
-                  {JKEY_SCR_SEQUENCE, sessionCounter},
-                  {JKEY_SCR_CREATED_AT, createdAt},
-                  {JKEY_SCR_UPDATED_AT, updatedAt},
-                  }}};
+                         {JKEY_SCR_GAME, sessionUuid},
+                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
+                                                  ? json(nullptr)
+                                                  : json(m_machineInfo.venueUuid)},
+                         {JKEY_SCR_SEQUENCE, sessionCounter},
+                         {JKEY_SCR_CREATED_AT, createdAt},
+                         {JKEY_SCR_UPDATED_AT, updatedAt},
+                 }}};
 
         const auto jstr = j.dump();
         INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
@@ -1120,16 +1134,69 @@ void Net::sendLatestGameData(int sessionId)
 
 void Net::initializeConnectionState()
 {
-    if (!m_isCapabilitiesInitialized) {
-        // Update capabilities with false values and nfc will be set automatically
-        // set authentication info and pair status
-        setCapabilities(0);
-    }
+    // set authentication info and pair status
+    sendScorbitronObject();
+
     getConfig(); // Get template
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
     createNfcNonces();
+}
+
+void Net::initScorbitronObject()
+{
+    std::lock_guard lock(m_scorbitronObjectMutex);
+
+    m_scorbitronObject = nlohmann::json::object();
+
+    // Set versions
+    m_scorbitronObject[JKEY_SOBJ_SDK_VERSION] = SCORBIT_SDK_VERSION;
+    m_scorbitronObject[JKEY_SOBJ_SCORBITD_VERSION] = m_deviceInfo.scorbitdVersion;
+    m_scorbitronObject[JKEY_SOBJ_GAME_CODE_VERSION] = m_deviceInfo.gameCodeVersion;
+
+    // Set capabilities
+    m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
+    m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = false;
+    m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = false;
+}
+
+void Net::sendScorbitronObject()
+{
+    std::lock_guard lock(m_scorbitronObjectMutex);
+
+    auto callback = [this](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API initial Scorbitron object sent: ok, {}", reply);
+            parseScorbitronObject(error, reply);
+        } else {
+            ERR("API initial Scorbitron object sent: failed, error code: {}, "
+                "reply: {}",
+                static_cast<int>(error), reply);
+        }
+    };
+
+    m_worker.post(createPatchRequestTask(
+            [this, callback = std::move(callback)](Error error, std::string reply) {
+                parseScorbitronObject(error, reply);
+                callback(error, reply);
+            },
+            [this]() {
+                std::string body;
+                {
+                    std::lock_guard lock(m_scorbitronObjectMutex);
+                    body = m_scorbitronObject.dump();
+                }
+                const auto endpoint = url(URL_SCORBITRON_OBJECT);
+                INF("API patching Scorbitron with {}", body);
+
+                return make_tuple(endpoint, cpr::Body {body});
+            },
+            {
+                    AuthStatus::AuthenticatedCheckingPairing,
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
