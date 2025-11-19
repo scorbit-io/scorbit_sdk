@@ -72,6 +72,9 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add
 SCORBIT_SDK_EXPORT
 bool sb_event_config_received(const sb_event_t *event, const char **config_json);
 
+SCORBIT_SDK_EXPORT
+bool sb_event_scorbitd_update_received(const sb_event_t *event, const char **update_json);
+
 #ifdef __cplusplus
 }
 #endif

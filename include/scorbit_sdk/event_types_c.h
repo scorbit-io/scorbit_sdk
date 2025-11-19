@@ -53,6 +53,8 @@ typedef enum {
 
     SB_EVT_CONFIG_RECEIVED,
 
+    SB_EVT_SCORBITD_UPDATE_RECEIVED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

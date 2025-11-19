@@ -60,7 +60,7 @@ public:
         return ::sb_event_credits_add_requested(m_event, &creditsToAdd);
     }
 
-           // ---------------- OEM providers can ignore the events below ----------------
+    // ---------------- OEM providers can ignore the events below ----------------
 
     const sb_event_t *event() const { return m_event; }
 
@@ -71,6 +71,16 @@ public:
             return false;
         }
         configJson = configCStr ? std::string(configCStr) : std::string {};
+        return true;
+    }
+
+    bool eventScorbitdUpdateReceived(std::string &updateJson) const
+    {
+        const char *updateCStr = nullptr;
+        if (!::sb_event_scorbitd_update_received(m_event, &updateCStr)) {
+            return false;
+        }
+        updateJson = updateCStr ? std::string(updateCStr) : std::string {};
         return true;
     }
 

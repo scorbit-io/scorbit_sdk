@@ -33,6 +33,7 @@ enum class EventType {
 
     None = SB_EVT_NONE, // This event shoud not be used
     ConfigReceived = SB_EVT_CONFIG_RECEIVED,
+    ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
 };
 
 } // namespace scorbit

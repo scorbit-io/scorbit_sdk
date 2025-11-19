@@ -136,6 +136,23 @@ private:
     std::string m_configJson;
 };
 
+// ---------------- ScorbitdUpdateReceived implementation ----------------
+
+class ScorbitdUpdateReceivedEvent : public EventBase
+{
+public:
+    explicit ScorbitdUpdateReceivedEvent(const std::string &updateJson)
+        : EventBase(EventType::ScorbitdUpdateReceived, EventPriority::Normal)
+        , m_updateJson {updateJson}
+    {
+    }
+
+    auto updateJson() const -> const std::string & { return m_updateJson; }
+
+private:
+    std::string m_updateJson;
+};
+
 } // namespace detail
 } // namespace scorbit
 

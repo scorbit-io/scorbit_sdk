@@ -156,6 +156,8 @@ private:
     void initScorbitronObject();
     void sendScorbitronObject();
 
+    void requestReleaseTrackInfo();
+
     void requestSessionData(const std::string &sessionUuid);
 
     void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
@@ -250,6 +252,7 @@ private:
     mutable std::string m_cachedCclaimDeeplink;
 
     std::string m_machineChannel;
+    std::string m_releaseTrackUrl;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;

@@ -355,7 +355,6 @@ void Net::getConfig()
                 return make_tuple(endpoint, parameters);
             },
             {
-                    AuthStatus::AuthenticatedCheckingPairing,
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
             }));
@@ -1136,6 +1135,7 @@ void Net::initializeConnectionState()
 {
     // set authentication info and pair status
     sendScorbitronObject();
+    requestReleaseTrackInfo();
 
     getConfig(); // Get template
     sendHeartbeat();
@@ -1163,23 +1163,17 @@ void Net::initScorbitronObject()
 
 void Net::sendScorbitronObject()
 {
-    std::lock_guard lock(m_scorbitronObjectMutex);
-
-    auto callback = [this](Error error, std::string reply) {
-        if (error == Error::Success) {
-            INF("API initial Scorbitron object sent: ok, {}", reply);
-            parseScorbitronObject(error, reply);
-        } else {
-            ERR("API initial Scorbitron object sent: failed, error code: {}, "
-                "reply: {}",
-                static_cast<int>(error), reply);
-        }
-    };
-
     m_worker.post(createPatchRequestTask(
-            [this, callback = std::move(callback)](Error error, std::string reply) {
+            [this](Error error, std::string reply) {
                 parseScorbitronObject(error, reply);
-                callback(error, reply);
+                if (error == Error::Success) {
+                    INF("API initial Scorbitron object sent: ok, {}", reply);
+                    parseScorbitronObject(error, reply);
+                } else {
+                    ERR("API initial Scorbitron object sent: failed, error code: {}, "
+                        "reply: {}",
+                        static_cast<int>(error), reply);
+                }
             },
             [this]() {
                 std::string body;
@@ -1197,6 +1191,31 @@ void Net::sendScorbitronObject()
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
             }));
+}
+
+void Net::requestReleaseTrackInfo()
+{
+    INF("API request release track info ...");
+
+    auto callback = [this](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API get release track info: ok, {}", reply);
+            try {
+                json j = json::parse(reply);
+                m_updater.checkNewVersionAndUpdate(j);
+            } catch (const std::exception &e) {
+                ERR("API error parsing release track info reply: {}", e.what());
+            }
+            // m_eventManager->push(std::make_shared<ScorbitdUpdateReceivedEvent>(reply));
+        } else {
+            ERR("API get release track info: failed, error code: {}, reply: {}",
+                static_cast<int>(error), reply);
+        }
+    };
+
+    m_worker.post(createGetRequestTask(std::move(callback), [this]() {
+         return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {});
+    }));
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
@@ -1300,7 +1319,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
         if (const auto it = json.find(JKEY_SOBJ_MACHINE_OBJ); it != json.end()) {
             isPaired = it->is_object();
             if (isPaired) {
-                if (const auto idIt = it->find(JKEY_SOBJ_ID);
+                if (const auto idIt = it->find(JKEY_SOBJ_MACHINE_UUID);
                     idIt != it->end() && idIt->is_string()) {
                     idIt->get_to(m_machineInfo.machineUuid);
                     m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
@@ -1315,6 +1334,15 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             m_machineInfo.opdbId.clear();
             m_machineInfo.machineUuid.clear();
             m_machineInfo.variantUuid.clear();
+        }
+
+        // Get release track url
+        if (const auto configIt = json.find(JKEY_SOBJ_RELEASE_TRACK);
+            configIt != json.end() && configIt->is_object()) {
+            if (const auto urlIt = configIt->find(JKEY_SOBJ_RELEASE_URL);
+                urlIt != configIt->end() && urlIt->is_string()) {
+                urlIt->get_to(m_releaseTrackUrl);
+            }
         }
 
         m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));

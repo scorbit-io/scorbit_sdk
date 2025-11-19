@@ -31,12 +31,13 @@ sb_event_type_t sb_event_type(const sb_event_t *event)
     return static_cast<sb_event_type_t>(eventBase->type());
 }
 
-bool sb_event_game_start_requested(const sb_event_t* event, int* players_count) {
+bool sb_event_game_start_requested(const sb_event_t *event, int *players_count)
+{
     if (!event || !players_count) {
         return false;
     }
 
-    auto derived = dynamic_cast<const scorbit::detail::GameStartRequestedEvent*>(event);
+    auto derived = dynamic_cast<const scorbit::detail::GameStartRequestedEvent *>(event);
     if (!derived) {
         return false;
     }
@@ -45,12 +46,13 @@ bool sb_event_game_start_requested(const sb_event_t* event, int* players_count) 
     return true;
 }
 
-bool sb_event_credits_add_requested(const sb_event_t* event, int* credits_to_add) {
+bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add)
+{
     if (!event || !credits_to_add) {
         return false;
     }
 
-    auto derived = dynamic_cast<const scorbit::detail::CreditsAddRequestedEvent*>(event);
+    auto derived = dynamic_cast<const scorbit::detail::CreditsAddRequestedEvent *>(event);
     if (!derived) {
         return false;
     }
@@ -59,16 +61,32 @@ bool sb_event_credits_add_requested(const sb_event_t* event, int* credits_to_add
     return true;
 }
 
-bool sb_event_config_received(const sb_event_t* event, const char** config_json) {
+bool sb_event_config_received(const sb_event_t *event, const char **config_json)
+{
     if (!event || !config_json) {
         return false;
     }
 
-    auto derived = dynamic_cast<const scorbit::detail::ConfigReceivedEvent*>(event);
+    auto derived = dynamic_cast<const scorbit::detail::ConfigReceivedEvent *>(event);
     if (!derived) {
         return false;
     }
 
     *config_json = derived->configJson().c_str();
+    return true;
+}
+
+bool sb_event_scorbitd_update_received(const sb_event_t *event, const char **update_json)
+{
+    if (!event || !update_json) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::ScorbitdUpdateReceivedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *update_json = derived->updateJson().c_str();
     return true;
 }

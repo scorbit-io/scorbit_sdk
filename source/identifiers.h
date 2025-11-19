@@ -137,13 +137,16 @@ constexpr auto JKEY_SCFG_LOG {"log"};
 // Scorbitron ojbect
 constexpr auto JKEY_SOBJ_SHORTCODE {"shortcode"};
 constexpr auto JKEY_SOBJ_MACHINE_OBJ {"machine"};
-constexpr auto JKEY_SOBJ_ID {"id"};
+constexpr auto JKEY_SOBJ_MACHINE_UUID {"id"};
 constexpr auto JKEY_SOBJ_SDK_VERSION {"sdk_version"};
 constexpr auto JKEY_SOBJ_SCORBITD_VERSION {"scorbitd_version"};
 constexpr auto JKEY_SOBJ_GAME_CODE_VERSION {"game_code_version"};
 constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
+
+constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
+constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};
 
 // Session
 constexpr auto JKEY_SESS_UUID {"id"};
