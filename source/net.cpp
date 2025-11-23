@@ -275,7 +275,7 @@ void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
     m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
-void Net::submitGameData(const detail::GameData &data)
+void Net::submitGameData(const GameData &data)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
     m_worker.post([this, data]() {
@@ -290,6 +290,11 @@ void Net::submitGameData(const detail::GameData &data)
         // If this is first data submission or it's finished send data right away
         if (!data.isGameActive || gameSession->sessionCounter == 1) {
             sendLatestGameData(data.id);
+        }
+
+        // Upload session logs if the game just finished
+        if (!data.isGameActive) {
+            sessionUpdate(data, true);
         }
     });
 }

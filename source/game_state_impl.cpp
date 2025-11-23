@@ -249,15 +249,16 @@ void GameStateImpl::submitGameData(bool forceSending)
         // Publish game data
         m_net->submitGameData(m_data);
 
-        // Skip session update right after game start
-        if (!isGameJustStarted) {
+        // Skip session update right after game start or it's just finished.
+        // If it's just finished, uploading session logs will be be done by submitGameData
+        if (!isGameJustStarted && !isGameJustFinished) {
             const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
             const auto isBallChanged = m_prevData.ball != m_data.ball;
             const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
 
             // Conditions to upload session logs
             const auto hasToUploadSessionLogs =
-                    isActivePlayerChanged || isBallChanged || isGameJustFinished;
+                    isActivePlayerChanged || isBallChanged;
 
             // Conditions to update session
             const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
