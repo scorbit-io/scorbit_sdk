@@ -346,8 +346,6 @@ void Net::getConfig()
                         }
                     }
 
-                    m_updater.checkNewVersionAndUpdate(json);
-
                     m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
 
                 } catch (const std::exception &e) {
