@@ -80,8 +80,8 @@ class Net : public NetBase
     struct MachineInfo {
         std::string opdbId;
         std::string machineUuid;
-        std::string variantUuid;
-        std::string venueUuid;
+        std::optional<std::string> variantUuid;
+        std::optional<std::string> venueUuid;
     };
 
 public:

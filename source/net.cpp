@@ -325,12 +325,12 @@ void Net::getConfig()
 
                     if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
                         it != json.end() && it->is_string()) {
-                        it->get_to(m_machineInfo.variantUuid);
+                        m_machineInfo.variantUuid = it->get<std::string>();
                     }
 
                     if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
                         it != json.end() && it->is_string()) {
-                        it->get_to(m_machineInfo.venueUuid);
+                        m_machineInfo.venueUuid = it->get<std::string>();
                     }
 
                     if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
@@ -1107,9 +1107,7 @@ void Net::sendLatestGameData(int sessionId)
                          {JKEY_SCR_GAME, sessionUuid},
                          {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
                          {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid.empty()
-                                                  ? json(nullptr)
-                                                  : json(m_machineInfo.venueUuid)},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
                          {JKEY_SCR_SEQUENCE, sessionCounter},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, updatedAt},
@@ -1333,7 +1331,8 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             status = AuthStatus::AuthenticatedUnpaired;
             m_machineInfo.opdbId.clear();
             m_machineInfo.machineUuid.clear();
-            m_machineInfo.variantUuid.clear();
+            m_machineInfo.variantUuid.reset();
+            m_machineInfo.venueUuid.reset();
         }
 
         // Get release track url
