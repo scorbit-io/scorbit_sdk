@@ -1621,14 +1621,17 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     // Process scores
     try {
         for (const auto &obj : val) {
-            sb_player_t playerNum = obj[JKEY_SCR_POSITION].get<sb_player_t>();
-            obj[JKEY_SCR_ID].get_to(gameSession.scoresMetadata[playerNum].id);
-            obj[JKEY_SCR_IS_NFC_VERIFIED].get_to(
-                    gameSession.scoresMetadata[playerNum].isNfcVerified);
+            sb_player_t playerNum = obj.at(JKEY_SCR_POSITION).get<sb_player_t>();
+
+            // Create or get the metadata entry
+            auto &metadata = gameSession.scoresMetadata[playerNum];
+
+            obj.at(JKEY_SCR_ID).get_to(metadata.id);
+            obj.at(JKEY_SCR_IS_NFC_VERIFIED).get_to(metadata.isNfcVerified);
 
             if (const auto it = obj.find(JKEY_SCR_TOURNAMENT_UUID);
                 it != obj.end() && it->is_string()) {
-                it->get_to(*gameSession.scoresMetadata[playerNum].tournamentUuid);
+                metadata.tournamentUuid = it->get<std::string>();
             }
         }
     } catch (const std::exception &e) {
