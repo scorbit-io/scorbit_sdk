@@ -1078,20 +1078,17 @@ void Net::sendLatestGameData(int sessionId)
             const auto valBallInProgress =
                     gameData.isGameActive && (gameData.activePlayer == playerNum);
 
-            json playerScoreJson {
-                    {JKEY_SCR_POSITION, playerNum},
-                    {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                    {JKEY_SCR_IS_NFC_VERIFIED,
-                     gameSession->scoresMetadata[playerNum].isNfcVerified},
-                    {JKEY_SCR_TOURNAMENT_UUID,
-                     gameSession->scoresMetadata[playerNum].tournamentUuid
-                             ? json(*(gameSession->scoresMetadata[playerNum].tournamentUuid))
-                             : json(nullptr)},
-                    {JKEY_SCR_PLAYER, playerProfileJson},
-                    {JKEY_SCR_SCORE, playerState.score()},
-                    {JKEY_SCR_BALL, gameData.ball},
-                    {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                    {JKEY_SCR_MODES, modes}};
+            json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
+                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                                  {JKEY_SCR_IS_NFC_VERIFIED,
+                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
+                                  {JKEY_SCR_TOURNAMENT_UUID,
+                                   gameSession->scoresMetadata[playerNum].tournamentUuid},
+                                  {JKEY_SCR_PLAYER, playerProfileJson},
+                                  {JKEY_SCR_SCORE, playerState.score()},
+                                  {JKEY_SCR_BALL, gameData.ball},
+                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                                  {JKEY_SCR_MODES, modes}};
 
             scores.emplace_back(playerScoreJson);
         }
