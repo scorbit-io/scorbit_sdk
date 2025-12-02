@@ -96,11 +96,13 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     m_updateInProgress = true;
     m_feedback.clear();
 
+    std::string logs;
+    bool success = false;
+
     // Check for SDK update
     if (const auto it = json.find("sdk"); it != json.end() && it->is_object()) {
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
-        bool success = false;
 
         if (canUpdateSdk(urlInfo, binaryInfo)) {
             INF("Updater: trying to update SDK to version: {}", urlInfo.version);
@@ -108,7 +110,7 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         }
 
         if (!m_feedback.empty() || success) {
-            m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
+            logs = fmt::format("----- SDK -----\n\n{}\n\n", m_feedback);
         }
     }
 
@@ -118,7 +120,6 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     if (const auto it = json.find("scorbitd"); it != json.end() && it->is_object()) {
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getExecutablePath(), std::regex {SCORBITD_PATTERN}};
-        bool success = false;
 
         if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
@@ -130,8 +131,12 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         }
 
         if (!m_feedback.empty() || success) {
-            m_net.updateConfig("scorbitd", m_scorbitdVersion, success, m_feedback);
+            logs.append(fmt::format("----- scorbitd -----\n\n{}", m_feedback));
         }
+    }
+
+    if (!logs.empty()) {
+        m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, logs);
     }
 
     m_updateInProgress = false;
