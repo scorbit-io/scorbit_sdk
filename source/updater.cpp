@@ -96,31 +96,44 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     m_updateInProgress = true;
     m_feedback.clear();
 
+    // Check for SDK update
     if (const auto it = json.find("sdk"); it != json.end() && it->is_object()) {
-        feedback("----- SDK -----");
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
+        bool success = false;
 
         if (canUpdateSdk(urlInfo, binaryInfo)) {
             INF("Updater: trying to update SDK to version: {}", urlInfo.version);
-            tryToRemountAndUpdate(urlInfo, binaryInfo);
+            success = tryToRemountAndUpdate(urlInfo, binaryInfo);
+        }
+
+        if (!m_feedback.empty() || success) {
+            m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
         }
     }
 
+    m_feedback.clear();
+
+    // Check for Scorbitd update
     if (const auto it = json.find("scorbitd"); it != json.end() && it->is_object()) {
-        feedback("----- scorbitd -----");
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getExecutablePath(), std::regex {SCORBITD_PATTERN}};
+        bool success = false;
 
         if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
-            if (tryToRemountAndUpdate(urlInfo, binaryInfo)) {
+            success = tryToRemountAndUpdate(urlInfo, binaryInfo);
+
+            if (success) {
                 eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(urlInfo.version));
             }
         }
+
+        if (!m_feedback.empty() || success) {
+            m_net.updateConfig("scorbitd", m_scorbitdVersion, success, m_feedback);
+        }
     }
 
-    m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
     m_updateInProgress = false;
 }
 
@@ -131,12 +144,6 @@ Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
     try {
         info.version = obj["version"].get<std::string>();
         const auto assets = obj["assets_json"];
-        if (assets.empty()) {
-            const auto msg = fmt::format("Assets list empty");
-            feedback(msg);
-            ERR("Updater: {}", msg);
-            return info;
-        }
 
         // Find the first asset with the correct platform
         for (const auto &asset : assets) {
@@ -178,11 +185,6 @@ Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
                 }
             }
         }
-        const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
-                                     SCORBIT_SDK_PLATFORM_ID);
-        feedback(msg);
-        ERR("Updater: {}", msg);
-
     } catch (const std::exception &e) {
         const auto msg = fmt::format("Error parsing: {}, in json: {}", e.what(), obj.dump());
         feedback(msg);
@@ -302,11 +304,15 @@ bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
             return false;
         }
 
-        if (urlInfo.url.empty()) {
+        if (!isPlatformIdValid(SCORBIT_SDK_PLATFORM_ID)) {
             return false;
         }
 
-        if (!isPlatformIdValid(SCORBIT_SDK_PLATFORM_ID)) {
+        if (urlInfo.url.empty()) {
+            const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
+                                         SCORBIT_SDK_PLATFORM_ID);
+            feedback(msg);
+            ERR("Updater: {}", msg);
             return false;
         }
 
@@ -337,11 +343,15 @@ bool Updater::canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binary
         return false;
     }
 
-    if (urlInfo.url.empty()) {
+    if (!isPlatformIdValid(m_scorbitdPlatformId)) {
         return false;
     }
 
-    if (!isPlatformIdValid(m_scorbitdPlatformId)) {
+    if (urlInfo.url.empty()) {
+        const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
+                                     m_scorbitdPlatformId);
+        feedback(msg);
+        ERR("Updater: {}", msg);
         return false;
     }
 
