@@ -195,7 +195,7 @@ Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
 bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) const
 {
     bool rv = false;
-    const auto tempDir = fs::temp_directory_path() / UPDATE_DIR;
+    const auto tempDir = binaryInfo.path.parent_path() / UPDATE_DIR;
 
     try {
         // update from tgz archive
