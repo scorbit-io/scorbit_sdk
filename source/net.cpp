@@ -127,7 +127,8 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     : m_signer(std::move(signer))
     , m_deviceInfo(std::move(deviceInfo))
-    , m_updater(*this, useEncryptedKey)
+    , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
+                m_deviceInfo.scorbitdPlatformId)
     , m_eventManager(std::make_unique<EventManager>(m_worker.eventsStrand()))
 {
     setHostname(m_deviceInfo.hostname, "");
@@ -460,7 +461,7 @@ void Net::requestUnpair(StringCallback callback)
 
 void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
 {
-    m_worker.postQueue(createDownloadFileTask(std::move(callback), url, filename));
+    createDownloadFileTask(std::move(callback), url, filename)();
 }
 
 void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize)
@@ -1200,7 +1201,7 @@ void Net::requestReleaseTrackInfo()
             INF("API get release track info: ok, {}", reply);
             try {
                 json j = json::parse(reply);
-                m_updater.checkNewVersionAndUpdate(j);
+                m_updater.checkNewVersionAndUpdate(j, m_eventManager);
             } catch (const std::exception &e) {
                 ERR("API error parsing release track info reply: {}", e.what());
             }
@@ -1498,6 +1499,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             filename = std::move(filename)]() {
         Error error {Error::ApiError};
         std::string reply;
+        int statusCode = 0;
 
         std::ofstream file(filename, std::ios::binary);
         if (!file.is_open()) {
@@ -1507,21 +1509,25 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             for (int i = 0; i < NUM_RETRIES; ++i) {
                 INF("Download file: {}", url);
 
-                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT},
+                auto headers = authHeader();
+                headers[HDR_KEY_ACCEPT_CONTENT] = HDR_VAL_CONTENT_OCTET;
+
+                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
                 reply = std::move(r.text);
+                statusCode = r.status_code;
 
-                if (r.status_code == 200) {
+                if (statusCode == 200) {
                     DBG("Download file: ok, {}", reply);
                     error = Error::Success;
                     break;
                 }
 
                 error = Error::ApiError;
-                ERR("Download file failed: code={}, message: {}, reply: {}", r.status_code,
+                ERR("Download file failed: code={}, message: {}, reply: {}", statusCode,
                     r.error.message, reply);
 
-                if (r.status_code >= 400) {
+                if (statusCode >= 400) {
                     break;
                 }
             }
@@ -1529,7 +1535,8 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
         file.close();
 
         if (callback) {
-            callback(error, filename);
+            callback(error,
+                     fmt::format("HTTP CODE: {}, url: {}, to file: {}", statusCode, url, filename));
         }
     };
 }

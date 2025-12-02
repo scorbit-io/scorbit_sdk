@@ -125,6 +125,7 @@ typedef struct {
 
     // ------ for internal use only -------
     const char *scorbitd_version;
+    const char *scorbitd_platform_id;
 
 } sb_device_info_t;
 

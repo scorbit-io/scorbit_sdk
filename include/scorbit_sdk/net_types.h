@@ -118,6 +118,7 @@ struct DeviceInfo {
     // ------------ FOR INTERNAL USE ---------------------------------------------------------
 
     std::string scorbitdVersion;
+    std::string scorbitdPlatformId;
 
     // Helper methods for conversion DeviceInfo <-> sb_device_info_t
     DeviceInfo() = default;
@@ -132,6 +133,7 @@ struct DeviceInfo {
         , autoDownloadPlayerPics {di.auto_download_player_pics}
         , scoreFeaturesVersion {di.score_features_version}
         , scorbitdVersion(di.scorbitd_version ? di.scorbitd_version : std::string {})
+        , scorbitdPlatformId(di.scorbitd_platform_id ? di.scorbitd_platform_id : std::string {})
     {
         if (di.score_features && di.score_features_count > 0) {
             scoreFeatures.reserve(di.score_features_count);
@@ -154,6 +156,7 @@ struct DeviceInfo {
         di.auto_download_player_pics = autoDownloadPlayerPics;
         di.score_features_version = scoreFeaturesVersion;
         di.scorbitd_version = scorbitdVersion.c_str();
+        di.scorbitd_platform_id = scorbitdPlatformId.c_str();
 
         // Temporary array of C-string pointers (valid as long as `*this` lives)
         if (!scoreFeatures.empty()) {

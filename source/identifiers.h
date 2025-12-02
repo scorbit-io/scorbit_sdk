@@ -45,9 +45,11 @@ constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 constexpr auto HDR_KEY_AUTHORIZATION {"Authorization"};
 constexpr auto HDR_VAL_BEARER {"Bearer "}; // note the space at the end
 
+constexpr auto HDR_KEY_ACCEPT_CONTENT {"Accept"};
 constexpr auto HDR_KEY_CONTENT_TYPE {"Content-Type"};
 constexpr auto HDR_VAL_CONTENT_JSON {"application/json"};
 constexpr auto HDR_VAL_CONTENT_MULTIPART {"multipart/form-data"};
+constexpr auto HDR_VAL_CONTENT_OCTET {"application/octet-stream"};
 
 constexpr auto HDR_KEY_CACHE_CONTROL {"Cache-Control"};
 constexpr auto HDR_VAL_NO_CACHE {"no-cache"};

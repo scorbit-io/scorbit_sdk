@@ -153,6 +153,24 @@ private:
     std::string m_updateJson;
 };
 
+// ---------------- ScorbitdUpdated implementation ----------------
+
+class ScorbitdUpdatedEvent : public EventBase
+{
+public:
+    explicit ScorbitdUpdatedEvent(const std::string &version)
+        : EventBase(EventType::ScorbitdUpdated, EventPriority::Normal)
+        , m_version {version}
+    {
+    }
+
+    auto version() const -> const std::string & { return m_version; }
+
+private:
+    std::string m_version;
+};
+
+
 } // namespace detail
 } // namespace scorbit
 
