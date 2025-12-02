@@ -713,7 +713,7 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
     };
 
     auto deferredSetup = [this, payload = j.dump()]() {
-        INF("API update config: {}", payload);
+        INF("API sending update config: {}", payload);
         return std::make_tuple(url(URL_SCORBITRON_CONFIG), cpr::Body {payload});
     };
 
