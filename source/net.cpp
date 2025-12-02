@@ -1194,7 +1194,7 @@ void Net::sendScorbitronObject()
 
 void Net::requestReleaseTrackInfo()
 {
-    INF("API request release track info ...");
+    INF("API request release track info using {}...", m_releaseTrackUrl);
 
     auto callback = [this](Error error, std::string reply) {
         if (error == Error::Success) {
@@ -1212,9 +1212,13 @@ void Net::requestReleaseTrackInfo()
         }
     };
 
-    m_worker.post(createGetRequestTask(std::move(callback), [this]() {
-         return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {});
-    }));
+    m_worker.post(createGetRequestTask(
+            std::move(callback),
+            [this]() { return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {}); },
+            {
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
@@ -1830,6 +1834,10 @@ void Net::createNfcNonces()
                 INF("API create NFC nonces: requesting new batch...");
 
                 return make_tuple(endpoint, cpr::Body {});
+            },
+            {
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
             }));
 }
 
