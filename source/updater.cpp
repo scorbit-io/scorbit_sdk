@@ -199,6 +199,16 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
     bool rv = false;
     const auto tempDir = binaryInfo.path.parent_path() / UPDATE_DIR;
 
+    // RAII cleanup guard
+    auto cleanup = [&tempDir]() {
+        boost::system::error_code ec;
+        fs::remove_all(tempDir, ec);
+        if (ec) {
+            ERR("Updater: error removing temp update directory: {}", ec.message());
+        }
+    };
+    std::shared_ptr<void> guard(nullptr, [&](void *) { cleanup(); });
+
     try {
         // update from tgz archive
         const auto archivePath = fs::path {archive};
@@ -231,12 +241,6 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
         ERR("Updater: {}", msg);
     }
 
-    // cleanup extract dir
-    boost::system::error_code ec;
-    fs::remove_all(tempDir, ec);
-    if (ec) {
-        ERR("Updater: error removing temp update directory: {}", ec.message());
-    }
     return rv;
 }
 
