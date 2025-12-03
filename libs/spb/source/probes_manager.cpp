@@ -84,7 +84,7 @@ void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPat
     if (m_nfc) {
         // Set NFC to TAG mode
         ProbeNFC::NfcInformations_t pbi;
-        if (m_nfc->GetNfcInformations(&pbi) && pbi.Type != ProbeNFC::NfcType_t::TAG) {
+        if (m_nfc->GetNfcInformations(&pbi) && !(pbi.Flags & ProbeNFC::NfcFlags_t::Tag)) {
             m_nfc->SetType(ProbeNFC::NfcType_t::TAG);
         }
     }

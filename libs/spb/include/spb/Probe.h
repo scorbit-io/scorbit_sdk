@@ -86,7 +86,7 @@ typedef enum
 
     WriteNfcLedsAnimation = 0x43,
     ReadNfcInfos = 0x46,
-    WriteNfcType = 0x4b,
+    WriteNfcInfos = 0x4b,
 
     WritePinMAMEControl = 0xd3,
     ReadPinMAMEInfos = 0xd6,
@@ -95,6 +95,8 @@ typedef enum
     WriteGpio = 0xe3,
     ReadTesterInfos = 0xe6,
     WriteTesterInfos = 0xe7,
+    ReadTesterSamples = 0xea,
+    TriggerSampling = 0xeb,
 
     ReadTest = 0xf2,
     Reboot = 0xf3,
@@ -631,6 +633,28 @@ class ProbeTST : public ProbeBase
         uint16_t ExpectedCrc = ProbeTST::ComputeSecurityInfosCrc(Infos);
         return (Infos->SecurityInfosCrc == ExpectedCrc);
     }
+    bool DoRawSampling(const std::string& Filename, uint32_t ClockDivider)
+    {
+        // Trigger a sampling of raw data
+        if (!Cable.CommandWrite(ProbeCommand_t::TriggerSampling, 0, 
+            { 
+                static_cast<uint8_t>(ClockDivider),
+                static_cast<uint8_t>(ClockDivider >> 8),
+                static_cast<uint8_t>(ClockDivider >> 16),
+                static_cast<uint8_t>(ClockDivider >> 24)
+            })) return false;
+        // Get the samples
+        const int ChunkSize = 0x400;
+        for (int iSample = 0; iSample < 32768; iSample += ChunkSize / 4)
+        {
+            // Read a chunk of samples
+            auto Data = Cable.CommandRead(ProbeCommand_t::ReadTesterSamples, iSample, ChunkSize);
+            if (Data.size() != ChunkSize) return false;
+            // Write samples to file
+            Util::WriteAllBytes(Filename, Data, iSample!=0);
+        }
+        return true;
+    }
 
     private:
     static uint16_t ComputeSecurityInfosCrc(TesterInformations_t *psi)
@@ -904,12 +928,16 @@ class ProbeDMD : public ProbeBase
 
 class ProbeCPU : public ProbeBase
 {
-    public:
+    private:
+    typedef enum : uint8_t { HaltOff = 0, HaltOn, EmulateOff, EmulateOn, /*Autotune*/ } Control_t;
 
+    public:
     typedef enum : uint8_t { CPU_NONE = 0xff, CPU6502 = 0, CPU6800, CPU6802, CPU6803, CPU6808, CPU6809, CPU6809E } CpuType_t;
-    bool SetType(CpuType_t type, bool bMITM)
+    typedef enum : uint8_t { NIM = 0, MITM = 1, AUTO = 2 } CpuMode_t;
+
+    bool SetType(CpuType_t type, CpuMode_t mode)
     {
-        return Cable.CommandWrite(ProbeCommand_t::WriteCpuType, 0, { (uint8_t)type, (uint8_t)((bMITM) ? 1 : 0) });
+        return Cable.CommandWrite(ProbeCommand_t::WriteCpuType, 0, { (uint8_t)type, (uint8_t)mode });
     }
     bool SetTimings(uint32_t delayAfterOE, uint32_t delayAfterHalt, uint32_t delayBusSettle, uint32_t delayAfterClockLow, uint32_t delayAfterClockHigh, bool bWaitClockHigh)
     {
@@ -953,10 +981,11 @@ class ProbeCPU : public ProbeBase
     typedef struct
     {
         CpuType_t Type;
+        CpuMode_t Mode;
         uint8_t Unused1, Unused2, Unused3;
         uint32_t ClockFrequency;
         uint32_t delayAfterOE, delayAfterHalt, delayBusSettle, delayAfterClockLow, delayAfterClockHigh;
-        bool bWaitClockHigh, bMITM;
+        bool bWaitClockHigh;
         uint8_t NvRamUnlockValue, NvRamLockValue;
         uint16_t NvRamLockAddr;
         uint16_t NvRamAddr;
@@ -968,7 +997,7 @@ class ProbeCPU : public ProbeBase
         auto CpuInfos = Cable.CommandRead(ProbeCommand_t::ReadCpuInfos, 0, Len);
         if (CpuInfos.size() != Len) return false;
         Infos->Type = (CpuType_t)CpuInfos[0];
-        Infos->bMITM = (CpuInfos[1] != 0);
+        Infos->Mode = (CpuMode_t)CpuInfos[1];
         if (bExtended)
         {
             Infos->ClockFrequency = Util::UInt32FromBuffer(CpuInfos, 2);
@@ -988,21 +1017,17 @@ class ProbeCPU : public ProbeBase
             Infos->ClockFrequency = 0;
         return true;
     }
-    bool Halt(bool bHalt)
+    bool Halt(bool bHalt) // Halt or UnHalt the CPU
     {
-        // Halt or UnHalt the CPU
-        return Cable.CommandWrite(ProbeCommand_t::WriteCpuControlReg, 0,
-            {
-                static_cast<uint8_t>(bHalt ? 0x01 : 0x00)
-            });
+        return Cable.CommandWrite(ProbeCommand_t::WriteCpuControlReg, 0, { bHalt ? Control_t::HaltOn : Control_t::HaltOff });
     }
-    bool Emulate(bool bEmulate)
+    //bool AutotuneTimings() // Autotune the CPU timings
+    //{
+    //    return Cable.CommandWrite(ProbeCommand_t::WriteCpuControlReg, 0, { Control_t::Autotune });
+    //}
+    bool Emulate(bool bEmulate) // Halt or UnHalt the CPU
     {
-        // Halt or UnHalt the CPU
-        return Cable.CommandWrite(ProbeCommand_t::EmulateCpu, 0,
-            {
-                static_cast<uint8_t>(bEmulate ? 0x01 : 0x00)
-            });
+        return Cable.CommandWrite(ProbeCommand_t::EmulateCpu, 0, { bEmulate ? Control_t::EmulateOn : Control_t::EmulateOff });
     }
     std::vector<uint8_t> ReadMemory(uint32_t Address, int Len)
     {
@@ -1037,11 +1062,13 @@ class ProbeNFC : public ProbeBase
 {
     public:
     typedef enum : uint8_t { READER = 0, TAG = 1 } NfcType_t;
+    typedef enum : uint8_t { None=0x00, Tag=0x01, FactoryMode = 0x02, Ext_LM = 0x04 } NfcFlags_t;
 
     typedef struct
     {
-        NfcType_t Type;
-        uint8_t Brightness, Capacitance, bFactoryMode;
+        NfcFlags_t Flags;
+        uint8_t Brightness, Capacitance;
+        uint8_t Unused;
         uint32_t LastId;
         std::string TagUri;
         uint16_t RSSI;
@@ -1051,10 +1078,10 @@ class ProbeNFC : public ProbeBase
         int Len = 8+256+2;
         auto NfcInfos = Cable.CommandRead(ProbeCommand_t::ReadNfcInfos, 0, Len);
         if (NfcInfos.size() != Len) return false;
-        Infos->Type = (NfcType_t)NfcInfos[0];
+        Infos->Flags = (NfcFlags_t)NfcInfos[0];
         Infos->Brightness = NfcInfos[1];
         Infos->Capacitance = NfcInfos[2];
-        Infos->bFactoryMode = NfcInfos[3];
+        Infos->Unused = NfcInfos[3];
         Infos->LastId = Util::UInt32FromBuffer(NfcInfos, 4);
 
         int UriLen = (int)strnlen((const char*)&NfcInfos[8], 255);
@@ -1071,26 +1098,24 @@ class ProbeNFC : public ProbeBase
     {
         return Cable.CommandWrite(ProbeCommand_t::WriteNfcLedsAnimation, 0, AnimationStruct);
     }
-    bool SetType(NfcType_t type)
+    bool SetType(NfcType_t Type) { return SetFlags(NfcFlags_t::Tag, (Type==NfcType_t::TAG) ? NfcFlags_t::Tag : NfcFlags_t::None); }
+    bool SetFlags(uint8_t Mask, NfcFlags_t Flags)
     {
-        return Cable.CommandWrite(ProbeCommand_t::WriteNfcType, 0, { type });
+        // Mask specifies which bits are significant in Flags
+        return Cable.CommandWrite(ProbeCommand_t::WriteNfcInfos, 0, { Mask, Flags, 0xff /* Invalid brighness */, 0 /* Uri Length */});
     }
     bool SetLedsBrightness(uint8_t Brightness)
     {
-        return Cable.CommandWrite(ProbeCommand_t::WriteNfcType, 0, { 0xff /*Invalid Nfc type*/, Brightness, 0xff /* Invalid Factory test mode */, 0});
-    }
-    bool SetFactoryMode(bool bEnabled = true)
-    {
-        return Cable.CommandWrite(ProbeCommand_t::WriteNfcType, 0, { 0xff /*Invalid Nfc type*/, 0xff /* Invalid brightness */, (uint8_t)(bEnabled ? 1:0), 0});
+        return Cable.CommandWrite(ProbeCommand_t::WriteNfcInfos, 0, { 0x00 /*No Flags*/, 0x00 /*Flags*/, Brightness, 0});
     }
     bool SetUri(std::string uri)
     {
         std::vector<uint8_t> data;
-        data.push_back(0xff); // Invalid Nfc type
+        data.push_back(0x00); // No Flags
+        data.push_back(0x00); // Flags
         data.push_back(0xff); // Invalid Leds brightness
-        data.push_back(0xff); // Invalid Factory test mode
         data.push_back((uint8_t)uri.length()); // URI length
         data.insert(data.end(), uri.begin(), uri.end()); // URI content
-        return Cable.CommandWrite(ProbeCommand_t::WriteNfcType, 0, data);
+        return Cable.CommandWrite(ProbeCommand_t::WriteNfcInfos, 0, data);
     }
 };

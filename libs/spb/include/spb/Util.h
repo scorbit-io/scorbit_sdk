@@ -142,7 +142,7 @@ class Util
     }
 
     enum DumpFlags : uint8_t { None = 0x00, Append = 0x01, NoAddresses = 0x02, NoText = 0x04, NoMD5 = 0x08, Compact = 0x10 };
-    static void Dump(const std::vector<uint8_t>& data, const std::string& filename = "", uint8_t Flags = DumpFlags::None)
+    static void Dump(const std::vector<uint8_t>& data, uint32_t Addr = 0, const std::string& filename = "", uint8_t Flags = DumpFlags::None)
     {
         // Output to file ?
         if (!filename.empty())
@@ -156,7 +156,7 @@ class Util
             for (size_t i = 0; i < data.size(); i += 16)
             {
                 if (!(Flags & DumpFlags::NoAddresses))
-                    std::cout << std::setw(4) << std::setfill('0') << std::hex << i << ": ";
+                    std::cout << std::setw(4) << std::setfill('0') << std::hex << Addr+i << ": ";
                 for (size_t j = i; j < i + 16 && j < data.size(); ++j)
                 {
                     std::cout << std::setw(2) << std::setfill('0') << std::hex << (int)data[j];
@@ -186,9 +186,9 @@ class Util
             std::cout << std::dec;
         }
     }
-    static void Dump(void *data, int Len, const std::string& filename = "", uint8_t Flags = DumpFlags::None)
+    static void Dump(void *data, int Len, uint32_t Addr = 0, const std::string& filename = "", uint8_t Flags = DumpFlags::None)
     {
-        Dump(std::vector<uint8_t>((uint8_t*)data, (uint8_t *)data + Len), filename, Flags);
+        Dump(std::vector<uint8_t>((uint8_t*)data, (uint8_t *)data + Len), Addr, filename, Flags);
     }
 
     static void Vt100_GotoXY(int x, int y) { std::cout << "\x1b[" << y << ";" << x << "H"; }

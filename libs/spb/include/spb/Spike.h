@@ -248,12 +248,17 @@ class Spike
 	private:
 	bool SetSwitchBit(uint32_t Addr, int iBit, bool bSet)
 	{
+		// Check that the address is available
+		if (Addr == 0) { std::cerr << "No valid address for switch !" << std::endl; return false; }
+		// Read the switch byte
 		uint8_t Data;
 		if (!ReadProcessMemory(hPid, Addr + iBit / 8, 1, &Data)) return false;
+		// Set the bit
 		uint8_t Mask = 1 << (iBit % 8);
 		Data &= ~Mask;
 		if (bSet) Data |= Mask;
 		std::cout << "Writing 0x" << std::hex << std::setfill('0') << std::setw(2) << (int)Data << " at @0x" << std::setw(4) << (Addr + iBit / 8) << std::endl;
+		// Write it back
 		return WriteProcessMemory(hPid, Addr + iBit / 8, 1, &Data);
 	}
 

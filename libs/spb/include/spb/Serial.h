@@ -77,7 +77,7 @@ class SerialCable : public ProbeCable
 		    dcbSerialParams.ByteSize = 8;           
 		    dcbSerialParams.Parity = NOPARITY;      
 		    dcbSerialParams.StopBits = ONESTOPBIT;
-		    dcbSerialParams.fParity = NOPARITY;
+		    dcbSerialParams.fParity = FALSE;
 		    dcbSerialParams.fOutxCtsFlow = FALSE;   
 		    dcbSerialParams.fOutxDsrFlow = FALSE;   
 		    dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
@@ -260,7 +260,7 @@ class SerialCable : public ProbeCable
 
     virtual bool DataWrite(const std::vector<uint8_t>& buffer, bool bEndTransaction = true)
     {
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Sending:" << std::endl; Util::Dump(buffer, "", Util::DumpFlags::NoMD5); }
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Sending:" << std::endl; Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
 
         #ifdef _WIN32
         if (hSerial == INVALID_HANDLE_VALUE) return false;
@@ -322,7 +322,7 @@ class SerialCable : public ProbeCable
         }
         #endif
 
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Received:" << std::endl; Util::Dump(buffer, "", Util::DumpFlags::NoMD5); }
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Received:" << std::endl; Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
         return buffer;
     }
 
