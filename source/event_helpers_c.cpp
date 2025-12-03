@@ -90,3 +90,20 @@ bool sb_event_scorbitd_update_received(const sb_event_t *event, const char **upd
     *update_json = derived->updateJson().c_str();
     return true;
 }
+
+bool sb_event_scorbitd_updated(const sb_event_t *event, const char **version,
+                               const char **executable_path)
+{
+    if (!event || !version || !executable_path) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::ScorbitdUpdatedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *version = derived->version().c_str();
+    *executable_path = derived->executable().c_str();
+    return true;
+}

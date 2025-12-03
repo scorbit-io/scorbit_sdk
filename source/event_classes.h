@@ -158,16 +158,19 @@ private:
 class ScorbitdUpdatedEvent : public EventBase
 {
 public:
-    explicit ScorbitdUpdatedEvent(const std::string &version)
+    explicit ScorbitdUpdatedEvent(const std::string &version, const std::string &executable)
         : EventBase(EventType::ScorbitdUpdated, EventPriority::Normal)
         , m_version {version}
+        , m_executable {executable}
     {
     }
 
     auto version() const -> const std::string & { return m_version; }
+    auto executable() const -> const std::string & { return m_executable; }
 
 private:
     std::string m_version;
+    std::string m_executable;
 };
 
 

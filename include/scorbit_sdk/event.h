@@ -84,6 +84,18 @@ public:
         return true;
     }
 
+    bool eventScorbitdUpdated(std::string &version, std::string &executablePath) const
+    {
+        const char *versionCStr = nullptr;
+        const char *exePathCStr = nullptr;
+        if (!::sb_event_scorbitd_updated(m_event, &versionCStr, &exePathCStr)) {
+            return false;
+        }
+        version = versionCStr ? std::string(versionCStr) : std::string {};
+        executablePath = exePathCStr ? std::string(exePathCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };
