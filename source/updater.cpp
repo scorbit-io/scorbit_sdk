@@ -125,7 +125,7 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
 
-            if (success) {
+            if (success && eventManager) {
                 eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(
                         urlInfo.version, binaryInfo.path.string()));
             }
