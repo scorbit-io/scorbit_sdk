@@ -78,8 +78,7 @@ class Spike
 		if (Crc) { std::cerr << "pbspk2comm.dat is invalid !" << std::endl; return false; }
 
 		// Get the game Pid
-		hPid = Util::GetPid("game");
-		if (hPid <= 0) { std::cerr << "game process not found !" << std::endl; return false; }
+		if (!UpdatePid()) { std::cerr << "game process not found !" << std::endl; return false; }
 
 		return true;
 	}
@@ -172,6 +171,9 @@ class Spike
 	} SpikeInformations_t;
 	bool GetInformations(SpikeInformations_t *spi)
 	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
 		// Get data
 		bool b1 = (Vectors[VECTOR_PbSpk2CommDatVersion] >= 3) && ((Vectors[VECTOR_ScoreFlags] & 1) != 0);
 		bool b2 = (Vectors[VECTOR_PbSpk2CommDatVersion] >= 3) && ((Vectors[VECTOR_ScoreFlags] & 2) != 0);
@@ -216,7 +218,6 @@ class Spike
 	typedef enum : int { START=0, CREDIT=1 } Switch_t;
 	bool SimulateSwitch(Switch_t sw, bool bActive)
 	{
-		if (hPid <= 0) return false;
 		if (sw == START)
 			return SetSwitchBit(Vectors[VECTOR_g_matrix_data], Vectors[VECTOR_SwitchStartIndex], bActive);
 		else if (sw == CREDIT)
@@ -231,6 +232,9 @@ class Spike
 	}
 	bool GetAdjustmentValue(int iAdj, uint32_t& Value)
 	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
 		if (iAdj >= (int)Vectors[VECTOR_AdjustmentCount]) return false;
 		if (!ReadProcessMemory(hPid, Vectors[VECTOR_AdjustmentAddr]+Vectors[VECTOR_AdjustmentSize]*iAdj, sizeof(Value), &Value)) return false;
 		if (!ReadProcessMemory(hPid, Value, sizeof(Value), &Value)) return false;
@@ -238,6 +242,9 @@ class Spike
 	}
 	bool SetAdjustmentValue(int iAdj, uint32_t Value)
 	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
 		if (iAdj >= (int)Vectors[VECTOR_AdjustmentCount]) return false;
 		uint32_t addr = 0;
 		if (!ReadProcessMemory(hPid, Vectors[VECTOR_AdjustmentAddr] + Vectors[VECTOR_AdjustmentSize] * iAdj, sizeof(addr), &addr)) return false;
@@ -246,8 +253,21 @@ class Spike
 	}
 
 	private:
+	bool UpdatePid()
+	{
+		if (hPid <= 0 || !Util::PidExists(hPid))
+		{
+			// No, get the game Pid
+			hPid = Util::GetPid("game");
+		}
+		return hPid > 0;
+	}
+
 	bool SetSwitchBit(uint32_t Addr, int iBit, bool bSet)
 	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
 		// Check that the address is available
 		if (Addr == 0) { std::cerr << "No valid address for switch !" << std::endl; return false; }
 		// Read the switch byte
