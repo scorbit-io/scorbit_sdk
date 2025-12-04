@@ -64,7 +64,7 @@ constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
-constexpr auto GAME_DATA_UPDATE_INTERVAL = 1000ms;
+constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 
 constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
 
@@ -1055,71 +1055,71 @@ void Net::sendLatestGameData(int sessionId)
             INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
                 !sessionUuid.empty(),
                 m_centrifugo->state() == centrifugo::ConnectionState::Connected);
-            return;
-        }
+        } else {
+            // TODO: check if it's needed to lock mutex here
+            const auto sessionCounter = ++gameSession->sessionCounter;
+            const auto modes = json::parse(gameData.modes.jsonStr());
+            const auto updatedAt = to_iso8601(chrono::system_clock::now());
+            const auto createdAt = to_iso8601(gameSession->startedSystemTime);
 
-        // TODO: check if it's needed to lock mutex here
-        const auto sessionCounter = ++gameSession->sessionCounter;
-        const auto modes = json::parse(gameData.modes.jsonStr());
-        const auto updatedAt = to_iso8601(chrono::system_clock::now());
-        const auto createdAt = to_iso8601(gameSession->startedSystemTime);
+            json::array_t scores;
+            for (const auto &[playerNum, playerState] : gameData.players) {
+                json playerProfileJson = nullptr;
+                if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                    playerProfileJson = {
+                            {JKEY_PLAYER_ID, playerProfile->id},
+                            {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
+                            {JKEY_USERNAME, playerProfile->username},
+                            {JKEY_PLAYER_DISPLAY_NAME, playerProfile->name},
+                            {JKEY_PLAYER_INITIALS, playerProfile->initials},
+                            {JKEY_AVATAR, playerProfile->pictureUrl}};
+                }
 
-        json::array_t scores;
-        for (const auto &[playerNum, playerState] : gameData.players) {
-            json playerProfileJson = nullptr;
-            if (const auto playerProfile = m_playersManager.profile(playerNum)) {
-                playerProfileJson = {{JKEY_PLAYER_ID, playerProfile->id},
-                                     {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
-                                     {JKEY_USERNAME, playerProfile->username},
-                                     {JKEY_PLAYER_DISPLAY_NAME, playerProfile->name},
-                                     {JKEY_PLAYER_INITIALS, playerProfile->initials},
-                                     {JKEY_AVATAR, playerProfile->pictureUrl}};
+                const auto valBallInProgress =
+                        gameData.isGameActive && (gameData.activePlayer == playerNum);
+
+                json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
+                                      {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
+                                      {JKEY_SCR_IS_NFC_VERIFIED,
+                                       gameSession->scoresMetadata[playerNum].isNfcVerified},
+                                      {JKEY_SCR_TOURNAMENT_UUID,
+                                       gameSession->scoresMetadata[playerNum].tournamentUuid},
+                                      {JKEY_SCR_PLAYER, playerProfileJson},
+                                      {JKEY_SCR_SCORE, playerState.score()},
+                                      {JKEY_SCR_BALL, gameData.ball},
+                                      {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
+                                      {JKEY_SCR_MODES, modes}};
+
+                scores.emplace_back(playerScoreJson);
             }
 
-            const auto valBallInProgress =
-                    gameData.isGameActive && (gameData.activePlayer == playerNum);
+            const auto valType = (data.isGameActive ? JVAL_SCR_SCORE_UPDATE : JVAL_SCR_GAME_END);
+            const auto keyScores = (data.isGameActive ? JKEY_SCR_SCORES : JKEY_SCR_FINAL_SCORES);
 
-            json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
-                                  {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                                  {JKEY_SCR_IS_NFC_VERIFIED,
-                                   gameSession->scoresMetadata[playerNum].isNfcVerified},
-                                  {JKEY_SCR_TOURNAMENT_UUID,
-                                   gameSession->scoresMetadata[playerNum].tournamentUuid},
-                                  {JKEY_SCR_PLAYER, playerProfileJson},
-                                  {JKEY_SCR_SCORE, playerState.score()},
-                                  {JKEY_SCR_BALL, gameData.ball},
-                                  {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
-                                  {JKEY_SCR_MODES, modes}};
+            json j {{JKEY_CHN_TYPE, valType},
+                    {JKEY_CHN_PAYLOAD,
+                     {
+                             {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
+                             {keyScores, scores},
+                     }},
+                    {JKEY_SCR_METADATA,
+                     {
+                             {JKEY_SCR_GAME, sessionUuid},
+                             {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                             {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                             {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                             {JKEY_SCR_SEQUENCE, sessionCounter},
+                             {JKEY_SCR_CREATED_AT, createdAt},
+                             {JKEY_SCR_UPDATED_AT, updatedAt},
+                     }}};
 
-            scores.emplace_back(playerScoreJson);
-        }
+            const auto jstr = j.dump();
+            INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
 
-        const auto valType = (data.isGameActive ? JVAL_SCR_SCORE_UPDATE : JVAL_SCR_GAME_END);
-        const auto keyScores = (data.isGameActive ? JKEY_SCR_SCORES : JKEY_SCR_FINAL_SCORES);
-
-        json j {{JKEY_CHN_TYPE, valType},
-                {JKEY_CHN_PAYLOAD,
-                 {
-                         {JKEY_SCR_GAME_IN_PROGRESS, data.isGameActive},
-                         {keyScores, scores},
-                 }},
-                {JKEY_SCR_METADATA,
-                 {
-                         {JKEY_SCR_GAME, sessionUuid},
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
-                         {JKEY_SCR_SEQUENCE, sessionCounter},
-                         {JKEY_SCR_CREATED_AT, createdAt},
-                         {JKEY_SCR_UPDATED_AT, updatedAt},
-                 }}};
-
-        const auto jstr = j.dump();
-        INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
-
-        const auto r = m_centrifugo->publish(m_machineChannel, j);
-        if (!r) {
-            WRN("API failed to send game data: {}", r.error().message);
+            const auto r = m_centrifugo->publish(m_machineChannel, j);
+            if (!r) {
+                WRN("API failed to send game data: {}", r.error().message);
+            }
         }
 
         // Set timer for the next game data send if the game is still active
