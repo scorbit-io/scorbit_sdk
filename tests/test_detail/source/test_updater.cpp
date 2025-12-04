@@ -107,7 +107,7 @@ TEST_CASE("Updater")
     auto &mockNetRef = *mockNet; // mockNet will be moved into Updater, so we keep the ref
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet, false);
+    Updater updater(*mockNet, false, "1.99.30", "test_platform");
 
     SECTION("happy path")
     {
@@ -115,7 +115,7 @@ TEST_CASE("Updater")
                      download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 
     SECTION("download error")
@@ -131,7 +131,7 @@ TEST_CASE("Updater")
                                           "Updater: download failed: 4, some_temp_file.tar.gz")))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 
     SECTION("incorrect version, can't find download")
@@ -141,7 +141,7 @@ TEST_CASE("Updater")
                                               ANY(std::optional<std::string>)))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 
     SECTION("empty assets")
@@ -151,7 +151,7 @@ TEST_CASE("Updater")
                                               eq<std::optional<std::string>>("Assets list empty")))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 }
 
@@ -173,7 +173,7 @@ TEST_CASE("Updater major.minor version mismatch")
     auto &mockNetRef = *mockNet;
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet, false);
+    Updater updater(*mockNet, false, "1.99.30", "test_platform");
 
     REQUIRE_CALL(mockNetRef,
                  updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
@@ -181,7 +181,7 @@ TEST_CASE("Updater major.minor version mismatch")
                                       "Version mismatch: can only update by 1.0.x, found: 1.1.0")))
             .TIMES(1);
 
-    updater.checkNewVersionAndUpdate(json);
+    updater.checkNewVersionAndUpdate(json, nullptr);
 }
 
 // Make sure that if using encrypted key, sdk key hash and prod key hash should match
@@ -204,7 +204,7 @@ TEST_CASE("Updater prod key hash check")
     SECTION("Mismatch while using encrypted key")
     {
         // Create Updater object with mocked NetBase
-        Updater updater(*mockNet, true);
+        Updater updater(*mockNet, true, "1.99.30", "test_platform");
 
         REQUIRE_CALL(mockNetRef,
                      updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
@@ -213,18 +213,18 @@ TEST_CASE("Updater prod key hash check")
                                           "expected unknown1, found unknown2")))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 
     SECTION("No problem with mismatch while not using encrypted key")
     {
         // Create Updater object with mocked NetBase
-        Updater updater(*mockNet, false);
+        Updater updater(*mockNet, false, "1.99.30", "test_platform");
 
         REQUIRE_CALL(mockNetRef,
                      download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
                 .TIMES(1);
 
-        updater.checkNewVersionAndUpdate(json);
+        updater.checkNewVersionAndUpdate(json, nullptr);
     }
 }

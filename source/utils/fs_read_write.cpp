@@ -37,7 +37,9 @@ struct MountInfo {
     bool readOnly = false;
 };
 
-static std::vector<MountInfo> parseMountInfo()
+#ifdef __linux__
+
+std::vector<MountInfo> parseMountInfo()
 {
     std::ifstream in("/proc/self/mountinfo");
     if (!in)
@@ -103,7 +105,7 @@ static std::string findMountPoint(const fs::path &p)
     return bestMatch;
 }
 
-static bool isReadOnly(const std::string &mountPoint)
+bool isReadOnly(const std::string &mountPoint)
 {
     const auto mounts = parseMountInfo();
     for (const auto &m : mounts) {
@@ -113,9 +115,7 @@ static bool isReadOnly(const std::string &mountPoint)
     throw std::runtime_error("Mountpoint not found: " + mountPoint);
 }
 
-#ifdef __linux__
-
-static bool remountRW(const std::string &mountPoint)
+bool remountRW(const std::string &mountPoint)
 {
     unsigned long flags = MS_REMOUNT;
     // Let kernel reuse its existing mount flags except read-only
@@ -125,7 +125,7 @@ static bool remountRW(const std::string &mountPoint)
     return false;
 }
 
-static bool remountRO(const std::string &mountPoint)
+bool remountRO(const std::string &mountPoint)
 {
     unsigned long flags = MS_REMOUNT | MS_RDONLY;
     if (mount(nullptr, mountPoint.c_str(), nullptr, flags, nullptr) == 0) {
@@ -135,12 +135,6 @@ static bool remountRO(const std::string &mountPoint)
 }
 
 #else // NON-LINUX (macOS, Windows, etc.)
-
-bool remountRW(const std::string &)
-{
-    // Updater cannot operate on non-Linux platforms.
-    return false;
-}
 
 bool remountRO(const std::string &)
 {
@@ -156,6 +150,7 @@ namespace detail {
 
 MakeWritableResult fsMakeWritable(const boost::filesystem::path &p)
 {
+    (void)p;
     std::string mp;
 
 #ifdef __linux__

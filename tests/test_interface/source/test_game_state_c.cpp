@@ -37,8 +37,10 @@ int signer(uint8_t signature[SB_SIGNATURE_MAX_LENGTH], size_t *signature_len,
 
 TEST_CASE("Create and destroy game state")
 {
-    sb_device_info_t device_info = {"vscorbitron", 4419, "0.1.0", nullptr, nullptr, 0,
-                                    false,         NULL, 0,       0,       NULL};
+    sb_device_info_t device_info;
+    device_info.provider = "vscorbitron";
+    device_info.machine_id = 4419;
+            device_info.game_code_version = "0.1.0";
     sb_game_handle_t h = sb_create_game_state(&signer, nullptr, &device_info);
     REQUIRE(h != nullptr);
 
