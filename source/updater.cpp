@@ -353,6 +353,10 @@ bool Updater::canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binary
         return false;
     }
 
+    if (!isBinaryObjectValid(binaryInfo)) {
+        return false;
+    }
+
     if (!isPlatformIdValid(m_scorbitdPlatformId)) {
         return false;
     }
@@ -362,10 +366,6 @@ bool Updater::canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binary
                                      m_scorbitdPlatformId);
         feedback(msg);
         ERR("Updater: {}", msg);
-        return false;
-    }
-
-    if (!isBinaryObjectValid(binaryInfo)) {
         return false;
     }
 
@@ -434,7 +434,7 @@ bool Updater::isSdkVersionCompatible(const std::string &newVersion) const
 
 bool Updater::isScorbitdVersionCompatible(const std::string &newVersion) const
 {
-    return newVersion != m_scorbitdVersion;
+    return !m_scorbitdVersion.empty() && newVersion != m_scorbitdVersion;
 }
 
 bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
