@@ -334,7 +334,7 @@ bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
             return false;
         }
 
-        if (isSdkVersionCompatible(urlInfo.version)) {
+        if (!isSdkVersionCompatible(urlInfo.version)) {
             return false;
         }
     } catch (const std::exception &e) {
