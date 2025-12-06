@@ -60,12 +60,14 @@ bool sb_event_game_start_requested(const sb_event_t *event, int *players_count);
  * returns an error.
  *
  * @param [IN] event A pointer to an sb_event_t structure containing the event data.
- * @param [OUT] credits_to_add A pointer to an integer that will receive the number of credits to
+ * @param [OUT] credits A pointer to an integer that will receive the number of credits to
  * add.
+ * @param [OUT] transaction A pointer to a string that will receive the transaction ID.
  * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
  */
 SCORBIT_SDK_EXPORT
-bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add);
+bool sb_event_credits_add_requested(const sb_event_t *event, int *credits,
+                                    const char **transaction);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

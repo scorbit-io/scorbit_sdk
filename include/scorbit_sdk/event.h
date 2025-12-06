@@ -34,7 +34,7 @@ public:
      * The event type must be @ref scorbit::Type::GameStartRequested, otherwise the function
      * returns an error.
      *
-     * @param playersCount [IN] A reference to an integer that will receive the number of players.
+     * @param playersCount [OUT] A reference to an integer that will receive the number of players.
      * @return Returns true on success, or false if an error occurs (e.g., wrong event type was
      * given).
      */
@@ -50,14 +50,20 @@ public:
      * The event type must be @ref scorbit::Type::CreditsAddRequested, otherwise the function
      * returns an error.
      *
-     * @param creditsToAdd [IN] A reference to an integer that will receive the number of credits to
+     * @param credits [OUT] A reference to an integer that will receive the number of credits to
      * add.
+     * @param transaction [OUT] A reference to a string that will receive the transaction ID.
      * @return Returns true on success, or false if an error occurs (e.g., wrong event type was
      * given).
      */
-    bool getCreditsAddRequested(int &creditsToAdd) const
+    bool getCreditsAddRequested(int &credits, std::string &transaction) const
     {
-        return ::sb_event_credits_add_requested(m_event, &creditsToAdd);
+        const char *transactionCStr = nullptr;
+        if (!::sb_event_credits_add_requested(m_event, &credits, &transactionCStr)) {
+            return false;
+        }
+        transaction = transactionCStr ? std::string(transactionCStr) : std::string {};
+        return true;
     }
 
     // ---------------- OEM providers can ignore the events below ----------------

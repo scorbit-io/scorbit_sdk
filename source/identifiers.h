@@ -105,6 +105,7 @@ constexpr auto JKEY_SCR_MODES {"modes"};
 constexpr auto JKEY_CHN_TYPE {"type"};
 constexpr auto JKEY_CHN_PAYLOAD {"payload"};
 constexpr auto JVAL_CHN_TYPE_START_GAME {"start_game"};
+constexpr auto JVAL_CHN_TYPE_ADD_CREDITS {"add_credits"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
@@ -186,6 +187,10 @@ constexpr auto JKEY_ACTION_NAME {"name"};
 constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
 
 constexpr auto JVAL_NONCES {"nonces"};
+
+constexpr auto JKEY_CREDITS_COUNT {"credits"};
+constexpr auto JKEY_CREDITS_TRANSACTION {"transaction"};
+
 
 } // namespace detail
 } // namespace scorbit

@@ -46,9 +46,9 @@ bool sb_event_game_start_requested(const sb_event_t *event, int *players_count)
     return true;
 }
 
-bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add)
+bool sb_event_credits_add_requested(const sb_event_t *event, int *credits, const char **transaction)
 {
-    if (!event || !credits_to_add) {
+    if (!event || !credits || !transaction) {
         return false;
     }
 
@@ -57,7 +57,8 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits_to_add
         return false;
     }
 
-    *credits_to_add = derived->creditsToAdd();
+    *credits = derived->credits();
+    *transaction = derived->transaction().c_str();
     return true;
 }
 

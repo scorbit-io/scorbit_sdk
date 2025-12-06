@@ -96,16 +96,19 @@ private:
 class CreditsAddRequestedEvent : public EventBase
 {
 public:
-    explicit CreditsAddRequestedEvent(int creditsToAdd)
+    explicit CreditsAddRequestedEvent(int creditsToAdd, std::string transaction)
         : EventBase(EventType::CreditsAddRequested, EventPriority::High)
         , m_creditsToAdd {creditsToAdd}
+        , m_transaction {std::move(transaction)}
     {
     }
 
-    auto creditsToAdd() const -> int { return m_creditsToAdd; }
+    auto credits() const -> int { return m_creditsToAdd; }
+    auto transaction() const -> const std::string & { return m_transaction; }
 
 private:
     int m_creditsToAdd;
+    std::string m_transaction;
 };
 
 // ---------------- CreditsNumberRequested implementations ----------------

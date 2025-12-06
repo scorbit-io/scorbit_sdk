@@ -1763,7 +1763,6 @@ void Net::centrifugoSetup()
                                 setNumberOfPlayersRequested(playerCount);
                                 m_eventManager->push(
                                         std::make_shared<GameStartRequestedEvent>(playerCount));
-
                             } else if (type == JVAL_TYPE_ACTION) {
                                 const auto method = payloadIt->value(JKEY_METHOD, "");
                                 const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
@@ -1774,6 +1773,12 @@ void Net::centrifugoSetup()
                                         requestSessionData(sessionUuid);
                                     }
                                 }
+                            } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
+                                const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);
+                                const auto transaction =
+                                        payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
+                                m_eventManager->push(std::make_shared<CreditsAddRequestedEvent>(
+                                        credits, transaction));
                             } else {
                                 WRN("API-CF Unknown publication type: {}", type);
                             }
