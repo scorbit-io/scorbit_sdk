@@ -367,8 +367,28 @@ public:
         sb_set_capabilities(m_handle.get(), capabilities);
     }
 
-    // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
+    // -------------------------- CREDITS / STATUS ----------------------------------
 
+    /**
+     * @brief Sets the number of credits dropped into the machine.
+     *
+     * This function should be called when @ref scorbit::EventType::CreditsAddRequested event
+     * received and credits added to machine. It notifies the Scorbit cloud service and mobile app
+     * dropped credits count and if it was successful.
+     *
+     * @note it should not be called if physical coins dropped in to machine.
+     *
+     * @param credits The number of credits dropped into the machine.
+     * @param transaction The transaction identifier associated with the credit drop (passed in the
+     * event).
+     * @param success true if the credit drop was successful; false otherwise.
+     */
+    void setCreditsDropped(int credits, const std::string &transaction, bool success)
+    {
+        sb_set_credits_dropped(m_handle.get(), credits, transaction.c_str(), success);
+    }
+
+    // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
 
     void setEventCallback(EventCallback callback)
     {

@@ -80,10 +80,12 @@ def events_callback(gs, event):
             # Start the game here...
     
     elif event.type() == scorbit.EventType.CreditsAddRequested:
-        success, credits_to_add = event.get_credits_add_requested()
+        success, credits_to_add, transaction = event.get_credits_add_requested()
         if success:
             print(f"Credits add requested: {credits_to_add} credit(s)")
             # Add credits to the machine here...
+            # And then confirm adding credits:
+            gs.set_credits_dropped(credits_to_add, transaction, true)
     
     elif event.type() == scorbit.EventType.CreditsNumberRequested:
         # This event is sent when user requests credits number from mobile app

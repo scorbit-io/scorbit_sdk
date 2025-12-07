@@ -586,6 +586,29 @@ void Net::setCapabilities(Capabilities capabilities)
                     });
 }
 
+void Net::setCreditsDropped(int credits, const std::string &transaction, bool success)
+{
+    json j {
+            {JKEY_CREDITS_DROPPED, credits},
+            {JKEY_CREDITS_TRANSACTION, transaction},
+            {JKEY_CREDITS_SUCCESS, success},
+    };
+
+    m_worker.post(createPostRequestTask(
+            [](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API credits dropped: ok, {}", reply);
+                } else {
+                    ERR("API credits dropped: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this, body = j.dump()]() {
+                INF("API sending credits dropped: {}", body);
+                return std::make_tuple(url(URL_SCORBITRON_CREDIT_DROP_CREATE), cpr::Body {body});
+            }));
+}
+
 task_t Net::createAuthenticateTask()
 {
     return [this]() {

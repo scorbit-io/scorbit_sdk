@@ -59,6 +59,8 @@ bool sb_event_game_start_requested(const sb_event_t *event, int *players_count);
  * The event type must be @ref SB_EVT_CREDITS_ADD_REQUESTED, otherwise the function
  * returns an error.
  *
+ * @note After credits are added, @ref sb_set_credits_dropped should be called to notify the system.
+ *
  * @param [IN] event A pointer to an sb_event_t structure containing the event data.
  * @param [OUT] credits A pointer to an integer that will receive the number of credits to
  * add.

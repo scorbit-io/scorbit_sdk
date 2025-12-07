@@ -183,7 +183,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
 
 void eventsCallback(const sb_event_t *event, void *user_data)
 {
-    (void)user_data;
+    sb_game_handle_t gs = (sb_game_handle_t)user_data;
 
     sb_event_type_t event_type = sb_event_type(event);
 
@@ -200,10 +200,15 @@ void eventsCallback(const sb_event_t *event, void *user_data)
     } break;
 
     case SB_EVT_CREDITS_ADD_REQUESTED: {
-        int credits_to_add = 0;
-        if (sb_event_credits_add_requested(event, &credits_to_add)) {
-            printf("Credits add requested: %d\n", credits_to_add);
-            // Add credits to your game here
+        int credits_to_add;
+        const char *transaction;
+        if (sb_event_credits_add_requested(event, &credits_to_add, &transaction)) {
+            printf("Credits add requested: %d, transaction: %s\n", credits_to_add, transaction);
+            // Copy transaction to your own buffer, as this transaction will be gone after this
+            // callback
+
+            // Add credits to the machine ... and then call
+            sb_set_credits_dropped(gs, credits_to_add, transaction, true);
         }
     } break;
 
@@ -336,7 +341,7 @@ int main(void)
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
     // Setup events callback
-    sb_set_event_callback(gs, &eventsCallback, NULL);
+    sb_set_event_callback(gs, &eventsCallback, gs);
 
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);

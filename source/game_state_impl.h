@@ -26,7 +26,6 @@
 #include "event_classes.h"
 #include <string>
 #include <memory>
-#include <atomic>
 
 namespace scorbit {
 namespace detail {
@@ -63,6 +62,8 @@ public:
     const Picture &getPlayerPicture(sb_player_t player) const;
 
     void setCapabilities(Capabilities capabilities);
+
+    void setCreditsDropped(int credits, const std::string &transaction, bool success);
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 

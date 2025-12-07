@@ -206,6 +206,11 @@ void GameStateImpl::setCapabilities(Capabilities capabilities)
     m_net->setCapabilities(capabilities);
 }
 
+void GameStateImpl::setCreditsDropped(int credits, const std::string &transaction, bool success)
+{
+    m_net->setCreditsDropped(credits, transaction, success);
+}
+
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));

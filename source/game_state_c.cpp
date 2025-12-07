@@ -282,3 +282,9 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
                 }
             });
 }
+
+void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
+                            bool success)
+{
+    handle->gameState.setCreditsDropped(credits, transaction, success);
+}

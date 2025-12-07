@@ -462,6 +462,26 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 SCORBIT_SDK_EXPORT
 void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities);
 
+// -------------------------- CREDITS / STATUS ----------------------------------
+
+/**
+ * @brief Sets the number of credits dropped into the machine.
+ *
+ * This function should be called when @ref SB_EVT_CREDITS_ADD_REQUESTED event received and credits
+ * added to machine. It notifies the Scorbit cloud service and mobile app dropped credits count and
+ * if it was successful.
+ *
+ * @note it should not be called if physical coins dropped in to machine.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param credits The number of credits dropped into the machine.
+ * @param transaction The transaction ID associated with the credit drop (passed in the event).
+ * @param success true if the credit drop was successful; false otherwise.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
+                            bool success);
+
 // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
 
 /**

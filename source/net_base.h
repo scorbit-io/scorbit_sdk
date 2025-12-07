@@ -85,6 +85,8 @@ public:
 
     virtual void setCapabilities(Capabilities capabilities) = 0;
 
+    virtual void setCreditsDropped(int credits, const std::string &transaction, bool success) = 0;
+
     // ---------------------------------------------------------------------------------
 
     virtual void setProbesManager(std::shared_ptr<spb::ProbesManager> manager) { (void)manager; };

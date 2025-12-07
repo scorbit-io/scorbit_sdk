@@ -136,6 +136,8 @@ public:
 
     void setCapabilities(Capabilities capabilities) override;
 
+    void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,

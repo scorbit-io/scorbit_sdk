@@ -183,9 +183,12 @@ void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
 
     case scorbit::EventType::CreditsAddRequested: {
         int creditsToAdd = 0;
-        if (event.getCreditsAddRequested(creditsToAdd)) {
-            cout << "Credits add requested: " << creditsToAdd << " credit(s)" << endl;
-            // Add credits to the machine ... and then call setCreditsNumber(totalCredits);
+        std::string transaction;
+        if (event.getCreditsAddRequested(creditsToAdd, transaction)) {
+            cout << "Credits add requested: " << creditsToAdd
+                 << " credit(s), transaction: " << transaction << endl;
+            // Add credits to the machine ... and then call
+            gs.setCreditsDropped(creditsToAdd, transaction, true);
         }
     } break;
 

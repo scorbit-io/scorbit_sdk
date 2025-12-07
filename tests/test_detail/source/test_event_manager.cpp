@@ -44,7 +44,7 @@ std::shared_ptr<EventBase> createGameStartEvent(int playersCount = 2)
 
 std::shared_ptr<EventBase> createCreditsAddEvent(int credits = 10)
 {
-    return std::make_shared<CreditsAddRequestedEvent>(credits);
+    return std::make_shared<CreditsAddRequestedEvent>(credits, "my_transaction");
 }
 
 std::shared_ptr<EventBase> createCreditsNumberEvent()
@@ -335,7 +335,7 @@ TEST_CASE("EventManager callback behavior")
         }
         case EventType::CreditsAddRequested: {
             auto creditsEvent = static_cast<const CreditsAddRequestedEvent&>(event);
-            receivedData.push_back("CreditsAdd:" + std::to_string(creditsEvent.creditsToAdd()));
+            receivedData.push_back("CreditsAdd:" + std::to_string(creditsEvent.credits()));
             break;
         }
         case EventType::ConfigReceived: {

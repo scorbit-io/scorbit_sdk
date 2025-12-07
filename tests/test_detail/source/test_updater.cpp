@@ -80,6 +80,7 @@ public:
     std::string consumeNonce() override { return {}; };
     void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
     void setCapabilities(Capabilities capabilities) override {};
+    void setCreditsDropped(int, const std::string &, bool) override { };
 
 private:
     PlayerProfilesManager m_playersManager;

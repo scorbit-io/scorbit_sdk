@@ -42,7 +42,7 @@ std::shared_ptr<EventBase> createGameStartEvent(int playersCount = 2)
 
 std::shared_ptr<EventBase> createCreditsAddEvent(int credits = 10)
 {
-    return std::make_shared<CreditsAddRequestedEvent>(credits);
+    return std::make_shared<CreditsAddRequestedEvent>(credits, "my_transaction");
 }
 
 std::shared_ptr<EventBase> createCreditsNumberEvent()
@@ -369,7 +369,7 @@ TEST_CASE("EventQueue event type verification")
 
         auto creditsEvent = std::dynamic_pointer_cast<CreditsAddRequestedEvent>(dequeuedEvent);
         REQUIRE(creditsEvent != nullptr);
-        CHECK(creditsEvent->creditsToAdd() == 25);
+        CHECK(creditsEvent->credits() == 25);
     }
 
     SECTION("ConfigReceivedEvent properties")

@@ -174,8 +174,9 @@ PYBIND11_MODULE(scorbit, m)
                     "get_credits_add_requested",
                     [](const Event &self) {
                         int credits_to_add = 0;
-                        bool success = self.getCreditsAddRequested(credits_to_add);
-                        return std::make_tuple(success, credits_to_add);
+                        std::string transaction;
+                        bool success = self.getCreditsAddRequested(credits_to_add, transaction);
+                        return std::make_tuple(success, credits_to_add, transaction);
                     },
                     R"doc(
                         Process a credits add requested event.
@@ -184,16 +185,19 @@ PYBIND11_MODULE(scorbit, m)
                         The event type must be EventType.CreditsAddRequested, otherwise the function
                         returns (False, 0).
 
+                        After adding requested credits, call GameState.set_credits_dropped to notify the system.
+
                         Returns:
-                            tuple: (success, credits_to_add)
+                            tuple: (success, credits_to_add, transaction)
                                 - success (bool): True on success, or False if an error occurs (e.g., wrong event type was given).
                                 - credits_to_add (int): The number of credits to add (valid only if success=True).
+                                - transaction (str): The transaction identifier associated with the credit add request (valid only if success=True).
 
                         Example:
                             if event.type() == scorbit.EventType.CreditsAddRequested:
-                                success, credits = event.get_credits_add_requested()
+                                success, credits, transaction = event.get_credits_add_requested()
                                 if success:
-                                    print(f"Credits add requested: {credits}")
+                                    print(f"Credits add requested: {credits}, transaction: {transaction}")
                     )doc")
             .def(
                     "event_config_received",
@@ -723,6 +727,23 @@ PYBIND11_MODULE(scorbit, m)
                         ----------
                         capabilities : int
                             Bitwise OR of capability flags supported by the device.
+                    )doc")
+
+            .def("set_credits_dropped", &GameState::setCreditsDropped, py::arg("credits"),
+                 py::arg("transaction"), py::arg("success"),
+                 R"doc(
+                        Sets the number of credits dropped into the machine.
+
+                        This function should be called when EventType.CreditsAddRequested event
+                        received and credits added to machine. It notifies the Scorbit cloud service
+                        and mobile app dropped credits count and if it was successful.
+
+                        Note: it should not be called if physical coins dropped in to machine.
+
+                        Args:
+                            credits (int): The number of credits that were actually dropped.
+                            transaction (str): The transaction identifier associated with the credit drop request.
+                            success (bool): Indicates whether the credit drop was successful.
                     )doc")
 
             // -------------------------- EVENTS FROM BACKEND -------------------------------

@@ -25,6 +25,7 @@ constexpr auto URL_SCORBITRON_SESSION_UPDATE {
         "v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
 constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
 constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
+constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 
@@ -188,8 +189,11 @@ constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 
+// Credits
 constexpr auto JKEY_CREDITS_COUNT {"credits"};
+constexpr auto JKEY_CREDITS_DROPPED {"successful_credits"};
 constexpr auto JKEY_CREDITS_TRANSACTION {"transaction"};
+constexpr auto JKEY_CREDITS_SUCCESS {"success"};
 
 
 } // namespace detail
