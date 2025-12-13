@@ -39,6 +39,7 @@ public:
         TokenRefresh,
         NfcCheckTag,
         GameData,
+        SessionUpdate,
     };
 
 public:
@@ -52,6 +53,7 @@ public:
 
     void post(task_t func);
     void postQueue(task_t func);
+    void postSessionQueue(task_t func);
     void postGameDataQueue(task_t func);
     void postHeartbeatQueue(task_t func);
     void postCommitTask(task_t func);
@@ -77,7 +79,7 @@ private:
             boost::asio::make_work_guard(m_ioc)};
 
     asio_strand m_strand {m_ioc.get_executor()};
-    asio_strand m_gameDataStrand {m_ioc.get_executor()};
+    asio_strand m_sessionStrand {m_ioc.get_executor()};
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
     asio_strand m_centrifugoStrand {m_ioc.get_executor()};
     asio_strand m_eventsStrand {m_ioc.get_executor()};

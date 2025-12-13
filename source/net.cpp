@@ -267,13 +267,13 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
     }
 
     INF("API post create session, id: {}", data.id);
-    m_worker.post(createSessionCreateTask(data.id, origin, std::move(onCreated)));
+    m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
 
 void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
 {
     INF("API post update session, id: {}, upload history logs: {}", data.id, uploadHistoryLog);
-    m_worker.post(createSessionUpdateTask(data.id, uploadHistoryLog));
+    m_worker.postSessionQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
 }
 
 void Net::submitGameData(const GameData &data)
@@ -806,10 +806,11 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                         gameSession->sessionUuid, (uint64_t)&gameSession->gameData);
 
                     // Scores array will have players' profiles
-                    if (const auto it = json.find("scores"); it != json.end()) {
-                        processScoresAndPlayersProfiles(*it, *gameSession);
+                    if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
+                        scoresIt != json.end() && scoresIt->is_array()) {
+                        processScoresAndPlayersProfiles(*scoresIt, *gameSession);
                     } else {
-                        WRN("API create session: can't find scores in reply");
+                        WRN("API create session: can't find scores list in reply");
                     }
 
                     if (onCreated) {
@@ -843,6 +844,15 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
     }
     const auto &sessionUuid = gameSession->sessionUuid;
     if (sessionUuid.empty()) {
+        // Try again later
+        INF("API update session for id: {} will be retried in 1s, session uuid not ready yet...",
+            sessionId);
+        m_worker.startTimer(Worker::Timer::SessionUpdate, 1s,
+                            [this, sessionId, uploadHistoryLogs]() {
+                                m_worker.postSessionQueue(
+                                        createSessionUpdateTask(sessionId, uploadHistoryLogs));
+                            });
+
         // Session patch cancelled, session uuid is not ready yet
         return noop_task;
     }
@@ -876,8 +886,9 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
     // This variable must be declared here to have same life length as formData, otherwise
     // cpr::Buffer will use invalid reference upon exit from "if" clause which will cause memory
     // corruption. Later, in SafeMultipart the cpr::Buffer will be copied
-    const auto csv = gameHistoryToCsv(gameSession->history);
+    std::string csv;
     if (uploadHistoryLogs) {
+        csv = gameHistoryToCsv(gameSession->history);
         formData.parts.push_back(
                 {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});
     }
@@ -898,6 +909,17 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
             std::lock_guard lock(m_gameSessionsMutex);
             if (!m_gameSessions[sessionId].gameData.isGameActive) {
                 m_gameSessions.erase(sessionId);
+            } else {
+                try {
+                    json json = json::parse(reply);
+                    if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
+                        scoresIt != json.end() && scoresIt->is_array()) {
+                        auto gameSession = &m_gameSessions[sessionId];
+                        processScoresAndPlayersProfiles(*scoresIt, *gameSession);
+                    }
+                } catch (const std::exception &e) {
+                    ERR("API update session error parsing game data reply: {}", e.what());
+                }
             }
         } else {
             ERR("API update session: failed, id: {}, error code: {}", sessionId,
@@ -1285,7 +1307,7 @@ void Net::requestSessionData(const std::string &sessionUuid)
         return make_tuple(endpoint, parameters);
     };
 
-    m_worker.post(createGetRequestTask(std::move(callback), std::move(deferredSetup)));
+    m_worker.postSessionQueue(createGetRequestTask(std::move(callback), std::move(deferredSetup)));
 }
 
 void Net::postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid)

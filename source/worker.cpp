@@ -92,6 +92,11 @@ void Worker::postQueue(task_t func)
     boost::asio::post(m_strand, std::move(func));
 }
 
+void Worker::postSessionQueue(task_t func)
+{
+    boost::asio::post(m_sessionStrand, std::move(func));
+}
+
 void Worker::postGameDataQueue(task_t func)
 {
     boost::asio::post(centrifugoStrand(), std::move(func));
