@@ -102,8 +102,7 @@ public:
                       std::optional<std::string> log = std::nullopt) override;
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                        std::function<void()> onCreated) override;
-    void sessionUpdate(const detail::GameData &data, SessionFlags flags) override;
-    void submitGameData(const detail::GameData &data) override;
+    void submitGameData(const detail::GameData &data, SessionFlags flags) override;
     void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;
@@ -146,6 +145,8 @@ private:
                                    std::function<void()> onCreated);
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
     task_t createHeartbeatTask();
+
+    void sessionUpdate(const detail::GameData &data, SessionFlags flags);
 
     void startHeartbeatTimer();
     void stopHeartbeatTimer();

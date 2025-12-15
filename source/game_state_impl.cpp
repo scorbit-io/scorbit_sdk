@@ -249,39 +249,34 @@ void GameStateImpl::submitGameData(bool forceSending)
         m_data.timestamp = std::chrono::system_clock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
-        const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
-        // Publish game data
-        m_net->submitGameData(m_data);
+        const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
+        const auto isBallChanged = m_prevData.ball != m_data.ball;
+        const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
 
+        // Conditions to upload session logs
         // Skip session update right after game start or it's just finished.
-        // If it's just finished, uploading session logs will be be done by submitGameData
-        if (!isGameJustStarted && !isGameJustFinished) {
-            const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
-            const auto isBallChanged = m_prevData.ball != m_data.ball;
-            const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
+        const auto hasToUploadSessionLogs =
+                !isGameJustStarted && (isActivePlayerChanged || isBallChanged);
 
-            // Conditions to upload session logs
-            const auto hasToUploadSessionLogs =
-                    isActivePlayerChanged || isBallChanged;
+        // Conditions to update session
+        const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
 
-            // Conditions to update session
-            const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
+        SessionFlags flags;
 
-            // Update session at certain conditions
-            if (hasToUpdateSession) {
-                SessionFlags flags;
-                if (hasToUploadSessionLogs) {
-                    flags.set(SessionFlag::UploadHistoryLogs);
-                }
+        // Update session at certain conditions
+        if (hasToUpdateSession) {
+            if (hasToUploadSessionLogs) {
+                flags.set(SessionFlag::UploadHistoryLogs);
+            }
 
-                if (isPlayersNumberChanged) {
-                    flags.set(SessionFlag::PlayersAdd);
-                }
-
-                m_net->sessionUpdate(m_data, flags);
+            if (isPlayersNumberChanged) {
+                flags.set(SessionFlag::PlayersAdd);
             }
         }
+
+        // Publish game data
+        m_net->submitGameData(m_data, flags);
 
         m_prevData = m_data;
     }

@@ -270,18 +270,10 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
     m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
 
-void Net::sessionUpdate(const GameData &data, SessionFlags flags)
-{
-    INF("API post update session, id: {}, upload history logs: {}, debounce player add: {}",
-        data.id, flags.has(SessionFlag::UploadHistoryLogs),
-        flags.has(SessionFlag::PlayersAdd));
-    m_worker.postSessionQueue(createSessionUpdateTask(data.id, flags));
-}
-
-void Net::submitGameData(const GameData &data)
+void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
-    m_worker.post([this, data]() {
+    m_worker.post([this, data, flags]() {
         GameSession *gameSession = nullptr;
         {
             std::lock_guard lock(m_gameSessionsMutex);
@@ -295,9 +287,8 @@ void Net::submitGameData(const GameData &data)
             sendLatestGameData(data.id);
         }
 
-        // Upload session logs if the game just finished
-        if (!data.isGameActive) {
-            sessionUpdate(data, SessionFlag::UploadHistoryLogs);
+        if (flags) {
+            sessionUpdate(data, flags);
         }
     });
 }
@@ -1036,6 +1027,14 @@ task_t Net::createHeartbeatTask()
         // DBG("On quit heartbeat");
     };
 */
+}
+
+void Net::sessionUpdate(const GameData &data, SessionFlags flags)
+{
+    INF("API post update session, id: {}, upload history logs: {}, player add: {}",
+        data.id, flags.has(SessionFlag::UploadHistoryLogs),
+        flags.has(SessionFlag::PlayersAdd));
+    m_worker.postSessionQueue(createSessionUpdateTask(data.id, flags));
 }
 
 void Net::startHeartbeatTimer()
