@@ -857,9 +857,10 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
         return noop_task;
     }
 
-    INF("API update session for id: {}, uuid: {} ...", sessionId, sessionUuid);
-
     const auto playerCount = gameSession->gameData.players.size();
+    INF("API update session for id: {}, uuid: {}, upload logs: {}, players count: {} ...",
+        sessionId, sessionUuid, uploadHistoryLogs, playerCount);
+
     const int64_t elapsedMilliseconds =
             chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
                                                         - gameSession->startedTime)
