@@ -204,6 +204,8 @@ target_sources(
         source/event_classes.h
         source/event_queue.h
         source/event_manager.h
+        source/dflags.h
+        source/session_flags.h
 )
 
 # Generate the header from the template

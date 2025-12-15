@@ -72,7 +72,7 @@ public:
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
                        std::function<void()>) override { };
-    void sessionUpdate(const scorbit::detail::GameData &, bool) override { };
+    void sessionUpdate(const scorbit::detail::GameData &, SessionFlags) override { };
     void getConfig() override { };
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),

@@ -66,7 +66,7 @@ public:
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
                        std::function<void()>) override { };
     void submitGameData(const GameData &) override { };
-    void sessionUpdate(const GameData &, bool) override { };
+    void sessionUpdate(const GameData &, SessionFlags) override { };
     void getConfig() override { };
 
     MAKE_MOCK4(updateConfig,

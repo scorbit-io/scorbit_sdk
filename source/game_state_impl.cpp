@@ -270,7 +270,12 @@ void GameStateImpl::submitGameData(bool forceSending)
 
             // Update session at certain conditions
             if (hasToUpdateSession) {
-                m_net->sessionUpdate(m_data, hasToUploadSessionLogs);
+                SessionFlags flags;
+                if (hasToUploadSessionLogs) {
+                    flags.set(SessionFlag::UploadHistoryLogs);
+                }
+
+                m_net->sessionUpdate(m_data, flags);
             }
         }
 

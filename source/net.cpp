@@ -270,10 +270,11 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
     m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
 
-void Net::sessionUpdate(const GameData &data, bool uploadHistoryLog)
+void Net::sessionUpdate(const GameData &data, SessionFlags flags)
 {
-    INF("API post update session, id: {}, upload history logs: {}", data.id, uploadHistoryLog);
-    m_worker.postSessionQueue(createSessionUpdateTask(data.id, uploadHistoryLog));
+    INF("API post update session, id: {}, upload history logs: {}", data.id,
+        flags.has(SessionFlag::UploadHistoryLogs));
+    m_worker.postSessionQueue(createSessionUpdateTask(data.id, flags));
 }
 
 void Net::submitGameData(const GameData &data)
@@ -295,7 +296,7 @@ void Net::submitGameData(const GameData &data)
 
         // Upload session logs if the game just finished
         if (!data.isGameActive) {
-            sessionUpdate(data, true);
+            sessionUpdate(data, SessionFlag::UploadHistoryLogs);
         }
     });
 }
@@ -828,7 +829,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
     return createPostRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
-task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
+task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
 {
     GameSession *gameSession = nullptr;
     {
@@ -848,9 +849,9 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
         INF("API update session for id: {} will be retried in 1s, session uuid not ready yet...",
             sessionId);
         m_worker.startTimer(Worker::Timer::SessionUpdate, 1s,
-                            [this, sessionId, uploadHistoryLogs]() {
+                            [this, sessionId, flags]() {
                                 m_worker.postSessionQueue(
-                                        createSessionUpdateTask(sessionId, uploadHistoryLogs));
+                                        createSessionUpdateTask(sessionId, flags));
                             });
 
         // Session patch cancelled, session uuid is not ready yet
@@ -859,7 +860,7 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
 
     const auto playerCount = gameSession->gameData.players.size();
     INF("API update session for id: {}, uuid: {}, upload logs: {}, players count: {} ...",
-        sessionId, sessionUuid, uploadHistoryLogs, playerCount);
+        sessionId, sessionUuid, flags.has(SessionFlag::UploadHistoryLogs), playerCount);
 
     const int64_t elapsedMilliseconds =
             chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
@@ -888,7 +889,7 @@ task_t Net::createSessionUpdateTask(int sessionId, bool uploadHistoryLogs)
     // cpr::Buffer will use invalid reference upon exit from "if" clause which will cause memory
     // corruption. Later, in SafeMultipart the cpr::Buffer will be copied
     std::string csv;
-    if (uploadHistoryLogs) {
+    if (flags.has(SessionFlag::UploadHistoryLogs)) {
         csv = gameHistoryToCsv(gameSession->history);
         formData.parts.push_back(
                 {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});

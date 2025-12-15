@@ -23,6 +23,7 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "player_profiles_manager.h"
 #include "event_classes.h"
+#include "session_flags.h"
 #include <boost/signals2.hpp>
 #include <string>
 #include <optional>
@@ -53,7 +54,7 @@ public:
                               std::optional<std::string> log = std::nullopt) = 0;
     virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                                std::function<void()> onCreated) = 0;
-    virtual void sessionUpdate(const detail::GameData &data, bool uploadHistoryLogs) = 0;
+    virtual void sessionUpdate(const detail::GameData &data, SessionFlags flags) = 0;
     virtual void submitGameData(const detail::GameData &data) = 0;
     virtual void sendHeartbeat() = 0;
     virtual void getConfig() = 0;
