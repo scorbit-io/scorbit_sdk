@@ -275,6 +275,10 @@ void GameStateImpl::submitGameData(bool forceSending)
                     flags.set(SessionFlag::UploadHistoryLogs);
                 }
 
+                if (isPlayersNumberChanged) {
+                    flags.set(SessionFlag::PlayersAdd);
+                }
+
                 m_net->sessionUpdate(m_data, flags);
             }
         }

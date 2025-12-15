@@ -272,8 +272,9 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
 
 void Net::sessionUpdate(const GameData &data, SessionFlags flags)
 {
-    INF("API post update session, id: {}, upload history logs: {}", data.id,
-        flags.has(SessionFlag::UploadHistoryLogs));
+    INF("API post update session, id: {}, upload history logs: {}, debounce player add: {}",
+        data.id, flags.has(SessionFlag::UploadHistoryLogs),
+        flags.has(SessionFlag::PlayersAdd));
     m_worker.postSessionQueue(createSessionUpdateTask(data.id, flags));
 }
 

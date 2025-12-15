@@ -26,7 +26,8 @@ namespace scorbit {
 namespace detail {
 
 enum class SessionFlag : uint32_t {
-    UploadHistoryLogs = 1u << 0,  // Upload history logs after session ends
+    UploadHistoryLogs = 1u << 0, // Upload history logs after session ends
+    PlayersAdd = 1u << 1,        // Adding new players
 };
 using SessionFlags = DFlags<SessionFlag>;
 
