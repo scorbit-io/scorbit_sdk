@@ -57,7 +57,7 @@ class SerialCable : public ProbeCable
 	virtual std::string GetName() { return "Serial"; }
     virtual bool Initialize(const std::string &sDevice) 
     {
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) std::cout << "Using device " << sDevice << std::endl;
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Using device %s\n", sDevice.c_str());
 
         // Call base function
         ProbeCable::Initialize(sDevice);
@@ -72,7 +72,7 @@ class SerialCable : public ProbeCable
 		    // Configure DCB structure
 		    DCB dcbSerialParams = {0};
 		    dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
-		    if (!GetCommState(hSerial, &dcbSerialParams)) { std::cerr << "Can't read serial port configuration !" << std::endl; return false; }
+		    if (!GetCommState(hSerial, &dcbSerialParams)) { ERR("Can't read serial port configuration !\n"); return false; }
 		    dcbSerialParams.BaudRate = 921600 * 4;  
 		    dcbSerialParams.ByteSize = 8;           
 		    dcbSerialParams.Parity = NOPARITY;      
@@ -86,7 +86,7 @@ class SerialCable : public ProbeCable
 		    dcbSerialParams.fInX = FALSE;           
 
 		    // Apply configuration
-		    if (!SetCommState(hSerial, &dcbSerialParams)) { std::cerr << "Can't configure serial port !" << std::endl; return false; }
+		    if (!SetCommState(hSerial, &dcbSerialParams)) { ERR("Can't configure serial port !\n"); return false; }
 
 		    // Configure timeouts
 		    COMMTIMEOUTS timeouts = {0};
@@ -95,7 +95,7 @@ class SerialCable : public ProbeCable
 		    timeouts.ReadTotalTimeoutMultiplier = 10;
 		    timeouts.WriteTotalTimeoutConstant = 1000; 
 		    timeouts.WriteTotalTimeoutMultiplier = 10;
-		    if (!SetCommTimeouts(hSerial, &timeouts)) { std::cerr << "Can't configure seria timeouts !" << std::endl; return false; }
+		    if (!SetCommTimeouts(hSerial, &timeouts)) { ERR("Can't configure seria timeouts !\n"); return false; }
 
             // Flush buffers
             PurgeComm(hSerial, PURGE_RXCLEAR | PURGE_TXCLEAR);
@@ -139,7 +139,7 @@ class SerialCable : public ProbeCable
             hSerial = open(sDevice.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
             if (hSerial <= 0)
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) std::cerr << "Can't open port " << sDevice.c_str() << " - Err:" << (int)hSerial << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Can't open port %s - Err:%d\n", sDevice.c_str(), (int)hSerial);
                 return false;
             }
 
@@ -184,7 +184,7 @@ class SerialCable : public ProbeCable
             {
                 if (!Initialize("COM" + std::to_string(i))) 
                     continue;
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) std::cerr << "Autodetection : port COM" << i << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Autodetection : port COM%d\n", i);
                 return true;
             }
             return false;
@@ -217,7 +217,7 @@ class SerialCable : public ProbeCable
             {
                 if (!Initialize("/dev/ttyACM" + std::to_string(i))) 
                     continue;
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) std::cerr << "Autodetection : port /dev/ttyACM" << i << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Autodetection : port /dev/ttyACM%d\n", i);
                 return true;
             }
             return false;
@@ -247,10 +247,10 @@ class SerialCable : public ProbeCable
         #elif defined(__linux__) || defined(__APPLE__)
             if (hSerial > 0)
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Closing port" << std::endl; }
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Closing port\n"); }
                 tcflush(hSerial, TCIOFLUSH); // To prevent delays if some charaters have not been transmitted                                
                 close(hSerial);
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Port closed" << std::endl; }
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Port closed\n"); }
                 hSerial = 0;
             }
         #else
@@ -260,7 +260,7 @@ class SerialCable : public ProbeCable
 
     virtual bool DataWrite(const std::vector<uint8_t>& buffer, bool bEndTransaction = true)
     {
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Sending:" << std::endl; Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Sending:\n"); Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
 
         #ifdef _WIN32
         if (hSerial == INVALID_HANDLE_VALUE) return false;
@@ -310,7 +310,7 @@ class SerialCable : public ProbeCable
                 time += 10;
                 if (time >= TimeoutMs)
                 {
-                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) std::cerr << "Timeout waiting for data..." << std::endl;
+                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Timeout waiting for data...\n");
                     return {};
                 }
                 #endif
@@ -322,7 +322,7 @@ class SerialCable : public ProbeCable
         }
         #endif
 
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { std::cerr << "Received:" << std::endl; Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Received:\n"); Util::Dump(buffer, 0, "", Util::DumpFlags::NoMD5); }
         return buffer;
     }
 
@@ -413,10 +413,7 @@ class SerialCable : public ProbeCable
         bool bCrcOk = (uint8_t)Sum == Crc[0] && (uint8_t)(Sum >> 8) == Crc[1];
         if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable) && !bCrcOk)
         {
-            std::cerr << "Wrong CRC :" << std::endl;
-            std::cerr << "- Received = 0x" << std::setfill('0') << std::setw(2) << std::hex << (int)Crc[1] << (int)Crc[0] << std::endl;
-            std::cerr << "- Expected = 0x" << std::setfill('0') << std::setw(4) << std::hex << Sum << std::endl;
-            std::cerr << std::dec;
+            ERR("Wrong CRC :\n- Received = 0x%04X\n- Expected = 0x%02X%02X\n", (int)Crc[1], (int)Crc[0], (int)Sum);
         }
         return bCrcOk;
     }

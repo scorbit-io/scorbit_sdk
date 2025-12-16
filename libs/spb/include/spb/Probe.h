@@ -121,16 +121,16 @@ class ProbeBase
         if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
         {
             if (DeviceName.empty())
-                std::cerr << "Initializing cable with DeviceIndex=" << DeviceIndex << std::endl;
+                ERR("Initializing cable with DeviceIndex=%d\n", DeviceIndex);
             else
-                std::cerr << "Initializing cable with DeviceName=" << DeviceName << std::endl;
+                ERR("Initializing cable with DeviceName=%s\n", DeviceName.c_str());
         }
         Cable.Close();
 
         if (!DeviceName.empty() && !Cable.Initialize(DeviceName))
         {
             if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
-                std::cerr << "Device \"" << DeviceName << "\" can't be initialized !\n";
+                ERR("Device \"%s\" can't be initialized !\n", DeviceName.c_str());
             return false;
         }
         if (DeviceName.empty() && !Cable.Initialize(DeviceIndex))
@@ -138,9 +138,9 @@ class ProbeBase
             if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
             {
                 if (DeviceIndex >= 0)
-                    std::cerr << "Device #" << DeviceIndex << " can't be initialized !\n";
+                    ERR("Device #%d can't be initialized !\n", DeviceIndex);
                 else
-                    std::cerr << "Default device can't be initialized !\n";
+                    ERR("Default device can't be initialized !\n");
             }
             return false;
         }
@@ -372,18 +372,18 @@ class ProbeBase
         if (bUploadFile)
         {
             #ifndef _WIN32
-            if (!Util::IsRoot()) { std::cerr << "Need to be root !" << std::endl; return false; }
+            if (!Util::IsRoot()) { ERR("Need to be root !\n"); return false; }
             #endif
 
             // Does the firmware file exists ?
             if (!Util::FileExists(FirmwareFilename.c_str()))
-                { std::cerr << "Firmware file (" << FirmwareFilename << ") not found !" << std::endl; return false; }
+                { ERR("Firmware file \"%s\" not found !\n", FirmwareFilename.c_str()); return false; }
 
             // Get the firmware timestamp
             bPbiValid = Cable.IsOpen() && GetInformations(&pbi);
             if (!bPbiValid)
             {
-                if (bVerbose) std::cerr << "Warning: Can't read Target firmware timestamp !" << std::endl; 
+                if (bVerbose) ERR("Warning: Can't read Target firmware timestamp !\n");
                 // Force the upgrade as we won't be able to compare the timestamps
                 bForceUpgrade = true;
             }
@@ -394,7 +394,7 @@ class ProbeBase
                 // Get firmware file last modification date
                 std::error_code ec;
                 auto ft = std::filesystem::last_write_time(FirmwareFilename, ec);
-                if (ec) { if (bVerbose) std::cerr << "Can't read Target modification date !"; return false; }
+                if (ec) { if (bVerbose) ERR("Can't read Target modification date !\n"); return false; }
                 // Convert timestamp to uint64_t (same format as probe Timestamp64)
                 const auto now_sys = std::chrono::system_clock::now();
                 const auto now_file = std::filesystem::file_time_type::clock::now();
@@ -414,19 +414,19 @@ class ProbeBase
                     + static_cast<uint64_t>(tm.tm_sec);
 
                 // Need an upgrade  (with 30s tolerance) ?
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Timestamps - File:" << FileTimestampUTC << " Probe:" << pbi.TimestampUTC << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Timestamps - File:%lld Probe:%lld\n", FileTimestampUTC, pbi.TimestampUTC);
                 if (((int64_t)FileTimestampUTC - (int64_t)pbi.TimestampUTC) < 30 && !bForceUpgrade)
-                    { if (bVerbose) std::cerr << "Probe does not need to be upgraded !" << std::endl; return true; }
+                    { if (bVerbose) INF("Probe does not need to be upgraded !\n"); return true; }
             }
         }
 
         // Switch to bootloader mode
         if (Cable.IsOpen()) // Only when a cable is open
         {
-            if (bVerbose) std::cerr << "Switching to bootloader mode..." << std::endl;
+            if (bVerbose) INF("Switching to bootloader mode...\n");
             bool bOk = Cable.CommandWrite(ProbeCommand_t::Bootloader, 0, { 0x05, 0xC0, 0x4B, 0x17 });
-            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "CommandWrite done !" << std::endl;
-            if (!bOk && HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Warning: RP2040 did not respond to Bootloader command... trying to upgrade firmware anyway" << std::endl;
+            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("CommandWrite done !\n");
+            if (!bOk && HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) WRN("Warning: RP2040 did not respond to Bootloader command... trying to upgrade firmware anyway\n");
             // Continue even in case of an error, just in case the RP2040 is already in bootloader mode
 
             // Give time to the bootloader
@@ -434,7 +434,7 @@ class ProbeBase
         }
         else
         {
-            std::cerr << "Probe is not initialized... trying to upgrade firmware anyway" << std::endl;
+            WRN("Probe is not initialized... trying to upgrade firmware anyway\n");
         }
 
         // If no filename is specified, stop here
@@ -468,7 +468,7 @@ class ProbeBase
             DWORD serial = 0, maxCompLen = 0, fsFlags = 0;
             if (!GetVolumeInformationW(rootForInfo.c_str(), Label, MAX_PATH, &serial, &maxCompLen, &fsFlags, fsName, MAX_PATH))
             {
-                if (bVerbose) std::cerr << "Can't get volume label !" << std::endl; return false;
+                if (bVerbose) ERR("Can't get volume label !\n"); return false;
             }
 
             // Check the volume label and the presence of INFO_UF2.TXT
@@ -476,12 +476,12 @@ class ProbeBase
             for (wchar_t wc : rootForInfo) BootloaderDir.push_back(static_cast<char>(wc));
             if (std::wstring(Label) == L"RPI-RP2" && Util::FileExists((BootloaderDir + "INFO_UF2.TXT").c_str()))
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "INFO_UF2.TXT OK !" << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("INFO_UF2.TXT OK !\n");
                 // Copy the new firmware to the bootloader
                 std::ifstream  src(FirmwareFilename, std::ios::binary);
                 std::ofstream  dst(BootloaderDir + "/firmware.uf2", std::ios::binary);
                 dst << src.rdbuf();
-                if (bVerbose) std::cerr << "Firmware copy DONE !" << std::endl;
+                if (bVerbose) INF("Firmware copy DONE !\n");
                 // Done !
                 bOk = true;
                 break;
@@ -495,7 +495,7 @@ class ProbeBase
 
         // Create a bootloader mount point
         if (mkdir(RP2040_BOOTLOADER_DIR, 0755) == -1 && errno != EEXIST)
-            { std::cerr << "Can't create " RP2040_BOOTLOADER_DIR " !" << std::endl; return false; }
+            { ERR("Can't create %s !\n", RP2040_BOOTLOADER_DIR); return false; }
 
         // Wait so that the RP2040 has time to start the bootloader
         // Find the corresponding device
@@ -521,23 +521,23 @@ class ProbeBase
                 std::string sDevice;
                 try { sDevice = "/dev/" + std::filesystem::read_symlink("/dev/disk/by-label/RPI-RP2").filename().string(); } catch (...) { break; }
             #endif
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Trying " << sDevice << "..." << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying %s...", sDevice.c_str());
                 // Does the device exists ?
                 if (access(sDevice.c_str(), F_OK) != 0) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); continue; }
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Access OK !" << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Access OK !\n");
                 // Mount this device in bootloader directory (ignore errors in case it's already automounted)
                 mount(sDevice.c_str(), RP2040_BOOTLOADER_DIR, mountfs, MS_NOEXEC | MS_SYNCHRONOUS, nullptr);
 
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "mount OK !" << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("mount OK !\n");
                 // Verify that this directory is correct
                 if (access(RP2040_BOOTLOADER_DIR "/INFO_UF2.TXT", F_OK) == 0)
                 {
-                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "INFO_UF2.TXT OK !" << std::endl;
+                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("INFO_UF2.TXT OK !\n");
                     // Copy the new firmware to the bootloader
                     std::ifstream  src(FirmwareFilename, std::ios::binary);
                     std::ofstream  dst(RP2040_BOOTLOADER_DIR "/firmware.uf2", std::ios::binary);
                     dst << src.rdbuf();
-                    if (bVerbose) std::cerr << "Firmware copy DONE !" << std::endl;
+                    if (bVerbose) INF("Firmware copy DONE !\n");
                     // Done !
                     bOk = true;
                 }
@@ -551,21 +551,21 @@ class ProbeBase
                 }
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
                 {
-                    if (bOk) std::cerr << "Device unmounted !" << std::endl;
-                    else std::cerr << "Can't unmount device !" << std::endl;
+                    if (bOk) INF("Device unmounted !\n");
+                    else ERR("Can't unmount device !\n");
                 }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
         if (!bOk)
-            std::cerr << "Couldn't find the RP2040 bootloader device !" << std::endl;
+            ERR("Couldn't find the RP2040 bootloader device !\n");
         else
             // Give time for the upgrade
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         // Delete bootloader directory
         remove(RP2040_BOOTLOADER_DIR);
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Mountpoint deleted !" << std::endl;
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Mountpoint deleted !\n");
         #endif
 
         // Re-initialze the cable (that has been disconnect during the upgrade process)
@@ -574,13 +574,13 @@ class ProbeBase
             // Try a few times to find the same probe
             for (int i = 0; i < 10; i++)
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Trying to reconnect probe " << pbi.Id << "/0x" << std::hex << pbi.UID << std::dec << "..." << std::endl;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying to reconnect probe %s/0x%X...\n", pbi.UID, pbi.Id.c_str());
                 if (this->FindProbe(pbi.Id, pbi.UID)) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             }
         }
 
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) std::cerr << "Exiting UploadFirmware !" << std::endl;
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Exiting UploadFirmware !\n");
         return bOk;
     }
 };
@@ -731,7 +731,7 @@ class ProbeDMD : public ProbeBase
 
         // Open bitmap file
         cv::Mat bmp = cv::imread(filename, cv::IMREAD_UNCHANGED);
-        if (bmp.empty()) { std::cerr << "Cannot open bitmap \"" << filename << "\"!" << std::endl; return {}; }
+        if (bmp.empty()) { ERR("Cannot open bitmap \"%s\"!\n", filename.c_str()); return {}; }
         
         // Resize the bitmap if needed
         //if (Width >= 0 && Width <= 192 && Height >= 0 && Height <= 32)
@@ -740,7 +740,7 @@ class ProbeDMD : public ProbeBase
         // Check the geometry
         int Width = bmp.cols, Height = bmp.rows;
         if (Width > 192 || Height > 64)
-            { std::cerr << "Overlay is too large (" << Width << "x" << Height << ") !" << std::endl; return {}; }
+            { ERR("Overlay is too large (%d x %d) !\n", Width, Height); return {}; }
 
         // Convert it to overlay format
         std::vector<uint8_t> overlay; // Unpacked overlay: 1 pixel per byte + transparency bit in MSB
@@ -794,7 +794,7 @@ class ProbeDMD : public ProbeBase
 
         // Check the geometry
         if (Width > 192 || Height > 64)
-            { std::cerr << "Overlay is too large (" << Width << "x" << Height << ") !" << std::endl; return {}; }
+            { ERR("Overlay is too large (%d x %d) !\n", Width, Height); return {}; }
 
         // Resize the bitmap if needed
         //std::vector<uint8_t> resizedImage(Width * Height * Channels);
@@ -872,7 +872,7 @@ class ProbeDMD : public ProbeBase
         {
             // Load overlay (header + data)
             auto overlay = ReadOverlay(filename);
-            if (overlay.size() == 0) { std::cerr << "Cannot open bitmap \"" << filename << "\"! (can't open file or wrong geometry)" << std::endl; return false; }
+            if (overlay.size() == 0) { ERR("Cannot open bitmap \"%s\"! (can't open file or wrong geometry)\n", filename.c_str()); return false; }
 
             // Send data to Cable
             Cable.CommandWrite(ProbeCommand_t::WriteDmdOverlay, 0, overlay);

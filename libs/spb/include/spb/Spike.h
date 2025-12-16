@@ -63,22 +63,22 @@ class Spike
 	{
 		// Read vector file from pbspk2comm or pbspk2comm.dat
 		int fn = open(Pbspk2commFilename, O_RDONLY);
-		if (fn == -1) { std::cerr << "Can't open pbspk2comm !" << std::endl; return false; }
+		if (fn == -1) { ERR("Can't open pbspk2comm !\n"); return false; }
 
 		// Go to the beginning of vectors
-		if (lseek(fn, -1024, SEEK_END) == -1) { std::cerr << "Can't find vectors in pbspk2comm !" << std::endl; close(fn); return false; }
+		if (lseek(fn, -1024, SEEK_END) == -1) { ERR("Can't find vectors in pbspk2comm !\n"); close(fn); return false; }
 
 		// Read the vectors
-		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { std::cerr << "pbspk2comm is invalid !" << std::endl; close(fn); return false; }
+		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { ERR("pbspk2comm is invalid !\n"); close(fn); return false; }
 		close(fn);
 
 		// Compute Crc
 		uint32_t Crc = 1;
 		for (int i = 1; i < sizeof(Vectors) / sizeof(Vectors[0]); i++) { Vectors[i] ^= Vectors[VECTOR_XorValue]; Crc += Vectors[i]; }
-		if (Crc) { std::cerr << "pbspk2comm.dat is invalid !" << std::endl; return false; }
+		if (Crc) { ERR("pbspk2comm.dat is invalid !\n"); return false; }
 
 		// Get the game Pid
-		if (!UpdatePid()) { std::cerr << "game process not found !" << std::endl; return false; }
+		if (!UpdatePid()) { ERR("game process not found !\n"); return false; }
 
 		return true;
 	}
@@ -90,7 +90,7 @@ class Spike
 		#if defined(__linux__) 
 		// Open the file
 		int fd = ::open("/games/game", O_RDONLY);
-		if (fd < 0) { std::cerr << "/games/game not found !" << std::endl; return 0; }
+		if (fd < 0) { ERR("/games/game not found !\n"); return 0; }
 
 		// mmap the game file
 		struct stat st;
@@ -158,7 +158,7 @@ class Spike
 		close(fd);
 
 		#else // __linux__
-		std::cerr << "This function only works on a Spike game !" << std::endl; 
+		ERR("This function only works on a Spike game !\n");
 		#endif // __linux__
 
 		return FirmwareId;
@@ -215,13 +215,62 @@ class Spike
 		return true;
 	}
 
+	/*bool SimulateSwitchDebugJaws101le(int iSwitchNew, int iSwitchOld)
+	{
+		uint32_t ptrData;
+		if (!ReadProcessMemory(hPid, 0x86a414, 4, &ptrData)) return false;
+		uint8_t Data;
+		uint32_t ptrDataForThisSwitch = ptrData + 0x20 * iSwitchNew + 0x18;
+
+		if (iSwitchNew > 0)
+		{
+			Data = 0x02;
+			INF("0x%02X at @0x%04X\n", Data, ptrDataForThisSwitch);
+			if (!WriteProcessMemory(hPid, ptrDataForThisSwitch, 1, &Data)) return false;
+		}
+		uint32_t g_matrix = 0x867c1c + (iSwitchOld/8);
+		if (iSwitchOld > 0)
+		{
+			Data = (1 << (iSwitchOld % 8));
+			INF("0x%02X at @0x%04X\n", Data, g_matrix);
+			if (!WriteProcessMemory(hPid, g_matrix, 1, &Data)) return false;
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+		if (iSwitchNew > 0)
+		{
+			Data = 0x01;
+			INF("0x%02X at @0x%04X\n", Data, ptrDataForThisSwitch);
+			if (!WriteProcessMemory(hPid, ptrDataForThisSwitch, 1, &Data)) return false;
+		}
+		if (iSwitchOld > 0)
+		{
+			Data = 0x00;
+			INF("0x%02X at @0x%04X\n", Data, g_matrix);
+			if (!WriteProcessMemory(hPid, g_matrix, 1, &Data)) return false;
+		}
+		return true;
+	}*/
+	// Switch simulation when we know its index on the game
+	bool SimulateSwitch(uint8_t iSwitch, bool bActive)
+	{
+		return SetSwitchBit(Vectors[VECTOR_g_matrix_data], iSwitch, bActive);
+	}
+	bool SimulateSwitch(uint8_t sw)
+	{
+		if (!SimulateSwitch(sw, true)) return false;
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+		return SimulateSwitch(sw, false);
+	}
+	// Switch simulation by function
 	typedef enum : int { START=0, CREDIT=1 } Switch_t;
 	bool SimulateSwitch(Switch_t sw, bool bActive)
 	{
 		if (sw == START)
-			return SetSwitchBit(Vectors[VECTOR_g_matrix_data], Vectors[VECTOR_SwitchStartIndex], bActive);
+			return SimulateSwitch(Vectors[VECTOR_SwitchStartIndex], bActive);
 		else if (sw == CREDIT)
-			return SetSwitchBit(Vectors[VECTOR_g_matrix_dedicated_data], Vectors[VECTOR_SwitchCreditIndex], bActive);
+			return SimulateSwitch(Vectors[VECTOR_SwitchCreditIndex]+0x80, bActive); // +0x80 because CREDIT is a dedicated switch
 		return false;
 	}
 	bool SimulateSwitch(Switch_t sw)
@@ -269,7 +318,7 @@ class Spike
 		if (!UpdatePid()) return false;
 
 		// Check that the address is available
-		if (Addr == 0) { std::cerr << "No valid address for switch !" << std::endl; return false; }
+		if (Addr == 0) { ERR("No valid address for switch !\n"); return false; }
 		// Read the switch byte
 		uint8_t Data;
 		if (!ReadProcessMemory(hPid, Addr + iBit / 8, 1, &Data)) return false;
@@ -277,7 +326,7 @@ class Spike
 		uint8_t Mask = 1 << (iBit % 8);
 		Data &= ~Mask;
 		if (bSet) Data |= Mask;
-		std::cout << "Writing 0x" << std::hex << std::setfill('0') << std::setw(2) << (int)Data << " at @0x" << std::setw(4) << (Addr + iBit / 8) << std::endl;
+		INF("0x%02X at @0x%04X\n", Data, (Addr + iBit / 8));
 		// Write it back
 		return WriteProcessMemory(hPid, Addr + iBit / 8, 1, &Data);
 	}

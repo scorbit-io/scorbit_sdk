@@ -20,6 +20,7 @@
 #include <stdexcept>
 #include <cstdlib>
 #include <iterator>
+#include <cstdarg>
 #ifdef __linux__
 #include <unistd.h>
 #include <dirent.h>
@@ -28,6 +29,22 @@
 #include <unistd.h>
 #endif
 #include "md5.h"
+
+#ifndef DBG
+#define DBG(...) std::cerr << Util::Format(__VA_ARGS__)
+#endif
+
+#ifndef INF
+#define INF(...) std::cerr << Util::Format(__VA_ARGS__)
+#endif
+
+#ifndef WRN
+#define WRN(...) std::cerr << Util::Format(__VA_ARGS__)
+#endif
+
+#ifndef ERR
+#define ERR(...) std::cerr << Util::Format(__VA_ARGS__)
+#endif
 
 class Util
 {
@@ -148,7 +165,7 @@ class Util
         if (!filename.empty())
         {
             try { WriteAllBytes(filename, data, ((Flags & DumpFlags::Append) != 0)); }
-            catch (...) { std::cerr << "Can't write to file \"" << filename << "\"!" << std::endl; }
+            catch (...) { ERR("Can't write to file \"%s\"!\n", filename.c_str()); }
         }
         else
         {
@@ -282,5 +299,36 @@ class Util
                     crc ^= polynom;
             }
         return crc;
+    }
+
+    static inline const std::string Format(const char *sFormat, ...)
+    {
+        if (!sFormat) return {};
+
+        va_list ap;
+        va_start(ap, sFormat);
+
+        // Determine the string length
+        va_list apCopy;
+        va_copy(apCopy, ap);
+        #if defined(_MSC_VER)
+        int needed = _vscprintf(sFormat, apCopy);
+        #else
+        int needed = std::vsnprintf(nullptr, 0, sFormat, apCopy);
+        #endif
+        va_end(apCopy);
+
+        // Anything to output ?
+        if (needed < 0) { va_end(ap); return {}; }
+
+        // Dimension the output string
+        std::string out;
+        out.resize(needed); 
+
+        // Format the string
+        std::vsnprintf(out.data(), needed + 1, sFormat, ap);
+        va_end(ap);
+
+        return out;
     }
 };

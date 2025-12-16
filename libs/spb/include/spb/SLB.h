@@ -122,7 +122,6 @@ class SLB_IO
 			address = be32toh(address);
 			gpio_base = address + 0x200000;
 		}
-		// std::cerr << "gpio_base = 0x" << std::hex << gpio_base << std::dec << std::endl;
 
 		// Open /dev/mem
 		int mem_fd;
@@ -278,10 +277,10 @@ class SLB_Serial
 		hSerial = open(sPort, O_RDWR | O_NOCTTY | O_SYNC | O_NONBLOCK);
 		if (hSerial < 0)
 		{
-			if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Can't open " << sPort << " !" << std::endl;
+			if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) ERR("Can't open %d !\n", sPort);
 			return false;
 		}
-		if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Using port " << sPort << std::endl;
+		if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) INF("Using port %s\n", sPort);
 
 		// Initialize the serial port
 		struct termios options;
@@ -389,7 +388,7 @@ class SLB_Serial
 	{
 		// Serial port has to be open
 		if (hSerial < 0) return false;
-		if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Sending \"" << Cmd << "\"" << std::endl;
+		if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) INF("Sending \"%s\"\n", Cmd);
 
 		// Send command
 		if (Cmd)
@@ -406,12 +405,12 @@ class SLB_Serial
 			*Response = "";
 			// Wait for a line
 			if (!ReceiveLine(Response, ptrAbort, TimeoutFirsLineMs)) return false;
-			if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Received \"" << *Response << "\"" << std::endl;
+			if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) INF("Received \"%s\"\n", Response->c_str());
 
 			// Is it the echo to the command we have sent ?
 			if (Cmd && std::search(Cmd, Cmd + strlen(Cmd), Response->cbegin(), Response->cend()) == Cmd)
 			{
-				if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Echo received, waiting for real answer..." << std::endl;
+				if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) INF("Echo received, waiting for real answer...\n");
 				*Response = "";
 				// Waiting for the response
 				int nLines = 0;
@@ -419,7 +418,7 @@ class SLB_Serial
 				{
 					// Wait for 1 line
 					std::string s = ""; if (!ReceiveLine(&s, ptrAbort, TimeoutOtherLinesMs)) break;
-					if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) std::cerr << "Received also \"" << s << "\"" << std::endl;
+					if (HardwareDebug::IsFlagSet(HardwareDebug::DebugSLB)) INF("Received also \"%s\"\n", s.c_str());
 					// Separate this new line with a \n if any line has already been received
 					if (Response->size() > 0) *Response += "\n";
 					// Add this new line to the response
