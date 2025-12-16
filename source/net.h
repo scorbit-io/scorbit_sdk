@@ -146,7 +146,7 @@ private:
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
     task_t createHeartbeatTask();
 
-    void sessionUpdate(const detail::GameData &data, SessionFlags flags);
+    void sessionUpdate(int sessionId, SessionFlags flags);
 
     void startHeartbeatTimer();
     void stopHeartbeatTimer();

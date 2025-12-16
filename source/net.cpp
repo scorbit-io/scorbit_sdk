@@ -31,6 +31,7 @@
 #include <spb/probes_manager.h>
 #include <cmrc/cmrc.hpp>
 #include <fmt/format.h>
+#include <fmt/chrono.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
 #include <boost/uuid.hpp>
@@ -42,6 +43,7 @@
 CMRC_DECLARE(scorbit);
 
 using namespace std;
+using namespace std::chrono_literals;
 namespace fs = boost::filesystem;
 using json = nlohmann::json;
 
@@ -58,13 +60,14 @@ constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
 // constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
 //                                "&opdb={opdb_id}&position={player_number}"};
 
-using namespace std::chrono_literals;
 constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
 constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
+constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
+constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
 
 constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
 
@@ -282,13 +285,15 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
             gameSession->history.push_back(data);
         }
 
+        const auto sessionId = data.id;
+
         // If this is first data submission or it's finished send data right away
         if (!data.isGameActive || gameSession->sessionCounter == 1) {
-            sendLatestGameData(data.id);
+            sendLatestGameData(sessionId);
         }
 
         if (flags) {
-            sessionUpdate(data, flags);
+            sessionUpdate(sessionId, flags);
         }
     });
 }
@@ -838,13 +843,10 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
     const auto &sessionUuid = gameSession->sessionUuid;
     if (sessionUuid.empty()) {
         // Try again later
-        INF("API update session for id: {} will be retried in 1s, session uuid not ready yet...",
-            sessionId);
-        m_worker.startTimer(Worker::Timer::SessionUpdate, 1s,
-                            [this, sessionId, flags]() {
-                                m_worker.postSessionQueue(
-                                        createSessionUpdateTask(sessionId, flags));
-                            });
+        INF("API update session for id: {} will be retried in {}, session uuid not ready yet...",
+            sessionId, chrono::duration_cast<chrono::milliseconds>(SESSION_UPDATE_NO_UUID_RETRY));
+        m_worker.startTimer(Worker::Timer::SessionUpdate, SESSION_UPDATE_NO_UUID_RETRY,
+                            [this, sessionId, flags]() { sessionUpdate(sessionId, flags); });
 
         // Session patch cancelled, session uuid is not ready yet
         return noop_task;
@@ -1029,12 +1031,29 @@ task_t Net::createHeartbeatTask()
 */
 }
 
-void Net::sessionUpdate(const GameData &data, SessionFlags flags)
+void Net::sessionUpdate(int sessionId, SessionFlags flags)
 {
-    INF("API post update session, id: {}, upload history logs: {}, player add: {}",
-        data.id, flags.has(SessionFlag::UploadHistoryLogs),
-        flags.has(SessionFlag::PlayersAdd));
-    m_worker.postSessionQueue(createSessionUpdateTask(data.id, flags));
+    m_worker.stopTimer(Worker::Timer::SessionUpdate);
+
+    if (!flags.has(SessionFlag::UploadHistoryLogs) && !flags.has(SessionFlag::Debounced)
+        && flags.has(SessionFlag::PlayersAdd)) {
+        // Debounce, wait some time before sending update, maybe another player will press Start
+        // Button at this time
+        INF("API post update session debounce, postpone to {}, id: {}, upload history logs: {}, "
+            "player add: {}",
+            chrono::duration_cast<chrono::milliseconds>(SESSION_UPDATE_ADD_PLAYER_DEBOUNCE),
+            sessionId, flags.has(SessionFlag::UploadHistoryLogs),
+            flags.has(SessionFlag::PlayersAdd));
+
+        flags.set(SessionFlag::Debounced);
+        m_worker.startTimer(Worker::Timer::SessionUpdate, SESSION_UPDATE_ADD_PLAYER_DEBOUNCE,
+                            [this, sessionId, flags]() { sessionUpdate(sessionId, flags); });
+        return;
+    }
+
+    INF("API post update session, id: {}, upload history logs: {}, player add: {}", sessionId,
+        flags.has(SessionFlag::UploadHistoryLogs), flags.has(SessionFlag::PlayersAdd));
+    m_worker.postSessionQueue(createSessionUpdateTask(sessionId, flags));
 }
 
 void Net::startHeartbeatTimer()
