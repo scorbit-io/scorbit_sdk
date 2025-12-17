@@ -50,7 +50,8 @@ class Spike
 		VECTOR_AdjustmentCount						= 54,
 		VECTOR_AdjustmentSize						= 55,
 		VECTOR_AdjustmentAddr						= 56,
-		Vector_Count								= 57
+		VECTOR_CreditTableAddr						= 57,
+		Vector_Count								= 58
 	};
 	uint32_t Vectors[Vector_Count] = { 0 };
 	int hPid = 0;
@@ -168,6 +169,7 @@ class Spike
 		uint8_t PlayerUp, BallInPlay, TotalPlayers;
 		long long Scores[4];
 		bool bGameOver;
+		int Credits;
 	} SpikeInformations_t;
 	bool GetInformations(SpikeInformations_t *spi)
 	{
@@ -212,6 +214,23 @@ class Spike
 				}
 			}
 		}
+
+		// Extract the credits
+		spi->Credits = -1;
+		if (Vectors[VECTOR_CreditTableAddr] != 0)
+		{
+			uint32_t CreditRecordAddr = 0;
+			uint8_t CreditRecord[6] = { 0 };
+			if (ReadProcessMemory(hPid, Vectors[VECTOR_CreditTableAddr]+0x2c, sizeof(CreditRecordAddr), &CreditRecordAddr) &&
+				ReadProcessMemory(hPid, CreditRecordAddr, sizeof(CreditRecord), CreditRecord))
+			{
+				// Check the record CRC
+				uint8_t Crc = 0; for (int i = 0; i < sizeof(CreditRecord); i++) Crc += CreditRecord[i];
+				// Get the credits
+				if (Crc == 0xff) spi->Credits = CreditRecord[4];
+			}
+		}
+
 		return true;
 	}
 
