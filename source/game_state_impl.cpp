@@ -249,6 +249,7 @@ void GameStateImpl::submitGameData(bool forceSending)
         m_data.timestamp = std::chrono::system_clock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
+        const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
 
         const auto isActivePlayerChanged = m_prevData.activePlayer != m_data.activePlayer;
         const auto isBallChanged = m_prevData.ball != m_data.ball;
@@ -257,7 +258,8 @@ void GameStateImpl::submitGameData(bool forceSending)
         // Conditions to upload session logs
         // Skip session update right after game start or it's just finished.
         const auto hasToUploadSessionLogs =
-                !isGameJustStarted && (isActivePlayerChanged || isBallChanged);
+                !isGameJustStarted
+                && (isActivePlayerChanged || isBallChanged || isGameJustFinished);
 
         // Conditions to update session
         const auto hasToUpdateSession = hasToUploadSessionLogs || isPlayersNumberChanged;
