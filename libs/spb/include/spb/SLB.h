@@ -329,11 +329,26 @@ class SLB_Serial
 		// Serial port has to be open
 		if (hSerial < 0) return;
 
-		#ifdef _MSC_VER
-		_write(hSerial, Buffer, (unsigned int)BufLen);
-		#else
-		write(hSerial, Buffer, BufLen);
-		#endif
+		for (int i = 0; i < BufLen; i++)
+		{
+			// Send 1 byte at a time
+			#ifdef _MSC_VER
+			_write(hSerial, (uint8_t *)Buffer + i, 1);
+			#else
+			write(hSerial, (uint8_t *)Buffer + i, 1);
+			#endif
+
+			// And wait 0.5ms to lower the interrupt frequency on the game
+			// Without any delay (and even with 0.1ms), TWD misses characters
+			#ifdef _WIN32
+			Sleep(1); // We don't really care about the delay on win32...
+			#else
+			struct timespec ts;
+			ts.tv_sec = 0;
+			ts.tv_nsec = 500000L;
+			nanosleep(&ts, &ts);
+			#endif
+		}
 	}
 	bool Receive(uint8_t *c)
 	{
