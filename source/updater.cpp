@@ -24,6 +24,7 @@
 #include <platform_id.h>
 #include <scorbit_sdk/version.h>
 
+#include <fmt/chrono.h>
 #include <nlohmann/json.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/predef.h>
@@ -110,7 +111,10 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         }
 
         if (!m_feedback.empty() || success) {
-            logs = fmt::format("----- SDK -----\n\n{}\n\n", m_feedback);
+            const auto timestamp = std::chrono::system_clock::now();
+            logs.append(fmt::format("----- SDK ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
+                                    m_feedback));
+
         }
     }
 
@@ -132,7 +136,9 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         }
 
         if (!m_feedback.empty() || success) {
-            logs.append(fmt::format("----- scorbitd -----\n\n{}", m_feedback));
+            const auto timestamp = std::chrono::system_clock::now();
+            logs.append(fmt::format("----- scorbitd ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
+                                    m_feedback));
         }
     }
 
