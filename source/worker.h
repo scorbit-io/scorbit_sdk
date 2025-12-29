@@ -40,6 +40,7 @@ public:
         NfcCheckTag,
         GameData,
         SessionUpdate,
+        CentrifugoReconnect,
     };
 
 public:

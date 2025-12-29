@@ -47,6 +47,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::SessionUpdate:
             name = "SessionUpdate";
             break;
+        case Worker::Timer::CentrifugoReconnect:
+            name = "CentrifugoReconnect";
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }

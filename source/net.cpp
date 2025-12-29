@@ -1766,8 +1766,9 @@ void Net::centrifugoSetup()
     };
 
     const auto cfUrl = fmt::format("{}/{}", m_cfHostname, URL_CENTRIFUGO);
-    INF("API centrifugo url: {}", cfUrl);
+    INF("API-CF centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+    INF("API-CF centrifugo debug 1");
 
     m_centrifugo->onSslContextConfigure([](boost::asio::ssl::context &ctx) {
         try {
@@ -1790,10 +1791,29 @@ void Net::centrifugoSetup()
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
     });
 
-    m_centrifugo->onConnected([] { INF("[API-CF Connected to Centrifugo!"); });
+    m_centrifugo->onConnected([] { INF("API-CF Connected to Centrifugo!"); });
 
-    m_centrifugo->onDisconnected([](centrifugo::Error const &error) {
+    m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
+
+        constexpr auto RECONNECT_DELAY = 10s;
+
+        // Check CF codes here https://centrifugal.dev/docs/server/codes
+        switch (error.ec.value()) {
+        case 3500:
+        case 3501:
+        case 3502:
+            INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
+            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this]() {
+                centrifugoSetup();
+                centrifugoConnect();
+            });
+            m_centrifugo.reset();
+            break;
+
+        default:
+            break;
+        }
     });
 
     m_centrifugo->onSubscribing([](const std::string &channel) {
