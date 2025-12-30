@@ -677,6 +677,7 @@ task_t Net::createAuthenticateTask()
                         initializeConnectionState();
                     } else {
                         INF("API token refreshed successful!");
+                        requestReleaseTrackInfo();
                     }
                     break;
                 } catch (const std::exception &e) {
