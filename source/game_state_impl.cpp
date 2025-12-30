@@ -255,10 +255,37 @@ void GameStateImpl::submitGameData(bool forceSending)
         const auto isBallChanged = m_prevData.ball != m_data.ball;
         const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
 
+        bool bonusScoreSubmitted = false;
+
+        // If active player changed and previous player's score also changed due to bonus, do extra
+        // submit with previous player as current player and then submit again with new active
+        // player.
+        if (isActivePlayerChanged) {
+            const auto prevActivePlayer = m_prevData.activePlayer;
+            if (prevActivePlayer != 0 && m_prevData.players.count(prevActivePlayer) != 0
+                && m_data.players.count(prevActivePlayer) != 0) {
+                const auto &prevPlayerPrevState = m_prevData.players.at(prevActivePlayer);
+                const auto &prevPlayerCurrState = m_data.players.at(prevActivePlayer);
+                if (prevPlayerPrevState.score() != prevPlayerCurrState.score()) {
+                    GameData tempData = m_data;
+                    tempData.activePlayer = prevActivePlayer;
+
+                    SessionFlags tempFlags;
+                    tempFlags.set(SessionFlag::UploadHistoryLogs);
+
+                    INF("Detected bonus score for previous player {}, submit CSV logs as current "
+                        "player",
+                        prevActivePlayer);
+                    m_net->submitGameData(tempData, tempFlags);
+                    bonusScoreSubmitted = true;
+                }
+            }
+        }
+
         // Conditions to upload session logs
-        // Skip session update right after game start or it's just finished.
+        // Skip session update right after game start or if bonus score already submitted
         const auto hasToUploadSessionLogs =
-                !isGameJustStarted
+                !bonusScoreSubmitted && !isGameJustStarted
                 && (isActivePlayerChanged || isBallChanged || isGameJustFinished);
 
         // Conditions to update session
