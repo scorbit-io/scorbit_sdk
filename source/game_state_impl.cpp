@@ -274,7 +274,9 @@ void GameStateImpl::submitGameData(bool forceSending)
                 const auto &prevPlayerCurrState = m_data.players.at(prevActivePlayer);
                 if (prevPlayerPrevState.score() != prevPlayerCurrState.score()) {
                     GameData tempData = m_data;
+                    // Use previous active player as current active player and prev ball
                     tempData.activePlayer = prevActivePlayer;
+                    tempData.ball = m_prevData.ball;
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
