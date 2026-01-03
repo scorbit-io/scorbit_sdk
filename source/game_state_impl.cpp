@@ -211,6 +211,12 @@ void GameStateImpl::setCreditsDropped(int credits, const std::string &transactio
     m_net->setCreditsDropped(credits, transaction, success);
 }
 
+void GameStateImpl::setCreditsStatus(bool freePlay, int credits, int maxCredits,
+                                     const char *pricing)
+{
+    m_net->setCreditsStatus(freePlay, credits, maxCredits, pricing);
+}
+
 void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
 {
     m_net->requestTopScores(scoreFilter, std::move(callback));

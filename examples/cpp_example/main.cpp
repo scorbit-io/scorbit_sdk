@@ -192,12 +192,11 @@ void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
         }
     } break;
 
-    case scorbit::EventType::CreditsNumberRequested: {
-        // This event is sent when user requests credits number from mobile app
-        // You should send credits number using GameState::setCreditsNumber()
-        cout << "Credits number requested by user" << endl;
-        // Example:
-        // gs.setCreditsNumber(currentCredits);
+    case scorbit::EventType::CreditsStatusRequested: {
+        // This event is sent when backend requests credits status.
+        // Using GameState::setCreditsStatus()
+        cout << "Credits status requested" << endl;
+        gs.setCreditsStatus(false, 10, 20, nullptr);
     } break;
 
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
@@ -354,7 +353,7 @@ int main()
             for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
                 gs.setScore(i, 0);
             }
-            gs.setGameStarted(scorbit::GameStartOrigin::StartButton);
+            gs.setGameStarted(scorbit::GameStartOrigin::FromLobby);
 
             // It's not necessary to call setGameStarted, as it's automaticlly called when
             // request arrived and will be be ignored here

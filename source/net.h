@@ -136,6 +136,7 @@ public:
     void setCapabilities(Capabilities capabilities) override;
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
 
 private:
     task_t createAuthenticateTask();
@@ -217,6 +218,8 @@ private:
     void createNfcNonces();
     void startNfcCheckTimer();
     void setNfcTag();
+
+    void requestCreditsStatusEvent();
 
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>

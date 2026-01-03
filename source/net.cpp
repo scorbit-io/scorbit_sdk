@@ -607,6 +607,41 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
             }));
 }
 
+void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
+{
+    std::optional<int> maxCreditsOpt;
+    if (maxCredits > 0) {
+        maxCreditsOpt = maxCredits;
+    }
+
+    const auto createdAt = to_iso8601(chrono::system_clock::now());
+
+    json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
+            {JKEY_CHN_PAYLOAD,
+             {
+                     {JKEY_CREDITS_FREE_PLAY, freePlay},
+                     {JKEY_CREDITS_CURRENT, credits},
+                     {JKEY_CREDITS_MAX, maxCreditsOpt},
+             }},
+            {JKEY_SCR_METADATA,
+             {
+                     {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                     {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                     {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                     {JKEY_SCR_CREATED_AT, createdAt},
+                     {JKEY_SCR_UPDATED_AT, createdAt},
+             }}};
+
+    m_worker.post([this, body = j.dump()]() {
+        INF("API-CF sending credits status: {}", body);
+        const auto r = m_centrifugo->publish(m_machineChannel, body);
+        if (!r) {
+            WRN("API-CF failed to send credits status: code:{}, error: {}", r.error().ec.value(),
+                r.error().message);
+        }
+    });
+}
+
 task_t Net::createAuthenticateTask()
 {
     return [this]() {
@@ -1193,6 +1228,9 @@ void Net::sendLatestGameData(int sessionId)
         if (data.isGameActive) {
             m_worker.startTimer(Worker::Timer::GameData, GAME_DATA_UPDATE_INTERVAL,
                                 [this, sessionId] { sendLatestGameData(sessionId); });
+        } else {
+            // It's game over, request from client the credits status as a capstone
+            requestCreditsStatusEvent();
         }
     });
 }
@@ -1792,7 +1830,10 @@ void Net::centrifugoSetup()
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
     });
 
-    m_centrifugo->onConnected([] { INF("API-CF Connected to Centrifugo!"); });
+    m_centrifugo->onConnected([this] {
+        INF("API-CF Connected to Centrifugo!");
+        requestCreditsStatusEvent();
+    });
 
     m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
@@ -1950,6 +1991,11 @@ void Net::setNfcTag()
     if (m_probesManager->setNfcTag(tag)) {
         INF("NFC tag set ok: {}", tag);
     }
+}
+
+void Net::requestCreditsStatusEvent()
+{
+    m_eventManager->push(std::make_shared<CreditsStatusRequestedEvent>());
 }
 
 } // namespace detail

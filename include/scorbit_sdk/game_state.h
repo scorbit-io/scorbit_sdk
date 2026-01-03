@@ -388,6 +388,23 @@ public:
         sb_set_credits_dropped(m_handle.get(), credits, transaction.c_str(), success);
     }
 
+    /**
+     * @brief Sets the current credits status.
+     *
+     * This function should be called:
+     * 1. when @ref scorbit::EventType::CreditsStatusRequested event received
+     * 2. when credits number changed in machine (added or subtracted)
+     *
+     * @param freePlay true if the machine is in free play mode; false otherwise.
+     * @param credits The current number of credits available in the machine.
+     * @param maxCredits The maximum number of credits allowed in the machine.
+     * @param pricing For future use. Currently should be set to nullptr or an empty string.
+     */
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing = nullptr)
+    {
+        sb_set_credits_status(m_handle.get(), freePlay, credits, maxCredits, pricing);
+    }
+
     // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
 
     void setEventCallback(EventCallback callback)

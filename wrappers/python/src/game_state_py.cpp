@@ -126,8 +126,8 @@ PYBIND11_MODULE(scorbit, m)
                    "Game start requested from mobile app.")
             .value("CreditsAddRequested", EventType::CreditsAddRequested,
                    "Credits add requested from mobile app.")
-            .value("CreditsNumberRequested", EventType::CreditsNumberRequested,
-                   "Credits number requested from mobile app.")
+            .value("CreditsStatusRequested", EventType::CreditsStatusRequested,
+                   "Credits status requested.")
             .value("None", EventType::None, "No event (should not be used).")
             .value("ConfigReceived", EventType::ConfigReceived,
                    "Configuration received from server.");
@@ -744,6 +744,22 @@ PYBIND11_MODULE(scorbit, m)
                             credits (int): The number of credits that were actually dropped.
                             transaction (str): The transaction identifier associated with the credit drop request.
                             success (bool): Indicates whether the credit drop was successful.
+                    )doc")
+
+            .def("set_credits_status", &GameState::setCreditsStatus, py::arg("free_play"),
+                 py::arg("credits"), py::arg("max_credits"), py::arg("pricing"),
+                 R"doc(
+                        Sets the current credits status.
+
+                        This function should be called:
+                        1. when EventType.CreditsStatusRequested event is received.
+                        2. when the credits number changed in the machine (added or subtracted).
+
+                        Args:
+                            free_play (bool): True if the machine is in free play mode; False otherwise.
+                            credits (int): The current number of credits available in the machine.
+                            max_credits (int): The maximum number of credits allowed in the machine.
+                            pricing (str): For future use. Currently should be set to an empty string.
                     )doc")
 
             // -------------------------- EVENTS FROM BACKEND -------------------------------

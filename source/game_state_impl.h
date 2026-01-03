@@ -64,6 +64,7 @@ public:
     void setCapabilities(Capabilities capabilities);
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success);
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 

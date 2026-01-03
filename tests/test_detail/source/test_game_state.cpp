@@ -84,6 +84,7 @@ public:
     void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
     void setCapabilities(Capabilities) override {};
     void setCreditsDropped(int, const std::string &, bool) override { };
+    void setCreditsStatus(bool , int , int , const char *) override { };
 
 private:
     PlayerProfilesManager m_playersManager;

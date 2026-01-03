@@ -19,6 +19,8 @@ from scorbit import scorbit
 G_SCORE_FEATURES = ["ramp", "left spinner", "right spinner", "left slingshot", "right slingshot"]
 G_SCORE_FEATURES_VERSION = 1
 
+G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM = 0
+
 # -------- Dummy functions to simulate game state --------
 def is_game_finished(i):
     return i == 99
@@ -71,13 +73,15 @@ def logger_callback(message, level, file, line, timestamp):
 
 # -------- Event callback --------
 def events_callback(gs, event):
+    global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
+
     print(f"Event received: {event.type()}")
     
     if event.type() == scorbit.EventType.GameStartRequested:
         success, players_count = event.get_game_start_requested()
         if success:
             print(f"Game start requested with {players_count} player(s)")
-            # Start the game here...
+            G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM = players_count
     
     elif event.type() == scorbit.EventType.CreditsAddRequested:
         success, credits_to_add, transaction = event.get_credits_add_requested()
@@ -85,14 +89,13 @@ def events_callback(gs, event):
             print(f"Credits add requested: {credits_to_add} credit(s)")
             # Add credits to the machine here...
             # And then confirm adding credits:
-            gs.set_credits_dropped(credits_to_add, transaction, true)
+            gs.set_credits_dropped(credits_to_add, transaction, True)
     
-    elif event.type() == scorbit.EventType.CreditsNumberRequested:
-        # This event is sent when user requests credits number from mobile app
-        # You should send credits number using GameState.setCreditsNumber()
-        print("Credits number requested by user")
-        # Example:
-        # gs.set_credits_number(current_credits)
+    elif event.type() == scorbit.EventType.CreditsStatusRequested:
+        # This event is sent when backend requests credits status.
+        # Using GameState.set_credits_status()
+        print("Credits status requested")
+        gs.set_credits_status(False, 10, 20, "")
     
     elif event.type() == scorbit.EventType.ConfigReceived:
         success, config_json = event.event_config_received()
@@ -116,10 +119,6 @@ def setup_game_state():
     info.score_features = G_SCORE_FEATURES
     info.score_features_version = G_SCORE_FEATURES_VERSION
 
-    # Set to True if game can start itself without user pressing Start Button upon SDK request:
-    # scorbit.EventType.GameStartRequested
-    info.start_game_capable = False
-
     # Use encrypt_tool to generate your encrypted key from your private key
     encrypted_key = '8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA=='
     return scorbit.create_game_state(encrypted_key, info)
@@ -134,6 +133,8 @@ def check_players_info(gs, players, players_num):
     return players
 
 def main():
+    global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
+
     players = {} # Dictionary to hold player information
 
     print(f"Simple example of Scorbit SDK {scorbit.__version__} usage")
@@ -151,7 +152,7 @@ def main():
     gs.set_event_callback(lambda event: events_callback(gs, event))
 
     gs.request_pair_code(lambda error, short_code: print(
-        f"Pairing short code: {short_code}" if error == 0 else f"Error: {error}"
+        f"Pairing short code: {short_code}" if error == scorbit.Error.Success else f"Error: {error}"
     ))
 
     gs.request_top_scores(0, lambda error, reply: print(
@@ -172,19 +173,23 @@ def main():
 
         if is_unpair_triggered_by_user():
             gs.request_unpair(lambda error, reply: print(
-                "Unpairing successful" if error == 0 else f"Error: {error}"
+                "Unpairing successful" if error == scorbit.Error.Success else f"Error: {error}"
             ))
 
         if is_game_just_started(i): # started by Start Button
             gs.set_game_started(scorbit.GameStartOrigin.StartButton)
         else:
-            is_requested, players_count = gs.is_game_start_requested()
-            if is_requested:
+            if G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM > 0:
+                players_count = G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
+                G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM = 0
                 # Game was started from the app and requested to start the game on the machine
                 # call function to start the game on the machine with players_count players ...
 
                 # It's not necessary to call gs.set_game_started(), as it's automaticlly called when
                 # request arrived and will be be ignored here
+                for i in range(players_count):
+                    gs.set_score(i + 1, 0) # Initialize player scores to 0
+                gs.set_game_started(scorbit.GameStartOrigin.FromLobby)
                 print(f"Game start requested with {players_count} players!")
 
 

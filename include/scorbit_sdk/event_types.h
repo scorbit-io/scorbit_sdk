@@ -27,7 +27,7 @@ namespace scorbit {
 enum class EventType {
     GameStartRequested = SB_EVT_GAME_START_REQUESTED,
     CreditsAddRequested = SB_EVT_CREDITS_ADD_REQUESTED,
-    CreditsNumberRequested = SB_EVT_CREDITS_NUMBER_REQUESTED,
+    CreditsStatusRequested = SB_EVT_CREDITS_STATUS_REQUESTED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

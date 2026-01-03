@@ -111,13 +111,13 @@ private:
     std::string m_transaction;
 };
 
-// ---------------- CreditsNumberRequested implementations ----------------
+// ---------------- CreditsStatusRequestedEvent implementations ----------------
 
-class CreditsNumberRequestedEvent : public EventBase
+class CreditsStatusRequestedEvent : public EventBase
 {
 public:
-    explicit CreditsNumberRequestedEvent()
-        : EventBase(EventType::CreditsNumberRequested, EventPriority::High)
+    explicit CreditsStatusRequestedEvent()
+        : EventBase(EventType::CreditsStatusRequested, EventPriority::High)
     {
     }
 };

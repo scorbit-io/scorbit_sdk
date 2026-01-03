@@ -86,6 +86,8 @@ public:
     virtual void setCapabilities(Capabilities capabilities) = 0;
 
     virtual void setCreditsDropped(int credits, const std::string &transaction, bool success) = 0;
+    virtual void setCreditsStatus(bool freePlay, int credits, int maxCredits,
+                                  const char *pricing) = 0;
 
     // ---------------------------------------------------------------------------------
 

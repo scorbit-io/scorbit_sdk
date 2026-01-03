@@ -49,7 +49,7 @@ std::shared_ptr<EventBase> createCreditsAddEvent(int credits = 10)
 
 std::shared_ptr<EventBase> createCreditsNumberEvent()
 {
-    return std::make_shared<CreditsNumberRequestedEvent>();
+    return std::make_shared<CreditsStatusRequestedEvent>();
 }
 
 std::shared_ptr<EventBase> createConfigEvent(const std::string &config = "{}")
@@ -249,7 +249,7 @@ TEST_CASE("EventManager event ordering")
         CHECK(receivedEvents.size() == 5);
         CHECK(receivedEvents[0] == EventType::GameStartRequested); // Highest priority first
         CHECK(receivedEvents[1] == EventType::CreditsAddRequested);    // High priority second
-        CHECK(receivedEvents[2] == EventType::CreditsNumberRequested); // High priority third
+        CHECK(receivedEvents[2] == EventType::CreditsStatusRequested); // High priority third
         CHECK(receivedEvents[3] == EventType::ConfigReceived);        // Normal priority (FIFO)
         CHECK(receivedEvents[4] == EventType::ConfigReceived);        // Normal priority (FIFO)
     }

@@ -482,6 +482,23 @@ SCORBIT_SDK_EXPORT
 void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
                             bool success);
 
+/**
+ * @brief Sets the current credits status.
+ *
+ * This function should be called:
+ * 1. when @ref SB_EVT_CREDITS_STATUS_REQUESTED event received
+ * 2. when credits number changed in machine (added or subtracted)
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param free_play true if the machine is in free play mode; false otherwise.
+ * @param credits The current number of credits available in the machine.
+ * @param max_credits The maximum number of credits allowed in the machine.
+ * @param pricing For future use. Currently should be set to NULL or an empty string.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
+                           const char *pricing);
+
 // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
 
 /**

@@ -41,12 +41,12 @@ typedef enum {
     SB_EVT_CREDITS_ADD_REQUESTED,
 
     /**
-     * @brief A request to get the number of credits has been received from the mobile app.
+     * @brief A request to get the number of credits, max credits, etc.
      * There is no processing function for this event, the game should send current credits number
      * using @ref sb_send_credits_number.
      * After credits added, @ref sb_set_credits_dropped shoult be called
      */
-    SB_EVT_CREDITS_NUMBER_REQUESTED,
+    SB_EVT_CREDITS_STATUS_REQUESTED,
 
     // ------------------ OEM providers can ignore the events below ------------------
 

@@ -288,3 +288,9 @@ void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *tr
 {
     handle->gameState.setCreditsDropped(credits, transaction, success);
 }
+
+void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
+                           const char *pricing)
+{
+    handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricing);
+}

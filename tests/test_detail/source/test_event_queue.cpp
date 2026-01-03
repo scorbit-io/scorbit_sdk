@@ -47,7 +47,7 @@ std::shared_ptr<EventBase> createCreditsAddEvent(int credits = 10)
 
 std::shared_ptr<EventBase> createCreditsNumberEvent()
 {
-    return std::make_shared<CreditsNumberRequestedEvent>();
+    return std::make_shared<CreditsStatusRequestedEvent>();
 }
 
 std::shared_ptr<EventBase> createConfigEvent(const std::string &config = "{}")
@@ -117,7 +117,7 @@ TEST_CASE("EventQueue priority ordering")
 
         auto third = events.dequeue();
         REQUIRE(third != nullptr);
-        CHECK(third->type() == EventType::CreditsNumberRequested); // High priority third
+        CHECK(third->type() == EventType::CreditsStatusRequested); // High priority third
 
         // Normal priority events should come last (FIFO among same priority)
         auto fourth = events.dequeue();

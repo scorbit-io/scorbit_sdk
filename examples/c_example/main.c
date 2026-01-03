@@ -212,9 +212,9 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
-    case SB_EVT_CREDITS_NUMBER_REQUESTED: {
-        printf("Credits number requested\n");
-        // Send current credits number using sb_send_credits_number()
+    case SB_EVT_CREDITS_STATUS_REQUESTED: {
+        printf("Credits status requested\n");
+        sb_set_credits_status(gs, false, 10, 20, NULL);
     }  break;
 
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------

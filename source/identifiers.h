@@ -195,6 +195,13 @@ constexpr auto JKEY_CREDITS_DROPPED {"successful_credits"};
 constexpr auto JKEY_CREDITS_TRANSACTION {"transaction"};
 constexpr auto JKEY_CREDITS_SUCCESS {"success"};
 
+constexpr auto JVAL_CURRENT_MACHINE_STATE {"current_machine_state"};
+constexpr auto JKEY_CREDITS_STATE {"current_machine_state"};
+constexpr auto JKEY_CREDITS_FREE_PLAY {"free_play"};
+constexpr auto JKEY_CREDITS_CURRENT {"credits"};
+constexpr auto JKEY_CREDITS_MAX {"max_credits"};
+constexpr auto JKEY_CREDITS_PRICING {"pricing"};
+
 
 } // namespace detail
 } // namespace scorbit
