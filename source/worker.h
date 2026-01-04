@@ -41,6 +41,7 @@ public:
         GameData,
         SessionUpdate,
         CentrifugoReconnect,
+        NfcBootReason,
     };
 
 public:

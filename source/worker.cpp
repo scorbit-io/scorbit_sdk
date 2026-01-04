@@ -50,6 +50,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::CentrifugoReconnect:
             name = "CentrifugoReconnect";
             break;
+        case Worker::Timer::NfcBootReason:
+            name = "NfcBootReason";
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }

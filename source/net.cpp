@@ -70,6 +70,7 @@ constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
 constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
 
 constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
+constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seconds
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
@@ -525,6 +526,8 @@ void Net::setProbesManager(std::shared_ptr<spb::ProbesManager> manager)
     if (m_isNfcCapable) {
         startNfcCheckTimer();
     }
+
+    checkNfcBootReason();
 }
 
 void Net::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -1978,8 +1981,16 @@ void Net::startNfcCheckTimer()
 {
     m_worker.startTimer(Worker::Timer::NfcCheckTag, NFC_CHECK_TIME, [this] {
         startNfcCheckTimer();
-        if (m_probesManager && m_probesManager->isNfcTagRead()) {
-            setNfcTag();
+
+        if (m_probesManager) {
+            const auto isNfcTagRead = std::invoke([this]() {
+                std::lock_guard lock {m_nfcMutex};
+                return m_probesManager->isNfcTagRead();
+            });
+
+            if (isNfcTagRead) {
+                setNfcTag();
+            }
         }
     });
 }
@@ -1988,8 +1999,34 @@ void Net::setNfcTag()
 {
     const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
                                  fmt::arg("nonce", consumeNonce()));
-    if (m_probesManager->setNfcTag(tag)) {
+
+    const auto ok = std::invoke([this, &tag]() {
+        std::lock_guard lock {m_nfcMutex};
+        return m_probesManager->setNfcTag(tag);
+    });
+
+    if (ok) {
         INF("NFC tag set ok: {}", tag);
+    }
+}
+
+void Net::checkNfcBootReason()
+{
+    if (m_probesManager && m_isNfcCapable) {
+        m_worker.stopTimer(Worker::Timer::NfcBootReason);
+
+        const auto bootReason = std::invoke([this]() {
+            std::lock_guard lock {m_nfcMutex};
+            return m_probesManager->probesBootReason(spb::ProbeType::NFC);
+        });
+
+        if (bootReason && *bootReason != m_lastNfcBootReason) {
+            INF("{}", *bootReason);
+            m_lastNfcBootReason = *bootReason;
+        }
+
+        m_worker.startTimer(Worker::Timer::NfcBootReason, NFC_BOOT_REASON_DELAY,
+                            std::bind(&Net::checkNfcBootReason, this));
     }
 }
 

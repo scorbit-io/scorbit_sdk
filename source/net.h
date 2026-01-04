@@ -218,6 +218,7 @@ private:
     void createNfcNonces();
     void startNfcCheckTimer();
     void setNfcTag();
+    void checkNfcBootReason();
 
     void requestCreditsStatusEvent();
 
@@ -243,6 +244,7 @@ private:
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;
+    std::mutex m_nfcMutex;
     mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
@@ -259,6 +261,8 @@ private:
 
     std::string m_machineChannel;
     std::string m_releaseTrackUrl;
+
+    std::string m_lastNfcBootReason;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;
