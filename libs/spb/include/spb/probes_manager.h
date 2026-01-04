@@ -10,6 +10,8 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <string>
+#include <optional>
 
 class ProbeBase;
 class ProbeCPU;
@@ -57,6 +59,8 @@ public:
     auto isNfcTagRead() const -> bool;
     auto setNfcTag(const std::string &tag) -> bool;
     auto setNfcLeds(NfcLedMode mode) -> bool;
+
+    auto probesBootReason(ProbeType probeType) const -> std::optional<std::string>;
 
 private:
     std::shared_ptr<ProbeCPU> m_cpu;

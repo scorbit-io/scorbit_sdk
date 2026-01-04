@@ -11,6 +11,8 @@
 #include "spb/Spike.h"
 #include "list_usb_devices.h"
 
+#include <fmt/format.h>
+
 namespace spb {
 
 constexpr auto CPU_PROBE_ID = "CPU";
@@ -122,6 +124,67 @@ auto ProbesManager::setNfcLeds(NfcLedMode mode) -> bool
         }
     }
     return false;
+}
+
+auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::string>
+{
+    std::string probeName;
+    std::shared_ptr<ProbeBase> probe;
+
+    switch (probeType) {
+    case ProbeType::CPU:
+        probe = m_cpu;
+        probeName = CPU_PROBE_ID;
+        break;
+    case ProbeType::DMD:
+        probe = m_dmd;
+        probeName = DMD_PROBE_ID;
+        break;
+    case ProbeType::NFC:
+        probe = m_nfc;
+        probeName = NFC_PROBE_ID;
+        break;
+    default:
+        return fmt::format("Unsupported probe type: {}", static_cast<uint32_t>(probeType));
+    }
+
+    if (!probe) {
+        return std::nullopt;
+    }
+
+    ProbeBase::ProbeInformations_t probeInfo;
+
+    if (probe->GetInformations(&probeInfo) && !probeInfo.Id.empty()) {
+
+        std::string_view bootReason = "unknown";
+        switch (probeInfo.BootReason) {
+        case ProbeBase::Unknown:
+            bootReason = "Unknown";
+            break;
+        case ProbeBase::PowerOnReset:
+            bootReason = "PowerOnReset";
+            break;
+        case ProbeBase::BootloaderRestart:
+            bootReason = "BootloaderRestart";
+            break;
+        case ProbeBase::SoftRestart:
+            bootReason = "SoftRestart";
+            break;
+        case ProbeBase::WatchdogTimer:
+            bootReason = "WatchdogTimer";
+            break;
+        case ProbeBase::WatchdogTimerAcknoledged:
+            bootReason = "WatchdogTimerAcknoledged";
+            break;
+        }
+
+        return fmt::format("{} probe boot reason: {}, watchdog count: {}", probeName, bootReason,
+                           probeInfo.WatchdogCount);
+    }
+
+    enumerate(probeType);
+
+    return fmt::format("{} coudn't get probe info!", probeName);
 }
 
 } // namespace spb
