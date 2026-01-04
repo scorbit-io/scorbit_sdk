@@ -100,7 +100,8 @@ typedef enum
 
     ReadTest = 0xf2,
     Reboot = 0xf3,
-    Bootloader = 0xf7
+    Bootloader = 0xf7,
+    TriggerWatchdog = 0xfb
 } ProbeCommand_t;
 
 class ProbeBase
@@ -149,6 +150,7 @@ class ProbeBase
         return OnInitialized();
     }
 
+    typedef enum { Unknown = 0, PowerOnReset, BootloaderRestart, SoftRestart, WatchdogTimer, WatchdogTimerAcknoledged } BootReason_t;
     typedef struct
     { 
         int DeviceIndex;
@@ -159,14 +161,19 @@ class ProbeBase
         uint32_t TimestampHeader;
         uint64_t TimestampUTC;
         std::string Timestamp;  
-        long TimeMs; 
-        uint32_t SysClockFrequency; 
+        BootReason_t BootReason;
+        uint8_t WatchdogCount;
+        long TimeMs;
+        uint32_t SysClockFrequency;
         uint8_t UsbFlags;
-        uint8_t ReservedForAlignment1;
+        uint8_t Reserved3ForAlignment;
         uint32_t UID;
         uint8_t TpmSerial[9];
         uint8_t TpmType; // 0:None, 1:Hard, 2:Soft
-        uint8_t Reserved[50];
+        uint8_t TpmUUID[16];
+        uint16_t Reserved4ForAlignment;
+        uint64_t TpmScorbitSerial;
+        uint8_t Reserved5[24];
     } ProbeInformations_t;
 
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
@@ -231,6 +238,8 @@ class ProbeBase
             // Obsolete : Timestamp is a string
             pbi->Timestamp = Util::StringFromBuffer(data, 22, 32);
             pbi->TimestampUTC = 0; // Unknown timestamp 64
+            pbi->BootReason = BootReason_t::Unknown; // Unknown
+            pbi->WatchdogCount = 0;                  // Unknown
         }
         else
         {
@@ -254,15 +263,23 @@ class ProbeBase
                 << std::setw(2) << min << ":"
                 << std::setw(2) << sec;
             pbi->Timestamp = oss.str();
+
+            // Get probe flags
+            pbi->BootReason = (BootReason_t)data[32];
+            pbi->WatchdogCount = data[33];
         }
-        pbi->TimeMs = Util::Util::UInt32FromBuffer(data, 54);
+        pbi->TimeMs = Util::UInt32FromBuffer(data, 54);
         pbi->SysClockFrequency = Util::UInt32FromBuffer(data, 58);
         pbi->UsbFlags = data[62];
-        pbi->ReservedForAlignment1 = data[63];
+        pbi->Reserved3ForAlignment = data[63];
         pbi->UID = Util::UInt32FromBuffer(data, 64);
         std::memcpy(pbi->TpmSerial, data.data() + 68, sizeof(pbi->TpmSerial));
         pbi->TpmType = data[77];
-        std::memcpy(pbi->Reserved, data.data() + 78, sizeof(pbi->Reserved));
+        std::memcpy(pbi->TpmUUID, data.data() + 78, sizeof(pbi->TpmUUID));
+        pbi->Reserved4ForAlignment = Util::UInt16FromBuffer(data, 94);
+        pbi->TpmScorbitSerial = Util::UInt64FromBuffer(data, 96);
+        std::memcpy(pbi->Reserved5, data.data() + 104, sizeof(pbi->Reserved5));
+
         return true;
     }
 
@@ -360,6 +377,12 @@ class ProbeBase
         }
 
         return true;
+    }
+
+    virtual bool TriggerWatchdog()
+    {
+        // Reboot the probe
+        return Cable.CommandWrite(ProbeCommand_t::TriggerWatchdog, 0, { 0x05, 0xC0, 0x4B, 0x17 });
     }
 
     virtual bool UploadFirmware(const std::string &FirmwareFilename, bool bForceUpgrade, bool bVerbose)

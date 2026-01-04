@@ -76,7 +76,7 @@ class Spike
 		// Compute Crc
 		uint32_t Crc = 1;
 		for (int i = 1; i < sizeof(Vectors) / sizeof(Vectors[0]); i++) { Vectors[i] ^= Vectors[VECTOR_XorValue]; Crc += Vectors[i]; }
-		if (Crc) { ERR("pbspk2comm.dat is invalid !\n"); return false; }
+		if (Crc) { ERR("pbspk2comm is invalid !\n"); return false; }
 
 		// Get the game Pid
 		if (!UpdatePid()) { ERR("game process not found !\n"); return false; }
