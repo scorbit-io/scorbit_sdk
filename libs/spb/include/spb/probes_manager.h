@@ -60,7 +60,7 @@ public:
     auto setNfcTag(const std::string &tag) -> bool;
     auto setNfcLeds(NfcLedMode mode) -> bool;
 
-    auto probesBootReason(ProbeType probeType) const -> std::optional<std::string>;
+    auto probesBootReason(ProbeType probeType) -> std::optional<std::string>;
 
 private:
     std::shared_ptr<ProbeCPU> m_cpu;
