@@ -609,32 +609,32 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
 
 void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
 {
-    std::optional<int> maxCreditsOpt;
-    if (maxCredits > 0) {
-        maxCreditsOpt = maxCredits;
-    }
+    m_worker.post([this, freePlay, credits, maxCredits]() {
+        std::optional<int> maxCreditsOpt;
+        if (maxCredits > 0) {
+            maxCreditsOpt = maxCredits;
+        }
 
-    const auto createdAt = to_iso8601(chrono::system_clock::now());
+        const auto createdAt = to_iso8601(chrono::system_clock::now());
 
-    json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
-            {JKEY_CHN_PAYLOAD,
-             {
-                     {JKEY_CREDITS_FREE_PLAY, freePlay},
-                     {JKEY_CREDITS_CURRENT, credits},
-                     {JKEY_CREDITS_MAX, maxCreditsOpt},
-             }},
-            {JKEY_SCR_METADATA,
-             {
-                     {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                     {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                     {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
-                     {JKEY_SCR_CREATED_AT, createdAt},
-                     {JKEY_SCR_UPDATED_AT, createdAt},
-             }}};
+        json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
+                {JKEY_CHN_PAYLOAD,
+                 {
+                         {JKEY_CREDITS_FREE_PLAY, freePlay},
+                         {JKEY_CREDITS_CURRENT, credits},
+                         {JKEY_CREDITS_MAX, maxCreditsOpt},
+                 }},
+                {JKEY_SCR_METADATA,
+                 {
+                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_CREATED_AT, createdAt},
+                         {JKEY_SCR_UPDATED_AT, createdAt},
+                 }}};
 
-    m_worker.post([this, body = j.dump()]() {
-        INF("API-CF sending credits status: {}", body);
-        const auto r = m_centrifugo->publish(m_machineChannel, body);
+        INF("API-CF sending credits status: {}", j.dump());
+        const auto r = m_centrifugo->publish(m_machineChannel, j);
         if (!r) {
             WRN("API-CF failed to send credits status: code:{}, error: {}", r.error().ec.value(),
                 r.error().message);
