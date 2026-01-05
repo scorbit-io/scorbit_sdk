@@ -1903,6 +1903,8 @@ void Net::centrifugoSetup()
                                         const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
                                         requestSessionData(sessionUuid);
                                     }
+                                } else if (method == JVAL_METHOD_MSG) {
+                                    requestCreditsStatusEvent(); // TODO add extra condition
                                 }
                             } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
                                 const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);

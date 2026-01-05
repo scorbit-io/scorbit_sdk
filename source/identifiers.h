@@ -182,6 +182,7 @@ constexpr auto JKEY_PLAYER_AVATAR {"avatar"};
 constexpr auto JVAL_TYPE_ACTION {"action"};
 constexpr auto JKEY_METHOD {"method"};
 constexpr auto JVAL_METHOD_GET {"GET"};
+constexpr auto JVAL_METHOD_MSG {"MSG"};
 constexpr auto JKEY_URL {"url"};
 
 constexpr auto JKEY_ACTION_NAME {"name"};
