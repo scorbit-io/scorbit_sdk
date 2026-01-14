@@ -233,44 +233,6 @@ class Spike
 
 		return true;
 	}
-
-	/*bool SimulateSwitchDebugJaws101le(int iSwitchNew, int iSwitchOld)
-	{
-		uint32_t ptrData;
-		if (!ReadProcessMemory(hPid, 0x86a414, 4, &ptrData)) return false;
-		uint8_t Data;
-		uint32_t ptrDataForThisSwitch = ptrData + 0x20 * iSwitchNew + 0x18;
-
-		if (iSwitchNew > 0)
-		{
-			Data = 0x02;
-			INF("0x%02X at @0x%04X\n", Data, ptrDataForThisSwitch);
-			if (!WriteProcessMemory(hPid, ptrDataForThisSwitch, 1, &Data)) return false;
-		}
-		uint32_t g_matrix = 0x867c1c + (iSwitchOld/8);
-		if (iSwitchOld > 0)
-		{
-			Data = (1 << (iSwitchOld % 8));
-			INF("0x%02X at @0x%04X\n", Data, g_matrix);
-			if (!WriteProcessMemory(hPid, g_matrix, 1, &Data)) return false;
-		}
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-		if (iSwitchNew > 0)
-		{
-			Data = 0x01;
-			INF("0x%02X at @0x%04X\n", Data, ptrDataForThisSwitch);
-			if (!WriteProcessMemory(hPid, ptrDataForThisSwitch, 1, &Data)) return false;
-		}
-		if (iSwitchOld > 0)
-		{
-			Data = 0x00;
-			INF("0x%02X at @0x%04X\n", Data, g_matrix);
-			if (!WriteProcessMemory(hPid, g_matrix, 1, &Data)) return false;
-		}
-		return true;
-	}*/
 	// Switch simulation when we know its index on the game
 	bool SimulateSwitch(uint8_t iSwitch, bool bActive)
 	{
@@ -278,8 +240,10 @@ class Spike
 	}
 	bool SimulateSwitch(uint8_t sw)
 	{
+		INF("Pressing switch %d\n", (int)sw);
 		if (!SimulateSwitch(sw, true)) return false;
-		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+		std::this_thread::sleep_for(std::chrono::milliseconds(250));
+		INF("Releasing switch %d\n", (int)sw);
 		return SimulateSwitch(sw, false);
 	}
 	// Switch simulation by function
@@ -295,7 +259,7 @@ class Spike
 	bool SimulateSwitch(Switch_t sw)
 	{
 		if (!SimulateSwitch(sw, true)) return false;
-		std::this_thread::sleep_for(std::chrono::milliseconds(200));
+		std::this_thread::sleep_for(std::chrono::milliseconds(250));
 		return SimulateSwitch(sw, false);
 	}
 	bool GetAdjustmentValue(int iAdj, uint32_t& Value)
@@ -320,6 +284,28 @@ class Spike
 		return true;
 	}
 
+	std::vector<uint8_t> ReadMemory(uint32_t Address, int Len)
+	{
+		// Update the game Pid
+		if (!UpdatePid()) return {};
+
+		// Allocate a vector
+		std::vector<std::uint8_t> Mem(Len);
+
+		// Read memory
+		if (!ReadProcessMemory(hPid, Address, Len, Mem.data())) return {};
+
+		return Mem;
+	}
+	bool WriteMemory(uint32_t Address, const std::vector<uint8_t>& Buffer)
+	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
+		// Write memory
+		return WriteProcessMemory(hPid, Address, (int)Buffer.size(), (void *)Buffer.data());
+	}
+
 	private:
 	bool UpdatePid()
 	{
@@ -329,25 +315,6 @@ class Spike
 			hPid = Util::GetPid("game");
 		}
 		return hPid > 0;
-	}
-
-	bool SetSwitchBit(uint32_t Addr, int iBit, bool bSet)
-	{
-		// Update the game Pid
-		if (!UpdatePid()) return false;
-
-		// Check that the address is available
-		if (Addr == 0) { ERR("No valid address for switch !\n"); return false; }
-		// Read the switch byte
-		uint8_t Data;
-		if (!ReadProcessMemory(hPid, Addr + iBit / 8, 1, &Data)) return false;
-		// Set the bit
-		uint8_t Mask = 1 << (iBit % 8);
-		Data &= ~Mask;
-		if (bSet) Data |= Mask;
-		INF("0x%02X at @0x%04X\n", Data, (Addr + iBit / 8));
-		// Write it back
-		return WriteProcessMemory(hPid, Addr + iBit / 8, 1, &Data);
 	}
 
 	bool ReadProcessMemory(int Pid, int Addr, int Size, void* Mem)
@@ -377,5 +344,24 @@ class Spike
 		#else
 		return false;
 		#endif // __linux__
+	}
+
+	bool SetSwitchBit(uint32_t Addr, int iBit, bool bSet)
+	{
+		// Update the game Pid
+		if (!UpdatePid()) return false;
+
+		// Check that the address is available
+		if (Addr == 0) { ERR("No valid address for switch !\n"); return false; }
+		// Read the switch byte
+		uint8_t Data;
+		if (!ReadProcessMemory(hPid, Addr + iBit / 8, 1, &Data)) return false;
+		// Set the bit
+		uint8_t Mask = 1 << (iBit % 8);
+		Data &= ~Mask;
+		if (bSet) Data |= Mask;
+		INF("0x%02X at @0x%04X\n", Data, (Addr + iBit / 8));
+		// Write it back
+		return WriteProcessMemory(hPid, Addr + iBit / 8, 1, &Data);
 	}
 };

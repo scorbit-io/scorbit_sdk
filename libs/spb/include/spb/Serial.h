@@ -26,6 +26,7 @@
 #if defined(__linux__)
 #include <termios.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #elif defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
@@ -65,7 +66,7 @@ class SerialCable : public ProbeCable
         #if defined(_WIN32)
             // Close serial port if necessary
             if (hSerial != INVALID_HANDLE_VALUE) { CloseHandle(hSerial); hSerial = INVALID_HANDLE_VALUE; }
-            // Open serial port
+            // Open serial port (with exclusivity)
             hSerial = CreateFileA(("\\\\.\\" + sDevice).c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
             if (hSerial == INVALID_HANDLE_VALUE) return false;
 
@@ -110,6 +111,9 @@ class SerialCable : public ProbeCable
             hSerial = open(devicePath.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
             if (hSerial <= 0) return false;
 
+            // Ensure exclusivity
+            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = 0; return false; }
+
             // Get the current port settings
             struct termios options;
             if (tcgetattr(hSerial, &options) < 0) { close(hSerial); return false; }
@@ -142,6 +146,9 @@ class SerialCable : public ProbeCable
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Can't open port %s - Err:%d\n", sDevice.c_str(), (int)hSerial);
                 return false;
             }
+
+            // Ensure exclusivity
+            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = 0; return false; }
 
 		    // Initialize the serial port
 		    struct termios options;

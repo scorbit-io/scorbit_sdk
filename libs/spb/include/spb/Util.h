@@ -76,6 +76,20 @@ class Util
             return false;
         }
     }
+    static bool FromString(const std::string& s, int16_t& value) 
+    { 
+        int32_t v; 
+        bool bOk = Util::FromString(s, v); 
+        value = (int16_t)v; 
+        return bOk; 
+    }
+    static bool FromString(const std::string& s, uint16_t& value)
+    {
+        uint32_t v;
+        bool bOk = Util::FromString(s, v);
+        value = (uint16_t)v;
+        return bOk;
+    }
 
     static std::string StringFromBuffer(std::vector<uint8_t>& data, int Pos, int MaxLen)
     {
