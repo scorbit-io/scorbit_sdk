@@ -44,6 +44,7 @@ CMRC_DECLARE(scorbit);
 
 using namespace std;
 using namespace std::chrono_literals;
+using namespace std::chrono;
 namespace fs = boost::filesystem;
 using json = nlohmann::json;
 
@@ -74,6 +75,8 @@ constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seco
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
+
+constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
 
@@ -661,8 +664,11 @@ task_t Net::createAuthenticateTask()
         }
         m_isRefreshingToken = true;
 
-        // It will be updated inside the loop if system time is incorrect
-        std::string timestamp = std::to_string(std::chrono::seconds(std::time(nullptr)).count());
+        // Get noop to get timestamp
+        auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
+        const auto timestampUtc = parseHttpDateToUnixTimestamp(noopReply.header["Date"]);
+        auto timestamp = std::to_string(timestampUtc);
+        checkSystemTimeAccuracy(timestampUtc);
 
         for (;;) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
@@ -698,6 +704,9 @@ task_t Net::createAuthenticateTask()
                 return;
             }
 
+            // Check system time and timestamp from response header
+            timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
+
             if (r.status_code == 200) {
                 try {
                     const auto json = json::parse(r.text);
@@ -729,7 +738,6 @@ task_t Net::createAuthenticateTask()
                 // Retry with new timestamp parsed from reply header
                 INF("API authentication failed: code {}, {}, will retry with new timestamp",
                     r.status_code, r.error.message);
-                timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
             } else if (r.status_code == 0) {
                 // Network error, retry
                 ERR("API authentication network error: {}, will retry in 10s", r.error.message);
@@ -2035,6 +2043,32 @@ void Net::checkNfcBootReason()
 void Net::requestCreditsStatusEvent()
 {
     m_eventManager->push(std::make_shared<CreditsStatusRequestedEvent>());
+}
+
+void Net::checkSystemTimeAccuracy(int64_t timestamp) const
+{
+    // This function can be used only once per application lifetime
+    static bool checked {false};
+    if (checked) {
+        return;
+    }
+    checked = true;
+
+    const auto systemTime = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    const auto delta = std::abs(systemTime - timestamp);
+
+    if (delta > MAX_SYSTEM_TIME_DRIFT_SECONDS) {
+        INF("System time appears to be inaccurate! Net time: {}, system time: {}, drift: {} "
+            "seconds. Setting new system date time",
+            timestamp, systemTime, delta);
+
+        // Set new date time
+        if (setSystemTime(timestamp)) {
+            INF("System date time set OK");
+        } else {
+            WRN("Couldn't set system date time");
+        }
+    }
 }
 
 } // namespace detail

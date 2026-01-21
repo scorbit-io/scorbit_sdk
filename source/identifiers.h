@@ -15,6 +15,8 @@ constexpr auto ARG_MACHINE_UUID {"machine_uuid"};
 constexpr auto ARG_SESSION_UUID {"session_uuid"};
 
 // URLs
+constexpr auto NOOP_URL {"http://api.scorbit.io/api/noop/"};
+
 constexpr auto URL_API = "api";
 
 constexpr auto URL_SCORBITRON_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/token/"};
