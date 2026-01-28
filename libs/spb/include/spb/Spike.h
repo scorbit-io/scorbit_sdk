@@ -35,6 +35,7 @@ class Spike
 	{
 		VECTOR_XorValue								= 0,
 		VECTOR_PbSpk2CommDatVersion					= 1,
+		VECTOR_FirmwareId							= 2,
 		VECTOR_ZL13player_scores					= 19,
 		VECTOR_ZL9player_up							= 20,
 		VECTOR_ZL12ball_in_play						= 21,
@@ -51,7 +52,11 @@ class Spike
 		VECTOR_AdjustmentSize						= 55,
 		VECTOR_AdjustmentAddr						= 56,
 		VECTOR_CreditTableAddr						= 57,
-		Vector_Count								= 58
+		VECTOR_SwitchStartHandler					= 58,
+		VECTOR_SwitchStartHandlerPtr				= 59,
+		VECTOR_StartEventHandler					= 60,
+		Vector_Count								= 61,
+		Vector_Version								= 4
 	};
 	uint32_t Vectors[Vector_Count] = { 0 };
 	int hPid = 0;
@@ -59,6 +64,10 @@ class Spike
 	public:
 	Spike()
 	{
+	}
+	int GetVersion()
+	{
+		return Vector_Version;
 	}
 	bool Initialize(const char *Pbspk2commFilename = "pbspk2comm")
 	{
@@ -70,13 +79,21 @@ class Spike
 		if (lseek(fn, -1024, SEEK_END) == -1) { ERR("Can't find vectors in pbspk2comm !\n"); close(fn); return false; }
 
 		// Read the vectors
-		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { ERR("pbspk2comm is invalid !\n"); close(fn); return false; }
+		if (read(fn, Vectors, sizeof(Vectors)) != sizeof(Vectors)) { ERR("pbspk2comm is invalid (wrong length) !\n"); close(fn); return false; }
 		close(fn);
 
 		// Compute Crc
 		uint32_t Crc = 1;
 		for (int i = 1; i < sizeof(Vectors) / sizeof(Vectors[0]); i++) { Vectors[i] ^= Vectors[VECTOR_XorValue]; Crc += Vectors[i]; }
-		if (Crc) { ERR("pbspk2comm is invalid !\n"); return false; }
+		if (Crc) { ERR("pbspk2comm is invalid (corrupted) !\n"); return false; }
+
+		// Check pbspk2comm version
+		if (Vectors[VECTOR_PbSpk2CommDatVersion] != Vector_Version)
+			{ ERR("pbspk2comm is invalid (version mismatch) !\n"); return false; }
+
+		// Check the firmware id
+		if (Vectors[VECTOR_FirmwareId] != GetFirmwareId())
+			{ ERR("pbspk2comm is invalid (firmware mismatch) !\n"); return false; }
 
 		// Get the game Pid
 		if (!UpdatePid()) { ERR("game process not found !\n"); return false; }
@@ -236,7 +253,32 @@ class Spike
 	// Switch simulation when we know its index on the game
 	bool SimulateSwitch(uint8_t iSwitch, bool bActive)
 	{
-		return SetSwitchBit(Vectors[VECTOR_g_matrix_data], iSwitch, bActive);
+		// Do we need to define the START event handler (started with UXM 0.96)
+		bool bNeedToDefineStartHandler =
+			Vectors[VECTOR_SwitchStartIndex] == iSwitch && // Only for START
+			Vectors[VECTOR_SwitchStartHandler] == 0 && // No handler yet
+			Vectors[VECTOR_StartEventHandler] != 0 && // START handler has been found
+			Vectors[VECTOR_SwitchStartHandlerPtr] != 0; // And we know where to store it
+		if (bNeedToDefineStartHandler && bActive)
+		{
+			// Update the game Pid
+			if (!UpdatePid()) return false;
+			// Define the START handler
+			INF("Define START handler : [0x%04X] = 0x%04X\n", Vectors[VECTOR_SwitchStartHandlerPtr], Vectors[VECTOR_StartEventHandler]);
+			WriteProcessMemory(hPid, Vectors[VECTOR_SwitchStartHandlerPtr], 4, &Vectors[VECTOR_StartEventHandler]);
+		}
+
+		// Define the switch state
+		bool bOk = SetSwitchBit(Vectors[VECTOR_g_matrix_data], iSwitch, bActive);
+
+		// Undefine the handler
+		if (bNeedToDefineStartHandler && !bActive)
+		{
+			INF("Remove START handler\n");
+			uint32_t null = 0; WriteProcessMemory(hPid, Vectors[VECTOR_SwitchStartHandlerPtr], 4, &null);
+		}
+
+		return bOk;
 	}
 	bool SimulateSwitch(uint8_t sw)
 	{

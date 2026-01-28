@@ -590,15 +590,15 @@ class ProbeBase
         remove(RP2040_BOOTLOADER_DIR);
         if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Mountpoint deleted !\n");
         #endif
-
         // Re-initialze the cable (that has been disconnect during the upgrade process)
         if (bUploadFile && bPbiValid)
         {
             // Try a few times to find the same probe
             for (int i = 0; i < 10; i++)
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying to reconnect probe %s/0x%X...\n", pbi.UID, pbi.Id.c_str());
-                if (this->FindProbe(pbi.Id, pbi.UID)) break;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying to reconnect probe %s/0x%X...\n", pbi.Id.c_str(), pbi.UID);
+                if (this->FindProbe(pbi.Id, pbi.UID))
+                    { INF("Successfully reconnected probe %s/0x%X...\n", pbi.Id.c_str(), pbi.UID); break; }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             }
         }

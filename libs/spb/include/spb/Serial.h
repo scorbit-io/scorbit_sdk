@@ -45,7 +45,7 @@ class SerialCable : public ProbeCable
     #ifdef _WIN32
         HANDLE hSerial = INVALID_HANDLE_VALUE;
     #else
-    int hSerial = 0;
+    int hSerial = -1;
     #endif
 
     public:
@@ -107,20 +107,20 @@ class SerialCable : public ProbeCable
             if (devicePath.find("/dev/") != 0) devicePath = "/dev/" + sDevice;
 
             // Open the serial port
-            if (hSerial > 0) Close();
+            if (hSerial >= 0) Close();
             hSerial = open(devicePath.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-            if (hSerial <= 0) return false;
+            if (hSerial < 0) return false;
 
             // Ensure exclusivity
-            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = 0; return false; }
+            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
 
             // Get the current port settings
             struct termios options;
-            if (tcgetattr(hSerial, &options) < 0) { close(hSerial); return false; }
+            if (tcgetattr(hSerial, &options) < 0) { close(hSerial); hSerial = -1;  return false; }
 
             // Set custom baud rate
             speed_t baudRate = 921600 * 4;
-            if (ioctl(hSerial, IOSSIOSPEED, &baudRate) < 0) { close(hSerial); return false; }
+            if (ioctl(hSerial, IOSSIOSPEED, &baudRate) < 0) { close(hSerial); hSerial = -1; return false; }
 
             // Configure port settings
             options.c_cflag &= ~(CSIZE | PARODD | PARENB | CSTOPB);
@@ -132,23 +132,23 @@ class SerialCable : public ProbeCable
             options.c_cflag &= ~HUPCL;
 
             // Apply the settings
-            if (tcsetattr(hSerial, TCSANOW, &options) < 0) { close(hSerial); return false; }
+            if (tcsetattr(hSerial, TCSANOW, &options) < 0) { close(hSerial); hSerial = -1; return false; }
 
             // Flush the port
-            if (tcflush(hSerial, TCIOFLUSH) < 0) { close(hSerial); return false; }
+            if (tcflush(hSerial, TCIOFLUSH) < 0) { close(hSerial); hSerial = -1; return false; }
 
         #elif defined(__linux__)
             // Open serial port
-            if (hSerial > 0) Close();
+            if (hSerial >= 0) Close();
             hSerial = open(sDevice.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-            if (hSerial <= 0)
+            if (hSerial < 0)
             {
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Can't open port %s - Err:%d\n", sDevice.c_str(), (int)hSerial);
                 return false;
             }
 
             // Ensure exclusivity
-            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = 0; return false; }
+            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
 
 		    // Initialize the serial port
 		    struct termios options;
@@ -237,7 +237,7 @@ class SerialCable : public ProbeCable
         #if defined(_WIN32)
         return (hSerial != INVALID_HANDLE_VALUE);
         #elif defined(__linux__) || defined(__APPLE__)
-        return (hSerial > 0);
+        return (hSerial >= 0);
         #else
             #error "Platform not supported !"
         #endif
@@ -252,13 +252,13 @@ class SerialCable : public ProbeCable
                 hSerial = INVALID_HANDLE_VALUE;
             }
         #elif defined(__linux__) || defined(__APPLE__)
-            if (hSerial > 0)
+            if (hSerial >= 0)
             {
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Closing port\n"); }
                 tcflush(hSerial, TCIOFLUSH); // To prevent delays if some charaters have not been transmitted                                
                 close(hSerial);
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Port closed\n"); }
-                hSerial = 0;
+                hSerial = -1;
             }
         #else
             #error "Platform not supported !"
@@ -275,7 +275,7 @@ class SerialCable : public ProbeCable
         WriteFile(hSerial, buffer.data(), (DWORD)buffer.size(), &bytesWritten, nullptr);
         return bytesWritten == buffer.size();
         #else
-        return hSerial > 0 && write(hSerial, buffer.data(), (int)buffer.size()) == buffer.size();
+        return hSerial >= 0 && write(hSerial, buffer.data(), (int)buffer.size()) == buffer.size();
         #endif
     }
 
@@ -303,7 +303,7 @@ class SerialCable : public ProbeCable
 
         #else
 
-        if (hSerial <= 0) return {};
+        if (hSerial < 0) return {};
         std::vector<uint8_t> buffer(count);
         int offset = 0;
         int time = 0;
