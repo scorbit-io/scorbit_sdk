@@ -81,10 +81,10 @@ public:
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
-    void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override { };
     void setCapabilities(Capabilities) override {};
     void setCreditsDropped(int, const std::string &, bool) override { };
-    void setCreditsStatus(bool , int , int , const char *) override { };
+    void setCreditsStatus(bool, int, int, const char *) override { };
 
 private:
     PlayerProfilesManager m_playersManager;
@@ -172,7 +172,8 @@ TEST_CASE("setGameStarted functionality")
         gameState.setScore(2, 2000);
 
         // Call setGameStarted, which should commit the changes and send the updated game state
-        gameState.setGameStarted(GameStartOrigin::StartButton); // This should trigger submitGameData
+        gameState.setGameStarted(
+                GameStartOrigin::StartButton); // This should trigger submitGameData
         gameState.commit();
 
         // This should do nothing, since it's already started

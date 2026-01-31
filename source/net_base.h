@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
+#include "device_info.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
 #include "session_flags.h"

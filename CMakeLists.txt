@@ -145,9 +145,12 @@ target_sources(
         source/net.cpp
         source/logger.cpp
         source/logger.h
+        source/config_c.cpp
         source/game_state_c.cpp
         source/game_state_impl.h
         source/game_state_impl.cpp
+        include/scorbit_sdk/config_c.h
+        include/scorbit_sdk/config.h
         include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h

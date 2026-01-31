@@ -54,8 +54,8 @@ typedef enum {
 } sb_auth_status_t;
 
 typedef enum {
-    SB_GAME_STARTED_BY_BUTTON = 0, // started by the machine when player press Start button
-    SB_GAME_STARTED_FROM_LOBBY = 1,   // started explicitly via Scorbit app request
+    SB_GAME_STARTED_BY_BUTTON = 0,  // started by the machine when player press Start button
+    SB_GAME_STARTED_FROM_LOBBY = 1, // started explicitly via Scorbit app request
 } sb_game_start_origin_t;
 
 typedef enum {
@@ -148,6 +148,19 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
                                     void *user_data);
 
 typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
+
+// ------------------------------------------------------------------------------------------------
+// sb_config_t - Opaque configuration handle for ABI-stable extensibility
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * @brief Opaque configuration handle.
+ *
+ * This is an opaque pointer to a configuration object. Use the sb_config_* functions to create,
+ * configure, and destroy configuration objects. This design allows adding new configuration options
+ * in future SDK versions without breaking ABI compatibility.
+ */
+typedef struct sb_config_s *sb_config_t;
 
 #ifdef __cplusplus
 }

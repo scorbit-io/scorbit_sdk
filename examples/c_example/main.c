@@ -215,7 +215,7 @@ void eventsCallback(const sb_event_t *event, void *user_data)
     case SB_EVT_CREDITS_STATUS_REQUESTED: {
         printf("Credits status requested\n");
         sb_set_credits_status(gs, false, 10, 20, NULL);
-    }  break;
+    } break;
 
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
@@ -233,44 +233,36 @@ void eventsCallback(const sb_event_t *event, void *user_data)
 
 sb_game_handle_t setup_game_state(void)
 {
-    // Setup device info
-    sb_device_info_t device_info = {
-            .provider = "dilshodpinball", // This is required, set to your provider name
-            .machine_id = 4379,
-            .game_code_version = "0.1.0", // game version
-            .hostname = "staging",        // Optional, if NULL, it will be production
+    // Create a config object
+    sb_config_t config = sb_config_create();
 
-            // UUID is optional, if NULL, will be automatically derived from device's mac address
-            // However, if there is known uuid attached to the device, set it here:
-            .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
-            .serial_number = 0,                 // If no serial number available, set to 0
-            .auto_download_player_pics = false, // we don't want to download player's pictures
+    // Set required parameters
+    sb_config_set_provider(config, "dilshodpinball");
+    sb_config_set_machine_id(config, 4379);
+    sb_config_set_game_code_version(config, "0.1.0");
 
-            .score_features = G_SCORE_FEATURES,
-            .score_features_count = G_SCORE_FEATURES_COUNT,
-            .score_features_version = G_SCORE_FEATURES_VERSION,
-    };
+    // Set optional parameters
+    sb_config_set_hostname(config, "staging"); // Optional, default is "production"
+    sb_config_set_uuid(config, "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"); // Optional
+    sb_config_set_serial_number(config, 0);
+    sb_config_set_auto_download_player_pics(config, false);
+    sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
+                                 G_SCORE_FEATURES_VERSION);
 
-    // Another example with default values:
-    sb_device_info_t device_info2 = {
-            .provider = "vscorbitron",    // This is required, set to your provider name
-            .game_code_version = "0.1.0", // game version
-            .hostname = NULL,             // NULL, it will be production, or can set to "production"
-            .uuid = NULL,                 // NULL, will be automatically derived from device
-            .serial_number = 0,           // no serial number available, set to 0
-            .auto_download_player_pics = true, // players' pictures will be automatically downloaded
-            .score_features = NULL,            // we don't use score features
-            .score_features_count = 0,
-    };
-    (void)device_info2;
+    // Set authentication - encrypted key (for non-TPM machines)
+    // The encrypted key is generated using encrypt_tool
+    sb_config_set_encrypted_key(config,
+                                "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+                                "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
+                                "YaHLGkW4p/yWmA==");
 
-    // Setup encrypted key
-    const char *encrypted_key =
-            "8qWNpMPeO1AbgcoPSsdeUORGmO/"
-            "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
+    // Create game state object using the config
+    sb_game_handle_t handle = sb_create_game_state(config);
 
-    // Create game state object. Device info will be copied, so it's safe to create it in the stack
-    return sb_create_game_state2(encrypted_key, &device_info);
+    // Config can be destroyed after creating the game state (data is copied)
+    sb_config_destroy(config);
+
+    return handle;
 }
 
 void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
