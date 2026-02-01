@@ -136,7 +136,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
-    , m_eventManager(std::make_unique<EventManager>(m_worker.eventsStrand()))
+    , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand()))
 {
     setHostname(m_deviceInfo.hostname, "");
 
