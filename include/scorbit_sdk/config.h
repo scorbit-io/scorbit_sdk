@@ -20,11 +20,15 @@
 #pragma once
 
 #include "config_c.h"
+#include "event.h"
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace scorbit {
+
+using EventCallback = std::function<void(const Event &event)>;
 
 /**
  * @brief Configuration class for creating game state.
@@ -191,6 +195,25 @@ public:
         return *this;
     }
 
+    // ---- Event callback ----
+
+    /**
+     * @brief Set the event callback for handling incoming events.
+     *
+     * Events include game start requests, credit addition requests, and other
+     * notifications from the Scorbit backend.
+     *
+     * @param callback The callback function to handle events.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setEventCallback(EventCallback callback)
+    {
+        // Heap-allocate the callback so it persists after Config is destroyed
+        auto *callbackPtr = new EventCallback(std::move(callback));
+        sb_config_set_event_callback_cpp(m_handle.get(), &Config::event_callback_c, callbackPtr);
+        return *this;
+    }
+
     // ---- Internal use only ----
 
     Config &setScorbitdVersion(const std::string &version)
@@ -214,6 +237,14 @@ public:
     Config &operator=(const Config &) = delete;
 
 private:
+    static void event_callback_c(const sb_event_t *event, void *user_data)
+    {
+        auto *cb = static_cast<EventCallback *>(user_data);
+        if (cb && *cb && event) {
+            (*cb)(Event(const_cast<sb_event_t *>(event)));
+        }
+    }
+
     std::unique_ptr<std::remove_pointer<sb_config_t>::type, decltype(&sb_config_destroy)> m_handle;
 };
 

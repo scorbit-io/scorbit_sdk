@@ -52,8 +52,6 @@ namespace scorbit {
  */
 class GameState
 {
-    using EventCallback = std::function<void(const scorbit::Event &event)>;
-
 public:
     GameState(sb_game_handle_t handle)
         : m_handle(handle, sb_destroy_game_state)
@@ -405,14 +403,6 @@ public:
         sb_set_credits_status(m_handle.get(), freePlay, credits, maxCredits, pricing);
     }
 
-    // -------------------------- EVENTS FROM MOBILE APP AND BACKEND ------------------------------
-
-    void setEventCallback(EventCallback callback)
-    {
-        auto cbPair = prepareEventCallback(std::move(callback));
-        sb_set_event_callback(m_handle.get(), cbPair.first, cbPair.second);
-    }
-
     // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -439,25 +429,9 @@ public:
         return std::make_pair(&GameState::string_callback_c, userData);
     }
 
-    static void event_callback_c(const sb_event_t *event, void *user_data)
-    {
-        auto *gs = static_cast<GameState *>(user_data);
-        if (gs->m_eventCallback && event) {
-            gs->m_eventCallback(Event(const_cast<sb_event_t *>(event)));
-        }
-    }
-
-    std::pair<sb_event_callback_t, void *>
-    prepareEventCallback(std::function<void(Event)> callback)
-    {
-        m_eventCallback = EventCallback(std::move(callback));
-        return std::make_pair(&GameState::event_callback_c, this);
-    }
-
 private:
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;
-    EventCallback m_eventCallback;
 };
 
 } // namespace scorbit

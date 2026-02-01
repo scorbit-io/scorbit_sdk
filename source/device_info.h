@@ -20,6 +20,10 @@
 #pragma once
 
 #include <scorbit_sdk/config_c.h>
+#include <scorbit_sdk/event.h>
+#include "event_classes.h"
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -53,6 +57,12 @@ struct DeviceInfo {
     // Internal use only
     std::string scorbitdVersion;
     std::string scorbitdPlatformId;
+
+    // Event callback - stored here and passed to EventManager
+    detail::EventCallback m_eventCallback;
+
+    // For C++ wrapper: stores the C++ callback to ensure proper lifetime
+    std::shared_ptr<std::function<void(const Event &)>> m_cppCallbackStorage;
 
     DeviceInfo() = default;
 

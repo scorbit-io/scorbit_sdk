@@ -268,15 +268,6 @@ void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities
     handle->gameState.setCapabilities(capabilities);
 }
 
-void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)
-{
-    handle->gameState.setEventCallback([callback, user_data](const EventBase &event) {
-        if (callback) {
-            callback(static_cast<const sb_event_t *>(&event), user_data);
-        }
-    });
-}
-
 void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
                                   const char *owner_uuid, sb_string_callback_t callback,
                                   void *user_data)

@@ -46,6 +46,9 @@ int gNumberOfPlayersRequested;
 bool gGameStartRequestedFromLobby = false;
 pthread_mutex_t gGameStartRequestMutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Global pointer to game state for event callback (set after game state is created)
+sb_game_handle_t gGameStatePtr = NULL;
+
 void set_game_start_requested(bool val)
 {
     pthread_mutex_lock(&gGameStartRequestMutex);
@@ -183,7 +186,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
 
 void eventsCallback(const sb_event_t *event, void *user_data)
 {
-    sb_game_handle_t gs = (sb_game_handle_t)user_data;
+    (void)user_data; // Use global gGameStatePtr instead
 
     sb_event_type_t event_type = sb_event_type(event);
 
@@ -208,13 +211,17 @@ void eventsCallback(const sb_event_t *event, void *user_data)
             // callback
 
             // Add credits to the machine ... and then call
-            sb_set_credits_dropped(gs, credits_to_add, transaction, true);
+            if (gGameStatePtr) {
+                sb_set_credits_dropped(gGameStatePtr, credits_to_add, transaction, true);
+            }
         }
     } break;
 
     case SB_EVT_CREDITS_STATUS_REQUESTED: {
         printf("Credits status requested\n");
-        sb_set_credits_status(gs, false, 10, 20, NULL);
+        if (gGameStatePtr) {
+            sb_set_credits_status(gGameStatePtr, false, 10, 20, NULL);
+        }
     } break;
 
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
@@ -255,6 +262,9 @@ sb_game_handle_t setup_game_state(void)
                                 "8qWNpMPeO1AbgcoPSsdeUORGmO/"
                                 "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
                                 "YaHLGkW4p/yWmA==");
+
+    // Setup events callback - this must be done before creating the game state
+    sb_config_set_event_callback(config, &eventsCallback, NULL);
 
     // Create game state object using the config
     sb_game_handle_t handle = sb_create_game_state(config);
@@ -327,13 +337,14 @@ int main(void)
     // Setup logger with 512 chars max message length
     sb_add_logger_callback(loggerCallback, NULL, 512);
 
+    // Create game state (event callback is set in config before creation)
     sb_game_handle_t gs = setup_game_state();
+
+    // Set the global pointer so event callback can access the game state
+    gGameStatePtr = gs;
 
     // Set capabilities. Here we set both start game and credit drop capabilities
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
-
-    // Setup events callback
-    sb_set_event_callback(gs, &eventsCallback, gs);
 
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);

@@ -370,6 +370,38 @@ PYBIND11_MODULE(scorbit, m)
 
                         Args:
                             encrypted_key: The encrypted private key string.
+                    )doc")
+
+            .def(
+                    "set_event_callback",
+                    [](Config &self, py::function callback) -> Config & {
+                        // Use makeSafeCallback to handle thread safety and GIL management
+                        return self.setEventCallback(makeSafeCallback(std::move(callback)));
+                    },
+                    py::arg("callback"), py::return_value_policy::reference,
+                    R"doc(
+                        Set the event callback function.
+
+                        This function sets a callback that will be invoked when game events occur. The callback
+                        receives an Event object containing information about the event.
+
+                        Note:
+                            The callback function is invoked asynchronously when events occur, running
+                            in a separate thread from the main calling thread. The wrapper automatically
+                            handles thread safety and GIL management.
+
+                            This callback must be set before creating the game state.
+
+                        Args:
+                            callback (Callable[[scorbit.Event], None]): A callback function that receives an Event
+                                object when a game event occurs.
+
+                        Example:
+                            def on_event(event):
+                                print(f"Game event: {event}")
+
+                            config = scorbit.Config()
+                            config.set_event_callback(on_event)
                     )doc");
 
     // PlayerInfo struct
@@ -785,37 +817,6 @@ PYBIND11_MODULE(scorbit, m)
                             credits (int): The current number of credits available in the machine.
                             max_credits (int): The maximum number of credits allowed in the machine.
                             pricing (str): For future use. Currently should be set to an empty string.
-                    )doc")
-
-            // -------------------------- EVENTS FROM BACKEND -------------------------------
-
-            .def(
-                    "set_event_callback",
-                    [](GameState &self, py::function callback) {
-                        // Use makeSafeCallback to handle thread safety and GIL management
-                        self.setEventCallback(makeSafeCallback(std::move(callback)));
-                    },
-                    py::arg("callback"),
-                    R"doc(
-                        Set the event callback function.
-
-                        This function sets a callback that will be invoked when game events occur. The callback
-                        receives an Event object containing information about the event.
-
-                        Note:
-                            The callback function is invoked asynchronously when events occur, running
-                            in a separate thread from the main calling thread. The wrapper automatically
-                            handles thread safety and GIL management.
-
-                        Args:
-                            callback (Callable[[scorbit.Event], None]): A callback function that receives an Event
-                                object when a game event occurs.
-
-                        Example:
-                            def on_event(event):
-                                print(f"Game event: {event}")
-
-                            game_state.set_event_callback(on_event)
                     )doc");
 
     // Factory function - primary API

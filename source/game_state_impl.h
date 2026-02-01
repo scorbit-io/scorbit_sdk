@@ -35,8 +35,6 @@ class GameStateImpl
 public:
     GameStateImpl(std::unique_ptr<NetBase> net);
 
-    void setEventCallback(EventCallback &&callback);
-
     void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
 

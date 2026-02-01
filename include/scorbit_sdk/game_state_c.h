@@ -504,26 +504,6 @@ SCORBIT_SDK_EXPORT
 void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
                            const char *pricing);
 
-// -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
-
-/**
- * @brief Sets a callback function to handle incoming events.
- *
- * This function registers a callback function that will be invoked when specific events occur,
- * such as game start requests or credit addition requests. The callback function should match the
- * signature defined by @ref sb_event_callback_t.
- *
- * In the callback use @ref sb_event_type to determine the event type and then use appropriate
- * helper function to extract event data (e.g. @ref sb_event_game_start_requested, etc)
- *
- * @param handle A game handle created using @ref sb_create_game_state.
- * @param callback The callback function to handle events. If NULL, any previously set callback is
- * removed.
- * @param user_data Optional user data to pass to the callback. Pass NULL if not needed.
- */
-SCORBIT_SDK_EXPORT
-void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data);
-
 // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 
 SCORBIT_SDK_EXPORT

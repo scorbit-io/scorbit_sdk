@@ -45,8 +45,6 @@ public:
     NetBase() = default;
     virtual ~NetBase() = default;
 
-    virtual void setEventCallback(EventCallback &&callback) = 0;
-
     virtual AuthStatus status() const = 0;
 
     virtual void authenticate() = 0;
@@ -98,7 +96,6 @@ public:
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }
 
 private:
-    EventCallback m_eventCallback;
     std::atomic<int> m_numberOfPlayersRequested {0};
 };
 

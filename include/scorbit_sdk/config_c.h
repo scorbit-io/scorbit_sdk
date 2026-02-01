@@ -20,6 +20,7 @@
 #pragma once
 
 #include <scorbit_sdk/export.h>
+#include "event_types_c.h"
 #include "net_types_c.h"
 
 #include <stdbool.h>
@@ -175,6 +176,39 @@ void sb_config_set_scorbitd_version(sb_config_t config, const char *version);
 
 SCORBIT_SDK_EXPORT
 void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform_id);
+
+// ------------------------------------------------------------------------------------------------
+// Event callback configuration
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * @brief Set the event callback for handling incoming events.
+ *
+ * Events include game start requests, credit addition requests, and other
+ * notifications from the Scorbit backend.
+ *
+ * @param config The configuration handle.
+ * @param callback The callback function to handle events. If NULL, events are ignored.
+ * @param user_data Optional user data passed to the callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callback, void *user_data);
+
+/**
+ * @brief Internal helper for C++ wrapper to store callback with proper lifetime.
+ *
+ * This function stores a C++ callback in the config's internal storage so it persists
+ * after the Config object is destroyed. The storage is automatically cleaned up when
+ * the game state is destroyed.
+ *
+ * @param config The configuration handle.
+ * @param cpp_callback Pointer to a heap-allocated std::function<void(const Event&)>.
+ *                     Ownership is transferred to the config.
+ * @note This is an internal API for the C++ wrapper and should not be used directly.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_event_callback_cpp(sb_config_t config, sb_event_callback_t callback,
+                                      void *cpp_callback);
 
 #ifdef __cplusplus
 }

@@ -57,11 +57,6 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->authenticate();
 }
 
-void GameStateImpl::setEventCallback(EventCallback &&callback)
-{
-    m_net->setEventCallback(std::move(callback));
-}
-
 void GameStateImpl::setGameStarted(GameStartOrigin origin)
 {
     startGame(1, origin);

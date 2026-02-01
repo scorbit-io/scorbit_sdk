@@ -43,6 +43,9 @@ constexpr int G_SCORE_FEATURES_VERSION = 1;
 atomic_int gNumberOfPlayersRequested;
 atomic_bool gGameStartRequestedFromLobby {false};
 
+// Global pointer to GameState for event callback (set after GameState is created)
+scorbit::GameState *gGameStatePtr = nullptr;
+
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 bool isGameFinished(int i)
 {
@@ -166,10 +169,9 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     std::cout.flush(); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
-void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
+void eventsCallback(const scorbit::Event &event)
 {
     cout << "Event received: " << static_cast<int>(event.type()) << endl;
-    (void)gs;
 
     switch (event.type()) {
     case scorbit::EventType::GameStartRequested: {
@@ -188,7 +190,9 @@ void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
             cout << "Credits add requested: " << creditsToAdd
                  << " credit(s), transaction: " << transaction << endl;
             // Add credits to the machine ... and then call
-            gs.setCreditsDropped(creditsToAdd, transaction, true);
+            if (gGameStatePtr) {
+                gGameStatePtr->setCreditsDropped(creditsToAdd, transaction, true);
+            }
         }
     } break;
 
@@ -196,7 +200,9 @@ void eventsCallback(scorbit::GameState &gs, const scorbit::Event &event)
         // This event is sent when backend requests credits status.
         // Using GameState::setCreditsStatus()
         cout << "Credits status requested" << endl;
-        gs.setCreditsStatus(false, 10, 20, nullptr);
+        if (gGameStatePtr) {
+            gGameStatePtr->setCreditsStatus(false, 10, 20, nullptr);
+        }
     } break;
 
         // -------- OEM providers can ignore the events below, they are mostly for scorbitron
@@ -230,7 +236,9 @@ scorbit::GameState setupGameState()
             .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
             .setEncryptedKey("8qWNpMPeO1AbgcoPSsdeUORGmO/"
                              "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
-                             "YaHLGkW4p/yWmA==");
+                             "YaHLGkW4p/yWmA==")
+            // Setup events callback - this must be done before creating GameState
+            .setEventCallback(eventsCallback);
 
     return scorbit::createGameState(config);
 }
@@ -249,14 +257,14 @@ int main()
     // Setup logger with max 512 chars message length
     scorbit::addLoggerCallback(loggerCallback, 512);
 
-    // Create game state object
+    // Create game state object (event callback is set in Config before creation)
     scorbit::GameState gs = setupGameState();
+
+    // Set the global pointer so event callback can access the GameState
+    gGameStatePtr = &gs;
 
     // Set capabilities. Here we set both start game and credit drop capabilities
     gs.setCapabilities(scorbit::Capability::StartGame | scorbit::Capability::CreditDrop);
-
-    // Setup events callback
-    gs.setEventCallback(std::bind(eventsCallback, std::ref(gs), _1));
 
     gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
         if (error == scorbit::Error::Success) {

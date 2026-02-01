@@ -131,3 +131,37 @@ void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform
         config->scorbitdPlatformId = platform_id ? platform_id : std::string {};
     }
 }
+
+void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callback, void *user_data)
+{
+    using scorbit::detail::EventBase;
+
+    if (config) {
+        config->m_eventCallback = [callback, user_data](const EventBase &event) {
+            if (callback) {
+                callback(static_cast<const sb_event_t *>(&event), user_data);
+            }
+        };
+    }
+}
+
+void sb_config_set_event_callback_cpp(sb_config_t config, sb_event_callback_t callback,
+                                      void *cpp_callback)
+{
+    using scorbit::detail::EventBase;
+    using scorbit::Event;
+    using CppCallback = std::function<void(const Event &)>;
+
+    if (config && cpp_callback) {
+        // Take ownership of the heap-allocated callback
+        config->m_cppCallbackStorage.reset(static_cast<CppCallback *>(cpp_callback));
+
+        // Set up the event callback that uses the stored C++ callback
+        auto *cbPtr = config->m_cppCallbackStorage.get();
+        config->m_eventCallback = [callback, cbPtr](const EventBase &event) {
+            if (callback && cbPtr && *cbPtr) {
+                callback(static_cast<const sb_event_t *>(&event), cbPtr);
+            }
+        };
+    }
+}

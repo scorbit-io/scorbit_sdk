@@ -88,8 +88,6 @@ public:
     Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey);
     ~Net() override;
 
-    void setEventCallback(EventCallback &&callback) override;
-
     AuthStatus status() const override;
 
     const std::string &hostname() const;
