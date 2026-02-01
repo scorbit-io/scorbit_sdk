@@ -104,6 +104,20 @@ CPMAddPackage(
     SYSTEM YES
 )
 
+CPMAddPackage(
+    NAME logger
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/logger
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
+CPMAddPackage(
+    NAME tpm
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tpm
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
 # --- Add resources ---
 
 include(${cmake_dir}/CMakeRC.cmake)
@@ -243,6 +257,8 @@ target_link_libraries(
         LibArchive::LibArchive
         centrifugo-cpp
         spb
+        tpm
+        logger::logger
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)
