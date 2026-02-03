@@ -104,6 +104,20 @@ CPMAddPackage(
     SYSTEM YES
 )
 
+CPMAddPackage(
+    NAME logger
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/logger
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
+CPMAddPackage(
+    NAME tpm
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tpm
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
 # --- Add resources ---
 
 include(${cmake_dir}/CMakeRC.cmake)
@@ -145,9 +159,12 @@ target_sources(
         source/net.cpp
         source/logger.cpp
         source/logger.h
+        source/config_c.cpp
         source/game_state_c.cpp
         source/game_state_impl.h
         source/game_state_impl.cpp
+        include/scorbit_sdk/config_c.h
+        include/scorbit_sdk/config.h
         include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
@@ -240,6 +257,8 @@ target_link_libraries(
         LibArchive::LibArchive
         centrifugo-cpp
         spb
+        tpm
+        logger::logger
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)

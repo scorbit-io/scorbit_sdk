@@ -40,11 +40,6 @@ public:
 
     ~EventManager() { m_stopped = true; }
 
-    auto setEventCallback(EventCallback &&callback) -> void
-    {
-        m_eventCallback = std::move(callback);
-    }
-
     auto push(EventPtr event) -> void
     {
         if (!event || m_stopped) {

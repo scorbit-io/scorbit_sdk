@@ -67,6 +67,12 @@ CPMAddPackage(
     SYSTEM YES
 )
 
+CPMAddPackage(
+    NAME logger
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../../libs/logger
+    EXCLUDE_FROM_ALL YES
+)
+
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
@@ -161,6 +167,7 @@ target_link_libraries(
         LibArchive::LibArchive
         centrifugo-cpp
         spb
+        logger::logger
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)

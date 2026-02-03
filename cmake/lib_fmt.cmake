@@ -1,6 +1,6 @@
 CPMAddPackage(
     NAME fmt
-    GIT_TAG 11.2.0
+    GIT_TAG 12.1.0
     GITHUB_REPOSITORY fmtlib/fmt
     EXCLUDE_FROM_ALL YES
     SYSTEM YES

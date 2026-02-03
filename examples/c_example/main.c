@@ -46,6 +46,9 @@ int gNumberOfPlayersRequested;
 bool gGameStartRequestedFromLobby = false;
 pthread_mutex_t gGameStartRequestMutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Global pointer to game state for event callback (set after game state is created)
+sb_game_handle_t gGameStatePtr = NULL;
+
 void set_game_start_requested(bool val)
 {
     pthread_mutex_lock(&gGameStartRequestMutex);
@@ -181,9 +184,59 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Example of key persistence callbacks ------------------
+// These callbacks are used to save and load a key to/from persistent storage.
+// The SDK will call these when it needs to persist or retrieve the key.
+
+static const char *KEY_FILE_PATH = "scorbit_key.txt";
+
+void saveKeyCallback(const char *key, void *user_data)
+{
+    (void)user_data;
+    printf("Saving key to file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "w");
+    if (file) {
+        fprintf(file, "%s", key);
+        fclose(file);
+    } else {
+        printf("Failed to save key to file\n");
+    }
+}
+
+int loadKeyCallback(char *buffer, size_t buffer_size, void *user_data)
+{
+    (void)user_data;
+    printf("Loading key from file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "r");
+    if (!file) {
+        // Return 0 if file doesn't exist or can't be opened
+        return 0;
+    }
+
+    // Read the key from file
+    size_t len = fread(buffer, 1, buffer_size - 1, file);
+
+    if (len > 0) {
+        // Check if there's more data in the file (buffer too small)
+        if (fgetc(file) != EOF) {
+            fclose(file);
+            return -1; // Buffer size is smaller than file content
+        }
+
+        buffer[len] = '\0'; // Null-terminate
+        fclose(file);
+        return (int)len; // Length of read key string
+    }
+
+    fclose(file);
+    return 0; // Empty file or read error
+}
+
 void eventsCallback(const sb_event_t *event, void *user_data)
 {
-    sb_game_handle_t gs = (sb_game_handle_t)user_data;
+    (void)user_data; // Use global gGameStatePtr instead
 
     sb_event_type_t event_type = sb_event_type(event);
 
@@ -208,14 +261,18 @@ void eventsCallback(const sb_event_t *event, void *user_data)
             // callback
 
             // Add credits to the machine ... and then call
-            sb_set_credits_dropped(gs, credits_to_add, transaction, true);
+            if (gGameStatePtr) {
+                sb_set_credits_dropped(gGameStatePtr, credits_to_add, transaction, true);
+            }
         }
     } break;
 
     case SB_EVT_CREDITS_STATUS_REQUESTED: {
         printf("Credits status requested\n");
-        sb_set_credits_status(gs, false, 10, 20, NULL);
-    }  break;
+        if (gGameStatePtr) {
+            sb_set_credits_status(gGameStatePtr, false, 10, 20, NULL);
+        }
+    } break;
 
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
@@ -233,44 +290,43 @@ void eventsCallback(const sb_event_t *event, void *user_data)
 
 sb_game_handle_t setup_game_state(void)
 {
-    // Setup device info
-    sb_device_info_t device_info = {
-            .provider = "dilshodpinball", // This is required, set to your provider name
-            .machine_id = 4379,
-            .game_code_version = "0.1.0", // game version
-            .hostname = "staging",        // Optional, if NULL, it will be production
+    // Create a config object
+    sb_config_t config = sb_config_create();
 
-            // UUID is optional, if NULL, will be automatically derived from device's mac address
-            // However, if there is known uuid attached to the device, set it here:
-            .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
-            .serial_number = 0,                 // If no serial number available, set to 0
-            .auto_download_player_pics = false, // we don't want to download player's pictures
+    // Set required parameters
+    sb_config_set_provider(config, "dilshodpinball");
+    sb_config_set_machine_id(config, 4379);
+    sb_config_set_game_code_version(config, "0.1.0");
 
-            .score_features = G_SCORE_FEATURES,
-            .score_features_count = G_SCORE_FEATURES_COUNT,
-            .score_features_version = G_SCORE_FEATURES_VERSION,
-    };
+    // Set optional parameters
+    sb_config_set_hostname(config, "staging"); // Optional, default is "production"
+    sb_config_set_uuid(config, "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"); // Optional
+    sb_config_set_serial_number(config, 0);
+    sb_config_set_auto_download_player_pics(config, false);
+    sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
+                                 G_SCORE_FEATURES_VERSION);
 
-    // Another example with default values:
-    sb_device_info_t device_info2 = {
-            .provider = "vscorbitron",    // This is required, set to your provider name
-            .game_code_version = "0.1.0", // game version
-            .hostname = NULL,             // NULL, it will be production, or can set to "production"
-            .uuid = NULL,                 // NULL, will be automatically derived from device
-            .serial_number = 0,           // no serial number available, set to 0
-            .auto_download_player_pics = true, // players' pictures will be automatically downloaded
-            .score_features = NULL,            // we don't use score features
-            .score_features_count = 0,
-    };
-    (void)device_info2;
+    // Set authentication - encrypted key (for non-TPM machines)
+    // The encrypted key is generated using encrypt_tool
+    sb_config_set_encrypted_key(config,
+                                "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+                                "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
+                                "YaHLGkW4p/yWmA==");
 
-    // Setup encrypted key
-    const char *encrypted_key =
-            "8qWNpMPeO1AbgcoPSsdeUORGmO/"
-            "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
+    // Setup events callback - this must be done before creating the game state
+    sb_config_set_event_callback(config, &eventsCallback, NULL);
 
-    // Create game state object. Device info will be copied, so it's safe to create it in the stack
-    return sb_create_game_state2(encrypted_key, &device_info);
+    // Setup key persistence callbacks - SDK will use these to save/load keys
+    sb_config_set_save_key_callback(config, &saveKeyCallback, NULL);
+    sb_config_set_load_key_callback(config, &loadKeyCallback, NULL);
+
+    // Create game state object using the config
+    sb_game_handle_t handle = sb_create_game_state(config);
+
+    // Config can be destroyed after creating the game state (data is copied)
+    sb_config_destroy(config);
+
+    return handle;
 }
 
 void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
@@ -335,13 +391,14 @@ int main(void)
     // Setup logger with 512 chars max message length
     sb_add_logger_callback(loggerCallback, NULL, 512);
 
+    // Create game state (event callback is set in config before creation)
     sb_game_handle_t gs = setup_game_state();
+
+    // Set the global pointer so event callback can access the game state
+    gGameStatePtr = gs;
 
     // Set capabilities. Here we set both start game and credit drop capabilities
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
-
-    // Setup events callback
-    sb_set_event_callback(gs, &eventsCallback, gs);
 
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);

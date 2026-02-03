@@ -35,7 +35,6 @@ class MockNetBase : public NetBase
 {
 public:
     virtual ~MockNetBase() = default;
-    void setEventCallback(EventCallback &&) override { };
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override {};

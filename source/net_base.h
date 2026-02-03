@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
+#include "device_info.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
 #include "session_flags.h"
@@ -43,8 +44,6 @@ class NetBase
 public:
     NetBase() = default;
     virtual ~NetBase() = default;
-
-    virtual void setEventCallback(EventCallback &&callback) = 0;
 
     virtual AuthStatus status() const = 0;
 
@@ -97,7 +96,6 @@ public:
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }
 
 private:
-    EventCallback m_eventCallback;
     std::atomic<int> m_numberOfPlayersRequested {0};
 };
 

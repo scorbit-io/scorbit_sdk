@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
+#include "config_c.h"
 #include "net_types_c.h"
 #include "event_types_c.h"
 
@@ -34,33 +35,37 @@ extern "C" {
 /**
  * @brief Create a game state.
  *
- * Initializes and creates a game state. Use this function at the start of the application.
- * When the application terminates, call @ref sb_destroy_game_state to release the allocated
- * resources.
+ * Creates and initializes a game state using the provided configuration object.
+ * Use this function at the start of the application. When the application terminates,
+ * call @ref sb_destroy_game_state to release the allocated resources.
  *
- * There are two versions: first version is @ref sb_create_game_state, which requires a signer
- * callback function and device information. The second version is @ref sb_create_game_state2,
- * which requires an encrypted key instead of a signer callback.
- *
- * @note The first version with a signer callback is intended for machines that use TPM for signing.
- * The second version is recommended for machines that do not use TPM.
+ * Before calling this function, you must:
+ * 1. Create a config with @ref sb_config_create
+ * 2. Set required properties (provider, machine_id, game_code_version)
+ * 3. Set authentication: either @ref sb_config_set_encrypted_key (for non-TPM machines)
+ *    or @ref sb_config_set_signer (for TPM machines)
  *
  * @note Normally, one game state per application is sufficient.
  *
- * @param signer The callback function to sign the game state. The function should have the
- * signature specified by @ref sb_signer_callback_t. @see examples/c_example/main.c
- * @param signer_user_data The user data passed to the signer. It can be used to pass the context.
- * @param device_info The device information used to authenticate
+ * @param config The configuration object created by @ref sb_config_create.
+ *               Must have authentication configured (encrypted key or signer).
  *
- * @return A handle to the game state, or NULL if creation fails.
+ * @return A handle to the game state, or NULL if creation fails or config is invalid.
+ *
+ * Example:
+ * @code
+ * sb_config_t config = sb_config_create();
+ * sb_config_set_provider(config, "myprovider");
+ * sb_config_set_machine_id(config, 4419);
+ * sb_config_set_game_code_version(config, "1.0.0");
+ * sb_config_set_encrypted_key(config, encrypted_key);
+ *
+ * sb_game_handle_t handle = sb_create_game_state(config);
+ * sb_config_destroy(config);
+ * @endcode
  */
 SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
-                                      const sb_device_info_t *device_info);
-
-SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
-                                       const sb_device_info_t *device_info);
+sb_game_handle_t sb_create_game_state(sb_config_t config);
 
 /**
  * @brief Destroy the game state.
@@ -498,26 +503,6 @@ void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *tr
 SCORBIT_SDK_EXPORT
 void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
                            const char *pricing);
-
-// -------------------------- EVENTS FROM MOBILE APP AND BACKEND ----------------------------------
-
-/**
- * @brief Sets a callback function to handle incoming events.
- *
- * This function registers a callback function that will be invoked when specific events occur,
- * such as game start requests or credit addition requests. The callback function should match the
- * signature defined by @ref sb_event_callback_t.
- *
- * In the callback use @ref sb_event_type to determine the event type and then use appropriate
- * helper function to extract event data (e.g. @ref sb_event_game_start_requested, etc)
- *
- * @param handle A game handle created using @ref sb_create_game_state.
- * @param callback The callback function to handle events. If NULL, any previously set callback is
- * removed.
- * @param user_data Optional user data to pass to the callback. Pass NULL if not needed.
- */
-SCORBIT_SDK_EXPORT
-void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data);
 
 // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 

@@ -21,6 +21,14 @@
 
 #include <chrono>
 
+// Forward declare the standalone logger's setLoggerCallback to avoid macro conflicts
+namespace logger {
+enum class LogLevel : int;
+using LoggerCallback =
+        std::function<void(const std::string &message, LogLevel level, const char *file, int line)>;
+void setLoggerCallback(LoggerCallback callback);
+} // namespace logger
+
 namespace {
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -92,6 +100,12 @@ void Logger::log(const std::string &message, LogLevel level, const char *file, i
 Logger::Logger()
     : m_thread(&Logger::processLogs, this)
 {
+    // Connect the standalone logger library to the SDK's logging system.
+    // This allows logs from libs (utils, tpm, etc.) to flow through the SDK's callbacks.
+    logger::setLoggerCallback(
+            [](const std::string &message, logger::LogLevel level, const char *file, int line) {
+                Logger::instance()->log(message, static_cast<LogLevel>(level), file, line);
+            });
 }
 
 void Logger::processLogs()

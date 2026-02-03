@@ -136,7 +136,8 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
-    , m_eventManager(std::make_unique<EventManager>(m_worker.eventsStrand()))
+    , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
+                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
     setHostname(m_deviceInfo.hostname, "");
 
@@ -187,11 +188,6 @@ Net::~Net()
     stopTokenRefreshTimer();
     m_stop = true;
     m_authCV.notify_all();
-}
-
-void Net::setEventCallback(EventCallback &&callback)
-{
-    m_eventManager->setEventCallback(std::move(callback));
 }
 
 AuthStatus Net::status() const

@@ -21,6 +21,7 @@
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/net_types_c.h>
 #include <scorbit_sdk/game_state_factory.h>
+#include "device_info.h"
 #include "game_state_impl.h"
 #include "event_classes.h"
 #include "net.h"
@@ -71,28 +72,33 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
 
 }
 
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
-                                      const sb_device_info_t *device_info)
+sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
-    SignerCallback cb = [signer, signer_user_data](const Digest &digest) {
-        Signature signature(SIGNATURE_MAX_LENGTH);
-        size_t signatureLength = 0;
-        if (0 == signer(signature.data(), &signatureLength, digest.data(), signer_user_data)) {
-            signature.resize(signatureLength);
-        } else {
-            signature.clear();
-        }
-        return signature;
-    };
+    if (!config || !config->hasAuthentication()) {
+        return nullptr;
+    }
 
-    return new sb_game_state_struct {
-            createGameStateImpl(std::move(cb), DeviceInfo(*device_info), false)};
-}
+    if (config->hasAuthenticationCallback()) {
+        // Use signer callback authentication
+        auto signer = config->signerCallback;
+        auto userData = config->signerUserData;
 
-sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
-                                       const sb_device_info_t *device_info)
-{
-    return new sb_game_state_struct {createGameStateImpl(encrypted_key, DeviceInfo(*device_info))};
+        SignerCallback cb = [signer, userData](const Digest &digest) {
+            Signature signature(SIGNATURE_MAX_LENGTH);
+            size_t signatureLength = 0;
+            if (0 == signer(signature.data(), &signatureLength, digest.data(), userData)) {
+                signature.resize(signatureLength);
+            } else {
+                signature.clear();
+            }
+            return signature;
+        };
+
+        return new sb_game_state_struct {createGameStateImpl(std::move(cb), *config, false)};
+    }
+
+    // Use encrypted key authentication
+    return new sb_game_state_struct {createGameStateImpl(config->encryptedKey, *config)};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)
@@ -260,15 +266,6 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities)
 {
     handle->gameState.setCapabilities(capabilities);
-}
-
-void sb_set_event_callback(sb_game_handle_t handle, sb_event_callback_t callback, void *user_data)
-{
-    handle->gameState.setEventCallback([callback, user_data](const EventBase &event) {
-        if (callback) {
-            callback(static_cast<const sb_event_t *>(&event), user_data);
-        }
-    });
 }
 
 void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,

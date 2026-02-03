@@ -67,11 +67,11 @@ typedef struct sb_event_t sb_event_t;
  *
  * This callback function is invoked when an event occurs. The function receives a pointer to an
  * sb_event_t structure containing the event data, and a user_data pointer that was provided when
- * setting the callback using @ref sb_set_event_callback.
+ * setting the callback using @ref sb_config_set_event_callback.
  *
  * - **event**: A pointer to an sb_event_t structure containing the event data.
  * - **user_data**: The user data pointer provided when setting the callback by @ref
- * sb_set_event_callback. It can be used to pass context or NULL if not needed.
+ * sb_config_set_event_callback. It can be used to pass context or NULL if not needed.
  *
  * @note The event data is valid only during the callback execution. Use specific event helper
  * functions to parse data (e.g. @ref sb_event_game_start_requested, etc).
