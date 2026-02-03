@@ -402,6 +402,98 @@ PYBIND11_MODULE(scorbit, m)
 
                             config = scorbit.Config()
                             config.set_event_callback(on_event)
+                    )doc")
+
+            .def(
+                    "set_save_key_callback",
+                    [](Config &self, py::function callback) -> Config & {
+                        // Wrap Python callback to handle GIL
+                        auto safeCallback = makeSafeCallback(
+                                [callback = std::move(callback)](const std::string &key) {
+                                    callback(key);
+                                });
+                        return self.setSaveKeyCallback(std::move(safeCallback));
+                    },
+                    py::arg("callback"), py::return_value_policy::reference,
+                    R"doc(
+                        Set the callback for saving a key to persistent storage.
+
+                        The SDK will call this callback when it needs to persist a key. The implementation
+                        should save the key to a secure persistent storage location (e.g., file, database).
+
+                        Note:
+                            The callback function may be invoked asynchronously from a separate thread.
+                            The wrapper automatically handles thread safety and GIL management.
+
+                        Args:
+                            callback (Callable[[str], None]): A callback function that receives the key
+                                string to save.
+
+                        Example:
+                            def save_key(key):
+                                with open('key.txt', 'w') as f:
+                                    f.write(key)
+
+                            config = scorbit.Config()
+                            config.set_save_key_callback(save_key)
+                    )doc")
+
+            .def(
+                    "set_load_key_callback",
+                    [](Config &self, py::function callback) -> Config & {
+                        // Create a shared_ptr to store the Python callback with GIL-safe deleter
+                        auto callbackPtr = std::shared_ptr<py::function>(
+                                new py::function(std::move(callback)), [](py::function *ptr) {
+                                    if (!Py_IsInitialized()) {
+                                        return;
+                                    }
+                                    py::gil_scoped_acquire gil;
+                                    delete ptr;
+                                });
+
+                        // Create a C++ callback that acquires GIL and returns the result
+                        auto loadCallback = [callbackPtr]() -> std::string {
+                            if (!Py_IsInitialized()) {
+                                return "";
+                            }
+                            py::gil_scoped_acquire gil;
+                            try {
+                                py::object result = (*callbackPtr)();
+                                if (result.is_none()) {
+                                    return "";
+                                }
+                                return result.cast<std::string>();
+                            } catch (...) {
+                                return "";
+                            }
+                        };
+                        return self.setLoadKeyCallback(std::move(loadCallback));
+                    },
+                    py::arg("callback"), py::return_value_policy::reference,
+                    R"doc(
+                        Set the callback for loading a key from persistent storage.
+
+                        The SDK will call this callback when it needs to load a previously saved key.
+                        The implementation should read the key from persistent storage and return it.
+
+                        Note:
+                            The callback function may be invoked asynchronously from a separate thread.
+                            The wrapper automatically handles thread safety and GIL management.
+
+                        Args:
+                            callback (Callable[[], str]): A callback function that returns the stored key
+                                string, or an empty string (or None) if no key is stored.
+
+                        Example:
+                            def load_key():
+                                try:
+                                    with open('key.txt', 'r') as f:
+                                        return f.read()
+                                except FileNotFoundError:
+                                    return ""
+
+                            config = scorbit.Config()
+                            config.set_load_key_callback(load_key)
                     )doc");
 
     // PlayerInfo struct

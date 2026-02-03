@@ -21,6 +21,8 @@
 
 #include "config_c.h"
 #include "event.h"
+#include "net_types.h"
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
@@ -29,6 +31,7 @@
 namespace scorbit {
 
 using EventCallback = std::function<void(const Event &event)>;
+// SaveKeyCallback and LoadKeyCallback are defined in net_types.h
 
 /**
  * @brief Configuration class for creating game state.
@@ -214,7 +217,47 @@ public:
         return *this;
     }
 
-    // ---- Internal use only ----
+    // ---- Key persistence callbacks ----
+
+    /**
+     * @brief Set the callback for saving a key to persistent storage.
+     *
+     * The SDK will call this callback when it needs to persist a key.
+     *
+     * @param callback The callback function to save the key.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setSaveKeyCallback(SaveKeyCallback callback)
+    {
+        auto *callbackPtr = new SaveKeyCallback {std::move(callback)};
+        auto *loadCallbackPtr = static_cast<LoadKeyCallback *>(nullptr);
+        sb_config_set_key_callbacks_cpp(m_handle.get(), &Config::save_key_callback_c, nullptr,
+                                        callbackPtr, loadCallbackPtr);
+
+        return *this;
+    }
+
+    /**
+     * @brief Set the callback for loading a key from persistent storage.
+     *
+     * The SDK will call this callback when it needs to load a previously saved key.
+     * If no key is stored, the callback should return an empty string.
+     *
+     * @param callback The callback function to load the key.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setLoadKeyCallback(LoadKeyCallback callback)
+    {
+        auto *callbackPtr = new LoadKeyCallback(std::move(callback));
+        auto *saveCallbackPtr = static_cast<SaveKeyCallback *>(nullptr);
+        sb_config_set_key_callbacks_cpp(m_handle.get(), nullptr, &Config::load_key_callback_c,
+                                        saveCallbackPtr, callbackPtr);
+        return *this;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Below is not a public interface, for internal use only!
+    // ------------------------------------------------------------------------------------------------
 
     Config &setScorbitdVersion(const std::string &version)
     {
@@ -243,6 +286,31 @@ private:
         if (cb && *cb && event) {
             (*cb)(Event(const_cast<sb_event_t *>(event)));
         }
+    }
+
+    static void save_key_callback_c(const char *key, void *user_data)
+    {
+        auto *cb = static_cast<SaveKeyCallback *>(user_data);
+        if (cb && *cb && key) {
+            (*cb)(std::string(key));
+        }
+    }
+
+    static int load_key_callback_c(char *buffer, size_t buffer_size, void *user_data)
+    {
+        auto *cb = static_cast<LoadKeyCallback *>(user_data);
+        if (cb && *cb) {
+            std::string key = (*cb)();
+            if (key.empty()) {
+                return 0;
+            }
+            if (key.size() + 1 > buffer_size) {
+                return -1; // Buffer too small
+            }
+            std::memcpy(buffer, key.c_str(), key.size() + 1);
+            return static_cast<int>(key.size());
+        }
+        return 0;
     }
 
     std::unique_ptr<std::remove_pointer<sb_config_t>::type, decltype(&sb_config_destroy)> m_handle;

@@ -19,6 +19,7 @@
 
 #include "device_info.h"
 #include <new>
+#include <vector>
 
 sb_config_t sb_config_create(void)
 {
@@ -148,8 +149,8 @@ void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callba
 void sb_config_set_event_callback_cpp(sb_config_t config, sb_event_callback_t callback,
                                       void *cpp_callback)
 {
-    using scorbit::detail::EventBase;
     using scorbit::Event;
+    using scorbit::detail::EventBase;
     using CppCallback = std::function<void(const Event &)>;
 
     if (config && cpp_callback) {
@@ -163,5 +164,89 @@ void sb_config_set_event_callback_cpp(sb_config_t config, sb_event_callback_t ca
                 callback(static_cast<const sb_event_t *>(&event), cbPtr);
             }
         };
+    }
+}
+
+void sb_config_set_save_key_callback(sb_config_t config, sb_save_key_callback_t callback,
+                                     void *user_data)
+{
+    if (config) {
+        config->saveKeyCallback = [callback, user_data](const std::string &key) {
+            if (callback) {
+                callback(key.c_str(), user_data);
+            }
+        };
+    }
+}
+
+void sb_config_set_load_key_callback(sb_config_t config, sb_load_key_callback_t callback,
+                                     void *user_data)
+{
+    if (config) {
+        config->loadKeyCallback = [callback, user_data]() -> std::string {
+            if (callback) {
+                // Start with a reasonable buffer size
+                std::vector<char> buffer(1024);
+                int result = callback(buffer.data(), buffer.size(), user_data);
+
+                if (result == -1) {
+                    // Buffer too small, try larger buffer (up to reasonable limit)
+                    buffer.resize(16 * 1024);
+                    result = callback(buffer.data(), buffer.size(), user_data);
+                }
+
+                if (result > 0 && static_cast<size_t>(result) < buffer.size()) {
+                    return std::string(buffer.data(), result);
+                }
+            }
+            return std::string {};
+        };
+    }
+}
+
+void sb_config_set_key_callbacks_cpp(sb_config_t config, sb_save_key_callback_t save_callback,
+                                     sb_load_key_callback_t load_callback, void *cpp_save_callback,
+                                     void *cpp_load_callback)
+{
+    using scorbit::SaveKeyCallback;
+    using scorbit::LoadKeyCallback;
+
+    if (config) {
+        // Take ownership of the heap-allocated callbacks and set the actual callback
+        if (cpp_save_callback) {
+            config->m_cppSaveKeyCallbackStorage.reset(
+                    static_cast<SaveKeyCallback *>(cpp_save_callback));
+
+            auto *cbPtr = config->m_cppSaveKeyCallbackStorage.get();
+            config->saveKeyCallback = [save_callback, cbPtr](const std::string &key) {
+                if (save_callback && cbPtr && *cbPtr) {
+                    save_callback(key.c_str(), cbPtr);
+                }
+            };
+        }
+
+        if (cpp_load_callback) {
+            config->m_cppLoadKeyCallbackStorage.reset(
+                    static_cast<LoadKeyCallback *>(cpp_load_callback));
+
+            auto *cbPtr = config->m_cppLoadKeyCallbackStorage.get();
+            config->loadKeyCallback = [load_callback, cbPtr]() -> std::string {
+                if (load_callback && cbPtr && *cbPtr) {
+                    // Use the C bridge function which handles buffer management
+                    std::vector<char> buffer(1024);
+                    int result = load_callback(buffer.data(), buffer.size(), cbPtr);
+
+                    if (result == -1) {
+                        buffer.resize(16 * 1024);
+                        result = load_callback(buffer.data(), buffer.size(), cbPtr);
+                    }
+
+                    if (result > 0) {
+                        return std::string(buffer.data(), result);
+                    }
+                }
+                return "";
+            };
+        }
     }
 }

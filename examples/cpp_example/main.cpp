@@ -26,6 +26,7 @@
 #include <thread>
 #include <map>
 #include <atomic>
+#include <fstream>
 
 using namespace std;
 
@@ -169,6 +170,37 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     std::cout.flush(); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Example of key persistence callbacks ------------------
+// These callbacks are used to save and load a key to/from persistent storage.
+// The SDK will call these when it needs to persist or retrieve the key.
+
+const std::string KEY_FILE_PATH = "scorbit_key.txt";
+
+void saveKeyCallback(const std::string &key)
+{
+    cout << "Saving key to file: " << KEY_FILE_PATH << endl;
+    std::ofstream file(KEY_FILE_PATH);
+    if (file.is_open()) {
+        file << key;
+        file.close();
+    } else {
+        cerr << "Failed to save key to file" << endl;
+    }
+}
+
+std::string loadKeyCallback()
+{
+    cout << "Loading key from file: " << KEY_FILE_PATH << endl;
+    std::ifstream file(KEY_FILE_PATH);
+    if (file.is_open()) {
+        // Read all content to string
+        std::string key((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        return key;
+    }
+    // Return empty string if file doesn't exist (no key saved yet)
+    return "";
+}
+
 void eventsCallback(const scorbit::Event &event)
 {
     cout << "Event received: " << static_cast<int>(event.type()) << endl;
@@ -238,7 +270,10 @@ scorbit::GameState setupGameState()
                              "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
                              "YaHLGkW4p/yWmA==")
             // Setup events callback - this must be done before creating GameState
-            .setEventCallback(eventsCallback);
+            .setEventCallback(eventsCallback)
+            // Setup key persistence callbacks - SDK will use these to save/load keys
+            .setSaveKeyCallback(saveKeyCallback)
+            .setLoadKeyCallback(loadKeyCallback);
 
     return scorbit::createGameState(config);
 }

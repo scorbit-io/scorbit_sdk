@@ -149,6 +149,33 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
 
 typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
+/**
+ * Save key callback function type.
+ *
+ * Called by the SDK to persist a key. The implementation should save the key
+ * to persistent storage (e.g., file, database, secure storage).
+ *
+ * - **key**: The null-terminated key string to save.
+ * - **user_data**: The user data passed when setting the callback.
+ */
+typedef void (*sb_save_key_callback_t)(const char *key, void *user_data);
+
+/**
+ * Load key callback function type.
+ *
+ * Called by the SDK to load a previously saved key. The implementation should
+ * read the key from persistent storage and copy it to the provided buffer.
+ *
+ * - **buffer**: The buffer to store the loaded key (null-terminated).
+ * - **buffer_size**: The size of the buffer in bytes (inlcuding terminal 0).
+ * - **user_data**: The user data passed when setting the callback.
+ *
+ * - returns The actual length of the key (excluding null terminator), or -1 if
+ *           buffer_size is too small. If no key is stored, return 0 and leave
+ *           buffer empty.
+ */
+typedef int (*sb_load_key_callback_t)(char *buffer, size_t buffer_size, void *user_data);
+
 // ------------------------------------------------------------------------------------------------
 // sb_config_t - Opaque configuration handle for ABI-stable extensibility
 // ------------------------------------------------------------------------------------------------

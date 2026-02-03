@@ -192,23 +192,60 @@ void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform
  * @param user_data Optional user data passed to the callback.
  */
 SCORBIT_SDK_EXPORT
-void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callback, void *user_data);
+void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callback,
+                                  void *user_data);
+
+// ------------------------------------------------------------------------------------------------
+// Key persistence callbacks
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * @brief Set the callback for saving a key to persistent storage.
+ *
+ * The SDK will call this callback when it needs to persist a key. The implementation
+ * should save the key to a secure persistent storage location.
+ *
+ * @param config The configuration handle.
+ * @param callback The callback function to save the key. If NULL, key saving is disabled.
+ * @param user_data Optional user data passed to the callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_save_key_callback(sb_config_t config, sb_save_key_callback_t callback,
+                                     void *user_data);
+
+/**
+ * @brief Set the callback for loading a key from persistent storage.
+ *
+ * The SDK will call this callback when it needs to load a previously saved key.
+ * The implementation should read the key from persistent storage and copy it to the buffer.
+ * If loaded successfully, the function should return the length of the key.
+ * If no key is stored, it should return 0. If the buffer is too small, it should return -1.
+ *
+ * @param config The configuration handle.
+ * @param callback The callback function to load the key. If NULL, key loading is disabled.
+ * @param user_data Optional user data passed to the callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_load_key_callback(sb_config_t config, sb_load_key_callback_t callback,
+                                     void *user_data);
+
+// ------------------------------------------------------------------------------------------------
+// Below is not a public interface, for internal use only!
+// ------------------------------------------------------------------------------------------------
 
 /**
  * @brief Internal helper for C++ wrapper to store callback with proper lifetime.
- *
- * This function stores a C++ callback in the config's internal storage so it persists
- * after the Config object is destroyed. The storage is automatically cleaned up when
- * the game state is destroyed.
- *
- * @param config The configuration handle.
- * @param cpp_callback Pointer to a heap-allocated std::function<void(const Event&)>.
- *                     Ownership is transferred to the config.
- * @note This is an internal API for the C++ wrapper and should not be used directly.
  */
 SCORBIT_SDK_EXPORT
 void sb_config_set_event_callback_cpp(sb_config_t config, sb_event_callback_t callback,
                                       void *cpp_callback);
+/**
+ * @brief Internal helper for C++ wrapper to store key callbacks with proper lifetime.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_key_callbacks_cpp(sb_config_t config, sb_save_key_callback_t save_callback,
+                                     sb_load_key_callback_t load_callback, void *cpp_save_callback,
+                                     void *cpp_load_callback);
 
 #ifdef __cplusplus
 }

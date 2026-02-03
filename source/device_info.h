@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/config_c.h>
 #include <scorbit_sdk/event.h>
+#include <scorbit_sdk/net_types.h>
 #include "event_classes.h"
 #include <functional>
 #include <memory>
@@ -60,9 +61,15 @@ struct DeviceInfo {
 
     // Event callback - stored here and passed to EventManager
     detail::EventCallback m_eventCallback;
-
     // For C++ wrapper: stores the C++ callback to ensure proper lifetime
     std::shared_ptr<std::function<void(const Event &)>> m_cppCallbackStorage;
+
+    // Key persistence callbacks - stored as std::function (similar to m_eventCallback)
+    SaveKeyCallback saveKeyCallback;
+    LoadKeyCallback loadKeyCallback;
+    // For C++ wrapper: stores the C++ key callbacks to ensure proper lifetime
+    std::shared_ptr<SaveKeyCallback> m_cppSaveKeyCallbackStorage;
+    std::shared_ptr<LoadKeyCallback> m_cppLoadKeyCallbackStorage;
 
     DeviceInfo() = default;
 

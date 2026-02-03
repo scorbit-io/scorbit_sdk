@@ -184,6 +184,56 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Example of key persistence callbacks ------------------
+// These callbacks are used to save and load a key to/from persistent storage.
+// The SDK will call these when it needs to persist or retrieve the key.
+
+static const char *KEY_FILE_PATH = "scorbit_key.txt";
+
+void saveKeyCallback(const char *key, void *user_data)
+{
+    (void)user_data;
+    printf("Saving key to file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "w");
+    if (file) {
+        fprintf(file, "%s", key);
+        fclose(file);
+    } else {
+        printf("Failed to save key to file\n");
+    }
+}
+
+int loadKeyCallback(char *buffer, size_t buffer_size, void *user_data)
+{
+    (void)user_data;
+    printf("Loading key from file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "r");
+    if (!file) {
+        // Return 0 if file doesn't exist or can't be opened
+        return 0;
+    }
+
+    // Read the key from file
+    size_t len = fread(buffer, 1, buffer_size - 1, file);
+
+    if (len > 0) {
+        // Check if there's more data in the file (buffer too small)
+        if (fgetc(file) != EOF) {
+            fclose(file);
+            return -1; // Buffer size is smaller than file content
+        }
+
+        buffer[len] = '\0'; // Null-terminate
+        fclose(file);
+        return (int)len; // Length of read key string
+    }
+
+    fclose(file);
+    return 0; // Empty file or read error
+}
+
 void eventsCallback(const sb_event_t *event, void *user_data)
 {
     (void)user_data; // Use global gGameStatePtr instead
@@ -265,6 +315,10 @@ sb_game_handle_t setup_game_state(void)
 
     // Setup events callback - this must be done before creating the game state
     sb_config_set_event_callback(config, &eventsCallback, NULL);
+
+    // Setup key persistence callbacks - SDK will use these to save/load keys
+    sb_config_set_save_key_callback(config, &saveKeyCallback, NULL);
+    sb_config_set_load_key_callback(config, &loadKeyCallback, NULL);
 
     // Create game state object using the config
     sb_game_handle_t handle = sb_create_game_state(config);
