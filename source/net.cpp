@@ -661,10 +661,17 @@ task_t Net::createAuthenticateTask()
         m_isRefreshingToken = true;
 
         // Get noop to get timestamp
-        auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
-        const auto timestampUtc = parseHttpDateToUnixTimestamp(noopReply.header["Date"]);
-        auto timestamp = std::to_string(timestampUtc);
-        checkSystemTimeAccuracy(timestampUtc);
+        std::string timestamp;
+        for (int i = 0; i < 2; ++i) {
+            INF("API getting noop to retrieve server time...");
+            auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
+            const auto timestampUtc = parseHttpDateToUnixTimestamp(noopReply.header["Date"]);
+            if (timestampUtc > 1770153380) { // Some viable timestamp (2026-02-03)
+                timestamp = std::to_string(timestampUtc);
+                checkSystemTimeAccuracy(timestampUtc);
+                break;
+            }
+        }
 
         for (;;) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
