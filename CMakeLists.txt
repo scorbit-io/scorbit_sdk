@@ -293,6 +293,11 @@ string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")
 
+# Force correct install paths before packageProject() - cryptoauth sets CMAKE_INSTALL_PREFIX to "/"
+# which causes GNUInstallDirs to use /usr/lib instead of lib
+set(CMAKE_INSTALL_PREFIX "${SCORBIT_SDK_INSTALL_PREFIX}" CACHE PATH "" FORCE)
+set(CMAKE_INSTALL_LIBDIR "lib" CACHE PATH "" FORCE)
+
 packageProject(
     NAME ${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
