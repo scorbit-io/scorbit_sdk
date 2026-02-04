@@ -16,6 +16,8 @@ set -e
 # Get the directory of the script and source the common functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+cd "$SCRIPT_DIR/.."
+
 # Read REL from file DOCKER_RELEASE
 REL="$(cat "$SCRIPT_DIR/../DOCKER_RELEASE")"
 
