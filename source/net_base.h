@@ -21,6 +21,7 @@
 
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
+#include <scorbit_sdk/achievements.h>
 #include "device_info.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
@@ -38,6 +39,7 @@ namespace scorbit {
 namespace detail {
 
 struct GameData;
+class AchievementManager;
 
 class NetBase
 {
@@ -87,6 +89,17 @@ public:
     virtual void setCreditsDropped(int credits, const std::string &transaction, bool success) = 0;
     virtual void setCreditsStatus(bool freePlay, int credits, int maxCredits,
                                   const char *pricing) = 0;
+
+    // Achievement REST API
+    virtual void fetchAchievements(AchievementsCallback callback) = 0;
+    virtual void fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback) = 0;
+    virtual void unlockAchievement(int64_t userId, const std::string &achievementKey, int count,
+                                   AchievementUnlockCallback callback) = 0;
+    virtual void lockAchievement(int64_t userId, const std::string &achievementKey,
+                                 AchievementUnlockCallback callback) = 0;
+
+    // Achievement Manager (caching and local matching)
+    virtual AchievementManager &achievementManager() = 0;
 
     // ---------------------------------------------------------------------------------
 

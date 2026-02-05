@@ -20,6 +20,7 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
+#include <scorbit_sdk/achievements.h>
 #include <spb/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
@@ -71,6 +72,32 @@ public:
 
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                             StringCallback callback);
+
+    // Achievement REST API
+    void fetchAchievements(AchievementsCallback callback);
+    void fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback);
+    void unlockAchievement(int64_t userId, const std::string &achievementKey, int count,
+                           AchievementUnlockCallback callback);
+    void lockAchievement(int64_t userId, const std::string &achievementKey,
+                         AchievementUnlockCallback callback);
+
+    // Achievement caching and local matching
+    bool hasAchievements() const;
+    std::vector<Achievement> getAchievements() const;
+    std::optional<Achievement> getAchievement(const std::string &key) const;
+    std::optional<std::vector<AchievementProgress>> getUserProgress(int64_t userId) const;
+    std::optional<AchievementProgress> getProgress(int64_t userId, const std::string &key) const;
+    std::vector<std::string> checkModeAchievements(const std::string &modeName,
+                                                   const std::string &modeType, int64_t userId) const;
+    std::vector<std::string> checkScoreAchievements(int64_t score, int64_t userId) const;
+    bool incrementProgress(const std::string &key, int64_t userId, int increment = 1);
+    void setAchievementTriggeredCallback(
+            std::function<void(const std::string &, int64_t, bool, int)> callback);
+
+    // DMD Frame Download (internal for scorbitd)
+    void downloadAchievementFrames();
+    bool hasDmdFrame(const std::string &key) const;
+    std::vector<uint8_t> getDmdFrame(const std::string &key) const;
 
 private:
     void addNewPlayer(sb_player_t player);

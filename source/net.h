@@ -26,6 +26,7 @@
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
+#include "achievement_manager.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
@@ -135,6 +136,20 @@ public:
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
+
+    // Achievement REST API
+    void fetchAchievements(AchievementsCallback callback) override;
+    void fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback) override;
+    void unlockAchievement(int64_t userId, const std::string &achievementKey, int count,
+                           AchievementUnlockCallback callback) override;
+    void lockAchievement(int64_t userId, const std::string &achievementKey,
+                         AchievementUnlockCallback callback) override;
+
+    // Achievement Manager (caching and local matching)
+    AchievementManager &achievementManager() override;
+
+    // DMD Frame Download (internal for scorbitd)
+    void downloadAchievementFrames();
 
 private:
     task_t createAuthenticateTask();
@@ -281,6 +296,7 @@ private:
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
+    AchievementManager m_achievementManager;
 
     std::shared_ptr<spb::ProbesManager> m_probesManager;
 

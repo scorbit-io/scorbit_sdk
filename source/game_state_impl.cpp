@@ -18,6 +18,8 @@
  */
 
 #include "game_state_impl.h"
+#include "achievement_manager.h"
+#include "net.h"
 #include "logger.h"
 #include <scorbit_sdk/version.h>
 #include <spb/probes_manager.h>
@@ -359,6 +361,108 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::submitGameData, this, true));
 
     return true;
+}
+
+// ------------------------------------------------------------------------------------------------
+// Achievement REST API
+// ------------------------------------------------------------------------------------------------
+
+void GameStateImpl::fetchAchievements(AchievementsCallback callback)
+{
+    m_net->fetchAchievements(std::move(callback));
+}
+
+void GameStateImpl::fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback)
+{
+    m_net->fetchAchievementProgress(userId, std::move(callback));
+}
+
+void GameStateImpl::unlockAchievement(int64_t userId, const std::string &achievementKey, int count,
+                                      AchievementUnlockCallback callback)
+{
+    m_net->unlockAchievement(userId, achievementKey, count, std::move(callback));
+}
+
+void GameStateImpl::lockAchievement(int64_t userId, const std::string &achievementKey,
+                                    AchievementUnlockCallback callback)
+{
+    m_net->lockAchievement(userId, achievementKey, std::move(callback));
+}
+
+// ------------------------------------------------------------------------------------------------
+// Achievement Caching and Local Matching
+// ------------------------------------------------------------------------------------------------
+
+bool GameStateImpl::hasAchievements() const
+{
+    return m_net->achievementManager().hasAchievements();
+}
+
+std::vector<Achievement> GameStateImpl::getAchievements() const
+{
+    return m_net->achievementManager().getAchievements();
+}
+
+std::optional<Achievement> GameStateImpl::getAchievement(const std::string &key) const
+{
+    return m_net->achievementManager().getAchievement(key);
+}
+
+std::optional<std::vector<AchievementProgress>> GameStateImpl::getUserProgress(int64_t userId) const
+{
+    return m_net->achievementManager().getUserProgress(userId);
+}
+
+std::optional<AchievementProgress> GameStateImpl::getProgress(int64_t userId,
+                                                               const std::string &key) const
+{
+    return m_net->achievementManager().getProgress(userId, key);
+}
+
+std::vector<std::string> GameStateImpl::checkModeAchievements(const std::string &modeName,
+                                                               const std::string &modeType,
+                                                               int64_t userId) const
+{
+    return m_net->achievementManager().checkModeAchievements(modeName, modeType, userId);
+}
+
+std::vector<std::string> GameStateImpl::checkScoreAchievements(int64_t score, int64_t userId) const
+{
+    return m_net->achievementManager().checkScoreAchievements(score, userId);
+}
+
+bool GameStateImpl::incrementProgress(const std::string &key, int64_t userId, int increment)
+{
+    return m_net->achievementManager().incrementProgress(key, userId, increment);
+}
+
+void GameStateImpl::setAchievementTriggeredCallback(
+        std::function<void(const std::string &, int64_t, bool, int)> callback)
+{
+    m_net->achievementManager().setTriggeredCallback(std::move(callback));
+}
+
+// ------------------------------------------------------------------------------------------------
+// DMD Frame Download (Internal for scorbitd)
+// ------------------------------------------------------------------------------------------------
+
+void GameStateImpl::downloadAchievementFrames()
+{
+    // This casts to Net* to access the download method (internal only)
+    auto *net = dynamic_cast<Net *>(m_net.get());
+    if (net) {
+        net->downloadAchievementFrames();
+    }
+}
+
+bool GameStateImpl::hasDmdFrame(const std::string &key) const
+{
+    return m_net->achievementManager().hasDmdFrame(key);
+}
+
+std::vector<uint8_t> GameStateImpl::getDmdFrame(const std::string &key) const
+{
+    return m_net->achievementManager().getDmdFrame(key);
 }
 
 } // namespace detail

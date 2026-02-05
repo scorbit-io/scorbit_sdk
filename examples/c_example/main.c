@@ -18,6 +18,7 @@
  */
 
 #include <scorbit_sdk/scorbit_sdk_c.h>
+#include <scorbit_sdk/achievements_c.h>
 
 #include <stdio.h>
 #include <time.h>
@@ -435,6 +436,61 @@ void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data
     }
 }
 
+// -------- Achievement REST API Callbacks --------
+
+void achievements_callback(sb_error_t error, const sb_achievement_t *achievements, size_t count,
+                           void *user_data)
+{
+    (void)user_data;
+
+    if (error == SB_EC_SUCCESS) {
+        printf("Fetched %zu achievements:\n", count);
+        for (size_t i = 0; i < count; ++i) {
+            printf("  - %s: %s", achievements[i].key, achievements[i].name);
+            if (achievements[i].is_trophy) {
+                printf(" [TROPHY]");
+            }
+            printf(" (count: %d)\n", achievements[i].count);
+        }
+    } else {
+        printf("Failed to fetch achievements: %d\n", error);
+    }
+}
+
+void achievement_progress_callback(sb_error_t error, const sb_achievement_progress_t *progress,
+                                   size_t count, void *user_data)
+{
+    (void)user_data;
+
+    if (error == SB_EC_SUCCESS) {
+        printf("User achievement progress (%zu entries):\n", count);
+        for (size_t i = 0; i < count; ++i) {
+            printf("  - %s: %d", progress[i].key, progress[i].progress);
+            if (progress[i].unlocked) {
+                printf(" [UNLOCKED at %s]", progress[i].unlocked_at ? progress[i].unlocked_at : "?");
+            }
+            printf("\n");
+        }
+    } else {
+        printf("Failed to fetch achievement progress: %d\n", error);
+    }
+}
+
+void achievement_unlock_callback(sb_error_t error, const sb_achievement_unlock_result_t *result,
+                                 void *user_data)
+{
+    (void)user_data;
+
+    if (error == SB_EC_SUCCESS && result->success) {
+        printf("Achievement unlocked: %s\n", result->key);
+        if (result->newly_unlocked) {
+            printf("  This is a NEW unlock!\n");
+        }
+    } else {
+        printf("Failed to unlock achievement: %s\n", result->message ? result->message : "unknown");
+    }
+}
+
 int main(void)
 {
     // Allocate memory for player names
@@ -460,6 +516,21 @@ int main(void)
 
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
+
+    // -------- Achievement REST API Examples --------
+    // Note: The SDK handles all REST communication internally.
+    // Game code calls SDK functions, SDK manages the network layer.
+
+    // Fetch all achievements for this machine
+    sb_fetch_achievements(gs, &achievements_callback, NULL);
+
+    // Fetch achievement progress for a specific user (user_id = 12345 as example)
+    // In real usage, get user_id from player profile after NFC scan or login
+    sb_fetch_achievement_progress(gs, 12345, &achievement_progress_callback, NULL);
+
+    // Example: Unlock an achievement (typically called when player meets criteria)
+    // Uncomment when you have a real user_id and achievement_key:
+    // sb_unlock_achievement(gs, userId, "HAUNTED_TRAILS", 1, &achievement_unlock_callback, NULL);
 
     // Request deep link for pairing. This is useful if machine can display QR code.
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
