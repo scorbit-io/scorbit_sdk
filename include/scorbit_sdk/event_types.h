@@ -31,7 +31,7 @@ enum class EventType {
 
     // ---------------- OEM providers can ignore the events below ----------------
 
-    None = SB_EVT_NONE, // This event shoud not be used
+    None = SB_EVT_NONE, // This event should not be used
     ConfigReceived = SB_EVT_CONFIG_RECEIVED,
     ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
     ScorbitdUpdated = SB_EVT_SCORBITD_UPDATED,

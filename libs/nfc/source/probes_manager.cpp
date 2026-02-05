@@ -144,7 +144,7 @@ auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::
 
     enumerate(probeType);
 
-    return fmt::format("{} coudn't get probe info!", probeName);
+    return fmt::format("{} couldn't get probe info!", probeName);
 }
 
 } // namespace nfc

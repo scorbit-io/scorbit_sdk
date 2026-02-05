@@ -50,7 +50,7 @@ typedef enum {
 
     // ------------------ OEM providers can ignore the events below ------------------
 
-    SB_EVT_NONE = 1000, // This event shoud not be used
+    SB_EVT_NONE = 1000, // This event should not be used
 
     SB_EVT_CONFIG_RECEIVED,
 

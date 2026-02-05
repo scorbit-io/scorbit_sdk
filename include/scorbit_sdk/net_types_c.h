@@ -167,7 +167,7 @@ typedef void (*sb_save_key_callback_t)(const char *key, void *user_data);
  * read the key from persistent storage and copy it to the provided buffer.
  *
  * - **buffer**: The buffer to store the loaded key (null-terminated).
- * - **buffer_size**: The size of the buffer in bytes (inlcuding terminal 0).
+ * - **buffer_size**: The size of the buffer in bytes (including terminal 0).
  * - **user_data**: The user data passed when setting the callback.
  *
  * - returns The actual length of the key (excluding null terminator), or -1 if
