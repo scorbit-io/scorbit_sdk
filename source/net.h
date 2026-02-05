@@ -210,6 +210,9 @@ private:
 
     void centrifugoSetup();
     void centrifugoConnect();
+    void subscribeToAchievementsChannel(const std::string &sessionUuid);
+    void unsubscribeFromAchievementsChannel();
+    void handleAchievementPublication(const nlohmann::json &data);
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
@@ -260,6 +263,7 @@ private:
     mutable std::string m_cachedCclaimDeeplink;
 
     std::string m_machineChannel;
+    std::string m_achievementsChannel; // achievements:session:{uuid}
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;

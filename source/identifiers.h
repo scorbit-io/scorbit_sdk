@@ -77,6 +77,7 @@ constexpr auto REST_PUT {"PUT"};
 constexpr auto CF_CHN_MACHINE {"machine"};
 constexpr auto CF_CHN_CONTROL_MACHINE {"control_machine"};
 constexpr auto CF_CHN_CONTROL_SCORBITRON {"control_scorbitron"};
+constexpr auto CF_CHN_ACHIEVEMENTS_SESSION {"achievements:session:"};
 
 // ------------------------------- JSON -------------------------------
 
@@ -109,6 +110,21 @@ constexpr auto JKEY_CHN_TYPE {"type"};
 constexpr auto JKEY_CHN_PAYLOAD {"payload"};
 constexpr auto JVAL_CHN_TYPE_START_GAME {"start_game"};
 constexpr auto JVAL_CHN_TYPE_ADD_CREDITS {"add_credits"};
+
+// Achievement event types
+constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_UNLOCKED {"achievement_unlocked"};
+constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_LOCKED {"achievement_locked"};
+constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_PROGRESS {"achievement_progress"};
+
+// Achievement payload keys
+constexpr auto JKEY_ACHIEVEMENT_KEY {"achievement_key"};
+constexpr auto JKEY_ACHIEVEMENT_NAME {"achievement_name"};
+constexpr auto JKEY_ACHIEVEMENT_USER_ID {"user_id"};
+constexpr auto JKEY_ACHIEVEMENT_USERNAME {"username"};
+constexpr auto JKEY_ACHIEVEMENT_ICON_URL {"icon_url"};
+constexpr auto JKEY_ACHIEVEMENT_IS_TROPHY {"is_trophy"};
+constexpr auto JKEY_ACHIEVEMENT_CURRENT_VALUE {"current_value"};
+constexpr auto JKEY_ACHIEVEMENT_TARGET_VALUE {"target_value"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};

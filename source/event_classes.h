@@ -176,6 +176,106 @@ private:
     std::string m_executable;
 };
 
+// ---------------- AchievementUnlocked implementation ----------------
+
+class AchievementUnlockedEvent : public EventBase
+{
+public:
+    explicit AchievementUnlockedEvent(std::string key, std::string name, std::string userId,
+                                      std::string username, std::string iconUrl, bool isTrophy)
+        : EventBase(EventType::AchievementUnlocked, EventPriority::High)
+        , m_key {std::move(key)}
+        , m_name {std::move(name)}
+        , m_userId {std::move(userId)}
+        , m_username {std::move(username)}
+        , m_iconUrl {std::move(iconUrl)}
+        , m_isTrophy {isTrophy}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_key; }
+    auto name() const -> const std::string & { return m_name; }
+    auto userId() const -> const std::string & { return m_userId; }
+    auto username() const -> const std::string & { return m_username; }
+    auto iconUrl() const -> const std::string & { return m_iconUrl; }
+    auto isTrophy() const -> bool { return m_isTrophy; }
+
+private:
+    std::string m_key;
+    std::string m_name;
+    std::string m_userId;
+    std::string m_username;
+    std::string m_iconUrl;
+    bool m_isTrophy;
+};
+
+// ---------------- AchievementLocked implementation ----------------
+
+class AchievementLockedEvent : public EventBase
+{
+public:
+    explicit AchievementLockedEvent(std::string key, std::string name, std::string userId,
+                                    std::string username, std::string iconUrl)
+        : EventBase(EventType::AchievementLocked, EventPriority::High)
+        , m_key {std::move(key)}
+        , m_name {std::move(name)}
+        , m_userId {std::move(userId)}
+        , m_username {std::move(username)}
+        , m_iconUrl {std::move(iconUrl)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_key; }
+    auto name() const -> const std::string & { return m_name; }
+    auto userId() const -> const std::string & { return m_userId; }
+    auto username() const -> const std::string & { return m_username; }
+    auto iconUrl() const -> const std::string & { return m_iconUrl; }
+
+private:
+    std::string m_key;
+    std::string m_name;
+    std::string m_userId;
+    std::string m_username;
+    std::string m_iconUrl;
+};
+
+// ---------------- AchievementProgress implementation ----------------
+
+class AchievementProgressEvent : public EventBase
+{
+public:
+    explicit AchievementProgressEvent(std::string key, std::string name, std::string userId,
+                                      std::string username, std::string iconUrl, int currentValue,
+                                      int targetValue)
+        : EventBase(EventType::AchievementProgress, EventPriority::Normal)
+        , m_key {std::move(key)}
+        , m_name {std::move(name)}
+        , m_userId {std::move(userId)}
+        , m_username {std::move(username)}
+        , m_iconUrl {std::move(iconUrl)}
+        , m_currentValue {currentValue}
+        , m_targetValue {targetValue}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_key; }
+    auto name() const -> const std::string & { return m_name; }
+    auto userId() const -> const std::string & { return m_userId; }
+    auto username() const -> const std::string & { return m_username; }
+    auto iconUrl() const -> const std::string & { return m_iconUrl; }
+    auto currentValue() const -> int { return m_currentValue; }
+    auto targetValue() const -> int { return m_targetValue; }
+
+private:
+    std::string m_key;
+    std::string m_name;
+    std::string m_userId;
+    std::string m_username;
+    std::string m_iconUrl;
+    int m_currentValue;
+    int m_targetValue;
+};
+
 
 } // namespace detail
 } // namespace scorbit
