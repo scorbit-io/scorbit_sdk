@@ -237,7 +237,7 @@ constexpr auto JVAL_METHOD_MSG {"MSG"};
 constexpr auto JKEY_URL {"url"};
 
 constexpr auto JKEY_ACTION_NAME {"name"};
-constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
+constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetrieve"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

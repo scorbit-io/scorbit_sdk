@@ -213,7 +213,7 @@ def main():
                 # Game was started from the app and requested to start the game on the machine
                 # call function to start the game on the machine with players_count players ...
 
-                # It's not necessary to call gs.set_game_started(), as it's automaticlly called when
+                # It's not necessary to call gs.set_game_started(), as it's automatically called when
                 # request arrived and will be be ignored here
                 for i in range(players_count):
                     gs.set_score(i + 1, 0) # Initialize player scores to 0

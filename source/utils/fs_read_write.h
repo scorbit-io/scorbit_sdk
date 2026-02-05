@@ -34,4 +34,4 @@ MakeWritableResult fsMakeWritable(const boost::filesystem::path &p);
 void fsRemountReadOnly(const std::string &mp);
 
 } // namespace detail
-} // namespace scorbits
+} // namespace scorbit
