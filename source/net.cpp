@@ -854,6 +854,9 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                     INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
                         gameSession->sessionUuid, (uint64_t)&gameSession->gameData);
 
+                    // Subscribe to achievements channel for this session
+                    subscribeToAchievementsChannel(gameSession->sessionUuid);
+
                     // Scores array will have players' profiles
                     if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
                         scoresIt != json.end() && scoresIt->is_array()) {
@@ -1928,6 +1931,8 @@ void Net::centrifugoSetup()
                                 WRN("API-CF Unknown publication type: {}", type);
                             }
                         }
+                    } else if (channel.find(CF_CHN_ACHIEVEMENTS_SESSION) == 0) {
+                        handleAchievementPublication(pub.data);
                     }
                 } catch (const std::exception &e) {
                     ERR("API-CF Error parsing publication data: {}", e.what());
@@ -1940,6 +1945,84 @@ void Net::centrifugoConnect()
     if (auto const res = m_centrifugo->connect(); !res) {
         ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
             res.error().message);
+    }
+}
+
+void Net::subscribeToAchievementsChannel(const std::string &sessionUuid)
+{
+    if (!m_centrifugo || sessionUuid.empty()) {
+        return;
+    }
+
+    // Unsubscribe from previous channel if any
+    unsubscribeFromAchievementsChannel();
+
+    m_achievementsChannel = fmt::format("{}{}", CF_CHN_ACHIEVEMENTS_SESSION, sessionUuid);
+    INF("API-CF Subscribing to achievements channel: {}", m_achievementsChannel);
+
+    auto subResult = m_centrifugo->newSubscription(m_achievementsChannel);
+    if (!subResult) {
+        ERR("API-CF Failed to create achievements subscription: {}", subResult.error());
+        return;
+    }
+
+    auto &sub = subResult.value().get();
+    if (auto res = sub.subscribe(); !res) {
+        ERR("API-CF Failed to subscribe to achievements channel: {}", res.error());
+    }
+}
+
+void Net::unsubscribeFromAchievementsChannel()
+{
+    if (!m_centrifugo || m_achievementsChannel.empty()) {
+        return;
+    }
+
+    auto subOpt = m_centrifugo->subscription(m_achievementsChannel);
+    if (subOpt) {
+        subOpt->get().unsubscribe();
+        m_centrifugo->removeSubscription(subOpt.value());
+    }
+    m_achievementsChannel.clear();
+}
+
+void Net::handleAchievementPublication(const nlohmann::json &data)
+{
+    try {
+        const auto eventType = data.value(JKEY_CHN_TYPE, "");
+
+        const auto &payload = data.at(JKEY_CHN_PAYLOAD);
+        const auto key = payload.value(JKEY_ACHIEVEMENT_KEY, "");
+        const auto name = payload.value(JKEY_ACHIEVEMENT_NAME, "");
+        const auto userId = payload.value(JKEY_ACHIEVEMENT_USER_ID, "");
+        const auto username = payload.value(JKEY_ACHIEVEMENT_USERNAME, "");
+        const auto iconUrl = payload.value(JKEY_ACHIEVEMENT_ICON_URL, "");
+
+        if (eventType == JVAL_CHN_TYPE_ACHIEVEMENT_UNLOCKED) {
+            const auto isTrophy = payload.value(JKEY_ACHIEVEMENT_IS_TROPHY, false);
+            INF("API-CF Achievement unlocked: key={}, name={}, user={}, trophy={}",
+                key, name, username, isTrophy);
+            m_eventManager->push(std::make_shared<AchievementUnlockedEvent>(
+                    key, name, userId, username, iconUrl, isTrophy));
+
+        } else if (eventType == JVAL_CHN_TYPE_ACHIEVEMENT_LOCKED) {
+            INF("API-CF Achievement locked: key={}, name={}, user={}", key, name, username);
+            m_eventManager->push(std::make_shared<AchievementLockedEvent>(
+                    key, name, userId, username, iconUrl));
+
+        } else if (eventType == JVAL_CHN_TYPE_ACHIEVEMENT_PROGRESS) {
+            const auto currentValue = payload.value(JKEY_ACHIEVEMENT_CURRENT_VALUE, 0);
+            const auto targetValue = payload.value(JKEY_ACHIEVEMENT_TARGET_VALUE, 0);
+            INF("API-CF Achievement progress: key={}, name={}, user={}, progress={}/{}",
+                key, name, username, currentValue, targetValue);
+            m_eventManager->push(std::make_shared<AchievementProgressEvent>(
+                    key, name, userId, username, iconUrl, currentValue, targetValue));
+
+        } else {
+            WRN("API-CF Unknown achievement event type: {}", eventType);
+        }
+    } catch (const std::exception &e) {
+        ERR("API-CF Error handling achievement publication: {}", e.what());
     }
 }
 

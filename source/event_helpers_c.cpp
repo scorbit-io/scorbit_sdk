@@ -108,3 +108,71 @@ bool sb_event_scorbitd_updated(const sb_event_t *event, const char **version,
     *executable_path = derived->executable().c_str();
     return true;
 }
+
+// ------------------------------  Achievement Event Helpers -------------------------------
+
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username,
+                                   const char **icon_url, bool *is_trophy)
+{
+    if (!event || !key || !name || !user_id || !username || !icon_url || !is_trophy) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *key = derived->key().c_str();
+    *name = derived->name().c_str();
+    *user_id = derived->userId().c_str();
+    *username = derived->username().c_str();
+    *icon_url = derived->iconUrl().c_str();
+    *is_trophy = derived->isTrophy();
+    return true;
+}
+
+bool sb_event_achievement_locked(const sb_event_t *event, const char **key, const char **name,
+                                 const char **user_id, const char **username, const char **icon_url)
+{
+    if (!event || !key || !name || !user_id || !username || !icon_url) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementLockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *key = derived->key().c_str();
+    *name = derived->name().c_str();
+    *user_id = derived->userId().c_str();
+    *username = derived->username().c_str();
+    *icon_url = derived->iconUrl().c_str();
+    return true;
+}
+
+bool sb_event_achievement_progress(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username,
+                                   const char **icon_url, int *current_value, int *target_value)
+{
+    if (!event || !key || !name || !user_id || !username || !icon_url || !current_value
+        || !target_value) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementProgressEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *key = derived->key().c_str();
+    *name = derived->name().c_str();
+    *user_id = derived->userId().c_str();
+    *username = derived->username().c_str();
+    *icon_url = derived->iconUrl().c_str();
+    *current_value = derived->currentValue();
+    *target_value = derived->targetValue();
+    return true;
+}

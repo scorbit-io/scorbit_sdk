@@ -58,6 +58,26 @@ typedef enum {
 
     SB_EVT_SCORBITD_UPDATED,
 
+    // ------------------ Achievement Events ------------------
+
+    /**
+     * @brief An achievement has been unlocked.
+     * Use @ref sb_event_achievement_unlocked to process this event.
+     */
+    SB_EVT_ACHIEVEMENT_UNLOCKED,
+
+    /**
+     * @brief An achievement has been locked (revoked, typically for trophy achievements).
+     * Use @ref sb_event_achievement_locked to process this event.
+     */
+    SB_EVT_ACHIEVEMENT_LOCKED,
+
+    /**
+     * @brief Progress has been made towards an achievement.
+     * Use @ref sb_event_achievement_progress to process this event.
+     */
+    SB_EVT_ACHIEVEMENT_PROGRESS,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

@@ -102,6 +102,115 @@ public:
         return true;
     }
 
+    // ---------------- Achievement Event Helpers ----------------
+
+    /**
+     * @brief Helper function to process an achievement unlocked event.
+     *
+     * This function processes an event representing an achievement unlock.
+     * The event type must be @ref scorbit::EventType::AchievementUnlocked, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] A reference to a string that will receive the achievement key.
+     * @param name [OUT] A reference to a string that will receive the achievement name.
+     * @param userId [OUT] A reference to a string that will receive the user ID (UUID).
+     * @param username [OUT] A reference to a string that will receive the username.
+     * @param iconUrl [OUT] A reference to a string that will receive the icon URL (may be empty).
+     * @param isTrophy [OUT] A reference to a bool that will receive whether this is a trophy.
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
+     */
+    bool getAchievementUnlocked(std::string &key, std::string &name, std::string &userId,
+                                std::string &username, std::string &iconUrl, bool &isTrophy) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        const char *iconUrlCStr = nullptr;
+        if (!::sb_event_achievement_unlocked(m_event, &keyCStr, &nameCStr, &userIdCStr,
+                                             &usernameCStr, &iconUrlCStr, &isTrophy)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        iconUrl = iconUrlCStr ? std::string(iconUrlCStr) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to process an achievement locked event.
+     *
+     * This function processes an event representing an achievement being revoked.
+     * The event type must be @ref scorbit::EventType::AchievementLocked, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] A reference to a string that will receive the achievement key.
+     * @param name [OUT] A reference to a string that will receive the achievement name.
+     * @param userId [OUT] A reference to a string that will receive the user ID (UUID).
+     * @param username [OUT] A reference to a string that will receive the username.
+     * @param iconUrl [OUT] A reference to a string that will receive the icon URL (may be empty).
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
+     */
+    bool getAchievementLocked(std::string &key, std::string &name, std::string &userId,
+                              std::string &username, std::string &iconUrl) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        const char *iconUrlCStr = nullptr;
+        if (!::sb_event_achievement_locked(m_event, &keyCStr, &nameCStr, &userIdCStr, &usernameCStr,
+                                           &iconUrlCStr)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        iconUrl = iconUrlCStr ? std::string(iconUrlCStr) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to process an achievement progress event.
+     *
+     * This function processes an event representing progress towards an achievement.
+     * The event type must be @ref scorbit::EventType::AchievementProgress, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] A reference to a string that will receive the achievement key.
+     * @param name [OUT] A reference to a string that will receive the achievement name.
+     * @param userId [OUT] A reference to a string that will receive the user ID (UUID).
+     * @param username [OUT] A reference to a string that will receive the username.
+     * @param iconUrl [OUT] A reference to a string that will receive the icon URL (may be empty).
+     * @param currentValue [OUT] A reference to an int that will receive the current progress.
+     * @param targetValue [OUT] A reference to an int that will receive the target value.
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
+     */
+    bool getAchievementProgress(std::string &key, std::string &name, std::string &userId,
+                                std::string &username, std::string &iconUrl, int &currentValue,
+                                int &targetValue) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        const char *iconUrlCStr = nullptr;
+        if (!::sb_event_achievement_progress(m_event, &keyCStr, &nameCStr, &userIdCStr,
+                                             &usernameCStr, &iconUrlCStr, &currentValue,
+                                             &targetValue)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        iconUrl = iconUrlCStr ? std::string(iconUrlCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

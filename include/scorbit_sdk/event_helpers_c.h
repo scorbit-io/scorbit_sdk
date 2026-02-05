@@ -83,6 +83,71 @@ SCORBIT_SDK_EXPORT
 bool sb_event_scorbitd_updated(const sb_event_t *event, const char **version,
                                const char **executable_path);
 
+// ------------------ Achievement Event Helpers ------------------
+
+/**
+ * @brief Helper function to process an achievement unlocked event.
+ *
+ * This function processes an event representing an achievement unlock.
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_UNLOCKED, otherwise the function
+ * returns an error.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key A pointer to receive the achievement key string.
+ * @param [OUT] name A pointer to receive the achievement name string.
+ * @param [OUT] user_id A pointer to receive the user ID (UUID) string.
+ * @param [OUT] username A pointer to receive the username string.
+ * @param [OUT] icon_url A pointer to receive the icon URL string (may be empty).
+ * @param [OUT] is_trophy A pointer to receive whether this is a trophy achievement.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username,
+                                   const char **icon_url, bool *is_trophy);
+
+/**
+ * @brief Helper function to process an achievement locked event.
+ *
+ * This function processes an event representing an achievement being locked (revoked).
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_LOCKED, otherwise the function
+ * returns an error.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key A pointer to receive the achievement key string.
+ * @param [OUT] name A pointer to receive the achievement name string.
+ * @param [OUT] user_id A pointer to receive the user ID (UUID) string.
+ * @param [OUT] username A pointer to receive the username string.
+ * @param [OUT] icon_url A pointer to receive the icon URL string (may be empty).
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_locked(const sb_event_t *event, const char **key, const char **name,
+                                 const char **user_id, const char **username,
+                                 const char **icon_url);
+
+/**
+ * @brief Helper function to process an achievement progress event.
+ *
+ * This function processes an event representing progress towards an achievement.
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_PROGRESS, otherwise the function
+ * returns an error.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key A pointer to receive the achievement key string.
+ * @param [OUT] name A pointer to receive the achievement name string.
+ * @param [OUT] user_id A pointer to receive the user ID (UUID) string.
+ * @param [OUT] username A pointer to receive the username string.
+ * @param [OUT] icon_url A pointer to receive the icon URL string (may be empty).
+ * @param [OUT] current_value A pointer to receive the current progress value.
+ * @param [OUT] target_value A pointer to receive the target value needed to unlock.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_progress(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username,
+                                   const char **icon_url, int *current_value, int *target_value);
+
 #ifdef __cplusplus
 }
 #endif

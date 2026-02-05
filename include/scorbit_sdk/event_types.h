@@ -35,6 +35,11 @@ enum class EventType {
     ConfigReceived = SB_EVT_CONFIG_RECEIVED,
     ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
     ScorbitdUpdated = SB_EVT_SCORBITD_UPDATED,
+
+    // ---------------- Achievement Events ----------------
+    AchievementUnlocked = SB_EVT_ACHIEVEMENT_UNLOCKED,
+    AchievementLocked = SB_EVT_ACHIEVEMENT_LOCKED,
+    AchievementProgress = SB_EVT_ACHIEVEMENT_PROGRESS,
 };
 
 } // namespace scorbit

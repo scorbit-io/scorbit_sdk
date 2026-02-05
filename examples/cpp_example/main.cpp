@@ -250,6 +250,50 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    // -------- Achievement Events --------
+    // These events are sent in real-time when achievements are unlocked, locked, or progress is made
+
+    case scorbit::EventType::AchievementUnlocked: {
+        std::string key, name, userId, username, iconUrl;
+        bool isTrophy = false;
+        if (event.getAchievementUnlocked(key, name, userId, username, iconUrl, isTrophy)) {
+            cout << "Achievement UNLOCKED!" << endl;
+            cout << "  Key: " << key << endl;
+            cout << "  Name: " << name << endl;
+            cout << "  User: " << username << " (ID: " << userId << ")" << endl;
+            cout << "  Trophy: " << (isTrophy ? "Yes" : "No") << endl;
+            if (!iconUrl.empty()) {
+                cout << "  Icon: " << iconUrl << endl;
+            }
+            // Display achievement notification on machine display...
+        }
+    } break;
+
+    case scorbit::EventType::AchievementLocked: {
+        std::string key, name, userId, username, iconUrl;
+        if (event.getAchievementLocked(key, name, userId, username, iconUrl)) {
+            cout << "Achievement LOCKED (revoked)" << endl;
+            cout << "  Key: " << key << endl;
+            cout << "  Name: " << name << endl;
+            cout << "  User: " << username << " (ID: " << userId << ")" << endl;
+            // Update display to show achievement was revoked...
+        }
+    } break;
+
+    case scorbit::EventType::AchievementProgress: {
+        std::string key, name, userId, username, iconUrl;
+        int currentValue = 0, targetValue = 0;
+        if (event.getAchievementProgress(key, name, userId, username, iconUrl, currentValue,
+                                         targetValue)) {
+            cout << "Achievement PROGRESS" << endl;
+            cout << "  Key: " << key << endl;
+            cout << "  Name: " << name << endl;
+            cout << "  User: " << username << " (ID: " << userId << ")" << endl;
+            cout << "  Progress: " << currentValue << " / " << targetValue << endl;
+            // Update progress bar on display...
+        }
+    } break;
+
     default:
         break;
     }

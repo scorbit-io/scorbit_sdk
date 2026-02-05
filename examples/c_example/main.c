@@ -283,6 +283,64 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    // -------- Achievement Events --------
+    // These events are sent in real-time when achievements are unlocked, locked, or progress is made
+
+    case SB_EVT_ACHIEVEMENT_UNLOCKED: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        const char *icon_url = NULL;
+        bool is_trophy = false;
+        if (sb_event_achievement_unlocked(event, &key, &name, &user_id, &username, &icon_url,
+                                          &is_trophy)) {
+            printf("Achievement UNLOCKED!\n");
+            printf("  Key: %s\n", key ? key : "");
+            printf("  Name: %s\n", name ? name : "");
+            printf("  User: %s (ID: %s)\n", username ? username : "", user_id ? user_id : "");
+            printf("  Trophy: %s\n", is_trophy ? "Yes" : "No");
+            if (icon_url && icon_url[0]) {
+                printf("  Icon: %s\n", icon_url);
+            }
+            // Display achievement notification on machine display...
+        }
+    } break;
+
+    case SB_EVT_ACHIEVEMENT_LOCKED: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        const char *icon_url = NULL;
+        if (sb_event_achievement_locked(event, &key, &name, &user_id, &username, &icon_url)) {
+            printf("Achievement LOCKED (revoked)\n");
+            printf("  Key: %s\n", key ? key : "");
+            printf("  Name: %s\n", name ? name : "");
+            printf("  User: %s (ID: %s)\n", username ? username : "", user_id ? user_id : "");
+            // Update display to show achievement was revoked...
+        }
+    } break;
+
+    case SB_EVT_ACHIEVEMENT_PROGRESS: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        const char *icon_url = NULL;
+        int current_value = 0;
+        int target_value = 0;
+        if (sb_event_achievement_progress(event, &key, &name, &user_id, &username, &icon_url,
+                                          &current_value, &target_value)) {
+            printf("Achievement PROGRESS\n");
+            printf("  Key: %s\n", key ? key : "");
+            printf("  Name: %s\n", name ? name : "");
+            printf("  User: %s (ID: %s)\n", username ? username : "", user_id ? user_id : "");
+            printf("  Progress: %d / %d\n", current_value, target_value);
+            // Update progress bar on display...
+        }
+    } break;
+
     default:
         break;
     }
