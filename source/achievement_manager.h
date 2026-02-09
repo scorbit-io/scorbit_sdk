@@ -142,6 +142,20 @@ public:
                                                    int64_t userId) const;
 
     /**
+     * @brief Check if a mode-based achievement should trigger, also considering score rules.
+     *
+     * For multi-rule achievements that combine mode + score conditions.
+     * @param modeName The mode that started/completed
+     * @param modeType "start", "complete", or "stack"
+     * @param userId User to check against
+     * @param score Current score for evaluating combined mode+score rules
+     * @return Vector of achievement keys that match
+     */
+    std::vector<std::string> checkModeAchievementsWithScore(const std::string &modeName,
+                                                            const std::string &modeType,
+                                                            int64_t userId, int64_t score) const;
+
+    /**
      * @brief Check if a score-based achievement should trigger.
      * @param score Current score
      * @param userId User to check against
@@ -193,6 +207,11 @@ public:
 
 private:
     void notifyTriggered(const std::string &key, int64_t userId, bool isUnlock, int progress);
+
+    // Helpers for multi-rule evaluation (must be called with locks held)
+    bool isAlreadyUnlocked(const Achievement &ach, int64_t userId) const;
+    bool evaluateRulesForMode(const Achievement &ach, const std::string &modeName,
+                              const std::string &modeType, int64_t score) const;
 
 private:
     mutable std::mutex m_achievementsMutex;

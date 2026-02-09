@@ -101,6 +101,20 @@ typedef enum {
 } sb_achievement_mode_type_t;
 
 /**
+ * @brief Achievement rule structure (v2).
+ *
+ * Represents a single rule condition for an achievement.
+ * Strings are owned by the SDK and valid until the next achievement API call.
+ */
+typedef struct {
+    const char *type;            ///< Rule type (e.g., "PROGRESS", "SCORE", "MODE")
+    const char *comparison;      ///< Comparison operator: ">", "<", "="
+    int target;                  ///< Target value for the comparison
+    const char *reference;       ///< Context-dependent reference (mode name, metric key)
+    int subachievement_id;       ///< Sub-achievement ID (0 if not ACHIEVEMENT type)
+} sb_achievement_rule_t;
+
+/**
  * @brief Achievement definition structure.
  *
  * Contains all the metadata about an achievement that can be earned.
@@ -118,12 +132,13 @@ typedef struct {
     bool is_trophy;              ///< Whether this is a trophy (only one holder at a time)
     bool notify_when_achieved;   ///< Whether to notify followers when earned
     sb_achievement_input_time_t input_time; ///< Limited (session) or unlimited (lifetime)
-    sb_achievement_trigger_t trigger;       ///< What triggers this achievement
-    sb_achievement_mode_type_t mode_type;   ///< Mode type for mode-based achievements
-    const char *mode_name;       ///< Mode name (for mode-based triggers)
-    int64_t target_score;        ///< Target score (for score-based triggers)
+    sb_achievement_trigger_t trigger;       ///< What triggers this achievement (derived from rules)
+    sb_achievement_mode_type_t mode_type;   ///< Mode type for mode-based achievements (derived from rules)
+    const char *mode_name;       ///< Mode name (for mode-based triggers, derived from rules)
+    int64_t target_score;        ///< Target score (for score-based triggers, derived from rules)
     int group_id;                ///< Group ID for leveled achievements
     int achievement_id;          ///< Achievement ID within group
+    size_t rules_count;          ///< Number of rules for this achievement
 } sb_achievement_t;
 
 /**
@@ -388,6 +403,33 @@ SCORBIT_SDK_EXPORT
 void sb_set_achievement_triggered_callback(sb_game_handle_t handle,
                                            sb_achievement_triggered_callback_t callback,
                                            void *user_data);
+
+// ------------------------------------------------------------------------------------------------
+// Achievement Rule Accessors (v2)
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * @brief Get the number of rules for a cached achievement.
+ *
+ * @param handle The game handle.
+ * @param achievement_key The achievement key to look up.
+ * @return Number of rules, or 0 if achievement not found.
+ */
+SCORBIT_SDK_EXPORT
+size_t sb_achievement_get_rules_count(sb_game_handle_t handle, const char *achievement_key);
+
+/**
+ * @brief Get a rule from a cached achievement by index.
+ *
+ * @param handle The game handle.
+ * @param achievement_key The achievement key to look up.
+ * @param index Index of the rule (0 to count-1).
+ * @param rule Output structure to receive the rule data.
+ * @return true if rule was found, false if index out of range or achievement not found.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_achievement_get_rule_at(sb_game_handle_t handle, const char *achievement_key, size_t index,
+                                sb_achievement_rule_t *rule);
 
 // ------------------------------------------------------------------------------------------------
 // DMD Frame Cache (Internal for scorbitd)

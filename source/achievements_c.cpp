@@ -65,6 +65,7 @@ public:
             cAch.target_score = ach.targetScore;
             cAch.group_id = ach.groupId;
             cAch.achievement_id = ach.achievementId;
+            cAch.rules_count = ach.rules.size();
             cAchievements.push_back(cAch);
         }
     }
@@ -367,6 +368,55 @@ void sb_set_achievement_triggered_callback(sb_game_handle_t handle,
     } else {
         handle->gameState.setAchievementTriggeredCallback(nullptr);
     }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Achievement Rule Accessors (v2)
+// ------------------------------------------------------------------------------------------------
+
+namespace {
+// Thread-local storage for rule data returned by C API
+thread_local std::vector<AchievementRule> g_cachedRules;
+thread_local std::vector<sb_achievement_rule_t> g_cRules;
+} // namespace
+
+size_t sb_achievement_get_rules_count(sb_game_handle_t handle, const char *achievement_key)
+{
+    if (!handle || !achievement_key) {
+        return 0;
+    }
+
+    auto achOpt = handle->gameState.getAchievement(std::string(achievement_key));
+    if (!achOpt) {
+        return 0;
+    }
+
+    return achOpt->rules.size();
+}
+
+bool sb_achievement_get_rule_at(sb_game_handle_t handle, const char *achievement_key, size_t index,
+                                sb_achievement_rule_t *rule)
+{
+    if (!handle || !achievement_key || !rule) {
+        return false;
+    }
+
+    auto achOpt = handle->gameState.getAchievement(std::string(achievement_key));
+    if (!achOpt || index >= achOpt->rules.size()) {
+        return false;
+    }
+
+    // Cache the rules to keep string pointers valid
+    g_cachedRules = achOpt->rules;
+    const auto &cachedRule = g_cachedRules[index];
+
+    rule->type = cachedRule.type.c_str();
+    rule->comparison = cachedRule.comparison.c_str();
+    rule->target = cachedRule.target;
+    rule->reference = cachedRule.reference.c_str();
+    rule->subachievement_id = cachedRule.subachievementId;
+
+    return true;
 }
 
 // ------------------------------------------------------------------------------------------------

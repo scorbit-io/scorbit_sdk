@@ -34,11 +34,11 @@ constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={non
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
 
-// Achievement REST API endpoints
-constexpr auto URL_ACHIEVEMENTS_BY_MACHINE {"api/achievement/by_machine/{machine_id}/"};
-constexpr auto URL_USER_ACHIEVEMENTS {"api/user_achievement/{machine_id}/"};
-constexpr auto URL_ACHIEVEMENT_UNLOCK {"api/achievement/unlock"};
-constexpr auto URL_ACHIEVEMENT_LOCK {"api/achievement/lock"};
+// Achievement REST API endpoints (v2)
+constexpr auto URL_ACHIEVEMENTS_SCORBITRON {"v2/achievements/scorbitron/"};
+constexpr auto URL_USER_ACHIEVEMENTS_SCORBITRON {"v2/achievements/scorbitron/progress/"};
+constexpr auto URL_ACHIEVEMENT_UNLOCK {"v2/achievements/unlock/"};
+constexpr auto URL_ACHIEVEMENT_LOCK {"v2/achievements/lock/"};
 
 constexpr auto URL_CENTRIFUGO {"connection/websocket"};
 
@@ -158,6 +158,32 @@ constexpr auto JKEY_ACH_UNLOCKED {"unlocked"};
 constexpr auto JKEY_ACH_UNLOCKED_AT {"unlocked_at"};
 constexpr auto JVAL_ACH_INPUT_LIMITED {"limited"};
 constexpr auto JVAL_ACH_INPUT_UNLIMITED {"unlimited"};
+
+// Achievement v2 fields (replacing v1 flat fields)
+constexpr auto JKEY_ACH_IS_SINGLE_SESSION {"is_single_session"};
+constexpr auto JKEY_ACH_IS_BADGE {"is_badge"};
+constexpr auto JKEY_ACH_SCOPE {"scope"};
+constexpr auto JKEY_ACH_LEVEL {"level"};
+constexpr auto JKEY_ACH_BALL_COUNT {"ball_count"};
+constexpr auto JKEY_ACH_ICON {"icon"};
+
+// Achievement v2 nested rule keys
+constexpr auto JKEY_ACH_RULES {"rules"};
+constexpr auto JKEY_ACH_RULE_TYPE {"type"};
+constexpr auto JKEY_ACH_RULE_COMPARISON {"comparison"};
+constexpr auto JKEY_ACH_RULE_TARGET {"target"};
+constexpr auto JKEY_ACH_RULE_REFERENCE {"reference"};
+constexpr auto JKEY_ACH_RULE_SUBACHIEVEMENT {"subachievement"};
+
+// v2 user achievement / progress keys
+constexpr auto JKEY_ACH_ACHIEVEMENT {"achievement"};
+constexpr auto JKEY_ACH_CURRENT_VALUE {"current_value"};
+constexpr auto JKEY_ACH_ACHIEVED {"achieved"};
+constexpr auto JKEY_ACH_ACHIEVED_TIME {"achieved_time"};
+
+// v2 unlock response keys
+constexpr auto JKEY_ACH_NEWLY_UNLOCKED {"newly_unlocked"};
+constexpr auto JKEY_ACH_USER_ACHIEVEMENT {"user_achievement"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
