@@ -89,6 +89,9 @@ public:
     std::optional<AchievementProgress> getProgress(int64_t userId, const std::string &key) const;
     std::vector<std::string> checkModeAchievements(const std::string &modeName,
                                                    const std::string &modeType, int64_t userId) const;
+    std::vector<std::string> checkModeAchievementsWithScore(const std::string &modeName,
+                                                            const std::string &modeType,
+                                                            int64_t userId, int64_t score) const;
     std::vector<std::string> checkScoreAchievements(int64_t score, int64_t userId) const;
     bool incrementProgress(const std::string &key, int64_t userId, int increment = 1);
     void setAchievementTriggeredCallback(

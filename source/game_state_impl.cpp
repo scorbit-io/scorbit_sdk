@@ -426,6 +426,14 @@ std::vector<std::string> GameStateImpl::checkModeAchievements(const std::string 
     return m_net->achievementManager().checkModeAchievements(modeName, modeType, userId);
 }
 
+std::vector<std::string> GameStateImpl::checkModeAchievementsWithScore(
+        const std::string &modeName, const std::string &modeType, int64_t userId,
+        int64_t score) const
+{
+    return m_net->achievementManager().checkModeAchievementsWithScore(modeName, modeType, userId,
+                                                                      score);
+}
+
 std::vector<std::string> GameStateImpl::checkScoreAchievements(int64_t score, int64_t userId) const
 {
     return m_net->achievementManager().checkScoreAchievements(score, userId);

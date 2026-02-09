@@ -142,9 +142,24 @@ enum class AchievementModeType {
 };
 
 /**
+ * @brief A single rule within a v2 achievement definition.
+ *
+ * Rules define the conditions that must be met to unlock an achievement.
+ * An achievement may have multiple rules that must all be satisfied.
+ */
+struct AchievementRule {
+    std::string type;          ///< Rule type: "PROGRESS", "ACHIEVEMENT", "SCORE", "MODE", "MODE_START", "MODE_STACK", "GAME_CODE", "TIMER", "EVENT", "ATTEMPT"
+    std::string comparison;    ///< Comparison operator: ">", "<", "="
+    int target;                ///< Target value for the comparison
+    std::string reference;     ///< Context-dependent reference (mode name, metric key, etc.)
+    int subachievementId;      ///< Sub-achievement FK ID (0 if not ACHIEVEMENT type)
+};
+
+/**
  * @brief Achievement definition from the server.
  *
  * Contains all the metadata about an achievement that can be earned.
+ * In v2, rules are provided as nested objects rather than flat fields.
  */
 struct Achievement {
     std::string key;           ///< Unique achievement key
@@ -158,12 +173,13 @@ struct Achievement {
     bool isTrophy;             ///< Whether this is a trophy (only one holder at a time)
     bool notifyWhenAchieved;   ///< Whether to notify followers when earned
     AchievementInputTime inputTime; ///< Limited (session) or unlimited (lifetime)
-    AchievementTrigger trigger;     ///< What triggers this achievement
-    AchievementModeType modeType;   ///< Mode type for mode-based achievements
-    std::string modeName;      ///< Mode name (for mode-based triggers)
-    int64_t targetScore;       ///< Target score (for score-based triggers)
+    AchievementTrigger trigger;     ///< What triggers this achievement (derived from rules)
+    AchievementModeType modeType;   ///< Mode type for mode-based achievements (derived from rules)
+    std::string modeName;      ///< Mode name (for mode-based triggers, derived from rules)
+    int64_t targetScore;       ///< Target score (for score-based triggers, derived from rules)
     int groupId;               ///< Group ID for leveled achievements
     int achievementId;         ///< Achievement ID within group
+    std::vector<AchievementRule> rules; ///< v2 nested rules from server
 };
 
 /**

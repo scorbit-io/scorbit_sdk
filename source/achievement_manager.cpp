@@ -142,27 +142,33 @@ void AchievementManager::clearAllProgress()
 
 // ---- Local Achievement Matching ----
 
-std::vector<std::string> AchievementManager::checkModeAchievements(const std::string &modeName,
-                                                                   const std::string &modeType,
-                                                                   int64_t userId) const
+bool AchievementManager::isAlreadyUnlocked(const Achievement &ach, int64_t userId) const
 {
-    std::vector<std::string> matched;
+    auto userIt = m_userProgress.find(userId);
+    if (userIt == m_userProgress.end()) {
+        return false;
+    }
 
-    std::lock_guard achLock(m_achievementsMutex);
-    std::lock_guard progLock(m_progressMutex);
+    auto progIt = userIt->second.find(ach.key);
+    if (progIt == userIt->second.end() || !progIt->second.unlocked) {
+        return false;
+    }
 
-    for (const auto &ach : m_achievements) {
-        // Skip if not a mode-based trigger
+    // Already unlocked — skip if it's a permanent (unlimited) achievement
+    return ach.inputTime == AchievementInputTime::Unlimited;
+}
+
+bool AchievementManager::evaluateRulesForMode(const Achievement &ach, const std::string &modeName,
+                                              const std::string &modeType, int64_t score) const
+{
+    if (ach.rules.empty()) {
+        // Legacy: fall back to derived flat fields
         if (ach.trigger != AchievementTrigger::Mode) {
-            continue;
+            return false;
         }
-
-        // Check mode name match
         if (ach.modeName != modeName) {
-            continue;
+            return false;
         }
-
-        // Check mode type match
         AchievementModeType expectedType = AchievementModeType::None;
         if (modeType == "start") {
             expectedType = AchievementModeType::Start;
@@ -171,24 +177,71 @@ std::vector<std::string> AchievementManager::checkModeAchievements(const std::st
         } else if (modeType == "stack") {
             expectedType = AchievementModeType::Stack;
         }
+        return ach.modeType == expectedType;
+    }
 
-        if (ach.modeType != expectedType) {
+    // Multi-rule evaluation: ALL evaluable rules must be satisfied
+    bool hasEvaluableRule = false;
+
+    for (const auto &rule : ach.rules) {
+        // Server-evaluated rules — skip, don't fail the check
+        if (rule.type == "ACHIEVEMENT" || rule.type == "PROGRESS") {
             continue;
         }
 
-        // Check if already unlocked (skip if permanent achievement already earned)
-        auto userIt = m_userProgress.find(userId);
-        if (userIt != m_userProgress.end()) {
-            auto progIt = userIt->second.find(ach.key);
-            if (progIt != userIt->second.end() && progIt->second.unlocked) {
-                // Already unlocked and it's a permanent (unlimited) achievement
-                if (ach.inputTime == AchievementInputTime::Unlimited) {
-                    continue;
-                }
+        hasEvaluableRule = true;
+
+        if (rule.type == "MODE" || rule.type == "MODE_START" || rule.type == "MODE_STACK") {
+            // Check mode name match
+            if (rule.reference != modeName) {
+                return false;
+            }
+            // Check mode type match
+            if (rule.type == "MODE_START" && modeType != "start") {
+                return false;
+            }
+            if (rule.type == "MODE" && modeType != "complete") {
+                return false;
+            }
+            if (rule.type == "MODE_STACK" && modeType != "stack") {
+                return false;
+            }
+        } else if (rule.type == "SCORE") {
+            // For mode-triggered checks, also validate any score rules
+            if (score < rule.target) {
+                return false;
             }
         }
+        // GAME_CODE, TIMER, EVENT, ATTEMPT — game code handles directly, skip
+    }
 
-        matched.push_back(ach.key);
+    return hasEvaluableRule;
+}
+
+std::vector<std::string> AchievementManager::checkModeAchievements(const std::string &modeName,
+                                                                   const std::string &modeType,
+                                                                   int64_t userId) const
+{
+    return checkModeAchievementsWithScore(modeName, modeType, userId, 0);
+}
+
+std::vector<std::string> AchievementManager::checkModeAchievementsWithScore(
+        const std::string &modeName, const std::string &modeType, int64_t userId,
+        int64_t score) const
+{
+    std::vector<std::string> matched;
+
+    std::lock_guard achLock(m_achievementsMutex);
+    std::lock_guard progLock(m_progressMutex);
+
+    for (const auto &ach : m_achievements) {
+        if (isAlreadyUnlocked(ach, userId)) {
+            continue;
+        }
+
+        if (evaluateRulesForMode(ach, modeName, modeType, score)) {
+            matched.push_back(ach.key);
+        }
     }
 
     return matched;
@@ -203,28 +256,46 @@ std::vector<std::string> AchievementManager::checkScoreAchievements(int64_t scor
     std::lock_guard progLock(m_progressMutex);
 
     for (const auto &ach : m_achievements) {
-        // Skip if not a score-based trigger
-        if (ach.trigger != AchievementTrigger::Score) {
+        if (isAlreadyUnlocked(ach, userId)) {
             continue;
         }
 
-        // Check if score meets threshold
-        if (score < ach.targetScore) {
+        if (ach.rules.empty()) {
+            // Legacy: use derived flat fields
+            if (ach.trigger != AchievementTrigger::Score) {
+                continue;
+            }
+            if (score < ach.targetScore) {
+                continue;
+            }
+            matched.push_back(ach.key);
             continue;
         }
 
-        // Check if already unlocked
-        auto userIt = m_userProgress.find(userId);
-        if (userIt != m_userProgress.end()) {
-            auto progIt = userIt->second.find(ach.key);
-            if (progIt != userIt->second.end() && progIt->second.unlocked) {
-                if (ach.inputTime == AchievementInputTime::Unlimited) {
-                    continue;
+        // Multi-rule: check that ALL evaluable rules are satisfied
+        bool allSatisfied = true;
+        bool hasEvaluableRule = false;
+        bool hasScoreRule = false;
+
+        for (const auto &rule : ach.rules) {
+            if (rule.type == "ACHIEVEMENT" || rule.type == "PROGRESS") {
+                continue;
+            }
+            hasEvaluableRule = true;
+
+            if (rule.type == "SCORE") {
+                hasScoreRule = true;
+                if (score < rule.target) {
+                    allSatisfied = false;
+                    break;
                 }
             }
+            // Mode/other rules can't be evaluated in score-only context — skip
         }
 
-        matched.push_back(ach.key);
+        if (hasEvaluableRule && hasScoreRule && allSatisfied) {
+            matched.push_back(ach.key);
+        }
     }
 
     return matched;

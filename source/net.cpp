@@ -2165,7 +2165,7 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 
 void Net::fetchAchievements(AchievementsCallback callback)
 {
-    INF("API fetch achievements for machine_id={}", m_deviceInfo.machineId);
+    INF("API fetch achievements via v2 scorbitron endpoint");
 
     m_worker.post(createGetRequestTask(
             [this, callback = std::move(callback)](Error error, const std::string &reply) {
@@ -2195,46 +2195,59 @@ void Net::fetchAchievements(AchievementsCallback callback)
                         ach.key = j.value(JKEY_ACH_KEY, "");
                         ach.name = j.value(JKEY_ACH_NAME, "");
                         ach.description = j.value(JKEY_ACH_DESCRIPTION, "");
-                        ach.count = j.value(JKEY_ACH_COUNT, 1);
-                        ach.imageUrl = j.value(JKEY_ACH_IMAGE, "");
+                        ach.count = j.value(JKEY_ACH_BALL_COUNT, 1);
+                        ach.imageUrl = j.value(JKEY_ACH_ICON, "");
                         ach.obscureImageUrl = j.value(JKEY_ACH_OBSCURE_IMAGE, "");
                         ach.obscure = j.value(JKEY_ACH_OBSCURE, false);
                         ach.visible = j.value(JKEY_ACH_VISIBLE, true);
                         ach.isTrophy = j.value(JKEY_ACH_IS_TROPHY, false);
                         ach.notifyWhenAchieved = j.value(JKEY_ACH_NOTIFY, false);
                         ach.groupId = j.value(JKEY_ACH_GROUP_ID, 0);
-                        ach.achievementId = j.value(JKEY_ACH_ACHIEVEMENT_ID, 0);
-                        ach.targetScore = j.value(JKEY_ACH_TARGET_SCORE, int64_t {0});
-                        ach.modeName = j.value(JKEY_ACH_MODE_NAME, "");
+                        ach.achievementId = j.value(JKEY_ACH_LEVEL, 0);
 
-                        // Parse input_time
-                        const auto inputTimeStr = j.value(JKEY_ACH_INPUT_TIME, "");
-                        ach.inputTime = (inputTimeStr == JVAL_ACH_INPUT_LIMITED)
-                                                ? AchievementInputTime::Limited
-                                                : AchievementInputTime::Unlimited;
+                        // v2: is_single_session replaces input_time
+                        const auto isSingleSession = j.value(JKEY_ACH_IS_SINGLE_SESSION, false);
+                        ach.inputTime = isSingleSession ? AchievementInputTime::Limited
+                                                        : AchievementInputTime::Unlimited;
 
-                        // Parse trigger
-                        const auto triggerStr = j.value(JKEY_ACH_TRIGGER, "game");
-                        if (triggerStr == "mode") {
-                            ach.trigger = AchievementTrigger::Mode;
-                        } else if (triggerStr == "score") {
-                            ach.trigger = AchievementTrigger::Score;
-                        } else if (triggerStr == "subachievement") {
-                            ach.trigger = AchievementTrigger::SubAchievement;
-                        } else {
-                            ach.trigger = AchievementTrigger::Game;
+                        // v2: Parse nested rules array
+                        ach.trigger = AchievementTrigger::Game;
+                        ach.modeType = AchievementModeType::None;
+                        ach.targetScore = 0;
+
+                        if (j.contains(JKEY_ACH_RULES) && j[JKEY_ACH_RULES].is_array()) {
+                            for (const auto &ruleJson : j[JKEY_ACH_RULES]) {
+                                AchievementRule rule;
+                                rule.type = ruleJson.value(JKEY_ACH_RULE_TYPE, "");
+                                rule.comparison = ruleJson.value(JKEY_ACH_RULE_COMPARISON, ">");
+                                rule.target = ruleJson.value(JKEY_ACH_RULE_TARGET, 0);
+                                rule.reference = ruleJson.value(JKEY_ACH_RULE_REFERENCE, "");
+                                rule.subachievementId = ruleJson.value(JKEY_ACH_RULE_SUBACHIEVEMENT, 0);
+                                ach.rules.push_back(std::move(rule));
+                            }
                         }
 
-                        // Parse mode_type
-                        const auto modeTypeStr = j.value(JKEY_ACH_MODE_TYPE, "");
-                        if (modeTypeStr == "start") {
-                            ach.modeType = AchievementModeType::Start;
-                        } else if (modeTypeStr == "complete") {
-                            ach.modeType = AchievementModeType::Complete;
-                        } else if (modeTypeStr == "stack") {
-                            ach.modeType = AchievementModeType::Stack;
-                        } else {
-                            ach.modeType = AchievementModeType::None;
+                        // Derive legacy flat fields from first rule for backward compatibility
+                        if (!ach.rules.empty()) {
+                            const auto &primaryRule = ach.rules[0];
+                            if (primaryRule.type == "MODE") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Complete;
+                                ach.modeName = primaryRule.reference;
+                            } else if (primaryRule.type == "MODE_START") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Start;
+                                ach.modeName = primaryRule.reference;
+                            } else if (primaryRule.type == "MODE_STACK") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Stack;
+                                ach.modeName = primaryRule.reference;
+                            } else if (primaryRule.type == "SCORE") {
+                                ach.trigger = AchievementTrigger::Score;
+                                ach.targetScore = primaryRule.target;
+                            } else if (primaryRule.type == "ACHIEVEMENT") {
+                                ach.trigger = AchievementTrigger::SubAchievement;
+                            }
                         }
 
                         achievements.push_back(std::move(ach));
@@ -2255,8 +2268,7 @@ void Net::fetchAchievements(AchievementsCallback callback)
                 }
             },
             [this]() {
-                const auto endpoint =
-                        url(URL_ACHIEVEMENTS_BY_MACHINE, fmt::arg(ARG_MACHINE_ID, m_deviceInfo.machineId));
+                const auto endpoint = url(URL_ACHIEVEMENTS_SCORBITRON);
                 cpr::Parameters parameters;
                 return make_tuple(endpoint, parameters);
             },
@@ -2268,8 +2280,7 @@ void Net::fetchAchievements(AchievementsCallback callback)
 
 void Net::fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback)
 {
-    INF("API fetch achievement progress for machine_id={}, user_id={}", m_deviceInfo.machineId,
-        userId);
+    INF("API fetch achievement progress via v2 scorbitron endpoint, user_id={}", userId);
 
     m_worker.post(createGetRequestTask(
             [this, userId, callback = std::move(callback)](Error error, const std::string &reply) {
@@ -2296,10 +2307,15 @@ void Net::fetchAchievementProgress(int64_t userId, AchievementProgressCallback c
                     progress.reserve(jsonArray.size());
                     for (const auto &j : jsonArray) {
                         AchievementProgress prog;
-                        prog.key = j.value(JKEY_ACH_KEY, "");
-                        prog.progress = j.value(JKEY_ACH_PROGRESS, 0);
-                        prog.unlocked = j.value(JKEY_ACH_UNLOCKED, false);
-                        prog.unlockedAt = j.value(JKEY_ACH_UNLOCKED_AT, "");
+                        // v2: key is nested inside achievement object
+                        if (j.contains(JKEY_ACH_ACHIEVEMENT) && j[JKEY_ACH_ACHIEVEMENT].is_object()) {
+                            prog.key = j[JKEY_ACH_ACHIEVEMENT].value(JKEY_ACH_KEY, "");
+                        } else {
+                            prog.key = j.value(JKEY_ACH_KEY, "");
+                        }
+                        prog.progress = j.value(JKEY_ACH_CURRENT_VALUE, 0);
+                        prog.unlocked = j.value(JKEY_ACH_ACHIEVED, false);
+                        prog.unlockedAt = j.value(JKEY_ACH_ACHIEVED_TIME, "");
                         progress.push_back(std::move(prog));
                     }
 
@@ -2320,11 +2336,10 @@ void Net::fetchAchievementProgress(int64_t userId, AchievementProgressCallback c
                 }
             },
             [this, userId]() {
-                const auto endpoint =
-                        url(URL_USER_ACHIEVEMENTS, fmt::arg(ARG_MACHINE_ID, m_deviceInfo.machineId));
+                const auto endpoint = url(URL_USER_ACHIEVEMENTS_SCORBITRON);
                 cpr::Parameters parameters;
                 if (userId > 0) {
-                    parameters.Add({"users", fmt::format("{}", userId)});
+                    parameters.Add({"user_id", fmt::format("{}", userId)});
                 }
                 return make_tuple(endpoint, parameters);
             },
@@ -2343,7 +2358,6 @@ void Net::unlockAchievement(int64_t userId, const std::string &achievementKey, i
     requestBody[JKEY_ACH_USER_ID] = userId;
     requestBody[JKEY_ACH_ACHIEVEMENTS] = json::array({{
             {JKEY_ACH_KEY, achievementKey},
-            {JKEY_ACH_COUNT, count},
     }});
 
     m_worker.post(createPostRequestTask(
@@ -2363,16 +2377,25 @@ void Net::unlockAchievement(int64_t userId, const std::string &achievementKey, i
                 }
 
                 try {
+                    // v2 returns array: [{key, newly_unlocked, user_achievement}]
                     json j = json::parse(reply);
                     result.success = true;
-                    // The API may return additional info about whether it was newly unlocked
-                    if (j.contains("newly_unlocked")) {
-                        result.newlyUnlocked = j.value("newly_unlocked", false);
+
+                    if (j.is_array() && !j.empty()) {
+                        // Find the matching entry for our key
+                        for (const auto &item : j) {
+                            if (item.value(JKEY_ACH_KEY, "") == achievementKey) {
+                                result.newlyUnlocked = item.value(JKEY_ACH_NEWLY_UNLOCKED, false);
+                                break;
+                            }
+                        }
+                    } else if (j.is_object()) {
+                        // Fallback: single object response
+                        result.newlyUnlocked = j.value(JKEY_ACH_NEWLY_UNLOCKED, false);
                     }
-                    if (j.contains("message")) {
-                        result.message = j.value("message", "");
-                    }
-                    INF("API unlock achievement success: key={}", achievementKey);
+
+                    INF("API unlock achievement success: key={}, newly_unlocked={}",
+                        achievementKey, result.newlyUnlocked);
 
                 } catch (const std::exception &e) {
                     ERR("API error parsing unlock achievement reply: {}", e.what());
@@ -2398,6 +2421,7 @@ void Net::lockAchievement(int64_t userId, const std::string &achievementKey,
 {
     INF("API lock achievement: key={}, user_id={}", achievementKey, userId);
 
+    // v2 lock uses "key" field (same as v1)
     json requestBody;
     requestBody[JKEY_ACH_USER_ID] = userId;
     requestBody[JKEY_ACH_KEY] = achievementKey;
@@ -2421,9 +2445,6 @@ void Net::lockAchievement(int64_t userId, const std::string &achievementKey,
                 try {
                     json j = json::parse(reply);
                     result.success = true;
-                    if (j.contains("message")) {
-                        result.message = j.value("message", "");
-                    }
                     INF("API lock achievement success: key={}", achievementKey);
 
                 } catch (const std::exception &e) {
