@@ -25,6 +25,7 @@
 #include <boost/thread.hpp>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 
 namespace scorbit {
 namespace detail {
@@ -89,6 +90,7 @@ private:
 
     boost::thread_group m_threads;
 
+    std::mutex m_timersMutex;
     std::unordered_map<Timer, std::optional<boost::asio::steady_timer>> m_timers;
 };
 
