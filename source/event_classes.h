@@ -20,8 +20,11 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
+#include "identifiers.h"
+#include <nlohmann/json.hpp>
 #include <string>
 #include <functional>
+#include <optional>
 
 
 struct sb_event_t {
@@ -127,16 +130,36 @@ public:
 class ConfigReceivedEvent : public EventBase
 {
 public:
-    explicit ConfigReceivedEvent(const std::string &configJson)
+    explicit ConfigReceivedEvent(nlohmann::json configJson)
         : EventBase(EventType::ConfigReceived, EventPriority::Normal)
-        , m_configJson {configJson}
+        // Important: do not use braces in initializion of m_configJson! It will create json array
+        , m_configJson(std::move(configJson))
     {
     }
 
-    auto configJson() const -> const std::string & { return m_configJson; }
+    auto configJson() const -> const nlohmann::json & { return m_configJson; }
+
+    auto configJsonCStr() const -> const char *
+    {
+        if (m_configJsonStr.empty()) {
+            m_configJsonStr = m_configJson.dump();
+        }
+        return m_configJsonStr.c_str();
+    }
+
+    auto paymentsEnabled() const -> std::optional<bool>
+    {
+        std::optional<bool> rv;
+        if (const auto it = m_configJson.find(JKEY_SOBJ_PAYMENTS_ENABLED);
+            it != m_configJson.end() && it->is_boolean()) {
+            rv = it->get<bool>();
+        }
+        return rv;
+    }
 
 private:
-    std::string m_configJson;
+    nlohmann::json m_configJson;
+    mutable std::string m_configJsonStr;
 };
 
 // ---------------- ScorbitdUpdateReceived implementation ----------------

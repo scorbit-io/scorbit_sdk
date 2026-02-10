@@ -248,6 +248,11 @@ void eventsCallback(const scorbit::Event &event)
         } else {
             cout << "Error getting config event" << endl;
         }
+
+        bool paymentsEnabled = false;
+        if (event.getConfigPaymentsEnabled(paymentsEnabled)) {
+            cout << "Payments enabled: " << (paymentsEnabled ? "true" : "false") << endl;
+        }
     } break;
 
     default:

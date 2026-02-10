@@ -50,7 +50,8 @@ std::shared_ptr<EventBase> createCreditsNumberEvent()
     return std::make_shared<CreditsStatusRequestedEvent>();
 }
 
-std::shared_ptr<EventBase> createConfigEvent(const std::string &config = "{}")
+std::shared_ptr<EventBase>
+createConfigEvent(const nlohmann::json &config = nlohmann::json::object())
 {
     return std::make_shared<ConfigReceivedEvent>(config);
 }
@@ -100,11 +101,11 @@ TEST_CASE("EventQueue priority ordering")
     SECTION("Highest priority events come first")
     {
         // Add events in random order
-        events.enqueue(createConfigEvent("config1")); // Normal priority
-        events.enqueue(createGameStartEvent(2));      // Highest priority
-        events.enqueue(createCreditsAddEvent(5));     // High priority
-        events.enqueue(createConfigEvent("config2")); // Normal priority
-        events.enqueue(createCreditsNumberEvent());   // High priority
+        events.enqueue(createConfigEvent({{"id", "config1"}})); // Normal priority
+        events.enqueue(createGameStartEvent(2));                // Highest priority
+        events.enqueue(createCreditsAddEvent(5));               // High priority
+        events.enqueue(createConfigEvent({{"id", "config2"}})); // Normal priority
+        events.enqueue(createCreditsNumberEvent());             // High priority
 
         // Dequeue and verify order
         auto first = events.dequeue();
@@ -134,9 +135,9 @@ TEST_CASE("EventQueue priority ordering")
     SECTION("FIFO ordering for same priority")
     {
         // Add multiple events with same priority
-        events.enqueue(createConfigEvent("config1"));
-        events.enqueue(createConfigEvent("config2"));
-        events.enqueue(createConfigEvent("config3"));
+        events.enqueue(createConfigEvent({{"id", "config1"}}));
+        events.enqueue(createConfigEvent({{"id", "config2"}}));
+        events.enqueue(createConfigEvent({{"id", "config3"}}));
 
         // Should maintain FIFO order
         auto first = events.dequeue();
@@ -164,7 +165,7 @@ TEST_CASE("EventQueue multiple events")
         const int numEvents = 10;
 
         for (int i = 0; i < numEvents; ++i) {
-            events.enqueue(createConfigEvent("config" + std::to_string(i)));
+            events.enqueue(createConfigEvent({{"id", "config" + std::to_string(i)}}));
         }
 
         CHECK_FALSE(events.empty());
@@ -183,11 +184,11 @@ TEST_CASE("EventQueue multiple events")
     SECTION("Mixed priority events")
     {
         // Add events with different priorities
-        events.enqueue(createConfigEvent("normal1"));
+        events.enqueue(createConfigEvent({{"id", "normal1"}}));
         events.enqueue(createGameStartEvent(2)); // Highest
-        events.enqueue(createConfigEvent("normal2"));
+        events.enqueue(createConfigEvent({{"id", "normal2"}}));
         events.enqueue(createCreditsAddEvent(5)); // High
-        events.enqueue(createConfigEvent("normal3"));
+        events.enqueue(createConfigEvent({{"id", "normal3"}}));
 
         std::vector<EventType> expectedOrder = {
                 EventType::GameStartRequested,  // Highest priority
@@ -222,7 +223,7 @@ TEST_CASE("EventQueue thread safety")
         for (int t = 0; t < numThreads; ++t) {
             threads.emplace_back([&events, &enqueueCount, eventsPerThread]() {
                 for (int i = 0; i < eventsPerThread; ++i) {
-                    events.enqueue(createConfigEvent("thread_" + std::to_string(i)));
+                    events.enqueue(createConfigEvent({{"id", "thread_" + std::to_string(i)}}));
                     enqueueCount.fetch_add(1);
                 }
             });
@@ -243,7 +244,7 @@ TEST_CASE("EventQueue thread safety")
         for (int t = 0; t < numThreads; ++t) {
             threads.emplace_back([&events, &enqueueCount, eventsPerThread]() {
                 for (int i = 0; i < eventsPerThread; ++i) {
-                    events.enqueue(createConfigEvent("thread_" + std::to_string(i)));
+                    events.enqueue(createConfigEvent({{"id", "thread_" + std::to_string(i)}}));
                     enqueueCount.fetch_add(1);
                 }
             });
@@ -311,7 +312,7 @@ TEST_CASE("EventQueue edge cases")
         const int numOperations = 1000;
 
         for (int i = 0; i < numOperations; ++i) {
-            events.enqueue(createConfigEvent("rapid_" + std::to_string(i)));
+            events.enqueue(createConfigEvent({{"id", "rapid_" + std::to_string(i)}}));
             auto event = events.dequeue();
             CHECK(event != nullptr);
         }
@@ -325,7 +326,7 @@ TEST_CASE("EventQueue edge cases")
 
         // Enqueue many events
         for (int i = 0; i < largeNumber; ++i) {
-            events.enqueue(createConfigEvent("large_" + std::to_string(i)));
+            events.enqueue(createConfigEvent({{"id", "large_" + std::to_string(i)}}));
         }
 
         // Dequeue all events
@@ -374,7 +375,7 @@ TEST_CASE("EventQueue event type verification")
 
     SECTION("ConfigReceivedEvent properties")
     {
-        std::string configJson = R"({"setting": "value"})";
+        nlohmann::json configJson = {{"setting", "value"}};
         auto event = createConfigEvent(configJson);
         events.enqueue(std::move(event));
 
@@ -422,7 +423,7 @@ TEST_CASE("EventQueue stress test")
                     event = createCreditsNumberEvent();
                     break;
                 case 3:
-                    event = createConfigEvent("stress_" + std::to_string(i));
+                    event = createConfigEvent({{"id", "stress_" + std::to_string(i)}});
                     break;
                 }
 

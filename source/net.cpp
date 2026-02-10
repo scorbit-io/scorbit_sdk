@@ -346,7 +346,7 @@ void Net::getConfig()
                         }
                     }
 
-                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
+                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
 
                 } catch (const std::exception &e) {
                     ERR("API error parsing config reply: {}", e.what());
@@ -1469,7 +1469,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             }
         }
 
-        m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json.dump()));
+        m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
 
         if (m_status != status) {
             m_status = status;

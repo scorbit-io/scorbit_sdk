@@ -28,11 +28,11 @@ enum class EventType {
     GameStartRequested = SB_EVT_GAME_START_REQUESTED,
     CreditsAddRequested = SB_EVT_CREDITS_ADD_REQUESTED,
     CreditsStatusRequested = SB_EVT_CREDITS_STATUS_REQUESTED,
+    ConfigReceived = SB_EVT_CONFIG_RECEIVED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 
     None = SB_EVT_NONE, // This event shoud not be used
-    ConfigReceived = SB_EVT_CONFIG_RECEIVED,
     ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
     ScorbitdUpdated = SB_EVT_SCORBITD_UPDATED,
 };
