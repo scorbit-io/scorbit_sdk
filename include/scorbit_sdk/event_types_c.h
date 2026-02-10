@@ -48,11 +48,17 @@ typedef enum {
      */
     SB_EVT_CREDITS_STATUS_REQUESTED,
 
+    /**
+     * @brief A configuration has been received from the Scorbit system. This event is
+     * typically sent after SDK connected to backend and received configuration.
+     * Use @ref sb_event_config_received to get config JSON string.
+     * Use @ref sb_event_config_payments_enabled to check if payments are enabled in the config.
+     */
+    SB_EVT_CONFIG_RECEIVED,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used
-
-    SB_EVT_CONFIG_RECEIVED,
 
     SB_EVT_SCORBITD_UPDATE_RECEIVED,
 

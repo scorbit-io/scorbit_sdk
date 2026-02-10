@@ -222,6 +222,31 @@ PYBIND11_MODULE(scorbit, m)
                                 success, config = event.event_config_received()
                                 if success:
                                     print(f"Config received: {config}")
+                    )doc")
+            .def(
+                    "get_config_payments_enabled",
+                    [](const Event &self) {
+                        bool payments_enabled = false;
+                        bool success = self.getConfigPaymentsEnabled(payments_enabled);
+                        return std::make_tuple(success, payments_enabled);
+                    },
+                    R"doc(
+                        Extract payments enabled status from a config received event.
+
+                        This function extracts the payments_enabled field from a config received event.
+                        The event type must be EventType.ConfigReceived, otherwise the function
+                        returns (False, False).
+
+                        Returns:
+                            tuple: (success, payments_enabled)
+                                - success (bool): True on success, or False if an error occurs.
+                                - payments_enabled (bool): Whether payments are enabled (valid only if success=True).
+
+                        Example:
+                            if event.type() == scorbit.EventType.ConfigReceived:
+                                success, payments_enabled = event.get_config_payments_enabled()
+                                if success:
+                                    print(f"Payments enabled: {payments_enabled}")
                     )doc");
 
 #ifdef SCORBIT_LOGGER_CALLBACK

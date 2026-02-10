@@ -131,6 +131,10 @@ def events_callback(gs, event):
         else:
             print("Error getting config event")
 
+        success, payments_enabled = event.get_config_payments_enabled()
+        if success:
+            print(f"Payments enabled: {payments_enabled}")
+
 def setup_game_state():
     # Create config with all settings including authentication
     config = scorbit.Config()

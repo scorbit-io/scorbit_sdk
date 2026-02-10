@@ -20,6 +20,7 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
+#include <nlohmann/json.hpp>
 #include <string>
 #include <functional>
 
@@ -127,16 +128,27 @@ public:
 class ConfigReceivedEvent : public EventBase
 {
 public:
-    explicit ConfigReceivedEvent(const std::string &configJson)
+    explicit ConfigReceivedEvent(nlohmann::json configJson)
         : EventBase(EventType::ConfigReceived, EventPriority::Normal)
-        , m_configJson {configJson}
+        , m_configJson {std::move(configJson)}
     {
     }
 
-    auto configJson() const -> const std::string & { return m_configJson; }
+    auto configJson() const -> const nlohmann::json & { return m_configJson; }
+
+    auto configJsonCStr() const -> const char *
+    {
+        if (m_configJsonStr.empty()) {
+            m_configJsonStr = m_configJson.dump();
+        }
+        return m_configJsonStr.c_str();
+    }
+
+    auto paymentsEnabled() const -> bool { return m_configJson.value("payments_enabled", false); }
 
 private:
-    std::string m_configJson;
+    nlohmann::json m_configJson;
+    mutable std::string m_configJsonStr;
 };
 
 // ---------------- ScorbitdUpdateReceived implementation ----------------

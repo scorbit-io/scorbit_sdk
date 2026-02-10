@@ -71,6 +71,20 @@ SCORBIT_SDK_EXPORT
 bool sb_event_credits_add_requested(const sb_event_t *event, int *credits,
                                     const char **transaction);
 
+/**
+ * @brief Helper function to extract payments enabled status from a @ref SB_EVT_CONFIG_RECEIVED
+ * event.
+ *
+ * This function extracts the payments_enabled field from a config received event.
+ * The event type must be @ref SB_EVT_CONFIG_RECEIVED, otherwise the function returns an error.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] payments_enabled A pointer to a bool that will receive the payments enabled value.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_enabled);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT
