@@ -17,13 +17,12 @@
  * SOFTWARE.
  */
 
-#include "bytearray.h"
+#include "utils/bytearray.h"
 
 #include <fmt/format.h>
 #include <algorithm>
 
-namespace scorbit {
-namespace detail {
+namespace utils {
 
 ByteArray::ByteArray(ByteArrayBase::size_type count, const uint8_t defaultValue)
     : ByteArrayBase(count, defaultValue)
@@ -144,5 +143,4 @@ void ByteArray::initialize(const ByteArray &initArray)
     }
 }
 
-} // namespace detail
-} // namespace scorbit
+} // namespace utils

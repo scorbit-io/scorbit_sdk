@@ -34,6 +34,17 @@ using task_t = std::function<void()>;
 class Worker
 {
 public:
+    enum class Timer {
+        Heartbeat,
+        TokenRefresh,
+        NfcCheckTag,
+        GameData,
+        SessionUpdate,
+        CentrifugoReconnect,
+        NfcBootReason,
+    };
+
+public:
     Worker() = default;
     ~Worker();
 
@@ -44,13 +55,21 @@ public:
 
     void post(task_t func);
     void postQueue(task_t func);
+    void postSessionQueue(task_t func);
     void postGameDataQueue(task_t func);
     void postHeartbeatQueue(task_t func);
+    void postCommitTask(task_t func);
 
-    void runTimer(std::chrono::steady_clock::duration delay, task_t func);
+    void startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func);
+    void stopTimer(Timer timerType);
+
+    auto &centrifugoStrand() { return m_centrifugoStrand; }
+    auto &eventsStrand() { return m_eventsStrand; }
 
 private:
     void run();
+    auto getTimer(Timer timerType) -> boost::asio::steady_timer *;
+    auto stopAllTimers() -> void;
 
 private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
@@ -62,12 +81,15 @@ private:
             boost::asio::make_work_guard(m_ioc)};
 
     asio_strand m_strand {m_ioc.get_executor()};
-    asio_strand m_gameDataStrand {m_ioc.get_executor()};
+    asio_strand m_sessionStrand {m_ioc.get_executor()};
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
+    asio_strand m_centrifugoStrand {m_ioc.get_executor()};
+    asio_strand m_eventsStrand {m_ioc.get_executor()};
+    asio_strand m_commitStrand {m_ioc.get_executor()};
 
     boost::thread_group m_threads;
 
-    boost::asio::steady_timer m_heartbeatTimer {m_ioc};
+    std::unordered_map<Timer, std::optional<boost::asio::steady_timer>> m_timers;
 };
 
 } // namespace detail

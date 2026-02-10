@@ -20,8 +20,10 @@
 #pragma once
 
 #include "scorbit_sdk/common_types_c.h"
+#include <nfc/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
+#include "event_classes.h"
 #include <string>
 #include <memory>
 
@@ -33,7 +35,7 @@ class GameStateImpl
 public:
     GameStateImpl(std::unique_ptr<NetBase> net);
 
-    void setGameStarted();
+    void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
 
     void setCurrentBall(sb_ball_t ball);
@@ -54,25 +56,37 @@ public:
     const std::string &getClaimDeeplink(int player) const;
 
     bool isPlayersInfoUpdated();
-    const PlayerProfile *getPlayerProfile(sb_player_t player) const;
+    std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
     const Picture &getPlayerPicture(sb_player_t player) const;
+
+    void setCapabilities(Capabilities capabilities);
+
+    void setCreditsDropped(int credits, const std::string &transaction, bool success);
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);
 
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
 
     void requestPairCode(StringCallback callback) const;
     void requestUnpair(StringCallback callback) const;
 
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback);
+
 private:
     void addNewPlayer(sb_player_t player);
-    void sendGameData();
+    void submitGameData(bool forceSending);
     bool isChanged() const;
     bool isPlayerValid(sb_player_t player) const;
     bool isBallValid(sb_ball_t ball) const;
+    bool startGame(int playersCount, GameStartOrigin origin);
 
 private:
     std::unique_ptr<NetBase> m_net;
     GameData m_data;
     GameData m_prevData;
+    int m_sessionId {0};
+
+    std::shared_ptr<nfc::ProbesManager> m_probesManager;
 };
 
 } // namespace detail

@@ -19,7 +19,11 @@
 
 #include "net_util.h"
 #include "fmt/format.h"
+#include <logger/logger.h>
 #include <boost/uuid.hpp>
+#include <boost/url/url_view.hpp>
+#include <boost/url/parse.hpp>
+#include <iomanip>
 #include <regex>
 
 namespace scorbit {
@@ -30,24 +34,26 @@ constexpr auto ABSOLUTE_MAX_PLAYERS_NUM = 6;
 // Function to extract protocol, hostname, and port
 UrlInfo exctractHostAndPort(const std::string &url)
 {
-    static const std::regex url_regex(R"((https?):\/\/([^\/:]+)(?::(\d+))?)");
-    std::smatch url_match_result;
+    const auto r = boost::urls::parse_uri(url);
+    if (!r) {
+        ERR("Invalid URL: {}, {}", url, r.error().message());
+        return {};
+    }
 
+    const auto u = *r;
     UrlInfo result;
+    result.protocol = u.scheme();
+    result.hostname = u.host();
 
-    if (std::regex_search(url, url_match_result, url_regex)) {
-        result.protocol = url_match_result[1].str();
-        result.hostname = url_match_result[2].str();
-        result.port = url_match_result[3].str();
-
-        // If no port is found, assign a default one based on the protocol
-        if (result.port.empty()) {
-            if (result.protocol == "https") {
-                result.port = "443"; // Default port for HTTPS
-            } else if (result.protocol == "http") {
-                result.port = "80"; // Default port for HTTP
-            }
-        }
+    if (u.has_port()) {
+        result.port = u.port();
+    } else if (result.protocol == "https" || result.protocol == "wss") {
+        result.port = "443"; // Default port for HTTPS and WSS
+    } else if (result.protocol == "http" || result.protocol == "ws") {
+        result.port = "80"; // Default port for HTTP (if not specified, we assume HTTP)
+    } else {
+        // Invalid scheme: accepted only http(s) or ws(s)
+        result = {};
     }
 
     return result;
@@ -122,6 +128,37 @@ std::string gameHistoryToCsv(const GameHistory &history)
     }
 
     return rv;
+}
+
+// Convert chrono timepoint to ISO 8601 string in UTC (e.g. "2023-10-05T14:48:00Z")
+std::string to_iso8601(std::chrono::system_clock::time_point tp)
+{
+    // Convert to time_t (seconds since epoch)
+    std::time_t t = std::chrono::system_clock::to_time_t(tp);
+
+    // Convert to UTC
+    std::tm tm = *std::gmtime(&t);
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+
+auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string
+{
+    // Example URL:
+    // .../api/v2/scorbitrons/7a16ea98-48e8-4b2e-a1eb-cf282e3b81cc/sessions/da9e568d-ce3b-4493-9d5c-10cfe47a96de/
+    // Regex to capture "v2/sessions" and the UUID
+    std::regex re(fmt::format(R"(\/({})\/([0-9a-fA-F\-]+)\/)", key));
+    std::smatch match;
+
+    std::string uuid;
+    if (std::regex_search(url, match, re)) {
+        uuid = match[2];     // UUID
+    }
+
+    return uuid;
 }
 
 } // namespace detail

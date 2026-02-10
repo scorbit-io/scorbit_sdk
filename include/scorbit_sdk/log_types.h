@@ -44,6 +44,7 @@ enum class LogLevel {
 };
 
 
+#ifdef SCORBIT_LOGGER_CALLBACK
 /**
  * @typedef LoggerCallback
  * @brief Defines the type for logger callback functions.
@@ -63,5 +64,6 @@ enum class LogLevel {
  */
 using LoggerCallback = std::function<void(const std::string &message, LogLevel level,
                                           const char *file, int line, int64_t timestamp)>;
+#endif // SCORBIT_LOGGER_CALLBACK
 
 } // namespace scorbit

@@ -18,13 +18,20 @@ project(scorbit_sdk VERSION ${SCORBIT_SDK_VERSION} LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(cmake/tools.cmake)
-include(cmake/ArchDetect.cmake)
+# ---- CMake directory for libs ----
+set(MY_CMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+include(${MY_CMAKE_DIR}/tools.cmake)
+include(${MY_CMAKE_DIR}/ArchDetect.cmake)
 
 # ---- Options ----
 
 option(SCORBIT_SDK_PRODUCTION "Production build for distribution" OFF)
 option(SCORBIT_SDK_SHARED "Build shared library" ON)
+
+set(SCORBIT_LOGGER "callback" CACHE STRING "Logger backend to use (callback or spdlog)")
+set_property(CACHE SCORBIT_LOGGER PROPERTY STRINGS callback spdlog)
+
 set(SCORBIT_SDK_ABI "unknown" CACHE STRING "ABI tag for self update")
 
 set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
@@ -76,67 +83,68 @@ endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 
-CPMAddPackage(
-    NAME fmt
-    GIT_TAG 11.2.0
-    GITHUB_REPOSITORY fmtlib/fmt
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    OPTIONS "FMT_INSTALL YES"
-    GIT_SHALLOW TRUE
-)
+include(${MY_CMAKE_DIR}/lib_fmt.cmake)
 
 find_package(OpenSSL REQUIRED)
 
-find_package(CURL 8.0.0)
-if(CURL_FOUND)
-    set(CPR_USE_SYSTEM_CURL ON)
-endif()
-set(BUILD_SHARED_LIBS OFF)
-CPMAddPackage(
-    NAME cpr
-    GIT_TAG 1.12.0
-    GITHUB_REPOSITORY libcpr/cpr
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    GIT_SHALLOW TRUE
-)
-if(cpr_ADDED)
-    set(CPR_SOURCE_DIR ${cpr_SOURCE_DIR})
-
-    execute_process(
-        COMMAND git apply --check "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch"
-        WORKING_DIRECTORY ${CPR_SOURCE_DIR}
-        RESULT_VARIABLE patch_check_result
-        OUTPUT_QUIET
-        ERROR_QUIET
-    )
-
-    if(patch_check_result EQUAL 0)
-        message(STATUS "Applying CPR patch...")
-        execute_process(
-            COMMAND git apply "${CMAKE_CURRENT_SOURCE_DIR}/patches/cpr-gcc-9.3-build-fix.patch"
-            WORKING_DIRECTORY ${CPR_SOURCE_DIR}
-            RESULT_VARIABLE patch_result
-        )
-        if(NOT patch_result EQUAL 0)
-            message(FATAL_ERROR "Failed to apply patch to CPR")
-        endif()
-    else()
-        message(STATUS "CPR patch already applied (skipping).")
-    endif()
-endif()
+include(${MY_CMAKE_DIR}/lib_cpr.cmake)
 
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
+include(${MY_CMAKE_DIR}/lib_centrifugo-cpp.cmake)
+
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread)
-set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
-include(cmake/boost.cmake)
+set(BOOST_COMPILED_COMPONENTS filesystem thread url)
+set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
+include(${MY_CMAKE_DIR}/lib_boost.cmake)
+
+include(${MY_CMAKE_DIR}/lib_nlohmann_json.cmake)
+
+CPMAddPackage(
+    NAME logger
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/logger
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+    OPTIONS "SCORBIT_LOGGER=${SCORBIT_LOGGER}"
+)
+
+CPMAddPackage(
+    NAME tpm
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/tpm
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
+CPMAddPackage(
+    NAME nfc
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/nfc
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
+# --- Add resources ---
+
+include(${MY_CMAKE_DIR}/CMakeRC.cmake)
+
+# download certs
+include(${MY_CMAKE_DIR}/download_file.cmake)
+download_file(
+    "https://curl.se/ca/cacert.pem"
+    "${CMAKE_CURRENT_BINARY_DIR}/"
+)
+set(CA_CERT_FILE "${DOWNLOADED_FILE}")
+
+cmrc_add_resource_library(
+    my-resources
+    ALIAS scorbit::rc
+    NAMESPACE scorbit
+    WHENCE "${CMAKE_CURRENT_BINARY_DIR}/"
+    ${CA_CERT_FILE}
+)
 
 # ---- Create library ----
 
@@ -157,11 +165,12 @@ target_sources(
     PRIVATE
         VERSION
         source/net.cpp
-        source/logger.cpp
-        source/logger.h
+        source/config_c.cpp
         source/game_state_c.cpp
         source/game_state_impl.h
         source/game_state_impl.cpp
+        include/scorbit_sdk/config_c.h
+        include/scorbit_sdk/config.h
         include/scorbit_sdk/game_state_c.h
         include/scorbit_sdk/game_state.h
         include/scorbit_sdk/scorbit_sdk.h
@@ -171,9 +180,12 @@ target_sources(
         include/scorbit_sdk/common_types_c.h
         include/scorbit_sdk/log_types_c.h
         include/scorbit_sdk/log_c.h
+        include/scorbit_sdk/event_types_c.h
+        include/scorbit_sdk/event_helpers_c.h
+        include/scorbit_sdk/event_types.h
+        include/scorbit_sdk/event.h
         source/net_base.h
         source/net.h
-        source/log_c.cpp
         source/player_state.h
         source/player_state.cpp
         source/modes.h
@@ -184,8 +196,6 @@ target_sources(
         source/net_util.h
         source/net_util.cpp
         include/scorbit_sdk/game_state_factory.h
-        source/utils/bytearray.cpp
-        source/utils/bytearray.h
         source/worker.h
         source/worker.cpp
         source/updater.h
@@ -197,14 +207,34 @@ target_sources(
         source/utils/signer.h
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
+        source/utils/jwt_parser.h
+        source/utils/jwt_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
+        source/utils/fs_read_write.h
+        source/utils/fs_read_write.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
         source/utils/lru_cache.hpp
         source/safe_multipart.h
+        source/fmt_formatters.h
+        source/identifiers.h
+        source/event_helpers_c.cpp
+        source/event_classes.h
+        source/event_queue.h
+        source/event_manager.h
+        source/dflags.h
+        source/session_flags.h
 )
+
+# Conditionally include callback logger API implementation
+if(SCORBIT_LOGGER STREQUAL "callback")
+    target_sources(${PROJECT_NAME} PRIVATE source/log_c.cpp)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_CALLBACK)
+elseif(SCORBIT_LOGGER STREQUAL "spdlog")
+    target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_SPDLOG)
+endif()
 
 # Generate the header from the template
 configure_file(source/platform_id.h.in "${CMAKE_CURRENT_BINARY_DIR}/platform_id.h" @ONLY)
@@ -229,7 +259,17 @@ endif()
 # Link dependencies
 target_link_libraries(
     ${PROJECT_NAME}
-    PRIVATE ${BOOST_LIBS} fmt::fmt cpr::cpr OpenSSL::Crypto LibArchive::LibArchive
+    PRIVATE
+        $<BUILD_INTERFACE:scorbit::rc>
+        ${BOOST_LIBS}
+        fmt::fmt
+        cpr::cpr
+        OpenSSL::Crypto
+        LibArchive::LibArchive
+        centrifugo-cpp
+        nfc
+        $<BUILD_INTERFACE:tpm>
+        $<BUILD_INTERFACE:logger>
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)
@@ -242,7 +282,7 @@ target_include_directories(
     # $<INSTALL_INTERFACE:include>
 )
 
-include(cmake/encrypt.cmake)
+include(${MY_CMAKE_DIR}/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE
@@ -263,6 +303,13 @@ string(TOLOWER ${PROJECT_NAME}/export.h EXPORT_HEADER_LOCATION)
 
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")
+
+# Force correct install paths before packageProject() - cryptoauth sets CMAKE_INSTALL_PREFIX to "/"
+# which causes GNUInstallDirs to use /usr/lib instead of lib
+set(CMAKE_INSTALL_PREFIX "${SCORBIT_SDK_INSTALL_PREFIX}" CACHE PATH "" FORCE)
+set(CMAKE_INSTALL_LIBDIR "lib" CACHE PATH "" FORCE)
+
+set_property(TARGET scorbit_sdk PROPERTY EXPORT_NAME scorbit_sdk)
 
 packageProject(
     NAME ${PROJECT_NAME}

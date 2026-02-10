@@ -29,5 +29,7 @@ namespace detail {
 // E.g. Wed, 21 Oct 2037 07:28:00 GMT
 int64_t parseHttpDateToUnixTimestamp(const std::string &httpDate);
 
+bool setSystemTime(int64_t timestamp);
+
 } // namespace detail
 } // namespace scorbit

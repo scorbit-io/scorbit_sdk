@@ -1,0 +1,36 @@
+/*
+ * Scorbit SDK
+ *
+ * (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+ *
+ * MIT License
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+#pragma once
+
+#include "dflags.h"
+#include <cstdint>
+
+namespace scorbit {
+namespace detail {
+
+enum class SessionFlag : uint32_t {
+    UploadHistoryLogs = 1u << 0,  // Upload history logs after session ends
+    PlayersAdd = 1u << 1,         // Adding new players
+    Debounced = 1u << 2, // Debounce timer is in progress
+};
+using SessionFlags = DFlags<SessionFlag>;
+
+} // namespace detail
+} // namespace scorbit

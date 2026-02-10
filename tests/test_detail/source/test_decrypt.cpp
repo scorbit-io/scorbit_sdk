@@ -18,7 +18,7 @@
  */
 
 #include "utils/decrypt.h"
-#include "utils/bytearray.h"
+#include <utils/bytearray.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -42,6 +42,6 @@ TEST_CASE("Decrypt")
 
     // Make sure that encrypted key is decrypted correctly.
     // Encrypted key TEST_ENCRYPTED_KEY is generated during cmake configuration
-    auto decrypted = ByteArray(decryptSecret(TEST_ENCRYPTED_KEY, "testsecret")).hex();
+    auto decrypted = utils::ByteArray(decryptSecret(TEST_ENCRYPTED_KEY, "testsecret")).hex();
     CHECK(decrypted == TEST_KEY);
 }

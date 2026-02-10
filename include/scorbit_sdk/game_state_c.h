@@ -21,7 +21,9 @@
 
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
+#include "config_c.h"
 #include "net_types_c.h"
+#include "event_types_c.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -33,33 +35,37 @@ extern "C" {
 /**
  * @brief Create a game state.
  *
- * Initializes and creates a game state. Use this function at the start of the application.
- * When the application terminates, call @ref sb_destroy_game_state to release the allocated
- * resources.
+ * Creates and initializes a game state using the provided configuration object.
+ * Use this function at the start of the application. When the application terminates,
+ * call @ref sb_destroy_game_state to release the allocated resources.
  *
- * There are two versions: first version is @ref sb_create_game_state, which requires a signer
- * callback function and device information. The second version is @ref sb_create_game_state2,
- * which requires an encrypted key instead of a signer callback.
- *
- * @note The first version with a signer callback is intended for machines that use TPM for signing.
- * The second version is recommended for machines that do not use TPM.
+ * Before calling this function, you must:
+ * 1. Create a config with @ref sb_config_create
+ * 2. Set required properties (provider, machine_id, game_code_version)
+ * 3. Set authentication: either @ref sb_config_set_encrypted_key (for non-TPM machines)
+ *    or @ref sb_config_set_signer (for TPM machines)
  *
  * @note Normally, one game state per application is sufficient.
  *
- * @param signer The callback function to sign the game state. The function should have the
- * signature specified by @ref sb_signer_callback_t. @see examples/c_example/main.c
- * @param signer_user_data The user data passed to the signer. It can be used to pass the context.
- * @param device_info The device information used to authenticate
+ * @param config The configuration object created by @ref sb_config_create.
+ *               Must have authentication configured (encrypted key or signer).
  *
- * @return A handle to the game state, or NULL if creation fails.
+ * @return A handle to the game state, or NULL if creation fails or config is invalid.
+ *
+ * Example:
+ * @code
+ * sb_config_t config = sb_config_create();
+ * sb_config_set_provider(config, "myprovider");
+ * sb_config_set_machine_id(config, 4419);
+ * sb_config_set_game_code_version(config, "1.0.0");
+ * sb_config_set_encrypted_key(config, encrypted_key);
+ *
+ * sb_game_handle_t handle = sb_create_game_state(config);
+ * sb_config_destroy(config);
+ * @endcode
  */
 SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
-                                      const sb_device_info_t *device_info);
-
-SCORBIT_SDK_EXPORT
-sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
-                                       const sb_device_info_t *device_info);
+sb_game_handle_t sb_create_game_state(sb_config_t config);
 
 /**
  * @brief Destroy the game state.
@@ -86,9 +92,13 @@ void sb_destroy_game_state(sb_game_handle_t handle);
  * modified.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
+ * @param origin The origin of the game start. This indicates how the game was started, such as
+ * by pressing the start button or via a request from the lobby. See
+ * @ref sb_game_start_origin_t for details and @ref SB_EVENT_GAME_START_REQUESTED
+ * event.
  */
 SCORBIT_SDK_EXPORT
-void sb_set_game_started(sb_game_handle_t handle);
+void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin);
 
 /**
  * @brief Mark the game as finished.
@@ -441,6 +451,65 @@ const char *sb_get_player_picture_url(sb_game_handle_t handle, sb_player_t playe
  */
 SCORBIT_SDK_EXPORT
 const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player, size_t *size);
+
+// -------------------------- SETTINGS ----------------------------------
+
+/**
+ * @brief Sets the device capabilities.
+ *
+ * Configures the device with the features it supports. The @p capabilities
+ * argument should contain a bitwise OR of one or more values of @ref sb_capability_t.
+ *
+ * @note If this function is not called, all capabilities are assumed to be disabled by default.
+ *
+ * @param capabilities Bitwise OR of capability flags supported by the device.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities);
+
+// -------------------------- CREDITS / STATUS ----------------------------------
+
+/**
+ * @brief Sets the number of credits dropped into the machine.
+ *
+ * This function should be called when @ref SB_EVT_CREDITS_ADD_REQUESTED event received and credits
+ * added to machine. It notifies the Scorbit cloud service and mobile app dropped credits count and
+ * if it was successful.
+ *
+ * @note it should not be called if physical coins dropped in to machine.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param credits The number of credits dropped into the machine.
+ * @param transaction The transaction ID associated with the credit drop (passed in the event).
+ * @param success true if the credit drop was successful; false otherwise.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
+                            bool success);
+
+/**
+ * @brief Sets the current credits status.
+ *
+ * This function should be called:
+ * 1. when @ref SB_EVT_CREDITS_STATUS_REQUESTED event received
+ * 2. when credits number changed in machine (added or subtracted)
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param free_play true if the machine is in free play mode; false otherwise.
+ * @param credits The current number of credits available in the machine.
+ * @param max_credits The maximum number of credits allowed in the machine.
+ * @param pricing For future use. Currently should be set to NULL or an empty string.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
+                           const char *pricing);
+
+// -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
+
+SCORBIT_SDK_EXPORT
+void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
+                                  const char *owner_uuid, sb_string_callback_t callback,
+                                  void *user_data);
 
 #ifdef __cplusplus
 }

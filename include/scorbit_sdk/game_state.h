@@ -25,7 +25,10 @@
 #include "net_types.h"
 #include "game_state_c.h"
 #include "player_info.h"
+#include "event.h"
+#include "config.h"
 
+#include <functional>
 #include <string>
 #include <memory>
 
@@ -52,15 +55,21 @@ namespace scorbit {
 class GameState
 {
 public:
-    GameState(sb_game_handle_t handle)
+    GameState(sb_game_handle_t handle, Config &config)
         : m_handle(handle, sb_destroy_game_state)
     {
+        // Move callback ownership from Config to GameState.
+        // unique_ptr move preserves the underlying pointer address, so the raw pointers
+        // captured in the C bridge lambdas remain valid for the lifetime of the game state.
+        m_eventCallbackStorage = std::move(config.m_eventCallbackStorage);
+        m_saveKeyCallbackStorage = std::move(config.m_saveKeyCallbackStorage);
+        m_loadKeyCallbackStorage = std::move(config.m_loadKeyCallbackStorage);
     }
 
     GameState(const GameState &) = delete;
     GameState &operator=(const GameState &) = delete;
-    GameState(GameState&&) = default;
-    GameState& operator=(GameState&&) = default;
+    GameState(GameState &&) = default;
+    GameState &operator=(GameState &&) = default;
 
     /**
      * @brief Mark the game as started.
@@ -74,8 +83,15 @@ public:
      * before calling @ref commit, the active player, scores, modes, or current ball can be
      * modified.
      *
+     * @param origin The origin of the game start. This indicates how the game was started, such as
+     * by pressing the start button or via a request from the lobby (mobile app). See
+     * @ref scorbit::GameStartOrigin for details and @ref scobit::EventType::GameStartRequested
+     * event.
      */
-    void setGameStarted() { sb_set_game_started(m_handle.get()); }
+    void setGameStarted(GameStartOrigin origin)
+    {
+        sb_set_game_started(m_handle.get(), static_cast<sb_game_start_origin_t>(origin));
+    }
 
     /**
      * @brief Mark the game as finished.
@@ -204,7 +220,10 @@ public:
      * @return The pairing deeplink. If the machine is not paired or the SDK is not yet
      * authenticated, an empty string is returned.
      */
-    std::string getPairDeeplink() const { return std::string {sb_get_pair_deeplink(m_handle.get())}; }
+    std::string getPairDeeplink() const
+    {
+        return std::string {sb_get_pair_deeplink(m_handle.get())};
+    }
 
     /**
      * @brief Retrieve the claim and navigation deeplink.
@@ -239,7 +258,7 @@ public:
      */
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback)
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_top_scores(m_handle.get(), scoreFilter, cbPair.first, cbPair.second);
     }
 
@@ -260,7 +279,7 @@ public:
      */
     void requestPairCode(StringCallback callback) const
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_pair_code(m_handle.get(), cbPair.first, cbPair.second);
     }
 
@@ -283,7 +302,7 @@ public:
      */
     void requestUnpair(StringCallback callback) const
     {
-        auto cbPair = prepareCallback(std::move(callback));
+        auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_unpair(m_handle.get(), cbPair.first, cbPair.second);
     }
 
@@ -339,20 +358,96 @@ public:
         return info;
     }
 
-private:
-    static void callback_c(sb_error_t error, const char *reply, void *user_data) {
+    /**
+     * @brief Sets the device capabilities.
+     *
+     * Configures the device with the features it supports. The @p capabilities
+     * argument should contain a bitwise OR of one or more values from @ref scorbit::Capability.
+     *
+     * @note If this function is not called, all capabilities are assumed to be disabled by default.
+     *
+     * @param capabilities Bitwise OR of capability flags supported by the device.
+     */
+    void setCapabilities(Capabilities capabilities)
+    {
+        sb_set_capabilities(m_handle.get(), capabilities);
+    }
+
+    // -------------------------- CREDITS / STATUS ----------------------------------
+
+    /**
+     * @brief Sets the number of credits dropped into the machine.
+     *
+     * This function should be called when @ref scorbit::EventType::CreditsAddRequested event
+     * received and credits added to machine. It notifies the Scorbit cloud service and mobile app
+     * dropped credits count and if it was successful.
+     *
+     * @note it should not be called if physical coins dropped in to machine.
+     *
+     * @param credits The number of credits dropped into the machine.
+     * @param transaction The transaction identifier associated with the credit drop (passed in the
+     * event).
+     * @param success true if the credit drop was successful; false otherwise.
+     */
+    void setCreditsDropped(int credits, const std::string &transaction, bool success)
+    {
+        sb_set_credits_dropped(m_handle.get(), credits, transaction.c_str(), success);
+    }
+
+    /**
+     * @brief Sets the current credits status.
+     *
+     * This function should be called:
+     * 1. when @ref scorbit::EventType::CreditsStatusRequested event received
+     * 2. when credits number changed in machine (added or subtracted)
+     *
+     * @param freePlay true if the machine is in free play mode; false otherwise.
+     * @param credits The current number of credits available in the machine.
+     * @param maxCredits The maximum number of credits allowed in the machine.
+     * @param pricing For future use. Currently should be set to nullptr or an empty string.
+     */
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing = nullptr)
+    {
+        sb_set_credits_status(m_handle.get(), freePlay, credits, maxCredits, pricing);
+    }
+
+    // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
+
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback)
+    {
+        auto cbPair = prepareStringCallback(std::move(callback));
+        sb_game_request_pair_machine(m_handle.get(), machineUuid.c_str(), ownerUuid.c_str(),
+                                     cbPair.first, cbPair.second);
+    }
+
+    // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
+
+    private:
+    static void string_callback_c(sb_error_t error, const char *reply, void *user_data)
+    {
         auto *cb = static_cast<StringCallback *>(user_data);
-        (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string{});
+        (*cb)(static_cast<Error>(error), reply ? std::string(reply) : std::string {});
         delete cb;
     }
 
-    static std::pair<sb_string_callback_t, void *> prepareCallback(StringCallback callback) {
+    static std::pair<sb_string_callback_t, void *> prepareStringCallback(StringCallback callback)
+    {
         auto *userData = new StringCallback(std::move(callback));
-        return std::make_pair(&GameState::callback_c, userData);
+        return std::make_pair(&GameState::string_callback_c, userData);
     }
 
 private:
-    std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void(*)(sb_game_handle_t)> m_handle;
+    // Callback storage - ownership moved from Config in createGameState().
+    // Declared before m_handle so they are destroyed AFTER the handle (C++ destroys
+    // members in reverse declaration order). This ensures SDK internals are fully
+    // torn down before the callbacks are freed.
+    std::unique_ptr<std::function<void(const Event &)>> m_eventCallbackStorage;
+    std::unique_ptr<SaveKeyCallback> m_saveKeyCallbackStorage;
+    std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
+
+    std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
+            m_handle;
 };
 
 } // namespace scorbit

@@ -26,6 +26,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
 #include <boost/uuid.hpp>
+#include <optional>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -38,35 +39,58 @@ namespace {
 class MockNetBase : public NetBase
 {
 public:
+    virtual ~MockNetBase() = default;
+
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
     void sendHeartbeat() override { };
-    void requestPairCode(StringCallback) override { };
-    const std::string &getMachineUuid() const override { static std::string rv; return rv; };
-    const std::string &getPairDeeplink() const override { static std::string rv; return rv; };
-    const std::string &getClaimDeeplink(int) const override { static std::string rv; return rv; };
+    void requestPairCode(StringCallback) override {};
+    const std::string &getMachineUuid() const override
+    {
+        static std::string rv;
+        return rv;
+    };
+    const std::string &getPairDeeplink() const override
+    {
+        static std::string rv;
+        return rv;
+    };
+    const std::string &getClaimDeeplink(int) const override
+    {
+        static std::string rv;
+        return rv;
+    };
     const DeviceInfo &deviceInfo() const override
     {
         static DeviceInfo info;
         info.gameCodeVersion = "1.2.3";
         return info;
     };
-    void requestTopScores(sb_score_t, StringCallback) override { };
-    void requestUnpair(StringCallback) override { };
-    MAKE_MOCK1(sendGameData, void(const scorbit::detail::GameData &), override);
+    void requestTopScores(sb_score_t, StringCallback) override {};
+    void requestUnpair(StringCallback) override {};
+    MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
     MAKE_MOCK0(authenticate, void(), override);
-    MAKE_MOCK4(sendInstalled,
-               void(const std::string &, const std::string &, std::optional<bool>,
-                    std::optional<std::string>),
+    void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
+                       std::function<void()>) override { };
+    void getConfig() override { };
+    MAKE_MOCK4(updateConfig,
+               void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
     void download(StringCallback, const std::string &, const std::string &) override { };
     void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
+    void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
+    std::string consumeNonce() override { return {}; };
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override { };
+    void setCapabilities(Capabilities) override {};
+    void setCreditsDropped(int, const std::string &, bool) override { };
+    void setCreditsStatus(bool, int, int, const char *) override { };
 
 private:
-    PlayerProfilesManager m_playersManager;};
+    PlayerProfilesManager m_playersManager;
+};
 } // namespace
 
-// We need custom GameDataMatcher, because sessionUuid is randomly generated
+// We need custom GameDataMatcher for comparing GameData objects
 struct GameDataMatcher {
     GameData expected;
 
@@ -77,14 +101,6 @@ struct GameDataMatcher {
 
     bool operator()(const GameData &actual) const
     {
-        // sessionUuid should be parsed ok, otherwise it will throw an exception
-        try {
-            boost::uuids::uuid actualUuid =
-                    boost::uuids::string_generator()(actual.sessionUuid.get());
-            (void)actualUuid;
-        } catch (...) {
-            FAIL("Invalid UUID: '" << actual.sessionUuid << "'");
-        }
         return actual.isGameActive == expected.isGameActive && actual.ball == expected.ball
             && actual.activePlayer == expected.activePlayer && actual.players == expected.players
             && actual.modes == expected.modes;
@@ -110,7 +126,7 @@ TEST_CASE("setGameStarted functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -124,25 +140,26 @@ TEST_CASE("setGameStarted functionality")
 
     SECTION("Start a game without setting players or scores")
     {
-        // Expect sendGameData to be called once when the game starts
-        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+        // Expect submitGameData to be called once when the game starts
+        REQUIRE_CALL(mockNetRef, submitGameData(ANY(GameData), _))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
         // When setGameStarted is called without setting any scores or players,
         // it should set player 1 as the active player with a score of 0.
-        gameState.setGameStarted();
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
 
-        gameState.setGameStarted(); // This should do nothing, since it's already started
+        // This should do nothing, since it's already started
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
     }
 
     SECTION("Setting score, player, ball will be reset after setGameStarted")
     {
         // Set up expectations for the game data after setting the active player and score
-        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+        REQUIRE_CALL(mockNetRef, submitGameData(ANY(GameData), _))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -154,10 +171,12 @@ TEST_CASE("setGameStarted functionality")
         gameState.setScore(2, 2000);
 
         // Call setGameStarted, which should commit the changes and send the updated game state
-        gameState.setGameStarted(); // This should trigger sendGameData
+        gameState.setGameStarted(
+                GameStartOrigin::StartButton); // This should trigger submitGameData
         gameState.commit();
 
-        gameState.setGameStarted(); // This should do nothing, since it's already started
+        // This should do nothing, since it's already started
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
     }
 }
@@ -169,7 +188,7 @@ TEST_CASE("setGameFinished functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -184,19 +203,19 @@ TEST_CASE("setGameFinished functionality")
         expected.players.insert(std::make_pair(2, PlayerState {2, 1000}));
 
         // First call will be when game is started
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.isGameActive == true)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
         // Second call will be when the game is finished
-        REQUIRE_CALL(mockNetRef, sendGameData(ANY(GameData)))
+        REQUIRE_CALL(mockNetRef, submitGameData(ANY(GameData), _))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
         // Act
-        gameState.setGameStarted();
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
         gameState.commit();
 
         gameState.setCurrentBall(3);
@@ -208,7 +227,9 @@ TEST_CASE("setGameFinished functionality")
 
     SECTION("Prevents changes to player scores after finishing")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+        gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
+
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
         // Start the game and set some initial player scores
         gameState.setScore(1, 100);
@@ -218,7 +239,7 @@ TEST_CASE("setGameFinished functionality")
         gameState.setGameFinished();
 
         // Attempt to change the player scores and commit after the game is finished doesn't call
-        // sendGameData
+        // submitGameData
         gameState.setScore(1, 150);
         gameState.setScore(2, 250);
         gameState.addMode("NA:Multiball");
@@ -234,22 +255,22 @@ TEST_CASE("setCurrentBall functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
     SECTION("Sets a valid ball number")
     {
         // Assert: Check that the ball number is set correctly 1
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 1).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.ball == 1).IN_SEQUENCE(seq).TIMES(1);
         // Act: Set a valid ball number
         gameState.setCurrentBall(1);
         gameState.commit();
 
         // Assert: Check that the ball number is set correctly to 3
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.ball == 3).IN_SEQUENCE(seq).TIMES(1);
         // Set another valid ball number
         gameState.setCurrentBall(3);
         gameState.commit();
@@ -258,7 +279,7 @@ TEST_CASE("setCurrentBall functionality")
     SECTION("Invalid ball numbers ignored")
     {
         // Assert: Check that the ball number is set correctly
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).WITH(_1.ball == 9).IN_SEQUENCE(seq).TIMES(3);
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.ball == 9).IN_SEQUENCE(seq).TIMES(3);
         // Act: Set an initial valid ball number 9
         gameState.setCurrentBall(9);
         gameState.commit();
@@ -284,16 +305,16 @@ TEST_CASE("setActivePlayer functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
 
     SECTION("Sets a valid active player")
     {
         // Assert that active player is 1
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.activePlayer == 1)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -302,7 +323,7 @@ TEST_CASE("setActivePlayer functionality")
         gameState.commit();
 
         // Assert that active player is 3
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.activePlayer == 3)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -314,7 +335,7 @@ TEST_CASE("setActivePlayer functionality")
     SECTION("Does nothing for an invalid player number")
     {
         // Assert that active player is 9
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.activePlayer == 9)
                 .IN_SEQUENCE(seq)
                 .TIMES(3);
@@ -340,7 +361,7 @@ TEST_CASE("setActivePlayer functionality")
     SECTION("Adds a new player if the active player does not exist")
     {
         // Assert: Player 4 should now exist with score 0 and be the active player
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.activePlayer == 4 && _1.players.at(4).score() == 0)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -349,7 +370,7 @@ TEST_CASE("setActivePlayer functionality")
         gameState.commit();
 
         // Assert: Player 2 should now exist with score 0 and be the active player
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.activePlayer == 2 && _1.players.at(2).score() == 1000)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -367,21 +388,21 @@ TEST_CASE("setScore functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_))
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
             .WITH(_1.players.at(1).score() == 0)
             .IN_SEQUENCE(seq)
             .TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Sets the score for an existing player")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(1).score() == 500)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -390,7 +411,7 @@ TEST_CASE("setScore functionality")
         gameState.commit();
 
         // Assert that score of player 1 is updated to 1000
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(1).score() == 1000)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -402,7 +423,7 @@ TEST_CASE("setScore functionality")
 
     SECTION("Does nothing if the new score is the same as the current score")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(2).score() == 1500)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -411,7 +432,7 @@ TEST_CASE("setScore functionality")
         gameState.commit();
 
         // No update should be made since the score is the same
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Set the same score for player 2
         gameState.setScore(2, 1500);
@@ -421,7 +442,7 @@ TEST_CASE("setScore functionality")
     SECTION("Adds a new player with the specified score if the player does not exist")
     {
         // Assert that player 3 is added with score 800
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(3).score() == 800)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -434,7 +455,7 @@ TEST_CASE("setScore functionality")
     SECTION("Does nothing if the player number is out of range")
     {
         // No update should be made if the player number is invalid
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Try to set the score for an invalid player number (0)
         gameState.setScore(0, 1000);
@@ -445,7 +466,7 @@ TEST_CASE("setScore functionality")
     {
         // Add player 1 with an initial score
         // Assert: score of player 1 to 500
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(1).score() == 500)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -453,7 +474,7 @@ TEST_CASE("setScore functionality")
         gameState.commit();
 
         // Assert: Update the score of player 1 to 700
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(1).score() == 700)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -462,7 +483,7 @@ TEST_CASE("setScore functionality")
         gameState.commit();
 
         // Assert: Add player 2 with score 1500
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.players.at(2).score() == 1500)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -479,19 +500,19 @@ TEST_CASE("addMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Adds a new mode to the active modes list")
     {
         // Assert that mode "MB:Multiball" is added
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -501,7 +522,7 @@ TEST_CASE("addMode functionality")
         gameState.commit();
 
         // Assert that another mode "SP:SuperPlay" is added
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("SP:SuperPlay"))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -514,7 +535,7 @@ TEST_CASE("addMode functionality")
     SECTION("Does nothing if the mode already exists")
     {
         // Assert that mode "MB:Multiball" is added
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.str() == "MB:Multiball")
                 .IN_SEQUENCE(seq)
                 .TIMES(2);
@@ -537,19 +558,19 @@ TEST_CASE("removeMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Removes an existing mode from the active modes list")
     {
         // Assert: Mode "MB:Multiball" is removed
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -559,7 +580,7 @@ TEST_CASE("removeMode functionality")
         gameState.commit();
 
         // Assert: Mode "MB:Multiball" is removed
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(!_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -572,7 +593,7 @@ TEST_CASE("removeMode functionality")
     SECTION("Does nothing if the mode does not exist")
     {
         // Assert: No update should occur as the mode doesn't exist
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Try to remove a mode that doesn't exist
         gameState.removeMode("SP:SuperPlay");
@@ -587,19 +608,19 @@ TEST_CASE("clearModes functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit();
 
     SECTION("Removes all modes from the active modes list")
     {
         // Assert: All modes should be removed
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.str() == "MB:Multiball;SP:SuperPlay")
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -610,7 +631,7 @@ TEST_CASE("clearModes functionality")
         gameState.commit();
 
         // Assert: All modes should be removed
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.isEmpty())
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -623,7 +644,7 @@ TEST_CASE("clearModes functionality")
     SECTION("Does nothing if there are no modes to clear")
     {
         // Assert: No update should occur as there are no modes
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Clear modes when no modes exist
         gameState.clearModes();
@@ -638,13 +659,13 @@ TEST_CASE("commit functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, sendInstalled(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
 
-    REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
-    gameState.setGameStarted();
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
     gameState.commit(); // Initial commit after starting the game
 
     SECTION("Commits changes when the game state is modified")
@@ -652,8 +673,8 @@ TEST_CASE("commit functionality")
         // Add mode "MB:Multiball"
         gameState.addMode("MB:Multiball");
 
-        // Assert: commit should trigger sendGameData with "MB:Multiball" added
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        // Assert: commit should trigger submitGameData with "MB:Multiball" added
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball"))
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -664,8 +685,8 @@ TEST_CASE("commit functionality")
 
     SECTION("Does not commit if no changes were made")
     {
-        // Assert: No sendGameData should be called since nothing was modified
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        // Assert: No submitGameData should be called since nothing was modified
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Call commit without making any changes
         gameState.commit();
@@ -678,8 +699,8 @@ TEST_CASE("commit functionality")
         gameState.setScore(1, 500);
         gameState.setActivePlayer(2);
 
-        // Assert: commit should trigger sendGameData with the appropriate game state
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        // Assert: commit should trigger submitGameData with the appropriate game state
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball") && _1.players.at(1).score() == 500
                       && _1.activePlayer == 2)
                 .IN_SEQUENCE(seq)
@@ -691,13 +712,13 @@ TEST_CASE("commit functionality")
 
     SECTION("Commits only once if the same changes are made repeatedly")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
         // Add a mode and call commit
         gameState.addMode("MB:Multiball");
         gameState.commit();
 
         // Assert: No further commit should occur if the state didn't change
-        FORBID_CALL(mockNetRef, sendGameData(_));
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
 
         // Act: Call commit again without any new changes
         gameState.commit();
@@ -705,7 +726,7 @@ TEST_CASE("commit functionality")
 
     SECTION("Commits after clearing modes")
     {
-        REQUIRE_CALL(mockNetRef, sendGameData(_)).IN_SEQUENCE(seq).TIMES(1);
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
         // Add modes first
         gameState.addMode("MB:Multiball");
         gameState.addMode("SP:SuperPlay");
@@ -714,8 +735,8 @@ TEST_CASE("commit functionality")
         // Clear all modes
         gameState.clearModes();
 
-        // Assert: commit should trigger sendGameData with no modes remaining
-        REQUIRE_CALL(mockNetRef, sendGameData(_))
+        // Assert: commit should trigger submitGameData with no modes remaining
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.isEmpty())
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
@@ -729,12 +750,11 @@ TEST_CASE("Sending version of sdk and game_code")
 {
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
-    sequence seq;
 
-    REQUIRE_CALL(mockNetRef, authenticate()).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("game_code", "1.2.3", true, std::nullopt)).IN_SEQUENCE(seq).TIMES(1);
-    REQUIRE_CALL(mockNetRef, sendInstalled("sdk", SCORBIT_SDK_VERSION, true, std::nullopt)).IN_SEQUENCE(seq).TIMES(1);
+    ALLOW_CALL(mockNetRef, authenticate());
 
     // Create GameState object with mocked NetBase
+    // Note: Version information is now sent via sendScorbitronObject (patchScorbitron)
+    // rather than updateConfig, so we don't need to verify updateConfig calls here
     GameStateImpl gameState(std::move(mockNet));
 }

@@ -18,44 +18,48 @@
  */
 
 #include "updater.h"
-#include "logger.h"
+#include <logger/logger.h>
 #include "utils/archiver.h"
+#include "utils/fs_read_write.h"
 #include <platform_id.h>
 #include <scorbit_sdk/version.h>
 
+#include <fmt/chrono.h>
+#include <nlohmann/json.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/predef.h>
-#include <boost/filesystem.hpp>
 #include <regex>
-#include <string_view>
 
 #ifndef SCORBIT_SDK_PRODUCTION_KEY_HASH
-#define SCORBIT_SDK_PRODUCTION_KEY_HASH "unknown1"
+#    define SCORBIT_SDK_PRODUCTION_KEY_HASH "unknown1"
 #endif
 
 #ifndef SCORBIT_SDK_THIS_KEY_HASH
-#define SCORBIT_SDK_THIS_KEY_HASH "unknown2"
+#    define SCORBIT_SDK_THIS_KEY_HASH "unknown2"
 #endif
 
 namespace {
 
-constexpr auto UPDATE_DIR = "scorbit_sdk_update";
-constexpr auto LIBRARY_PATTERN = R"(^(lib)?scorbit_sdk\.(so(\.\d+)*|(\d+\.)*dylib|dll)$)";
-constexpr auto URL_PATTERN = R"(^.*scorbit_sdk-((\d+\.?)+)-(\w+)\.(tar\.gz|tgz)$)";
+constexpr auto UPDATE_DIR = "scorbit_update";
+constexpr auto SCORBITD_PATTERN = R"(^scorbitd(\.exe)?$)";
+constexpr auto SDK_LIBRARY_PATTERN = R"(^(lib)?scorbit_sdk\.(so(\.\d+)*|(\d+\.)*dylib|dll)$)";
+constexpr auto SDK_URL_PATTERN = R"(^.*scorbit_sdk-((\d+\.?)+)-(\w+)\.(tar\.gz|tgz)$)";
+constexpr auto SCORBITD_NAME_PATTERN = R"(^scorbitd-((\d+\.?)+)-(\w+)\.(tar\.gz|tgz)$)";
 
 namespace fs = boost::filesystem;
 using namespace scorbit;
 using namespace detail;
 
-constexpr bool isValidPlatformId(std::string_view id)
-{
-    return !id.empty() && id.find("unknown") == std::string_view::npos;
-}
-
 fs::path getLibraryPath()
 {
     // Get the current library path, but if it's symlink, follow it to find the real path
     return fs::canonical(boost::dll::this_line_location());
+}
+
+fs::path getExecutablePath()
+{
+    // Get the current process binary path, but if it's symlink, follow it to find the real path
+    return fs::canonical(boost::dll::program_location());
 }
 
 fs::path findFile(const fs::path &dir, const std::regex &pattern)
@@ -75,206 +79,184 @@ fs::path findFile(const fs::path &dir, const std::regex &pattern)
 namespace scorbit {
 namespace detail {
 
-Updater::Updater(NetBase &net, bool useEncryptedKey)
+Updater::Updater(NetBase &net, bool useEncryptedKey, const std::string &scorbitdVersion,
+                 const std::string &scorbitdPlatformId)
     : m_net {net}
     , m_useEncryptedKey {useEncryptedKey}
+    , m_scorbitdVersion {scorbitdVersion}
+    , m_scorbitdPlatformId {scorbitdPlatformId}
 {
 }
 
-void Updater::checkNewVersionAndUpdate(const boost::json::object &json)
+void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
+                                       std::shared_ptr<EventManager> eventManager)
 {
     if (m_updateInProgress)
         return;
 
-    if (const auto sdk = json.if_contains("sdk")) {
-        m_updateInProgress = true;
-        bool ok = true;
-        try {
-            parseUrl(*sdk);
-            if (!m_url.empty()) {
-                auto tempFile = fs::temp_directory_path() / fs::unique_path();
-                tempFile.replace_extension(".tar.gz");
-
-                m_net.download(
-                        [this](Error error, const std::string &filename) {
-                            bool success = false;
-                            if (error == Error::Success) {
-                                INF("Updater: downloaded successfully: {}", filename);
-                                success = update(filename);
-                                if (success) {
-                                    m_feedback =
-                                            fmt::format("Updated successfully, ver: {}", m_version);
-                                    INF("Updater: {}", m_feedback);
-                                }
-
-                                // Cleanup downloaded archive
-                                boost::system::error_code ec;
-                                fs::remove(filename, ec);
-                                if (ec) {
-                                    ERR("Updater: failed to remove temp file: {}, {}", filename,
-                                        ec.message());
-                                }
-                            } else {
-                                m_feedback = fmt::format("Updater: download failed: {}, {}",
-                                                         static_cast<int>(error), filename);
-                                ERR("Updater: download failed: {}", m_feedback);
-                            }
-
-                            m_updateInProgress = false;
-                            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, success, m_feedback);
-                        },
-                        m_url, tempFile.string());
-            } else {
-                INF("Cant' update the library");
-                ok = false;
-            }
-        } catch (const std::exception &e) {
-            m_feedback = fmt::format("Updater: error: {} {}", e.what(), m_feedback);
-            ERR("Updater: {}", m_feedback);
-            ok = false;
-        }
-
-        // Some error happened, update in progress cleared
-        if (!ok) {
-            m_updateInProgress = false;
-            m_net.sendInstalled("sdk", SCORBIT_SDK_VERSION, false, m_feedback);
-        }
-    }
-}
-
-void Updater::parseUrl(const boost::json::value &sdkVal)
-{
-    // Make sure that platform id is correct
-    if (!isValidPlatformId(SCORBIT_SDK_PLATFORM_ID)) {
-        m_feedback = fmt::format("Invalid platform ID: {}", SCORBIT_SDK_PLATFORM_ID);
-        ERR("Updater: {}", m_feedback);
-        return;
-    }
-
-    // If using encrypted key, make sure this SDK has been built with correct production key hash
-    if (m_useEncryptedKey
-        && std::string {SCORBIT_SDK_THIS_KEY_HASH}
-                   != std::string {SCORBIT_SDK_PRODUCTION_KEY_HASH}) {
-        m_feedback = fmt::format(
-                "Using encrypted key, production key hash mismatch: expected {}, found {}",
-                SCORBIT_SDK_PRODUCTION_KEY_HASH, SCORBIT_SDK_THIS_KEY_HASH);
-        ERR("Updater: {}", m_feedback);
-        return;
-    }
-
-    m_version.clear();
-    m_url.clear();
+    m_updateInProgress = true;
     m_feedback.clear();
 
-    try {
-        const auto sdk = sdkVal.as_object();
-        m_version = sdk.at("version").as_string();
-        const auto assets = sdk.at("assets_json").as_array();
-        if (assets.empty()) {
-            m_feedback = fmt::format("Assets list empty");
-            ERR("Updater: {}", m_feedback);
-            return;
+    std::string logs;
+    bool success = false;
+
+    // Check for SDK update
+    if (const auto it = json.find("sdk"); it != json.end() && it->is_object()) {
+        const auto urlInfo = parseUrls(*it);
+        const BinaryInfo binaryInfo {getLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
+
+        if (canUpdateSdk(urlInfo, binaryInfo)) {
+            INF("Updater: trying to update SDK to version: {}", urlInfo.version);
+            success = tryToRemountAndUpdate(urlInfo, binaryInfo);
         }
 
-        // Make sure that if current version is x.y.z then it updates only by x.y.*
-        const auto majorMinor =
-                fmt::format("{}.{}.", SCORBIT_SDK_VERSION_MAJOR, SCORBIT_SDK_VERSION_MINOR);
-        if (m_version.substr(0, majorMinor.size()) != majorMinor) {
-            m_feedback = fmt::format("Version mismatch: can only update by {}x, found: {}",
-                                     majorMinor, m_version);
-            ERR("Updater: {}", m_feedback);
-            return;
+        if (!m_feedback.empty() || success) {
+            const auto timestamp = std::chrono::system_clock::now();
+            logs.append(fmt::format("----- SDK ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
+                                    m_feedback));
+
         }
+    }
+
+    m_feedback.clear();
+
+    // Check for Scorbitd update
+    if (const auto it = json.find("scorbitd"); it != json.end() && it->is_object()) {
+        const auto urlInfo = parseUrls(*it);
+        const BinaryInfo binaryInfo {getExecutablePath(), std::regex {SCORBITD_PATTERN}};
+
+        if (canUpdateScorbitd(urlInfo, binaryInfo)) {
+            INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
+            success = tryToRemountAndUpdate(urlInfo, binaryInfo);
+
+            if (success && eventManager) {
+                eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(
+                        urlInfo.version, binaryInfo.path.string()));
+            }
+        }
+
+        if (!m_feedback.empty() || success) {
+            const auto timestamp = std::chrono::system_clock::now();
+            logs.append(fmt::format("----- scorbitd ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
+                                    m_feedback));
+        }
+    }
+
+    if (!logs.empty()) {
+        m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, logs);
+    }
+
+    m_updateInProgress = false;
+}
+
+Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
+{
+    UrlInfo info;
+
+    try {
+        info.version = obj["version"].get<std::string>();
+        const auto assets = obj["assets_json"];
 
         // Find the first asset with the correct platform
         for (const auto &asset : assets) {
-            const auto url = asset.as_string();
-            static const std::regex re(URL_PATTERN);
-            std::cmatch match;
-            if (!std::regex_match(url.c_str(), match, re)) {
-                continue;
-            }
-            const auto url_version = match[1].str();
-            if (url_version != m_version) {
-                continue;
-            }
-            const auto platformId = match[3].str();
-            if (platformId == SCORBIT_SDK_PLATFORM_ID) {
-                m_url = url.c_str();
-                return;
+            // SDK is just a URL string
+            if (asset.is_string()) {
+                std::string url = asset.get<std::string>();
+                static const std::regex re(SDK_URL_PATTERN);
+                std::smatch match;
+                if (!std::regex_match(url, match, re)) {
+                    continue;
+                }
+                const auto url_version = match[1].str();
+                if (url_version != info.version) {
+                    continue;
+                }
+                const auto platformId = match[3].str();
+                if (platformId == SCORBIT_SDK_PLATFORM_ID) {
+                    info.url = url;
+                    return info;
+                }
+            } else if (asset.is_object()) {
+                // Scorbitd is an object with name, url, download_url, content_type, size
+                const auto name = asset["name"].get<std::string>();
+                static const std::regex re(SCORBITD_NAME_PATTERN);
+                std::smatch match;
+                if (!std::regex_match(name, match, re)) {
+                    continue;
+                }
+                const auto url_version = match[1].str();
+                if (url_version != info.version) {
+                    continue;
+                }
+                const auto platformId = match[3].str();
+                if (platformId == m_scorbitdPlatformId) {
+                    asset["download_url"].get_to(info.url);
+                    asset["content_type"].get_to(info.contentType);
+                    asset["size"].get_to(info.size);
+                    return info;
+                }
             }
         }
-        m_feedback = fmt::format("Couldn't find update file in assets for the platform: {}",
-                                 SCORBIT_SDK_PLATFORM_ID);
-        ERR("Updater: {}", m_feedback);
-
     } catch (const std::exception &e) {
-        m_feedback = fmt::format("Error parsing 'sdk': {}, in json: {}", e.what(),
-                                 boost::json::serialize(sdkVal).c_str());
-        ERR("Updater: {}", m_feedback);
+        const auto msg = fmt::format("Error parsing: {}, in json: {}", e.what(), obj.dump());
+        feedback(msg);
+        ERR("Updater: {}", msg);
     }
+
+    return info;
 }
 
-bool Updater::update(const std::string &archive)
+bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) const
 {
     bool rv = false;
-    const auto tempDir = fs::temp_directory_path() / UPDATE_DIR;
+    const auto tempDir = binaryInfo.path.parent_path() / UPDATE_DIR;
+
+    // RAII cleanup guard
+    auto cleanup = [&tempDir]() {
+        boost::system::error_code ec;
+        fs::remove_all(tempDir, ec);
+        if (ec) {
+            ERR("Updater: error removing temp update directory: {}", ec.message());
+        }
+    };
+    std::shared_ptr<void> guard(nullptr, [&](void *) { cleanup(); });
 
     try {
-        const static std::regex pattern(LIBRARY_PATTERN);
-        const auto libPath = getLibraryPath();
-        if (libPath.empty()) {
-            m_feedback = fmt::format("Library path is empty");
-            ERR("Updater: {}", m_feedback);
-            return false;
-        }
-
-        // Make sure that this is shared library and matches the pattern
-        if (!std::regex_search(libPath.filename().string(), pattern)) {
-            m_feedback =
-                    fmt::format("Library path doesn't match the pattern, path: {}, pattern: {}",
-                                libPath.string(), LIBRARY_PATTERN);
-            ERR("Updater: {}", m_feedback);
-            return false;
-        }
-
         // update from tgz archive
         const auto archivePath = fs::path {archive};
 
         // Extract the archive to a temporary directory
         if (!extract(archivePath.string(), tempDir.string())) {
-            m_feedback = fmt::format("Failed to extract archive: {}", archivePath.string());
-            ERR("Updater: {}", m_feedback);
+            const auto msg = fmt::format("Failed to extract archive: {}", archivePath.string());
+            feedback(msg);
+            ERR("Updater: {}", msg);
             return false;
         }
 
-        const auto candidatePath = findFile(tempDir, pattern);
+        const auto candidatePath = findFile(tempDir, binaryInfo.re);
         if (candidatePath.empty()) {
-            m_feedback = fmt::format("Library not found in the archive");
-            ERR("Updater: {}", m_feedback);
+            const auto msg = fmt::format("File is not found in the archive");
+            feedback(msg);
+            ERR("Updater: {}", msg);
             return false;
         }
         const auto newLibPath = fs::canonical(candidatePath);
 
-        // Replace the library with the new one
-        INF("Updater: replacing current library: {} by: {}", libPath.string(), newLibPath.string());
-        rv = replaceLibrary(libPath.string(), newLibPath.string());
+        // Replace the binary with the new one
+        INF("Updater: replacing current file: {} by: {}", binaryInfo.path.string(),
+            newLibPath.string());
+        rv = replaceBinary(binaryInfo.path.string(), newLibPath.string());
 
     } catch (fs::filesystem_error &e) {
-        m_feedback = fmt::format("Error occurred while updating library: {}", e.what());
-        ERR("Updater: {}", m_feedback);
+        const auto msg = fmt::format("Error occurred while updating library: {}", e.what());
+        feedback(msg);
+        ERR("Updater: {}", msg);
     }
 
-    // cleanup extract dir
-    boost::system::error_code ec;
-    fs::remove_all(tempDir, ec);
-    if (ec) {
-        ERR("Updater: error removing temp update directory: {}", ec.message());
-    }
     return rv;
 }
 
-bool Updater::replaceLibrary(const std::string &libPath, const std::string &newLibPath)
+bool Updater::replaceBinary(const std::string &libPath, const std::string &newLibPath) const
 {
     try {
         std::string backupPath = libPath + ".old";
@@ -309,8 +291,10 @@ bool Updater::replaceLibrary(const std::string &libPath, const std::string &newL
                 fs::remove(backupPath);          // Remove backup on success
                 return true;
             } catch (const fs::filesystem_error &e) {
-                m_feedback = fmt::format("Error occurred while replacing library: {}", e.what());
-                ERR("Updater: {}", m_feedback);
+                const auto msg =
+                        fmt::format("Error occurred while replacing library: {}", e.what());
+                feedback(msg);
+                ERR("Updater: {}", msg);
                 fs::rename(backupPath, libPath); // Restore original
                 return false;
             }
@@ -321,9 +305,206 @@ bool Updater::replaceLibrary(const std::string &libPath, const std::string &newL
         }
 #endif
     } catch (const fs::filesystem_error &e) {
-        m_feedback = fmt::format("Error occurred while replacing library: {}", e.what());
-        ERR("Error occurred while replacing library: {}", e.what());
+        const auto msg = fmt::format("Error occurred while replacing library: {}", e.what());
+        feedback(msg);
+        ERR("Updater: {}", msg);
         return false;
+    }
+}
+
+bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const
+{
+    try {
+        if (binaryInfo.path == getExecutablePath()) {
+            // SDK is statically linked into the executable, skip update
+            return false;
+        }
+
+        if (!isPlatformIdValid(SCORBIT_SDK_PLATFORM_ID)) {
+            return false;
+        }
+
+        if (urlInfo.url.empty()) {
+            const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
+                                         SCORBIT_SDK_PLATFORM_ID);
+            feedback(msg);
+            ERR("Updater: {}", msg);
+            return false;
+        }
+
+        if (!isBinaryObjectValid(binaryInfo)) {
+            return false;
+        }
+
+        if (!isEncryptedKeyValid()) {
+            return false;
+        }
+
+        if (!isSdkVersionCompatible(urlInfo.version)) {
+            return false;
+        }
+    } catch (const std::exception &e) {
+        const auto msg = fmt::format("Error in 'sdk': {}", e.what());
+        feedback(msg);
+        ERR("Updater: {}", msg);
+        return false;
+    }
+
+    return true;
+}
+
+bool Updater::canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const
+{
+    if (!isScorbitdVersionCompatible(urlInfo.version)) {
+        return false;
+    }
+
+    if (!isBinaryObjectValid(binaryInfo)) {
+        return false;
+    }
+
+    if (!isPlatformIdValid(m_scorbitdPlatformId)) {
+        return false;
+    }
+
+    if (urlInfo.url.empty()) {
+        const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
+                                     m_scorbitdPlatformId);
+        feedback(msg);
+        ERR("Updater: {}", msg);
+        return false;
+    }
+
+    return true;
+}
+
+bool Updater::isPlatformIdValid(std::string_view platformId) const
+{
+    const auto rv = !platformId.empty() && platformId.find("unknown") == std::string_view::npos;
+
+    if (!rv) {
+        const auto msg = fmt::format("Invalid platform ID: {}", platformId);
+        feedback(msg);
+        ERR("Updater: {}", msg);
+    }
+    return rv;
+}
+
+bool Updater::isBinaryObjectValid(const BinaryInfo &binaryInfo) const
+{
+    const auto rv = std::regex_match(binaryInfo.path.filename().string(), binaryInfo.re);
+
+    if (!rv) {
+        const auto msg = fmt::format("Binary path doesn't match the pattern, path: {}",
+                                     binaryInfo.path.string());
+        feedback(msg);
+        ERR("Updater: {}", msg);
+    }
+    return rv;
+}
+
+bool Updater::isEncryptedKeyValid() const
+{
+    if (m_useEncryptedKey
+        && std::string_view {SCORBIT_SDK_THIS_KEY_HASH}
+                   != std::string_view {SCORBIT_SDK_PRODUCTION_KEY_HASH}) {
+        const auto msg = fmt::format(
+                "Using encrypted key, production key hash mismatch: expected {}, found {}",
+                SCORBIT_SDK_PRODUCTION_KEY_HASH, SCORBIT_SDK_THIS_KEY_HASH);
+        feedback(msg);
+        ERR("Updater: {}", msg);
+        return false;
+    }
+    return true;
+}
+
+bool Updater::isSdkVersionCompatible(const std::string &newVersion) const
+{
+    if (newVersion == SCORBIT_SDK_VERSION) {
+        return false;
+    }
+
+    // Check if current version is x.y.z then it updates only by x.y.*
+    const auto majorMinor =
+            fmt::format("{}.{}.", SCORBIT_SDK_VERSION_MAJOR, SCORBIT_SDK_VERSION_MINOR);
+    if (newVersion.substr(0, majorMinor.size()) != majorMinor) {
+        const auto msg = fmt::format("Version mismatch: can only update by {}x, found: {}",
+                                     majorMinor, newVersion);
+        feedback(msg);
+        ERR("Updater: {}", msg);
+        return false;
+    }
+
+    return true;
+}
+
+bool Updater::isScorbitdVersionCompatible(const std::string &newVersion) const
+{
+    return !m_scorbitdVersion.empty() && newVersion != m_scorbitdVersion;
+}
+
+bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
+{
+    const auto mountResult = fsMakeWritable(binaryInfo.path.parent_path());
+    if (!mountResult.ok) {
+        const auto msg =
+                fmt::format("Failed to make filesystem writable: {}", mountResult.mountPoint);
+        feedback(msg);
+        ERR("Updater: {}", msg);
+        return false;
+    }
+
+    const auto ok = downloadAndupdateTgz(urlInfo, binaryInfo);
+    fsRemountReadOnly(mountResult.mountPoint);
+    return ok;
+}
+
+bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const
+{
+    auto tempFile = fs::temp_directory_path() / fs::unique_path();
+    tempFile.replace_extension(".tar.gz");
+
+    INF("Updater: downloading to temp file: {}", tempFile.string());
+    bool success = false;
+
+    m_net.download(
+            [this, &binaryInfo, &urlInfo, &success,
+             filename = tempFile.string()](Error error, const std::string &message) {
+                success = false;
+                if (error == Error::Success) {
+                    INF("Updater: downloaded successfully: {}", filename);
+                    success = update(filename, binaryInfo);
+                    if (success) {
+                        const auto msg =
+                                fmt::format("Updated successfully, ver: {}", urlInfo.version);
+                        feedback(msg);
+                        INF("Updater: {}", msg);
+                    }
+
+                    // Cleanup downloaded archive
+                    boost::system::error_code ec;
+                    fs::remove(filename, ec);
+                    if (ec) {
+                        ERR("Updater: failed to remove temp file: {}, {}", filename, ec.message());
+                    }
+                } else {
+                    const auto msg = fmt::format("Updater: download failed: {}, {}",
+                                                 static_cast<int>(error), message);
+                    feedback(msg);
+                    ERR("Updater: download failed: {}", msg);
+                }
+            },
+            urlInfo.url, tempFile.string());
+
+    return success;
+}
+
+void Updater::feedback(std::string_view out) const
+{
+    if (m_feedback.empty()) {
+        m_feedback = out;
+    } else {
+        m_feedback = fmt::format("{}\n\n{}", m_feedback, out);
     }
 }
 

@@ -27,7 +27,7 @@ include(../../cmake/tools.cmake)
 
 # ---- Dependencies ----
 
-include(../../cmake/CPM.cmake)
+include(${MY_CMAKE_DIR}/CPM.cmake)
 
 # Catch2
 CPMAddPackage(
@@ -54,9 +54,11 @@ find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
 # Boost -----------
 
-set(BOOST_COMPILED_COMPONENTS filesystem json thread)
-set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll)
-include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/boost.cmake)
+set(BOOST_COMPILED_COMPONENTS filesystem thread url)
+set(BOOST_HEADER_ONLY_COMPONENTS asio uuid flyweight dll signals2)
+include(${MY_CMAKE_DIR}/lib_boost.cmake)
+
+include(${MY_CMAKE_DIR}/lib_nlohmann_json.cmake)
 
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
@@ -66,6 +68,8 @@ else()
 endif()
 
 find_package(OpenSSL REQUIRED)
+
+include(${MY_CMAKE_DIR}/lib_centrifugo-cpp.cmake)
 
 # ---- Create binary ----
 
@@ -77,8 +81,6 @@ target_sources(
         ../../include/scorbit_sdk/log.h
         ../../include/scorbit_sdk/log_c.h
         ../../source/log_c.cpp
-        ../../source/logger.h
-        ../../source/logger.cpp
         ../../source/player_state.h
         ../../source/player_state.cpp
         ../../include/scorbit_sdk/game_state.h
@@ -95,11 +97,9 @@ target_sources(
         ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
-        ../../source/net.h
-        ../../source/net.cpp
-        source/test_net.cpp
-        ../../source/utils/bytearray.h
-        ../../source/utils/bytearray.cpp
+        # ../../source/net.h
+        # ../../source/net.cpp
+        # source/test_net.cpp
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
@@ -115,6 +115,9 @@ target_sources(
         ../../source/utils/date_time_parser.h
         ../../source/utils/date_time_parser.cpp
         source/test_date_time_parser.cpp
+        ../../source/utils/jwt_parser.h
+        ../../source/utils/jwt_parser.cpp
+        source/test_jwt_parser.cpp
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp
@@ -125,6 +128,14 @@ target_sources(
         source/test_lru_cache.cpp
         ../../source/safe_multipart.h
         source/test_safe_multipart.cpp
+        ../../source/event_queue.h
+        ../../source/event_classes.h
+        source/test_event_queue.cpp
+        ../../source/event_manager.h
+        source/test_event_manager.cpp
+        ../../source/updater.h
+        ../../source/updater.cpp
+        ../../source/utils/fs_read_write.cpp
 )
 
 target_link_libraries(
@@ -137,6 +148,10 @@ target_link_libraries(
         OpenSSL::Crypto
         cpr::cpr
         LibArchive::LibArchive
+        centrifugo-cpp
+        logger
+        nfc
+        utils
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)

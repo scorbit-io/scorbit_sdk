@@ -35,7 +35,7 @@ TEST_CASE("SafeMultipart preserves buffer data", "[SafeMultipart]")
     };
 
     SafeMultipart safe_multipart(std::move(multipart));
-    cpr::Multipart &safe = safe_multipart.get();
+    const cpr::Multipart &safe = safe_multipart.get();
 
     REQUIRE(safe.parts.size() == 1);
     const auto &part = safe.parts[0];
@@ -60,7 +60,7 @@ TEST_CASE("SafeMultipart supports move construction", "[SafeMultipart]") {
     SafeMultipart original(std::move(multipart));
 
     SafeMultipart moved(std::move(original));
-    cpr::Multipart& moved_multipart = moved.get();
+    const cpr::Multipart& moved_multipart = moved.get();
 
     REQUIRE(moved_multipart.parts.size() == 1);
     CHECK(moved_multipart.parts[0].name == key);
@@ -75,7 +75,7 @@ TEST_CASE("SafeMultipart supports move assignment", "[SafeMultipart]") {
     SafeMultipart lhs(std::move(multipart));
 
     SafeMultipart rhs = std::move(lhs); // move assignment via initialization
-    cpr::Multipart& rhs_multipart = rhs.get();
+    const cpr::Multipart& rhs_multipart = rhs.get();
 
     REQUIRE(rhs_multipart.parts.size() == 1);
     CHECK(rhs_multipart.parts[0].name == key);
@@ -90,7 +90,7 @@ TEST_CASE("SafeMultipart has shallow copy assignment", "[SafeMultipart]") {
     SafeMultipart lhs(std::move(multipart));
 
     SafeMultipart rhs = lhs; // copy assignment
-    cpr::Multipart& rhs_multipart = rhs.get();
+    const cpr::Multipart& rhs_multipart = rhs.get();
 
     REQUIRE(rhs_multipart.parts.size() == 1);
     CHECK(rhs_multipart.parts[0].name == key);
