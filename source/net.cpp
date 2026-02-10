@@ -19,6 +19,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include <scorbit_sdk/achievements.h>
 #include "fmt_formatters.h"
 #include <logger/logger.h>
 #include "updater.h"
@@ -2155,6 +2156,331 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
         } else {
             WRN("Couldn't set system date time");
         }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Achievement REST API
+// ------------------------------------------------------------------------------------------------
+
+void Net::fetchAchievements(AchievementsCallback callback)
+{
+    INF("API fetch achievements for machine_id={}", m_deviceInfo.machineId);
+
+    m_worker.post(createGetRequestTask(
+            [this, callback = std::move(callback)](Error error, const std::string &reply) {
+                std::vector<Achievement> achievements;
+
+                if (error != Error::Success) {
+                    WRN("API fetch achievements error: {}", static_cast<int>(error));
+                    if (callback) {
+                        callback(error, std::move(achievements));
+                    }
+                    return;
+                }
+
+                try {
+                    json jsonArray = json::parse(reply);
+                    if (!jsonArray.is_array()) {
+                        ERR("API fetch achievements: expected array response");
+                        if (callback) {
+                            callback(Error::ApiError, std::move(achievements));
+                        }
+                        return;
+                    }
+
+                    achievements.reserve(jsonArray.size());
+                    for (const auto &j : jsonArray) {
+                        Achievement ach;
+                        ach.key = j.value(JKEY_ACH_KEY, "");
+                        ach.name = j.value(JKEY_ACH_NAME, "");
+                        ach.description = j.value(JKEY_ACH_DESCRIPTION, "");
+                        ach.count = j.value(JKEY_ACH_COUNT, 1);
+                        ach.imageUrl = j.value(JKEY_ACH_IMAGE, "");
+                        ach.obscureImageUrl = j.value(JKEY_ACH_OBSCURE_IMAGE, "");
+                        ach.obscure = j.value(JKEY_ACH_OBSCURE, false);
+                        ach.visible = j.value(JKEY_ACH_VISIBLE, true);
+                        ach.isTrophy = j.value(JKEY_ACH_IS_TROPHY, false);
+                        ach.notifyWhenAchieved = j.value(JKEY_ACH_NOTIFY, false);
+                        ach.groupId = j.value(JKEY_ACH_GROUP_ID, 0);
+                        ach.achievementId = j.value(JKEY_ACH_ACHIEVEMENT_ID, 0);
+                        ach.targetScore = j.value(JKEY_ACH_TARGET_SCORE, int64_t {0});
+                        ach.modeName = j.value(JKEY_ACH_MODE_NAME, "");
+
+                        // Parse input_time
+                        const auto inputTimeStr = j.value(JKEY_ACH_INPUT_TIME, "");
+                        ach.inputTime = (inputTimeStr == JVAL_ACH_INPUT_LIMITED)
+                                                ? AchievementInputTime::Limited
+                                                : AchievementInputTime::Unlimited;
+
+                        // Parse trigger
+                        const auto triggerStr = j.value(JKEY_ACH_TRIGGER, "game");
+                        if (triggerStr == "mode") {
+                            ach.trigger = AchievementTrigger::Mode;
+                        } else if (triggerStr == "score") {
+                            ach.trigger = AchievementTrigger::Score;
+                        } else if (triggerStr == "subachievement") {
+                            ach.trigger = AchievementTrigger::SubAchievement;
+                        } else {
+                            ach.trigger = AchievementTrigger::Game;
+                        }
+
+                        // Parse mode_type
+                        const auto modeTypeStr = j.value(JKEY_ACH_MODE_TYPE, "");
+                        if (modeTypeStr == "start") {
+                            ach.modeType = AchievementModeType::Start;
+                        } else if (modeTypeStr == "complete") {
+                            ach.modeType = AchievementModeType::Complete;
+                        } else if (modeTypeStr == "stack") {
+                            ach.modeType = AchievementModeType::Stack;
+                        } else {
+                            ach.modeType = AchievementModeType::None;
+                        }
+
+                        achievements.push_back(std::move(ach));
+                    }
+
+                    // Cache the achievements for local matching
+                    m_achievementManager.setAchievements(achievements);
+
+                    INF("API fetch achievements: received {} achievements", achievements.size());
+
+                } catch (const std::exception &e) {
+                    ERR("API error parsing achievements reply: {}", e.what());
+                    error = Error::ApiError;
+                }
+
+                if (callback) {
+                    callback(error, std::move(achievements));
+                }
+            },
+            [this]() {
+                const auto endpoint =
+                        url(URL_ACHIEVEMENTS_BY_MACHINE, fmt::arg(ARG_MACHINE_ID, m_deviceInfo.machineId));
+                cpr::Parameters parameters;
+                return make_tuple(endpoint, parameters);
+            },
+            {
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
+}
+
+void Net::fetchAchievementProgress(int64_t userId, AchievementProgressCallback callback)
+{
+    INF("API fetch achievement progress for machine_id={}, user_id={}", m_deviceInfo.machineId,
+        userId);
+
+    m_worker.post(createGetRequestTask(
+            [this, userId, callback = std::move(callback)](Error error, const std::string &reply) {
+                std::vector<AchievementProgress> progress;
+
+                if (error != Error::Success) {
+                    WRN("API fetch achievement progress error: {}", static_cast<int>(error));
+                    if (callback) {
+                        callback(error, std::move(progress));
+                    }
+                    return;
+                }
+
+                try {
+                    json jsonArray = json::parse(reply);
+                    if (!jsonArray.is_array()) {
+                        ERR("API fetch achievement progress: expected array response");
+                        if (callback) {
+                            callback(Error::ApiError, std::move(progress));
+                        }
+                        return;
+                    }
+
+                    progress.reserve(jsonArray.size());
+                    for (const auto &j : jsonArray) {
+                        AchievementProgress prog;
+                        prog.key = j.value(JKEY_ACH_KEY, "");
+                        prog.progress = j.value(JKEY_ACH_PROGRESS, 0);
+                        prog.unlocked = j.value(JKEY_ACH_UNLOCKED, false);
+                        prog.unlockedAt = j.value(JKEY_ACH_UNLOCKED_AT, "");
+                        progress.push_back(std::move(prog));
+                    }
+
+                    // Cache user progress for local matching
+                    if (userId > 0) {
+                        m_achievementManager.setUserProgress(userId, progress);
+                    }
+
+                    INF("API fetch achievement progress: received {} entries", progress.size());
+
+                } catch (const std::exception &e) {
+                    ERR("API error parsing achievement progress reply: {}", e.what());
+                    error = Error::ApiError;
+                }
+
+                if (callback) {
+                    callback(error, std::move(progress));
+                }
+            },
+            [this, userId]() {
+                const auto endpoint =
+                        url(URL_USER_ACHIEVEMENTS, fmt::arg(ARG_MACHINE_ID, m_deviceInfo.machineId));
+                cpr::Parameters parameters;
+                if (userId > 0) {
+                    parameters.Add({"users", fmt::format("{}", userId)});
+                }
+                return make_tuple(endpoint, parameters);
+            },
+            {
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
+}
+
+void Net::unlockAchievement(int64_t userId, const std::string &achievementKey, int count,
+                            AchievementUnlockCallback callback)
+{
+    INF("API unlock achievement: key={}, user_id={}, count={}", achievementKey, userId, count);
+
+    json requestBody;
+    requestBody[JKEY_ACH_USER_ID] = userId;
+    requestBody[JKEY_ACH_ACHIEVEMENTS] = json::array({{
+            {JKEY_ACH_KEY, achievementKey},
+            {JKEY_ACH_COUNT, count},
+    }});
+
+    m_worker.post(createPostRequestTask(
+            [callback = std::move(callback), achievementKey](Error error, const std::string &reply) {
+                AchievementUnlockResult result;
+                result.key = achievementKey;
+                result.success = false;
+                result.newlyUnlocked = false;
+
+                if (error != Error::Success) {
+                    WRN("API unlock achievement error: {}", static_cast<int>(error));
+                    result.message = "Request failed";
+                    if (callback) {
+                        callback(error, std::move(result));
+                    }
+                    return;
+                }
+
+                try {
+                    json j = json::parse(reply);
+                    result.success = true;
+                    // The API may return additional info about whether it was newly unlocked
+                    if (j.contains("newly_unlocked")) {
+                        result.newlyUnlocked = j.value("newly_unlocked", false);
+                    }
+                    if (j.contains("message")) {
+                        result.message = j.value("message", "");
+                    }
+                    INF("API unlock achievement success: key={}", achievementKey);
+
+                } catch (const std::exception &e) {
+                    ERR("API error parsing unlock achievement reply: {}", e.what());
+                    result.message = "Failed to parse response";
+                    error = Error::ApiError;
+                }
+
+                if (callback) {
+                    callback(error, std::move(result));
+                }
+            },
+            [this, body = requestBody.dump()]() {
+                const auto endpoint = url(URL_ACHIEVEMENT_UNLOCK);
+                return make_tuple(endpoint, cpr::Body {body});
+            },
+            {
+                    AuthStatus::AuthenticatedPaired,
+            }));
+}
+
+void Net::lockAchievement(int64_t userId, const std::string &achievementKey,
+                          AchievementUnlockCallback callback)
+{
+    INF("API lock achievement: key={}, user_id={}", achievementKey, userId);
+
+    json requestBody;
+    requestBody[JKEY_ACH_USER_ID] = userId;
+    requestBody[JKEY_ACH_KEY] = achievementKey;
+
+    m_worker.post(createPostRequestTask(
+            [callback = std::move(callback), achievementKey](Error error, const std::string &reply) {
+                AchievementUnlockResult result;
+                result.key = achievementKey;
+                result.success = false;
+                result.newlyUnlocked = false;
+
+                if (error != Error::Success) {
+                    WRN("API lock achievement error: {}", static_cast<int>(error));
+                    result.message = "Request failed";
+                    if (callback) {
+                        callback(error, std::move(result));
+                    }
+                    return;
+                }
+
+                try {
+                    json j = json::parse(reply);
+                    result.success = true;
+                    if (j.contains("message")) {
+                        result.message = j.value("message", "");
+                    }
+                    INF("API lock achievement success: key={}", achievementKey);
+
+                } catch (const std::exception &e) {
+                    ERR("API error parsing lock achievement reply: {}", e.what());
+                    result.message = "Failed to parse response";
+                    error = Error::ApiError;
+                }
+
+                if (callback) {
+                    callback(error, std::move(result));
+                }
+            },
+            [this, body = requestBody.dump()]() {
+                const auto endpoint = url(URL_ACHIEVEMENT_LOCK);
+                return make_tuple(endpoint, cpr::Body {body});
+            },
+            {
+                    AuthStatus::AuthenticatedPaired,
+            }));
+}
+
+AchievementManager &Net::achievementManager()
+{
+    return m_achievementManager;
+}
+
+void Net::downloadAchievementFrames()
+{
+    auto framesToDownload = m_achievementManager.getFramesToDownload();
+    if (framesToDownload.empty()) {
+        DBG("No achievement frames to download");
+        return;
+    }
+
+    INF("Downloading {} achievement DMD frames", framesToDownload.size());
+
+    for (const auto &frame : framesToDownload) {
+        const auto &achKey = frame.first;
+        const auto &achUrl = frame.second;
+
+        if (achUrl.empty()) {
+            continue;
+        }
+
+        DBG("Downloading DMD frame for achievement: {} from {}", achKey, achUrl);
+
+        downloadBuffer(
+                [this, achKey](Error error, std::vector<uint8_t> data) {
+                    if (error == Error::Success && !data.empty()) {
+                        m_achievementManager.setDmdFrame(achKey, std::move(data));
+                        DBG("Downloaded DMD frame for achievement: {} ({} bytes)", achKey,
+                            data.size());
+                    } else {
+                        WRN("Failed to download DMD frame for achievement: {}", achKey);
+                    }
+                },
+                achUrl, PICTURE_BUFFER_RESERVE);
     }
 }
 

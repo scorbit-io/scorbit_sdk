@@ -18,6 +18,7 @@
  */
 
 #include <scorbit_sdk/scorbit_sdk.h>
+#include <scorbit_sdk/achievements.h>
 
 #include <iostream>
 #include <sstream>
@@ -368,6 +369,56 @@ int main()
             cout << "Error: " << static_cast<int>(error) << endl;
         }
     });
+
+    // -------- Achievement REST API Examples --------
+
+    // Fetch all achievements for this machine
+    gs.fetchAchievements([](scorbit::Error error, std::vector<scorbit::Achievement> achievements) {
+        if (error == scorbit::Error::Success) {
+            cout << "Fetched " << achievements.size() << " achievements:" << endl;
+            for (const auto &ach : achievements) {
+                cout << "  - " << ach.key << ": " << ach.name;
+                if (ach.isTrophy) {
+                    cout << " [TROPHY]";
+                }
+                cout << " (count: " << ach.count << ")" << endl;
+            }
+        } else {
+            cout << "Failed to fetch achievements: " << static_cast<int>(error) << endl;
+        }
+    });
+
+    // Fetch achievement progress for a specific user (user_id = 12345 as example)
+    // In real usage, you would get the user_id from the player profile
+    gs.fetchAchievementProgress(12345, [](scorbit::Error error,
+                                          std::vector<scorbit::AchievementProgress> progress) {
+        if (error == scorbit::Error::Success) {
+            cout << "User achievement progress (" << progress.size() << " entries):" << endl;
+            for (const auto &prog : progress) {
+                cout << "  - " << prog.key << ": " << prog.progress;
+                if (prog.unlocked) {
+                    cout << " [UNLOCKED at " << prog.unlockedAt << "]";
+                }
+                cout << endl;
+            }
+        } else {
+            cout << "Failed to fetch achievement progress: " << static_cast<int>(error) << endl;
+        }
+    });
+
+    // Example: Unlock an achievement for a user (typically called when player earns it)
+    // This would be called when the game detects the player has met the achievement criteria
+    // gs.unlockAchievement(userId, "HAUNTED_TRAILS", 1,
+    //     [](scorbit::Error error, scorbit::AchievementUnlockResult result) {
+    //         if (error == scorbit::Error::Success && result.success) {
+    //             cout << "Achievement unlocked: " << result.key << endl;
+    //             if (result.newlyUnlocked) {
+    //                 cout << "  This is a NEW unlock!" << endl;
+    //             }
+    //         } else {
+    //             cout << "Failed to unlock achievement: " << result.message << endl;
+    //         }
+    //     });
 
     cout << "Deeplink for pairing " << gs.getPairDeeplink() << endl;
 

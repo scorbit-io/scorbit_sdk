@@ -223,9 +223,14 @@ target_sources(
         source/event_helpers_c.cpp
         source/event_classes.h
         source/event_queue.h
+        source/achievements_c.cpp
+        include/scorbit_sdk/achievements.h
+        include/scorbit_sdk/achievements_c.h
         source/event_manager.h
         source/dflags.h
         source/session_flags.h
+        source/achievement_manager.h
+        source/achievement_manager.cpp
 )
 
 # Conditionally include callback logger API implementation

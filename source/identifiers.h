@@ -13,6 +13,7 @@ namespace detail {
 constexpr auto ARG_SCORBITRON_UUID {"scorbitron_uuid"};
 constexpr auto ARG_MACHINE_UUID {"machine_uuid"};
 constexpr auto ARG_SESSION_UUID {"session_uuid"};
+constexpr auto ARG_MACHINE_ID {"machine_id"};
 
 // URLs
 constexpr auto NOOP_URL {"http://api.scorbit.io/api/noop/"};
@@ -32,6 +33,12 @@ constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uu
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
+
+// Achievement REST API endpoints
+constexpr auto URL_ACHIEVEMENTS_BY_MACHINE {"api/achievement/by_machine/{machine_id}/"};
+constexpr auto URL_USER_ACHIEVEMENTS {"api/user_achievement/{machine_id}/"};
+constexpr auto URL_ACHIEVEMENT_UNLOCK {"api/achievement/unlock"};
+constexpr auto URL_ACHIEVEMENT_LOCK {"api/achievement/lock"};
 
 constexpr auto URL_CENTRIFUGO {"connection/websocket"};
 
@@ -116,7 +123,7 @@ constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_UNLOCKED {"achievement_unlocked"};
 constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_LOCKED {"achievement_locked"};
 constexpr auto JVAL_CHN_TYPE_ACHIEVEMENT_PROGRESS {"achievement_progress"};
 
-// Achievement payload keys
+// Achievement payload keys (Centrifugo events)
 constexpr auto JKEY_ACHIEVEMENT_KEY {"achievement_key"};
 constexpr auto JKEY_ACHIEVEMENT_NAME {"achievement_name"};
 constexpr auto JKEY_ACHIEVEMENT_USER_ID {"user_id"};
@@ -125,6 +132,32 @@ constexpr auto JKEY_ACHIEVEMENT_ICON_URL {"icon_url"};
 constexpr auto JKEY_ACHIEVEMENT_IS_TROPHY {"is_trophy"};
 constexpr auto JKEY_ACHIEVEMENT_CURRENT_VALUE {"current_value"};
 constexpr auto JKEY_ACHIEVEMENT_TARGET_VALUE {"target_value"};
+
+// Achievement REST API keys
+constexpr auto JKEY_ACH_KEY {"key"};
+constexpr auto JKEY_ACH_NAME {"name"};
+constexpr auto JKEY_ACH_DESCRIPTION {"description"};
+constexpr auto JKEY_ACH_COUNT {"count"};
+constexpr auto JKEY_ACH_IMAGE {"image"};
+constexpr auto JKEY_ACH_OBSCURE_IMAGE {"obscure_image"};
+constexpr auto JKEY_ACH_OBSCURE {"obscure"};
+constexpr auto JKEY_ACH_INPUT_TIME {"input_time"};
+constexpr auto JKEY_ACH_VISIBLE {"visible"};
+constexpr auto JKEY_ACH_NOTIFY {"notify_when_achieved"};
+constexpr auto JKEY_ACH_IS_TROPHY {"is_trophy"};
+constexpr auto JKEY_ACH_GROUP_ID {"groupid"};
+constexpr auto JKEY_ACH_ACHIEVEMENT_ID {"achievementid"};
+constexpr auto JKEY_ACH_TRIGGER {"trigger"};
+constexpr auto JKEY_ACH_MODE_NAME {"mode_name"};
+constexpr auto JKEY_ACH_MODE_TYPE {"mode_type"};
+constexpr auto JKEY_ACH_TARGET_SCORE {"target_score"};
+constexpr auto JKEY_ACH_ACHIEVEMENTS {"achievements"};
+constexpr auto JKEY_ACH_USER_ID {"user_id"};
+constexpr auto JKEY_ACH_PROGRESS {"progress"};
+constexpr auto JKEY_ACH_UNLOCKED {"unlocked"};
+constexpr auto JKEY_ACH_UNLOCKED_AT {"unlocked_at"};
+constexpr auto JVAL_ACH_INPUT_LIMITED {"limited"};
+constexpr auto JVAL_ACH_INPUT_UNLIMITED {"unlimited"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
