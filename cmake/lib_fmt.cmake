@@ -1,0 +1,8 @@
+CPMAddPackage(
+    NAME fmt
+    GIT_TAG 12.1.0
+    GITHUB_REPOSITORY fmtlib/fmt
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+    OPTIONS "FMT_INSTALL ON" "FMT_TEST OFF"
+)

@@ -23,8 +23,7 @@
 #include <cstdint>
 #include <string>
 
-namespace scorbit {
-namespace detail {
+namespace utils {
 
 using ByteArrayBase = std::vector<uint8_t>;
 class ByteArray : public ByteArrayBase
@@ -51,5 +50,4 @@ public:
     void initialize(const ByteArray &initArray);
 };
 
-} // namespace detail
-} // namespace scorbit
+} // namespace utils

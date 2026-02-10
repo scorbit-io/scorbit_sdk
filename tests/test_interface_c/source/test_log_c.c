@@ -22,6 +22,8 @@
 #include <munit.h>
 #include <stdio.h>
 
+#ifdef SCORBIT_LOGGER_CALLBACK
+
 typedef struct {
     sb_log_level_t level;
     int line;
@@ -46,18 +48,25 @@ static MunitResult test_sb_add_logger_callback(const MunitParameter params[], vo
     (void)user_data;
 
     UserData data;
-    sb_add_logger_callback(logCallback, &data);
+    sb_add_logger_callback(logCallback, &data, 512);
     sb_reset_logger();
 
     return MUNIT_OK;
 }
 
-// =======================================================================================
-
 // Test suite setup
 static MunitTest tests[] = {{"/sb_add_logger_callback/add_callback",
                              test_sb_add_logger_callback, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
                             {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
+
+#else // !SCORBIT_LOGGER_CALLBACK
+
+// No callback tests when using spdlog backend
+static MunitTest tests[] = {{NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
+
+#endif // SCORBIT_LOGGER_CALLBACK
+
+// =======================================================================================
 
 // Test suite definition
 static const MunitSuite test_suite = {"/scorbit_sdk_tests_c", tests, NULL, 1,

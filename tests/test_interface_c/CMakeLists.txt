@@ -22,7 +22,7 @@ include(../../cmake/tools.cmake)
 
 # ---- Dependencies ----
 
-include(../../cmake/CPM.cmake)
+include(${MY_CMAKE_DIR}/CPM.cmake)
 
 CPMAddPackage(
     NAME munit

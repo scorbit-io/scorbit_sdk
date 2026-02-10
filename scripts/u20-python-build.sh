@@ -16,6 +16,8 @@ set -e
 # Get the directory of the script and source the common functions
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+cd "$SCRIPT_DIR/.."
+
 # Read REL from file DOCKER_RELEASE
 REL="$(cat "$SCRIPT_DIR/../DOCKER_RELEASE")"
 
@@ -49,8 +51,8 @@ run_build() {
 }
 
 run_build amd64 linux/amd64 3.8
-run_build amd64 linux/amd64 3.10
-run_build amd64 linux/amd64 3.11
+#run_build amd64 linux/amd64 3.11
+#run_build amd64 linux/amd64 3.11
 
-run_build arm64 linux/arm64 3.12
+#run_build arm64 linux/arm64 3.12
 

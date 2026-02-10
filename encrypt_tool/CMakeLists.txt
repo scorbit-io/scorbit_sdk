@@ -17,7 +17,10 @@ project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-include(../cmake/tools.cmake)
+# ---- CMake directory for libs ----
+set(MY_CMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+
+include(${MY_CMAKE_DIR}/tools.cmake)
 
 # ---- Include guards ----
 
@@ -69,7 +72,7 @@ elseif(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE "/NODEFAULTLIB:LIBCMT")
 endif()
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/encrypt.cmake)
+include(${MY_CMAKE_DIR}/encrypt.cmake)
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"

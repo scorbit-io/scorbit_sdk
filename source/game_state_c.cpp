@@ -21,9 +21,11 @@
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/net_types_c.h>
 #include <scorbit_sdk/game_state_factory.h>
+#include "device_info.h"
 #include "game_state_impl.h"
+#include "event_classes.h"
 #include "net.h"
-#include "logger.h"
+#include <logger/logger.h>
 #include "utils/decrypt.h"
 #include "utils/signer.h"
 #include <obfuscate.h>
@@ -70,28 +72,33 @@ GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &de
 
 }
 
-sb_game_handle_t sb_create_game_state(sb_signer_callback_t signer, void *signer_user_data,
-                                      const sb_device_info_t *device_info)
+sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
-    SignerCallback cb = [signer, signer_user_data](const Digest &digest) {
-        Signature signature(SIGNATURE_MAX_LENGTH);
-        size_t signatureLength = 0;
-        if (0 == signer(signature.data(), &signatureLength, digest.data(), signer_user_data)) {
-            signature.resize(signatureLength);
-        } else {
-            signature.clear();
-        }
-        return signature;
-    };
+    if (!config || !config->hasAuthentication()) {
+        return nullptr;
+    }
 
-    return new sb_game_state_struct {
-            createGameStateImpl(std::move(cb), DeviceInfo(*device_info), false)};
-}
+    if (config->hasAuthenticationCallback()) {
+        // Use signer callback authentication
+        auto signer = config->signerCallback;
+        auto userData = config->signerUserData;
 
-sb_game_handle_t sb_create_game_state2(const char *encrypted_key,
-                                       const sb_device_info_t *device_info)
-{
-    return new sb_game_state_struct {createGameStateImpl(encrypted_key, DeviceInfo(*device_info))};
+        SignerCallback cb = [signer, userData](const Digest &digest) {
+            Signature signature(SIGNATURE_MAX_LENGTH);
+            size_t signatureLength = 0;
+            if (0 == signer(signature.data(), &signatureLength, digest.data(), userData)) {
+                signature.resize(signatureLength);
+            } else {
+                signature.clear();
+            }
+            return signature;
+        };
+
+        return new sb_game_state_struct {createGameStateImpl(std::move(cb), *config, false)};
+    }
+
+    // Use encrypted key authentication
+    return new sb_game_state_struct {createGameStateImpl(config->encryptedKey, *config)};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)
@@ -99,9 +106,9 @@ void sb_destroy_game_state(sb_game_handle_t handle)
     delete handle;
 }
 
-void sb_set_game_started(sb_game_handle_t handle)
+void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin)
 {
-    handle->gameState.setGameStarted();
+    handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
 }
 
 void sb_set_game_finished(sb_game_handle_t handle)
@@ -201,14 +208,15 @@ bool sb_is_players_info_updated(sb_game_handle_t handle)
 
 bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player)
 {
-    return handle->gameState.getPlayerProfile(player) != nullptr;
+    return handle->gameState.getPlayerProfile(player).has_value();
 }
 
-int64_t sb_get_player_id(sb_game_handle_t handle, sb_player_t player)
+int64_t sb_get_player_id(sb_game_handle_t /*handle*/, sb_player_t /*player*/)
 {
-    if (auto profile = handle->gameState.getPlayerProfile(player)) {
-        return static_cast<int>(profile->id);
-    }
+    // FIXME: this should be string
+    // if (auto profile = handle->gameState.getPlayerProfile(player)) {
+    //     return static_cast<int>(profile->id);
+    // }
     return -1; // Invalid player ID
 }
 
@@ -253,4 +261,33 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
     }
     *size = 0;
     return nullptr;
+}
+
+void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities)
+{
+    handle->gameState.setCapabilities(capabilities);
+}
+
+void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
+                                  const char *owner_uuid, sb_string_callback_t callback,
+                                  void *user_data)
+{
+    handle->gameState.requestPairMachine(
+            machine_uuid, owner_uuid, [callback, user_data](Error error, const std::string &reply) {
+                if (callback) {
+                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                }
+            });
+}
+
+void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
+                            bool success)
+{
+    handle->gameState.setCreditsDropped(credits, transaction, success);
+}
+
+void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
+                           const char *pricing)
+{
+    handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricing);
 }

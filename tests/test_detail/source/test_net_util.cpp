@@ -167,3 +167,24 @@ TEST_CASE("Game history to csv", "[gameHistoryToCsv]")
                               "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\"\n";
     CHECK(csv == expectedCsv);
 }
+
+TEST_CASE("parseActionGetUrl, happy path")
+{
+    constexpr auto url =
+            "https://staging.scorbit.io/api/v2/scorbitrons/7a16ea98-48e8-4b2e-a1eb-cf282e3b81cc/"
+            "sessions/da9e568d-ce3b-4493-9d5c-10cfe47a96de/";
+
+    const auto sessionUuid = parseUrlUuid(url, "sessions");
+    CHECK(sessionUuid == "da9e568d-ce3b-4493-9d5c-10cfe47a96de");
+
+    const auto scorbitronUuid = parseUrlUuid(url, "scorbitrons");
+    CHECK(scorbitronUuid == "7a16ea98-48e8-4b2e-a1eb-cf282e3b81cc");
+}
+
+TEST_CASE("parseActionGetUrl, with trailing slash")
+{
+    const auto sessionUuid = parseUrlUuid(
+            "https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad///",
+            "sessions");
+    CHECK(sessionUuid == "74657788-455e-4dce-a4d4-38e6e5b765ad");
+}

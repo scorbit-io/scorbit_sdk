@@ -19,7 +19,7 @@
 
 #include "player_profiles_manager.h"
 
-#include <boost/json.hpp>
+#include <nlohmann/json.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <trompeloeil.hpp>
 
@@ -29,16 +29,18 @@ using namespace trompeloeil;
 
 TEST_CASE("PlayerProfile 1 player")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -51,9 +53,9 @@ TEST_CASE("PlayerProfile 1 player")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
-    CHECK(p1->name == "dilshodm");
+    REQUIRE(p1.has_value());
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
+    CHECK(p1->name == "Dilshod M");
     CHECK(p1->initials == "DTM");
     CHECK_FALSE(p1->preferInitials);
     CHECK(p1->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg");
@@ -69,16 +71,18 @@ TEST_CASE("PlayerProfile 1 player")
 
 TEST_CASE("PlayerProfile 2 players")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           },
           {
@@ -88,26 +92,30 @@ TEST_CASE("PlayerProfile 2 players")
         ]
     )");
 
-    auto profiles2 = boost::json::parse(R"(
+    auto profiles2 = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           },
           {
             "position": 2,
             "player": {
-              "id": 48,
-              "cached_display_name": "dilshodm2",
+              "id": "821eb8c8-e48f-4b71-84b2-7ae9382f0e60",
+              "username": "dilshodm2",
+              "display_name": "Dilshod M2",
               "initials": "DT2",
               "prefer_initials": true,
-              "profile_picture": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg"
+              "avatar": "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg",
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm2/"
             }
           }
         ]
@@ -120,22 +128,22 @@ TEST_CASE("PlayerProfile 2 players")
     REQUIRE(hasUpdate);
 
     auto p2 = pm.profile(2);
-    CHECK(p2 == nullptr);
+    CHECK_FALSE(p2.has_value());
 
     pm.setProfiles(profiles2);
     hasUpdate = pm.hasUpdate();
     REQUIRE(hasUpdate);
 
     p2 = pm.profile(2);
-    REQUIRE(p2 != nullptr);
-    CHECK(p2->id == 48);
-    CHECK(p2->name == "dilshodm2");
+    REQUIRE(p2.has_value());
+    CHECK(p2->id == "821eb8c8-e48f-4b71-84b2-7ae9382f0e60");
+    CHECK(p2->name == "Dilshod M2");
     CHECK(p2->initials == "DT2");
     CHECK(p2->preferInitials);
     CHECK(p2->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
 
     auto p3 = pm.profile(3);
-    CHECK(p3 == nullptr);
+    CHECK_FALSE(p3.has_value());
 
     // Check pictures to download. We will set p1 picture, so only p2 has to be downloaded
     Picture picture {1, 2, 3};
@@ -147,16 +155,18 @@ TEST_CASE("PlayerProfile 2 players")
 
 TEST_CASE("Player profile with null profile_picture")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
               "prefer_initials": false,
-              "profile_picture": null
+              "avatar": null,
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -169,21 +179,24 @@ TEST_CASE("Player profile with null profile_picture")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
+    REQUIRE(p1.has_value());
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
+    CHECK(p1->pictureUrl.empty());
 }
 
 TEST_CASE("Player profile without profile_picture")
 {
-    auto profiles = boost::json::parse(R"(
+    auto profiles = nlohmann::json::parse(R"(
         [
           {
             "position": 1,
             "player": {
-              "id": 47,
-              "cached_display_name": "dilshodm",
+              "id": "509fee4f-0137-4418-b289-149c7bcc6141",
+              "username": "dilshodm",
+              "display_name": "Dilshod M",
               "initials": "DTM",
-              "prefer_initials": false
+              "prefer_initials": false,
+              "url": "https://staging.scorbit.io/api/v2/users/dilshodm/"
             }
           }
         ]
@@ -196,6 +209,6 @@ TEST_CASE("Player profile without profile_picture")
     REQUIRE(hasUpdate);
 
     auto p1 = pm.profile(1);
-    REQUIRE(p1 != nullptr);
-    CHECK(p1->id == 47);
+    REQUIRE(p1.has_value());
+    CHECK(p1->id == "509fee4f-0137-4418-b289-149c7bcc6141");
 }

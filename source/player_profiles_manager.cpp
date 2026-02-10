@@ -18,7 +18,10 @@
  */
 
 #include "player_profiles_manager.h"
-#include "logger.h"
+#include <logger/logger.h>
+#include "identifiers.h"
+
+#include <nlohmann/json.hpp>
 
 namespace scorbit {
 namespace detail {
@@ -26,7 +29,7 @@ namespace detail {
 bool operator==(const PlayerProfile &lhs, const PlayerProfile &rhs)
 {
     return lhs.id == rhs.id && lhs.preferInitials == rhs.preferInitials && lhs.name == rhs.name
-        && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl;
+        && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl && lhs.url == rhs.url;
 }
 
 bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
@@ -36,7 +39,7 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
 
 // -----------------------------------------------------------------------
 
-void PlayerProfilesManager::setProfiles(const boost::json::value &val)
+void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
 {
     if (!val.is_array()) {
         WRN("Invalid player profiles data");
@@ -45,33 +48,37 @@ void PlayerProfilesManager::setProfiles(const boost::json::value &val)
 
     decltype(m_profiles) profiles;
 
-    for (const auto &item : val.as_array()) {
-        if (!item.is_object()) {
-            WRN("Invalid player profile data: {}", boost::json::serialize(val));
+    for (const auto &obj : val) {
+        if (!obj.is_object()) {
+            WRN("Invalid player profile data: {}", val.dump());
             continue;
         }
 
         try {
-            sb_player_t playerNum = item.at("position").as_int64();
+            sb_player_t playerNum = obj[JKEY_SCR_POSITION].get<sb_player_t>();
 
-            if (item.at("player").is_object()) {
-                const auto &player = item.at("player").get_object();
+            if (const auto it = obj.find(JKEY_SCR_PLAYER); it != obj.end() && it->is_object()) {
+                const auto &player = *it;
 
                 PlayerProfile profile;
-                profile.id = player.at("id").as_int64();
-                profile.preferInitials = player.at("prefer_initials").as_bool();
-                profile.name = player.at("cached_display_name").as_string();
-                profile.initials = player.at("initials").as_string();
-                profile.pictureUrl = (player.contains("profile_picture")
-                                      && player.at("profile_picture").is_string())
-                                           ? std::string(player.at("profile_picture").as_string())
-                                           : std::string {};
+                player[JKEY_PLAYER_ID].get_to(profile.id);
+                profile.preferInitials = player.value(JKEY_PLAYER_PREFER_INITIALS, false);
+                player[JKEY_PLAYER_USERNAME].get_to(profile.username);
+                player[JKEY_PLAYER_DISPLAY_NAME].get_to(profile.name);
+                player[JKEY_PLAYER_INITIALS].get_to(profile.initials);
+                player[JKEY_PLAYER_URL].get_to(profile.url);
+
+                if (const auto it = player.find(JKEY_PLAYER_AVATAR);
+                    it != player.end() && it->is_string()) {
+                    it->get_to(profile.pictureUrl);
+                } else {
+                    profile.pictureUrl.clear();
+                }
 
                 profiles.emplace(playerNum, std::move(profile));
             }
         } catch (const std::exception &e) {
-            ERR("Failed to parse player profile: {}, item: {}", e.what(),
-                boost::json::serialize(item));
+            ERR("Failed to parse player profile: {}, item: {}", e.what(), obj.dump());
         }
     }
 
@@ -105,19 +112,17 @@ void PlayerProfilesManager::removePicture(sb_player_t player)
  */
 bool PlayerProfilesManager::hasUpdate()
 {
-    if (m_updated) {
-        std::lock_guard<std::mutex> lock(m_profilesMutex);
-        m_storedProfiles = m_profiles;
-    }
     return m_updated.exchange(false); // return result and clear update flag
 }
 
-const PlayerProfile *PlayerProfilesManager::profile(sb_player_t player) const
+std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) const
 {
-    if (m_storedProfiles.count(player) == 0)
-        return nullptr;
+    std::lock_guard<std::mutex> lock(m_profilesMutex);
+    if (m_profiles.count(player) == 0) {
+        return std::nullopt;
+    }
 
-    return &m_storedProfiles.at(player);
+    return m_profiles.at(player);
 }
 
 bool PlayerProfilesManager::hasPicture(sb_player_t player) const
@@ -137,7 +142,9 @@ const Picture &PlayerProfilesManager::picture(sb_player_t player) const
 std::map<sb_player_t, std::string> PlayerProfilesManager::picturesToDownload() const
 {
     std::map<sb_player_t, std::string> picturesToDownload;
-    std::lock_guard<std::mutex> lock(m_profilesMutex);
+
+    std::scoped_lock lock(m_profilesMutex, m_picturesMutex);
+
     for (const auto &[playerNum, profile] : m_profiles) {
         if (profile.pictureUrl.empty())
             continue;

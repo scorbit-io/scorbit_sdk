@@ -24,12 +24,19 @@
 #include "game_data.h"
 #include "worker.h"
 #include "updater.h"
+#include "identifiers.h"
+#include "event_manager.h"
+#include <centrifugo.h>
+#include <fmt/format.h>
 #include <cpr/cpr.h>
-#include <boost/json.hpp>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <functional>
 #include <chrono>
 #include <condition_variable>
+#include <shared_mutex>
+#include <unordered_map>
+#include <optional>
 
 namespace scorbit {
 namespace detail {
@@ -47,19 +54,34 @@ class SafeMultipart;
 class Net : public NetBase
 {
     using deferred_get_setup_t = std::function<std::tuple<cpr::Url, cpr::Parameters>()>;
-    using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Payload>()>;
+    using deferred_post_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
+    using deferred_post_multipart_setup_t = std::function<std::tuple<cpr::Url, SafeMultipart>()>;
+    using deferred_patch_setup_t = std::function<std::tuple<cpr::Url, cpr::Body>()>;
+    using deferred_patch_multipart_setup_t = std::function<std::tuple<cpr::Url, SafeMultipart>()>;
+
+    struct ScoreMetadata {
+        uint64_t id {0}; // score id
+        bool isNfcVerified {false};
+        std::optional<std::string> tournamentUuid;
+    };
 
     struct GameSession {
         int sessionCounter {0};
+        std::string sessionUuid;
         GameData gameData;
         std::chrono::time_point<std::chrono::steady_clock> startedTime {
                 std::chrono::steady_clock::now()};
+        std::chrono::time_point<std::chrono::system_clock> startedSystemTime {
+                std::chrono::system_clock::now()};
         GameHistory history;
+        std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadata;
     };
 
-    struct VenueMachineInfo {
-        int64_t venuemachineId {0};
+    struct MachineInfo {
         std::string opdbId;
+        std::string machineUuid;
+        std::optional<std::string> variantUuid;
+        std::optional<std::string> venueUuid;
     };
 
 public:
@@ -69,15 +91,18 @@ public:
     AuthStatus status() const override;
 
     const std::string &hostname() const;
-    void setHostname(std::string hostname);
+    const std::string &cfHostname() const; // Centrifugo hostname
+    void setHostname(std::string hostname, std::string cfHostname = std::string {});
     bool isAuthenticated() const;
 
     void authenticate() override;
-    void sendInstalled(const std::string &type, const std::string &version,
-                       std::optional<bool> installed,
-                       std::optional<std::string> log = std::nullopt) override;
-    void sendGameData(const detail::GameData &data) override;
+    void updateConfig(const std::string &type, const std::string &version, bool installed,
+                      std::optional<std::string> log = std::nullopt) override;
+    void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
+                       std::function<void()> onCreated) override;
+    void submitGameData(const detail::GameData &data, SessionFlags flags) override;
     void sendHeartbeat() override;
+    void getConfig() override;
     void requestPairCode(StringCallback callback) override;
 
     const std::string &getMachineUuid() const override;
@@ -89,33 +114,88 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
-    void download(StringCallback callback, const std::string &url, const std::string &filename) override;
+    void download(StringCallback callback, const std::string &url,
+                  const std::string &filename) override;
     void downloadBuffer(VectorCallback callback, const std::string &url,
                         size_t reserveBufferSize) override;
 
     PlayerProfilesManager &playersManager() override;
 
+    void patchScorbitron(std::string body, StringCallback callback,
+                         std::vector<AuthStatus> allowedStatuses = {
+                                 AuthStatus::AuthenticatedPaired}) override;
+
+    std::string consumeNonce() override;
+    void setProbesManager(std::shared_ptr<nfc::ProbesManager> manager) override;
+
+    void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
+                            StringCallback callback) override;
+
+    void setCapabilities(Capabilities capabilities) override;
+
+    void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
+    void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
+
 private:
     task_t createAuthenticateTask();
-    task_t createInstalledTask(const std::string &type, const std::string &version,
-                               std::optional<bool> installed, std::optional<std::string> log);
-    task_t createGameDataTask(const std::string &sessionUuid);
+    task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
+                            std::optional<std::string> log);
+    task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
+                                   std::function<void()> onCreated);
+    task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
     task_t createHeartbeatTask();
 
-    void startHeartbeatTimer();
+    void sessionUpdate(int sessionId, SessionFlags flags);
 
-    void postUploadHistoryTask(const GameHistory &history);
-    task_t createUploadHistoryTask(const GameHistory &history);
+    void startHeartbeatTimer();
+    void stopHeartbeatTimer();
+    void startTokenRefreshTimer();
+    void stopTokenRefreshTimer();
+
+    void sendLatestGameData(int sessionId);
+
+    void initializeConnectionState();
+    void initScorbitronObject();
+    void sendScorbitronObject();
+
+    void requestReleaseTrackInfo();
+
+    void requestSessionData(const std::string &sessionUuid);
+
+    void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
+    task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
 
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             SafeMultipart &&multipart);
 
+    void parseScorbitronObject(Error error, const std::string &reply);
+
+    // Generic HTTP request task creator
+    template<typename DeferredSetupT, typename HttpMethodT>
+    task_t createHttpRequestTask(const char *requestType, StringCallback replyCallback,
+                                 DeferredSetupT deferredSetup, HttpMethodT httpMethod,
+                                 std::vector<AuthStatus> allowedStatuses = {
+                                         AuthStatus::AuthenticatedPaired});
+
+    // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
                                         AuthStatus::AuthenticatedPaired});
     task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses = {
                                          AuthStatus::AuthenticatedPaired});
+    task_t createPostMultipartRequestTask(StringCallback replyCallback,
+                                          deferred_post_multipart_setup_t deferredSetup,
+                                          std::vector<AuthStatus> allowedStatuses = {
+                                                  AuthStatus::AuthenticatedPaired});
+    task_t createPatchRequestTask(StringCallback replyCallback,
+                                  deferred_patch_setup_t deferredSetup,
+                                  std::vector<AuthStatus> allowedStatuses = {
+                                          AuthStatus::AuthenticatedPaired});
+    task_t createPatchMultipartRequestTask(StringCallback replyCallback,
+                                           deferred_patch_multipart_setup_t deferredSetup,
+                                           std::vector<AuthStatus> allowedStatuses = {
+                                                   AuthStatus::AuthenticatedPaired});
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
@@ -123,37 +203,94 @@ private:
 
     cpr::Header header() const;
     cpr::Header authHeader() const;
+    cpr::SslOptions sslOptions() const;
 
-    cpr::Url url(std::string_view endpoint) const;
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
-    void processPlayersProfiles(const boost::json::value &val);
+    void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
+
+    void centrifugoSetup();
+    void centrifugoConnect();
+
+    std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
+
+    void createNfcNonces();
+    void startNfcCheckTimer();
+    void setNfcTag();
+    void checkNfcBootReason();
+
+    void requestCreditsStatusEvent();
+
+    void checkSystemTimeAccuracy(int64_t timestamp) const;
+
+    // Make url() a variadic template that forwards all args to fmt::format
+    template<typename... Args>
+    cpr::Url url(std::string_view endpoint, Args &&...args) const
+    {
+        const auto formattedEndpoint =
+                fmt::format(endpoint, fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                            fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
+                            std::forward<Args>(args)...); // Pass extra args
+
+        const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
+        return cpr::Url {myurl};
+    }
 
 private:
     SignerCallback m_signer;
 
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
     std::condition_variable m_authCV;
-    std::mutex m_authMutex;
+    std::condition_variable m_shortCodeCV;
+    mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
+    std::mutex m_shortCodeMutex;
+    std::mutex m_nfcMutex;
+    mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_isHeartbeatInQueue {false};
-    std::atomic_bool m_stopHeartbeatTimer {false};
     std::atomic_bool m_stop {false};
+    std::atomic_bool m_isRefreshingToken {false};
 
     std::string m_hostname;
+    std::string m_cfHostname;
     std::string m_stoken;
+    std::chrono::system_clock::time_point m_tokenExpiration;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
     mutable std::string m_cachedCclaimDeeplink;
 
+    std::string m_machineChannel;
+    std::string m_releaseTrackUrl;
+
+    std::string m_lastNfcBootReason;
+
     DeviceInfo m_deviceInfo;
-    VenueMachineInfo m_vmInfo;
-    std::map<std::string, GameSession> m_gameSessions; // key: session uuid
+    MachineInfo m_machineInfo;
+    std::map<int, GameSession> m_gameSessions; // key: session id
+    bool m_isNfcCapable {false};
+
+    std::vector<std::string> m_nonces;
+    mutable std::mutex m_noncesMutex;
+
+    mutable std::mutex m_scorbitronObjectMutex;
+    nlohmann::json m_scorbitronObject;
+
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
 
-    Worker m_worker; // This must be last element, as it has to be destroyed first, otherwise it
-                     // will try to access already destroyed member variables
+    std::shared_ptr<nfc::ProbesManager> m_probesManager;
+
+    // -----------------------------------------------------------------------
+
+    // This must be last element, as it has to be destroyed first, otherwise it will try to access
+    // already destroyed member variables
+    Worker m_worker;
+
+    // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
+    // created after m_worker and destroyed before m_worker
+    std::unique_ptr<centrifugo::Client> m_centrifugo;
+
+    std::shared_ptr<EventManager> m_eventManager;
 };
 
 } // namespace detail

@@ -18,12 +18,48 @@
  */
 
 #include "worker.h"
-#include "logger.h"
+#include <logger/logger.h>
+
+constexpr auto NUM_OF_THREADS = 4;
+
+using namespace scorbit::detail;
+using namespace std::chrono_literals;
+
+// Define custom formatter
+template<>
+struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
+    auto format(Worker::Timer c, fmt::format_context &ctx) const
+    {
+        std::string_view name = "unknown";
+        switch (c) {
+        case Worker::Timer::Heartbeat:
+            name = "Heartbeat";
+            break;
+        case Worker::Timer::TokenRefresh:
+            name = "TokenRefresh";
+            break;
+        case Worker::Timer::NfcCheckTag:
+            name = "NfcCheckTag";
+            break;
+        case Worker::Timer::GameData:
+            name = "GameData";
+            break;
+        case Worker::Timer::SessionUpdate:
+            name = "SessionUpdate";
+            break;
+        case Worker::Timer::CentrifugoReconnect:
+            name = "CentrifugoReconnect";
+            break;
+        case Worker::Timer::NfcBootReason:
+            name = "NfcBootReason";
+            break;
+        }
+        return fmt::formatter<std::string_view>::format(name, ctx);
+    }
+};
 
 namespace scorbit {
 namespace detail {
-
-constexpr auto NUM_OF_THREADS = 4;
 
 Worker::~Worker()
 {
@@ -45,9 +81,11 @@ void Worker::start()
 
 void Worker::stop()
 {
+    INF("Stopping worker...");
     if (!m_running)
         return;
 
+    stopAllTimers();
     m_workGuard.reset();
     m_threads.join_all();
     m_running = false;
@@ -63,9 +101,14 @@ void Worker::postQueue(task_t func)
     boost::asio::post(m_strand, std::move(func));
 }
 
+void Worker::postSessionQueue(task_t func)
+{
+    boost::asio::post(m_sessionStrand, std::move(func));
+}
+
 void Worker::postGameDataQueue(task_t func)
 {
-    boost::asio::post(m_gameDataStrand, std::move(func));
+    boost::asio::post(centrifugoStrand(), std::move(func));
 }
 
 void Worker::postHeartbeatQueue(task_t func)
@@ -73,14 +116,74 @@ void Worker::postHeartbeatQueue(task_t func)
     boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
-void Worker::runTimer(std::chrono::steady_clock::duration delay, task_t func)
+void Worker::postCommitTask(task_t func)
 {
-    m_heartbeatTimer.expires_after(delay);
-    m_heartbeatTimer.async_wait([func = std::move(func)](const boost::system::error_code &ec) {
+    boost::asio::post(m_commitStrand, std::move(func));
+}
+
+void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)
+{
+    auto *timer = getTimer(timerType);
+    if (timer == nullptr) {
+        return;
+    }
+
+    if (delay >= 10s) {
+        DBG("Timer {} started", timerType);
+    }
+
+    timer->expires_after(delay);
+    timer->async_wait([timerType, func = std::move(func)](const boost::system::error_code &ec) {
         if (!ec) {
             func();
+        } else if (ec == boost::asio::error::operation_aborted) {
+            DBG("Timer {} cancelled", timerType);
+        } else {
+            ERR("Timer error: {}", ec.to_string());
         }
     });
+}
+
+void Worker::stopTimer(Timer timerType)
+{
+    auto *timer = getTimer(timerType);
+    if (timer == nullptr) {
+        return;
+    }
+
+    DBG("Timer {} stopped", timerType);
+
+    try {
+        timer->cancel();
+    } catch (const std::exception &e) {
+        ERR("Failed to cancel timer {}: {}", timerType, e.what());
+        return;
+    }
+}
+
+auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
+{
+    if (m_timers.count(timerType) == 0) {
+        m_timers[timerType] = boost::asio::steady_timer {m_ioc};
+    }
+
+    return &m_timers[timerType].value();
+}
+
+void Worker::stopAllTimers()
+{
+    DBG("Stopping all timers...");
+
+    for (auto &[timerType, timer] : m_timers) {
+        if (timer.has_value()) {
+            try {
+                timer->cancel();
+                DBG("Timer {} stopped", timerType);
+            } catch (const std::exception &e) {
+                ERR("Failed to cancel timer {}: {}", timerType, e.what());
+            }
+        }
+    }
 }
 
 } // namespace detail

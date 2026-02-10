@@ -25,6 +25,8 @@
 #include <ctime>
 #include <thread>
 #include <map>
+#include <atomic>
+#include <fstream>
 
 using namespace std;
 
@@ -39,7 +41,11 @@ const std::vector<std::string> G_SCORE_FEATURES {"ramp", "left spinner", "right 
 // Increment only if new entries added in new game releases
 constexpr int G_SCORE_FEATURES_VERSION = 1;
 
+atomic_int gNumberOfPlayersRequested;
+atomic_bool gGameStartRequestedFromLobby {false};
 
+// Global pointer to GameState for event callback (set after GameState is created)
+scorbit::GameState *gGameStatePtr = nullptr;
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 bool isGameFinished(int i)
@@ -47,7 +53,7 @@ bool isGameFinished(int i)
     return i == 99;
 }
 
-bool isGameJustStarted(int i)
+bool isGameJustStartedByStartButton(int i)
 {
     return i == 5;
 }
@@ -111,7 +117,8 @@ bool timeToClearModes()
 
 bool isUnpairTriggeredByUser()
 {
-    return false;
+    static bool unpair = false; // Set to true to trigger unpairing once
+    return std::exchange(unpair, false);
 }
 
 // --------------- Example of logger callback ------------------
@@ -163,54 +170,137 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     std::cout.flush(); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Example of key persistence callbacks ------------------
+// These callbacks are used to save and load a key to/from persistent storage.
+// The SDK will call these when it needs to persist or retrieve the key.
+
+const std::string KEY_FILE_PATH = "scorbit_key.txt";
+
+void saveKeyCallback(const std::string &key)
+{
+    cout << "Saving key to file: " << KEY_FILE_PATH << endl;
+    std::ofstream file(KEY_FILE_PATH);
+    if (file.is_open()) {
+        file << key;
+        file.close();
+    } else {
+        cerr << "Failed to save key to file" << endl;
+    }
+}
+
+std::string loadKeyCallback()
+{
+    cout << "Loading key from file: " << KEY_FILE_PATH << endl;
+    std::ifstream file(KEY_FILE_PATH);
+    if (file.is_open()) {
+        // Read all content to string
+        std::string key((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        return key;
+    }
+    // Return empty string if file doesn't exist (no key saved yet)
+    return "";
+}
+
+void eventsCallback(const scorbit::Event &event)
+{
+    cout << "Event received: " << static_cast<int>(event.type()) << endl;
+
+    switch (event.type()) {
+    case scorbit::EventType::GameStartRequested: {
+        int playersCount = 0;
+        if (event.getGameStartRequested(playersCount)) {
+            cout << "Game start requested with " << playersCount << " player(s)" << endl;
+            gGameStartRequestedFromLobby = true;
+            gNumberOfPlayersRequested = playersCount;
+        }
+    } break;
+
+    case scorbit::EventType::CreditsAddRequested: {
+        int creditsToAdd = 0;
+        std::string transaction;
+        if (event.getCreditsAddRequested(creditsToAdd, transaction)) {
+            cout << "Credits add requested: " << creditsToAdd
+                 << " credit(s), transaction: " << transaction << endl;
+            // Add credits to the machine ... and then call
+            if (gGameStatePtr) {
+                gGameStatePtr->setCreditsDropped(creditsToAdd, transaction, true);
+            }
+        }
+    } break;
+
+    case scorbit::EventType::CreditsStatusRequested: {
+        // This event is sent when backend requests credits status.
+        // Using GameState::setCreditsStatus()
+        cout << "Credits status requested" << endl;
+        if (gGameStatePtr) {
+            gGameStatePtr->setCreditsStatus(false, 10, 20, nullptr);
+        }
+    } break;
+
+        // -------- OEM providers can ignore the events below, they are mostly for scorbitron
+        // ----------
+
+    case scorbit::EventType::ConfigReceived: {
+        std::string configJson;
+        if (event.eventConfigReceived(configJson)) {
+            cout << "Config received: " << configJson << endl;
+            // Process config JSON ...
+        } else {
+            cout << "Error getting config event" << endl;
+        }
+    } break;
+
+    default:
+        break;
+    }
+}
+
 scorbit::GameState setupGameState()
 {
-    // Create device info struct which will be used to setup. SDK will copy all data from this struct
-    // so this struct is needed only to create GameState object and then can be discarded.
-    scorbit::DeviceInfo info;
+    // Create Config with all settings including authentication
+    scorbit::Config config;
+    config.setProvider("dilshodpinball")
+            .setMachineId(4379)
+            .setGameCodeVersion("0.1.0")
+            .setHostname("staging")
+            .setUuid("c7f1fd0b-82f7-5504-8fbe-740c09bc7dab")
+            .setAutoDownloadPlayerPics(true)
+            .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
+            .setEncryptedKey("8qWNpMPeO1AbgcoPSsdeUORGmO/"
+                             "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
+                             "YaHLGkW4p/yWmA==")
+            // Setup events callback - this must be done before creating GameState
+            .setEventCallback(eventsCallback)
+            // Setup key persistence callbacks - SDK will use these to save/load keys
+            .setSaveKeyCallback(saveKeyCallback)
+            .setLoadKeyCallback(loadKeyCallback);
 
-    info.provider = "dilshodpinball"; // This is required, set to your provider name
-    info.machineId = 4379;            // This is required, set to your machine id
-    info.hostname = "staging";        // Optional, if not set, it will be "production"
-    // Another example: info.hostname = "https://api.scorbit.io";
-
-    info.gameCodeVersion = "0.1.0"; // game version
-
-    // If not set, will be 0, however, it there is serial number attached to the device, set it here
-    // info.serialNumber = 12345;
-
-    // UUID is optional, if not set will be automatically derived from device's mac address
-    // However, if there is known uuid attached to the device, set it here:
-    info.uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"; // dilshodpinball test machine
-
-    // Automatically download pictures, will be available in PlayerInfo::picture
-    info.autoDownloadPlayerPics = true;
-
-    info.scoreFeatures = G_SCORE_FEATURES;
-    info.scoreFeaturesVersion = G_SCORE_FEATURES_VERSION;
-
-    // encrypted key is generated by encrypt_tool
-    std::string encryptedKey = "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
-
-    // Create game state object. Normally, device info will be copied.
-    // However, it can be moved, because we don't need this struct anymore.
-
-    return scorbit::createGameState(encryptedKey, info);
+    return scorbit::createGameState(config);
 }
 
 using namespace std::chrono_literals;
+using namespace std::placeholders;
 
 int main()
 {
     std::map<sb_player_t, scorbit::PlayerInfo> players;
 
+    int playersCount = 1;
+
     cout << "Simple example of Scorbit SDK usage" << endl;
 
-    // Setup logger
-    scorbit::addLoggerCallback(loggerCallback);
+    // Setup logger with max 512 chars message length
+    scorbit::addLoggerCallback(loggerCallback, 512);
 
-    // Create game state object
+    // Create game state object (event callback is set in Config before creation)
     scorbit::GameState gs = setupGameState();
+
+    // Set the global pointer so event callback can access the GameState
+    gGameStatePtr = &gs;
+
+    // Set capabilities. Here we set both start game and credit drop capabilities
+    gs.setCapabilities(scorbit::Capability::StartGame | scorbit::Capability::CreditDrop);
+
     gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
         if (error == scorbit::Error::Success) {
             cout << "Pairing short code: " << shortCode << endl;
@@ -231,7 +321,7 @@ int main()
             cout << "API error: " << reply << endl;
             break;
         default:
-            cout << "Error: " << static_cast<int> (error) << endl;
+            cout << "Error: " << static_cast<int>(error) << endl;
         }
     });
 
@@ -270,17 +360,29 @@ int main()
                     cout << "API error: " << reply << endl;
                     break;
                 default:
-                    cout << "Error: " << static_cast<int> (error) << endl;
+                    cout << "Error: " << static_cast<int>(error) << endl;
                 }
             });
         }
 
-        if (isGameJustStarted(i)) {
-            // This will start new game session with player1 score 0 and current ball 1.
+        if (isGameJustStartedByStartButton(i)) {
+            // Game was just started by player pressing start button
 
             // In the same game cycle before commit it can be set new score, active player, etc.
             // So, player1's initial score will be not 0, but the one set in the current cycle
-            gs.setGameStarted();
+            // This will start new game session with player1 score 0 and current ball 1.
+            gs.setGameStarted(scorbit::GameStartOrigin::StartButton);
+
+        } else if (gGameStartRequestedFromLobby.exchange(false)) { // Reset the flag
+
+            for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
+                gs.setScore(i, 0);
+            }
+            gs.setGameStarted(scorbit::GameStartOrigin::FromLobby);
+
+            // It's not necessary to call setGameStarted, as it's automaticlly called when
+            // request arrived and will be be ignored here
+            cout << "Started from mobile app with " << playersCount << " player(s)!" << endl;
         }
 
         if (isGameActive(i)) {

@@ -22,11 +22,12 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <pthread.h>
 
 #ifdef _WIN32
-#include <windows.h>
+#    include <windows.h>
 #else
-#include <unistd.h>
+#    include <unistd.h>
 #endif
 
 // Set score features - optional, but if you have features that help identify what
@@ -34,17 +35,35 @@
 // WARNING: in the future releasees we can ONLY add new features, but not remove
 // existing ones, otherwise indices of score features of old game sesions will be
 // broken. Also we should increment scoreFeaturesVersion when new feature(s) added.
-const char *G_SCORE_FEATURES[] = {
-        "ramp",
-        "left spinner",
-        "right spinner",
-        "left slingshot",
-        "right slingshot"
-};
+const char *G_SCORE_FEATURES[] = {"ramp", "left spinner", "right spinner", "left slingshot",
+                                  "right slingshot"};
 const size_t G_SCORE_FEATURES_COUNT = sizeof(G_SCORE_FEATURES) / sizeof(G_SCORE_FEATURES[0]);
 
 // Increment only if new entries added in new game releases
 const int G_SCORE_FEATURES_VERSION = 1;
+
+int gNumberOfPlayersRequested;
+bool gGameStartRequestedFromLobby = false;
+pthread_mutex_t gGameStartRequestMutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Global pointer to game state for event callback (set after game state is created)
+sb_game_handle_t gGameStatePtr = NULL;
+
+void set_game_start_requested(bool val)
+{
+    pthread_mutex_lock(&gGameStartRequestMutex);
+    gGameStartRequestedFromLobby = val;
+    pthread_mutex_unlock(&gGameStartRequestMutex);
+}
+
+bool is_game_start_requested(void)
+{
+    pthread_mutex_lock(&gGameStartRequestMutex);
+    bool val = gGameStartRequestedFromLobby;
+    gGameStartRequestedFromLobby = false; // reset after read
+    pthread_mutex_unlock(&gGameStartRequestMutex);
+    return val;
+}
 
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 int isGameFinished(int i)
@@ -52,7 +71,7 @@ int isGameFinished(int i)
     return i == 99;
 }
 
-int isGameJustStarted(int i)
+int isGameJustStartedByStartButton(int i)
 {
     return i == 5;
 }
@@ -131,7 +150,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     (void)timestamp;
 
     // Get the current time
-    time_t ct = timestamp / 1000;      // Convert milliseconds since epoch to seconds
+    time_t ct = timestamp / 1000;         // Convert milliseconds since epoch to seconds
     struct tm *timeInfo = localtime(&ct); // Convert to local time
 
     // Buffer for formatted time string
@@ -165,44 +184,149 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Example of key persistence callbacks ------------------
+// These callbacks are used to save and load a key to/from persistent storage.
+// The SDK will call these when it needs to persist or retrieve the key.
+
+static const char *KEY_FILE_PATH = "scorbit_key.txt";
+
+void saveKeyCallback(const char *key, void *user_data)
+{
+    (void)user_data;
+    printf("Saving key to file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "w");
+    if (file) {
+        fprintf(file, "%s", key);
+        fclose(file);
+    } else {
+        printf("Failed to save key to file\n");
+    }
+}
+
+int loadKeyCallback(char *buffer, size_t buffer_size, void *user_data)
+{
+    (void)user_data;
+    printf("Loading key from file: %s\n", KEY_FILE_PATH);
+
+    FILE *file = fopen(KEY_FILE_PATH, "r");
+    if (!file) {
+        // Return 0 if file doesn't exist or can't be opened
+        return 0;
+    }
+
+    // Read the key from file
+    size_t len = fread(buffer, 1, buffer_size - 1, file);
+
+    if (len > 0) {
+        // Check if there's more data in the file (buffer too small)
+        if (fgetc(file) != EOF) {
+            fclose(file);
+            return -1; // Buffer size is smaller than file content
+        }
+
+        buffer[len] = '\0'; // Null-terminate
+        fclose(file);
+        return (int)len; // Length of read key string
+    }
+
+    fclose(file);
+    return 0; // Empty file or read error
+}
+
+void eventsCallback(const sb_event_t *event, void *user_data)
+{
+    (void)user_data; // Use global gGameStatePtr instead
+
+    sb_event_type_t event_type = sb_event_type(event);
+
+    printf("Event %d received\n", event_type);
+
+    switch (event_type) {
+    case SB_EVT_GAME_START_REQUESTED: {
+        int players = 0;
+        if (sb_event_game_start_requested(event, &players)) {
+            printf("Game start requested with %d player(s)\n", players);
+            gNumberOfPlayersRequested = players;
+            set_game_start_requested(true);
+        }
+    } break;
+
+    case SB_EVT_CREDITS_ADD_REQUESTED: {
+        int credits_to_add;
+        const char *transaction;
+        if (sb_event_credits_add_requested(event, &credits_to_add, &transaction)) {
+            printf("Credits add requested: %d, transaction: %s\n", credits_to_add, transaction);
+            // Copy transaction to your own buffer, as this transaction will be gone after this
+            // callback
+
+            // Add credits to the machine ... and then call
+            if (gGameStatePtr) {
+                sb_set_credits_dropped(gGameStatePtr, credits_to_add, transaction, true);
+            }
+        }
+    } break;
+
+    case SB_EVT_CREDITS_STATUS_REQUESTED: {
+        printf("Credits status requested\n");
+        if (gGameStatePtr) {
+            sb_set_credits_status(gGameStatePtr, false, 10, 20, NULL);
+        }
+    } break;
+
+    // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
+    case SB_EVT_CONFIG_RECEIVED: {
+        const char *config_json = NULL;
+        if (sb_event_config_received(event, &config_json)) {
+            printf("Config received: %s\n", config_json ? config_json : "NULL");
+            // Process the config JSON string here or copy it for further use
+        }
+    } break;
+
+    default:
+        break;
+    }
+}
+
 sb_game_handle_t setup_game_state(void)
 {
-    // Setup device info
-    sb_device_info_t device_info = {
-            .provider = "dilshodpinball", // This is required, set to your provider name
-            .machine_id = 4379,
-            .game_code_version = "0.1.0", // game version
-            .hostname = "staging",        // Optional, if NULL, it will be production
+    // Create a config object
+    sb_config_t config = sb_config_create();
 
-            // UUID is optional, if NULL, will be automatically derived from device's mac address
-            // However, if there is known uuid attached to the device, set it here:
-            .uuid = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab", // dilshodpinball test machine
-            .serial_number = 0,                 // If no serial number available, set to 0
-            .auto_download_player_pics = false, // we don't want to download player's pictures
+    // Set required parameters
+    sb_config_set_provider(config, "dilshodpinball");
+    sb_config_set_machine_id(config, 4379);
+    sb_config_set_game_code_version(config, "0.1.0");
 
-            .score_features = G_SCORE_FEATURES,
-            .score_features_count = G_SCORE_FEATURES_COUNT,
-            .score_features_version = G_SCORE_FEATURES_VERSION,
-    };
+    // Set optional parameters
+    sb_config_set_hostname(config, "staging"); // Optional, default is "production"
+    sb_config_set_uuid(config, "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"); // Optional
+    sb_config_set_serial_number(config, 0);
+    sb_config_set_auto_download_player_pics(config, false);
+    sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
+                                 G_SCORE_FEATURES_VERSION);
 
-    // Another example with default values:
-    sb_device_info_t device_info2 = {
-            .provider = "vscorbitron",    // This is required, set to your provider name
-            .game_code_version = "0.1.0", // game version
-            .hostname = NULL,             // NULL, it will be production, or can set to "production"
-            .uuid = NULL,                 // NULL, will be automatically derived from device
-            .serial_number = 0,           // no serial number available, set to 0
-            .auto_download_player_pics = true, // players' pictures will be automatically downloaded
-            .score_features = NULL,      // we don't use score features
-            .score_features_count = 0,
-    };
-    (void)device_info2;
+    // Set authentication - encrypted key (for non-TPM machines)
+    // The encrypted key is generated using encrypt_tool
+    sb_config_set_encrypted_key(config,
+                                "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+                                "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
+                                "YaHLGkW4p/yWmA==");
 
-    // Setup encrypted key
-    const char *encrypted_key = "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==";
+    // Setup events callback - this must be done before creating the game state
+    sb_config_set_event_callback(config, &eventsCallback, NULL);
 
-    // Create game state object. Device info will be copied, so it's safe to create it in the stack
-    return sb_create_game_state2(encrypted_key, &device_info);
+    // Setup key persistence callbacks - SDK will use these to save/load keys
+    sb_config_set_save_key_callback(config, &saveKeyCallback, NULL);
+    sb_config_set_load_key_callback(config, &loadKeyCallback, NULL);
+
+    // Create game state object using the config
+    sb_game_handle_t handle = sb_create_game_state(config);
+
+    // Config can be destroyed after creating the game state (data is copied)
+    sb_config_destroy(config);
+
+    return handle;
 }
 
 void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
@@ -260,12 +384,21 @@ int main(void)
     char player_names[4][32];
     memset(player_names, 0, sizeof(player_names));
 
+    int players_count = 1;
+
     printf("Simple example of Scorbit SDK usage\n");
 
-    // Setup logger
-    sb_add_logger_callback(loggerCallback, NULL);
+    // Setup logger with 512 chars max message length
+    sb_add_logger_callback(loggerCallback, NULL, 512);
 
+    // Create game state (event callback is set in config before creation)
     sb_game_handle_t gs = setup_game_state();
+
+    // Set the global pointer so event callback can access the game state
+    gGameStatePtr = gs;
+
+    // Set capabilities. Here we set both start game and credit drop capabilities
+    sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
     // Request top scores
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
@@ -276,7 +409,7 @@ int main(void)
     // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
     sb_request_pair_code(gs, &shortcode_callback, NULL);
 
-    // Main loop which is typically an infinite loop, but this example runs for 10 cycles
+    // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
         // Check the auth (networking) status. It's not necessary, just for demo
         if (i % 10 == 0) {
@@ -291,12 +424,21 @@ int main(void)
             sb_set_game_finished(gs);
         }
 
-        if (isGameJustStarted(i)) {
-            // This will start new game session with player1 score 0 and current ball 1.
+        if (isGameJustStartedByStartButton(i)) {
+            // Game was just started by player pressing start button
 
             // In the same game cycle before commit it can be set new score, active player, etc.
+            // This will start new game session with player1 score 0 and current ball 1.
             // So, player1's initial score will be not 0, but the one set in the current cycle
-            sb_set_game_started(gs);
+            sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
+        } else if (is_game_start_requested()) {
+            // Game was started from the app and requested to start the game on the machine
+            // call function to start the game on the machine with players_count players ...
+            sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
+            for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
+                sb_set_score(gs, i, 0, 0);
+            }
+            printf("Started from mobile app with %d players!\n", players_count);
         }
 
         if (isGameActive(i)) {

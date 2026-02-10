@@ -18,7 +18,7 @@
  */
 
 #include "modes.h"
-#include "logger.h"
+#include <logger/logger.h>
 #include <algorithm>
 #include <numeric>
 
@@ -71,6 +71,20 @@ string Modes::str() const
 
     return accumulate(next(begin(m_modes)), end(m_modes), m_modes.front(),
                       [](std::string a, const std::string &b) { return std::move(a) + ';' + b; });
+}
+
+string Modes::jsonStr() const
+{
+    if (m_modes.empty())
+        return "[]";
+
+    string json = "[\"";
+    json += accumulate(next(begin(m_modes)), end(m_modes), m_modes.front(),
+                      [](std::string a, const std::string &b) {
+                          return std::move(a) + "\",\"" + b;
+                      });
+    json += "\"]";
+    return json;
 }
 
 } // namespace detail

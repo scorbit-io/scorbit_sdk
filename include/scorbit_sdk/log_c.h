@@ -21,11 +21,13 @@
 
 #include "log_types_c.h"
 #include <scorbit_sdk/export.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef SCORBIT_LOGGER_CALLBACK
 /**
  * @brief Add a logger callback function to be invoked for log messages.
  *
@@ -38,6 +40,7 @@ extern "C" {
  * specified by @ref sb_log_callback_t.
  * @param userData A pointer to user-defined data that will be passed to the logger callback each
  * time it is invoked. If not used it can be set to `NULL`.
+ * @param max_length Maximum length of the log message that will be passed to the callback.
  *
  * @note The logger function does not need to be thread-safe, as the logging mechanism ensure thread
  * safety internally.
@@ -45,7 +48,7 @@ extern "C" {
  * @see sb_reset_logger
  */
 SCORBIT_SDK_EXPORT
-void sb_add_logger_callback(sb_log_callback_t callback, void *userData);
+void sb_add_logger_callback(sb_log_callback_t callback, void *user_data, size_t max_length);
 
 /**
  * @brief Clears all previously added logger callbacks.
@@ -58,6 +61,7 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *userData);
  */
 SCORBIT_SDK_EXPORT
 void sb_reset_logger(void);
+#endif // SCORBIT_LOGGER_CALLBACK
 
 #ifdef __cplusplus
 }

@@ -21,13 +21,18 @@
 
 #include "log_c.h"
 #include "log_types.h"
-#include <scorbit_sdk/export.h>
 
 namespace scorbit {
 
+#ifdef SCORBIT_LOGGER_CALLBACK
+
 namespace detail {
 
-static std::vector<scorbit::LoggerCallback *> g_callbacks;
+inline std::vector<LoggerCallback *> &g_callbacks()
+{
+    static std::vector<LoggerCallback *> instance;
+    return instance;
+}
 
 // C-style callback that forwards to the C++ function
 inline void cLogCallback(const char *message, sb_log_level_t level, const char *file, int line,
@@ -52,22 +57,23 @@ inline void cLogCallback(const char *message, sb_log_level_t level, const char *
  *
  * @param callback The logger callback function to be registered. It should have the signature
  * specified by @ref LoggerCallback.
+ * @param maxLength Maximum length of the log message that will be passed to the callback.
  *
  * @note The logger function does not need to be thread-safe, as the logging mechanism ensure thread
  * safety internally.
  *
  * @see resetLogger
  */
-inline void addLoggerCallback(LoggerCallback &&callback)
+inline void addLoggerCallback(LoggerCallback &&callback, size_t maxLength)
 {
     // Store callback in the heap
     auto *callbackPtr = new LoggerCallback(std::move(callback));
 
     // Keep track of it so we can delete it later
-    detail::g_callbacks.push_back(callbackPtr);
+    detail::g_callbacks().push_back(callbackPtr);
 
     // Register with C API
-    sb_add_logger_callback(detail::cLogCallback, callbackPtr);
+    sb_add_logger_callback(detail::cLogCallback, callbackPtr, maxLength);
 }
 
 /**
@@ -83,10 +89,12 @@ inline void resetLogger()
 {
     sb_reset_logger();
 
-    for (auto *callback : detail::g_callbacks) {
+    for (auto *callback : detail::g_callbacks()) {
         delete callback;
     }
-    detail::g_callbacks.clear();
+    detail::g_callbacks().clear();
 }
+
+#endif // SCORBIT_LOGGER_CALLBACK
 
 } // namespace scorbit

@@ -19,25 +19,57 @@
 
 #pragma once
 
+#include "event_manager.h"
 #include "net_base.h"
-#include <boost/json.hpp>
+#include <nlohmann/json_fwd.hpp>
+#include <boost/filesystem.hpp>
 #include <string>
 #include <atomic>
+#include <regex>
+#include <string_view>
 
 namespace scorbit {
 namespace detail {
 
 class Updater
 {
-public:
-    Updater(NetBase &net, bool useEncryptedKey);
+    struct UrlInfo {
+        std::string url;
+        std::string version;
+        std::string contentType;
+        int size {-1};
+    };
 
-    void checkNewVersionAndUpdate(const boost::json::object &json);
+    struct BinaryInfo {
+        boost::filesystem::path path;
+        std::regex re;
+    };
+
+public:
+    Updater(NetBase &net, bool useEncryptedKey, const std::string &scorbitdVersion,
+            const std::string &scorbitdPlatformId);
+
+    void checkNewVersionAndUpdate(const nlohmann::json &json,
+                                  std::shared_ptr<EventManager> eventManager);
 
 private:
-    void parseUrl(const boost::json::value &sdkVal);
-    bool update(const std::string &archivePath);
-    bool replaceLibrary(const std::string &libPath, const std::string &newLibPath);
+    UrlInfo parseUrls(const nlohmann::json &sdk) const;
+    bool update(const std::string &archivePath, const BinaryInfo &binaryInfo) const;
+    bool replaceBinary(const std::string &libPath, const std::string &newLibPath) const;
+
+    bool canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
+    bool canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
+
+    bool isPlatformIdValid(std::string_view platformId) const;
+    bool isBinaryObjectValid(const BinaryInfo &binaryInfo) const;
+    bool isEncryptedKeyValid() const;
+    bool isSdkVersionCompatible(const std::string &newVersion) const;
+    bool isScorbitdVersionCompatible(const std::string &newVersion) const;
+
+    bool tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo);
+    bool downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
+
+    void feedback(std::string_view out) const;
 
 private:
     NetBase &m_net;
@@ -45,9 +77,10 @@ private:
 
     const bool m_useEncryptedKey;
 
-    std::string m_url;
-    std::string m_version;
-    std::string m_feedback;
+    const std::string m_scorbitdVersion;
+    const std::string m_scorbitdPlatformId;
+
+    mutable std::string m_feedback;
 };
 
 

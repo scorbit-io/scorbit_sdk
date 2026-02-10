@@ -44,6 +44,7 @@ typedef enum {
     SB_ERROR,
 } sb_log_level_t;
 
+#ifdef SCORBIT_LOGGER_CALLBACK
 /**
  * @typedef sb_log_callback_t
  * @brief Defines the type for logger callback functions in C.
@@ -64,6 +65,7 @@ typedef enum {
  */
 typedef void (*sb_log_callback_t)(const char *message, sb_log_level_t level, const char *file,
                                   int line, int64_t timestamp, void *user_data);
+#endif // SCORBIT_LOGGER_CALLBACK
 
 #ifdef __cplusplus
 }

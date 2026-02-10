@@ -18,7 +18,7 @@
  */
 
 #include "archiver.h"
-#include "../logger.h"
+#include <logger/logger.h>
 
 #include <boost/filesystem.hpp>
 #include <archive.h>
