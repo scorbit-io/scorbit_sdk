@@ -37,6 +37,7 @@ public:
     enum class Timer {
         Heartbeat,
         TokenRefresh,
+        NfcCheckTag,
     };
 
 public:

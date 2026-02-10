@@ -60,6 +60,13 @@ include(${cmake_dir}/lib_boost.cmake)
 
 include(${cmake_dir}/lib_nlohmann_json.cmake)
 
+CPMAddPackage(
+    NAME spb
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../../libs/spb
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
@@ -150,6 +157,7 @@ target_link_libraries(
         cpr::cpr
         LibArchive::LibArchive
         centrifugo-cpp
+        spb
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)

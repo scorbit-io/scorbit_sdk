@@ -26,6 +26,8 @@ constexpr auto URL_SCORBITRON_SESSION_UPDATE {
 constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
 constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
 
+constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
+
 constexpr auto URL_SESSIONS_ID {"sessions"};
 
 constexpr auto URL_CENTRIFUGO {"connection/websocket"};
@@ -128,6 +130,7 @@ constexpr auto JKEY_SCFG_CONFIG {"config"};
 constexpr auto JKEY_SCFG_OPDB_ID {"opdb_id"};
 constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
 constexpr auto JKEY_SCFG_START_GAME_CAPABLE {"start_game_capable"};
+constexpr auto JKEY_SCFG_NFC_CAPABLE {"nfc_capable"};
 
 constexpr auto JKEY_SCFG_VERSION {"version"};
 constexpr auto JKEY_SCFG_TYPE {"type"};

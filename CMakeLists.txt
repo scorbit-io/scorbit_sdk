@@ -76,15 +76,7 @@ endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
 
-CPMAddPackage(
-    NAME fmt
-    GIT_TAG 11.2.0
-    GITHUB_REPOSITORY fmtlib/fmt
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    OPTIONS "FMT_INSTALL YES"
-    GIT_SHALLOW TRUE
-)
+include(${cmake_dir}/lib_fmt.cmake)
 
 find_package(OpenSSL REQUIRED)
 
@@ -104,6 +96,13 @@ set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
 include(${cmake_dir}/lib_boost.cmake)
 
 include(${cmake_dir}/lib_nlohmann_json.cmake)
+
+CPMAddPackage(
+    NAME spb
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/spb
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
 
 # ---- Create library ----
 
@@ -215,6 +214,7 @@ target_link_libraries(
         OpenSSL::Crypto
         LibArchive::LibArchive
         centrifugo-cpp
+        spb
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)
