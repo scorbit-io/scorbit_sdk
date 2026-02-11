@@ -62,6 +62,25 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits, const
     return true;
 }
 
+bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_enabled)
+{
+    if (!event || !payments_enabled) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::ConfigReceivedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (const auto rv = derived->paymentsEnabled(); rv) {
+        *payments_enabled = *rv;
+        return true;
+    }
+
+    return false;
+}
+
 bool sb_event_config_received(const sb_event_t *event, const char **config_json)
 {
     if (!event || !config_json) {
@@ -73,7 +92,7 @@ bool sb_event_config_received(const sb_event_t *event, const char **config_json)
         return false;
     }
 
-    *config_json = derived->configJson().c_str();
+    *config_json = derived->configJsonCStr();
     return true;
 }
 

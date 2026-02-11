@@ -153,6 +153,7 @@ constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};
+constexpr auto JKEY_SOBJ_PAYMENTS_ENABLED {"payments_enabled"};
 
 // Session
 constexpr auto JKEY_SESS_UUID {"id"};

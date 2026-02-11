@@ -66,6 +66,24 @@ public:
         return true;
     }
 
+    /**
+     * @brief Helper function to extract payments enabled status from a
+     * @ref scorbit::Type::ConfigReceived event.
+     *
+     * This function extracts the payments_enabled field from a config received event.
+     * The event type must be @ref scorbit::EventType::ConfigReceived, otherwise the function
+     * returns an error.
+     *
+     * @param paymentsEnabled [OUT] A reference to a bool that will receive the payments enabled
+     * value.
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type was
+     * given).
+     */
+    bool getConfigPaymentsEnabled(bool &paymentsEnabled) const
+    {
+        return ::sb_event_config_payments_enabled(m_event, &paymentsEnabled);
+    }
+
     // ---------------- OEM providers can ignore the events below ----------------
 
     const sb_event_t *event() const { return m_event; }

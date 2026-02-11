@@ -281,6 +281,11 @@ void eventsCallback(const sb_event_t *event, void *user_data)
             printf("Config received: %s\n", config_json ? config_json : "NULL");
             // Process the config JSON string here or copy it for further use
         }
+
+        bool payments_enabled = false;
+        if (sb_event_config_payments_enabled(event, &payments_enabled)) {
+            printf("Payments enabled: %s\n", payments_enabled ? "true" : "false");
+        }
     } break;
 
     default:
