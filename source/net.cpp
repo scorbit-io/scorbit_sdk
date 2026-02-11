@@ -613,19 +613,12 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
 void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
 {
     m_worker.post([this, freePlay, credits, maxCredits]() {
-        std::optional<int> maxCreditsOpt;
-        if (maxCredits > 0) {
-            maxCreditsOpt = maxCredits;
-        }
-
         const auto createdAt = to_iso8601(chrono::system_clock::now());
 
         json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
                 {JKEY_CHN_PAYLOAD,
                  {
                          {JKEY_CREDITS_FREE_PLAY, freePlay},
-                         {JKEY_CREDITS_CURRENT, credits},
-                         {JKEY_CREDITS_MAX, maxCreditsOpt},
                  }},
                 {JKEY_SCR_METADATA,
                  {
@@ -635,6 +628,13 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
+
+        if (!freePlay) {
+            j[JKEY_CHN_PAYLOAD][JKEY_CREDITS_CURRENT] = credits;
+            if (maxCredits > 0) {
+                j[JKEY_CHN_PAYLOAD][JKEY_CREDITS_MAX] = maxCredits;
+            }
+        }
 
         INF("API-CF sending credits status: {}", j.dump());
         const auto r = m_centrifugo->publish(m_machineChannel, j);
