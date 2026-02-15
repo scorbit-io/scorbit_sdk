@@ -120,6 +120,16 @@ public:
         return true;
     }
 
+    bool eventFirmwaresListReceived(std::string &firmwaresList) const
+    {
+        const char *firmwaresListCStr = nullptr;
+        if (!::sb_event_firmwares_list_received(m_event, &firmwaresListCStr)) {
+            return false;
+        }
+        firmwaresList = firmwaresListCStr ? std::string(firmwaresListCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

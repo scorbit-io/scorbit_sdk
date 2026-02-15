@@ -200,6 +200,23 @@ private:
 };
 
 
+// ---------------- FirmwaresListReceived implementation ----------------
+
+class FirmwaresListReceivedEvent : public EventBase
+{
+public:
+    explicit FirmwaresListReceivedEvent(const std::string &firmwaresList)
+        : EventBase(EventType::FirmwaresListReceived, EventPriority::Normal)
+        , m_firmwaresList {firmwaresList}
+    {
+    }
+
+    auto firmwaresList() const -> const std::string & { return m_firmwaresList; }
+
+private:
+    std::string m_firmwaresList;
+};
+
 } // namespace detail
 } // namespace scorbit
 

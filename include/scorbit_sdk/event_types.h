@@ -35,6 +35,7 @@ enum class EventType {
     None = SB_EVT_NONE, // This event shoud not be used
     ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
     ScorbitdUpdated = SB_EVT_SCORBITD_UPDATED,
+    FirmwaresListReceived = SB_EVT_FIRMWARES_LIST_RECEIVED,
 };
 
 } // namespace scorbit
