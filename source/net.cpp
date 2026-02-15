@@ -1257,6 +1257,7 @@ void Net::initializeConnectionState()
     requestReleaseTrackInfo();
 
     getConfig(); // Get template
+    requestFirmwaresList();
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
@@ -2049,6 +2050,29 @@ void Net::requestCreditsStatusEvent()
     m_eventManager->push(std::make_shared<CreditsStatusRequestedEvent>());
 }
 
+void Net::requestFirmwaresList()
+{
+    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
+        && m_deviceInfo.provider != PROVIDER_VSCORBITRON)
+        return;
+
+    m_worker.postQueue(createGetRequestTask(
+            [this](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API request firmwares list: ok, {}", reply);
+                    m_eventManager->push(std::make_shared<FirmwaresListReceivedEvent>(reply)); 
+                } else {
+                    ERR("API request firmwares list: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this]() {
+                const auto endpoint = url(URL_SCORBITRON_FIRMWARES_LIST);
+                INF("API request firmwares list...");
+
+                return make_tuple(endpoint, cpr::Parameters {{"per_page", "100"}});
+            }));
+ }
 void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 {
     // This function can be used only once per application lifetime

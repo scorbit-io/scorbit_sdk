@@ -28,6 +28,7 @@ constexpr auto URL_SCORBITRON_SESSION_UPDATE {
 constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
 constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
 constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
+constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 

@@ -219,6 +219,7 @@ private:
     void checkNfcBootReason();
 
     void requestCreditsStatusEvent();
+    void requestFirmwaresList();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
 
