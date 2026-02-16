@@ -422,7 +422,7 @@ class SerialCable : public ProbeCable
         // Receive and verify header
         auto Header = DataRead(2);
         if (Header.size() != 2) return false;
-        if (Header[0] != 0x04 && Header[1] != 0x46) return false;
+        if (Header[0] != 0x04 || Header[1] != 0x46) return false;
         // Receive data
         if (Count)
             Data = DataRead(Count);
