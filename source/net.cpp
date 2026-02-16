@@ -81,6 +81,14 @@ constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
 
+std::string elideUrl(const std::string &url, size_t keep = 10)
+{
+    if (url.size() <= keep * 2 + 3) {
+        return url;
+    }
+    return url.substr(0, keep) + "..." + url.substr(url.size() - keep);
+}
+
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
 {
@@ -1634,8 +1642,10 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             const auto fullUrl = this->url(url);
             const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
 
+            const auto elidedUrl = elideUrl(fullUrl.str());
+
             for (int i = 0; i < NUM_RETRIES; ++i) {
-                INF("API Download file: {}", fullUrl.str());
+                INF("API Download file: {}", elidedUrl);
 
                 auto headers = isInternal ? authHeader() : cpr::Header {};
                 headers[HDR_KEY_ACCEPT_CONTENT] =
@@ -1654,7 +1664,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
                 error = Error::ApiError;
                 ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}",
-                    statusCode, r.error.message, reply, fullUrl.str());
+                    statusCode, r.error.message, reply, elidedUrl);
 
                 if (statusCode >= 400) {
                     break;
@@ -1687,6 +1697,8 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         headers[HDR_KEY_ACCEPT_CONTENT] =
                 std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
 
+        const auto elidedUrl = elideUrl(fullUrl.str());
+
         cpr::Session session;
         session.SetUrl(fullUrl);
         session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
@@ -1694,7 +1706,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         session.SetHeader(headers);
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            INF("API Download buffer: {}", fullUrl.str());
+            INF("API Download buffer: {}", elidedUrl);
 
             cpr::Response r = session.Download(
                     cpr::WriteCallback {[&buffer](const std::string_view &data, intptr_t) -> bool {
@@ -1715,7 +1727,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
 
             error = Error::ApiError;
             ERR("API Download buffer failed: code={}, message: {}, reply: {}, url: {}",
-                r.status_code, r.error.message, r.text, fullUrl.str());
+                r.status_code, r.error.message, r.text, elidedUrl);
 
             if (r.status_code >= 400) {
                 break;
