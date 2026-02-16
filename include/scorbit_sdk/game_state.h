@@ -421,9 +421,45 @@ public:
                                      cbPair.first, cbPair.second);
     }
 
+    /**
+     * @brief Download a file from a URL and save it to local storage.
+     *
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread.
+     *
+     * @param url The URL to download from.
+     * @param filename The local filename to save the downloaded file to.
+     * @param callback A callback function of type @ref StringCallback that receives the result.
+     * Returns @ref Error::Success if the download was successful. On success, the reply string
+     * contains the path to the downloaded file.
+     */
+    void download(const std::string &url, const std::string &filename, StringCallback callback)
+    {
+        auto cbPair = prepareStringCallback(std::move(callback));
+        sb_download(m_handle.get(), url.c_str(), filename.c_str(), cbPair.first, cbPair.second);
+    }
+
+    /**
+     * @brief Download data from a URL into a memory buffer.
+     *
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread.
+     *
+     * @param url The URL to download from.
+     * @param reserveBufferSize The initial buffer size to reserve for the download.
+     * @param callback A callback function of type @ref VectorCallback that receives the downloaded
+     * data. Returns @ref Error::Success if the download was successful.
+     */
+    void downloadBuffer(const std::string &url, size_t reserveBufferSize, VectorCallback callback)
+    {
+        auto cbPair = prepareBufferCallback(std::move(callback));
+        sb_download_buffer(m_handle.get(), url.c_str(), reserveBufferSize, cbPair.first,
+                           cbPair.second);
+    }
+
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
-    private:
+private:
     static void string_callback_c(sb_error_t error, const char *reply, void *user_data)
     {
         auto *cb = static_cast<StringCallback *>(user_data);
@@ -435,6 +471,24 @@ public:
     {
         auto *userData = new StringCallback(std::move(callback));
         return std::make_pair(&GameState::string_callback_c, userData);
+    }
+
+    static void buffer_callback_c(sb_error_t error, const uint8_t *data, size_t size,
+                                  void *user_data)
+    {
+        auto *cb = static_cast<VectorCallback *>(user_data);
+
+        if (data == nullptr) {
+            size = 0;
+        }
+        (*cb)(static_cast<Error>(error), std::vector<uint8_t>(data, data + size));
+        delete cb;
+    }
+
+    static std::pair<sb_buffer_callback_t, void *> prepareBufferCallback(VectorCallback callback)
+    {
+        auto *userData = new VectorCallback(std::move(callback));
+        return std::make_pair(&GameState::buffer_callback_c, userData);
     }
 
 private:

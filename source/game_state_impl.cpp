@@ -234,6 +234,18 @@ void GameStateImpl::requestPairMachine(const std::string &machineUuid, const std
     m_net->requestPairMachine(machineUuid, ownerUuid, std::move(callback));
 }
 
+void GameStateImpl::download(StringCallback callback, const std::string &url,
+                             const std::string &filename)
+{
+    m_net->download(std::move(callback), url, filename);
+}
+
+void GameStateImpl::downloadBuffer(VectorCallback callback, const std::string &url,
+                                   size_t reserveBufferSize)
+{
+    m_net->downloadBuffer(std::move(callback), url, reserveBufferSize);
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

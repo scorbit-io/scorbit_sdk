@@ -149,6 +149,9 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
 
 typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
+typedef void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size,
+                                     void *user_data);
+
 /**
  * Save key callback function type.
  *
