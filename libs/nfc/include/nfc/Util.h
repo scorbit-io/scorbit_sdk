@@ -75,20 +75,6 @@ class Util
             return false;
         }
     }
-    static bool FromString(const std::string& s, int16_t& value) 
-    { 
-        int32_t v; 
-        bool bOk = Util::FromString(s, v); 
-        value = (int16_t)v; 
-        return bOk; 
-    }
-    static bool FromString(const std::string& s, uint16_t& value)
-    {
-        uint32_t v;
-        bool bOk = Util::FromString(s, v);
-        value = (uint16_t)v;
-        return bOk;
-    }
 
     static std::string StringFromBuffer(std::vector<uint8_t>& data, int Pos, int MaxLen)
     {
@@ -115,23 +101,6 @@ class Util
         if (Pos + 8 > data.size()) return 0;
         return (uint64_t)UInt32FromBuffer(data, Pos) | ((uint64_t)UInt32FromBuffer(data, Pos + 4) << 32);
     }
-
-    static std::string ToHexString(const std::uint8_t* Data, std::size_t Size)
-    {
-        if (Data == nullptr || Size == 0) return std::string();
-
-        static const char kHex[] = "0123456789abcdef";
-        std::string out;
-        out.resize(Size * 2);
-        for (std::size_t i = 0; i < Size; i++)
-        {
-            const std::uint8_t b = Data[i];
-            out[2 * i + 0] = kHex[(b >> 4) & 0x0F];
-            out[2 * i + 1] = kHex[b & 0x0F];
-        }
-        return out;
-    }
-
     static std::vector<uint8_t> ReadAllBytes(const std::string& Filename)
     {
         // Allocate a vector

@@ -61,9 +61,6 @@ typedef enum
     ReadNfcInfos = 0x46,
     WriteNfcInfos = 0x4b,
 
-    WritePinMAMEControl = 0xd3,
-    ReadPinMAMEInfos = 0xd6,
-
 
     Reboot = 0xf3,
     Bootloader = 0xf7,
