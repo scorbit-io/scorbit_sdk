@@ -81,7 +81,7 @@ constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
 
-std::string elideUrl(const std::string &url, size_t keep = 10)
+std::string elideUrl(const std::string &url, size_t keep = 20)
 {
     if (url.size() <= keep * 2 + 3) {
         return url;
