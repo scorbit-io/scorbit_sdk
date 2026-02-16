@@ -219,6 +219,7 @@ private:
     void checkNfcBootReason();
 
     void requestCreditsStatusEvent();
+    void requestFirmwaresList();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
 
@@ -230,6 +231,11 @@ private:
                 fmt::format(endpoint, fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
                             fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
                             std::forward<Args>(args)...); // Pass extra args
+
+        if (formattedEndpoint.rfind("http://", 0) == 0
+            || formattedEndpoint.rfind("https://", 0) == 0) {
+            return cpr::Url {formattedEndpoint};
+        }
 
         const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
         return cpr::Url {myurl};

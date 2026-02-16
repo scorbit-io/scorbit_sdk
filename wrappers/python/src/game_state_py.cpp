@@ -115,10 +115,8 @@ PYBIND11_MODULE(scorbit, m)
 
     // Capability enum
     py::enum_<Capability>(m, "Capability", "Enumeration of device capabilities.")
-            .value("StartGame", Capability::StartGame,
-                   "Game can be started remotely.")
-            .value("CreditDrop", Capability::CreditDrop,
-                   "Machine can accept coin drop events.");
+            .value("StartGame", Capability::StartGame, "Game can be started remotely.")
+            .value("CreditDrop", Capability::CreditDrop, "Machine can accept coin drop events.");
 
     // Bind EventType enum
     py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
@@ -264,8 +262,7 @@ PYBIND11_MODULE(scorbit, m)
                 // Call the C++ method with our wrapped callback.
                 addLoggerCallback(std::move(safe_callback), max_length);
             },
-            py::arg("callback"),
-            py::arg("max_length"),
+            py::arg("callback"), py::arg("max_length"),
             R"doc(
                 Add a logger callback function to be invoked for log messages.
 
@@ -378,8 +375,8 @@ PYBIND11_MODULE(scorbit, m)
 
             .def(
                     "set_score_features",
-                    [](Config &self, const std::vector<std::string> &features,
-                       int version) -> Config & { return self.setScoreFeatures(features, version); },
+                    [](Config &self, const std::vector<std::string> &features, int version)
+                            -> Config & { return self.setScoreFeatures(features, version); },
                     py::arg("features"), py::arg("version"), py::return_value_policy::reference,
                     "Set score features and version.")
 
@@ -854,6 +851,76 @@ PYBIND11_MODULE(scorbit, m)
                             game_state.request_unpair(on_unpair_response)
                     )doc")
 
+            .def(
+                    "download",
+                    [](GameState &self, const std::string &url, const std::string &filename,
+                       py::function callback) {
+                        self.download(url, filename, makeSafeCallback(std::move(callback)));
+                    },
+                    py::arg("url"), py::arg("filename"), py::arg("callback"),
+                    R"doc(
+                        Download a file from a URL and save it to local storage.
+
+                        Note:
+                            The callback function is invoked asynchronously when the operation completes, running
+                            in a separate thread from the main calling thread. It is recommended to use appropriate
+                            locks (e.g., a mutex) when accessing shared data.
+
+                        Args:
+                            url (str): The URL to download from.
+                            filename (str): The local filename to save the downloaded file to.
+                            callback (Callable[[scorbit.Error, str], None]): A callback function that receives
+                                a `scorbit.Error` status and the result string. On success, the result string
+                                contains the path to the downloaded file.
+
+                        Example:
+                            def on_download_complete(error, result):
+                                if error == scorbit.Error.Success:
+                                    print(f"File downloaded to: {result}")
+                                else:
+                                    print(f"Download failed: {error}")
+
+                            game_state.download("https://example.com/file.bin", "file.bin", on_download_complete)
+                    )doc")
+
+            .def(
+                    "download_buffer",
+                    [](GameState &self, const std::string &url, size_t reserve_buffer_size,
+                       py::function callback) {
+                        auto safeCallback = makeSafeCallback(
+                                [callback = std::move(callback)](Error error,
+                                                                 const std::vector<uint8_t> &data) {
+                                    callback(error,
+                                             py::bytes(reinterpret_cast<const char *>(data.data()),
+                                                       data.size()));
+                                });
+                        self.downloadBuffer(url, reserve_buffer_size, std::move(safeCallback));
+                    },
+                    py::arg("url"), py::arg("reserve_buffer_size"), py::arg("callback"),
+                    R"doc(
+                        Download data from a URL into a memory buffer.
+
+                        Note:
+                            The callback function is invoked asynchronously when the operation completes, running
+                            in a separate thread from the main calling thread. It is recommended to use appropriate
+                            locks (e.g., a mutex) when accessing shared data.
+
+                        Args:
+                            url (str): The URL to download from.
+                            reserve_buffer_size (int): The initial buffer size to reserve for the download.
+                            callback (Callable[[scorbit.Error, bytes], None]): A callback function that receives
+                                a `scorbit.Error` status and the downloaded data as bytes.
+
+                        Example:
+                            def on_buffer_received(error, data):
+                                if error == scorbit.Error.Success:
+                                    print(f"Downloaded {len(data)} bytes")
+                                else:
+                                    print(f"Download failed: {error}")
+
+                            game_state.download_buffer("https://example.com/data", 4096, on_buffer_received)
+                    )doc")
+
             // -------------------------- PLAYER PROFILE INFO --------------------------------------
 
             .def("is_players_info_updated", &GameState::isPlayersInfoUpdated,
@@ -940,8 +1007,7 @@ PYBIND11_MODULE(scorbit, m)
 
     // Factory function - primary API
     m.def(
-            "create_game_state",
-            [](Config &config) { return createGameState(config); },
+            "create_game_state", [](Config &config) { return createGameState(config); },
             py::arg("config"),
             R"doc(
                 Factory function to create a GameState instance using Config.

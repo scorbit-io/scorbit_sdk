@@ -135,7 +135,6 @@ target_sources(
         source/test_event_manager.cpp
         ../../source/updater.h
         ../../source/updater.cpp
-        ../../source/utils/fs_read_write.cpp
 )
 
 target_link_libraries(

@@ -127,3 +127,18 @@ bool sb_event_scorbitd_updated(const sb_event_t *event, const char **version,
     *executable_path = derived->executable().c_str();
     return true;
 }
+
+bool sb_event_firmwares_list_received(const sb_event_t *event, const char **firmwares_list)
+{
+    if (!event || !firmwares_list) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::FirmwaresListReceivedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *firmwares_list = derived->firmwaresList().c_str();
+    return true;
+}

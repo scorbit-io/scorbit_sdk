@@ -17,7 +17,7 @@
  * SOFTWARE.
  */
 
-#include "fs_read_write.h"
+#include <utils/fs_read_write.h>
 
 #include <vector>
 #include <sstream>
@@ -27,8 +27,7 @@
 #    include <sys/mount.h>
 #endif
 
-using namespace scorbit::detail;
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -145,10 +144,9 @@ bool remountRO(const std::string &)
 
 } // namespace
 
-namespace scorbit {
-namespace detail {
+namespace utils {
 
-MakeWritableResult fsMakeWritable(const boost::filesystem::path &p)
+MakeWritableResult fsMakeWritable(const fs::path &p)
 {
     (void)p;
     std::string mp;
@@ -175,5 +173,4 @@ void fsRemountReadOnly(const std::string &mp)
     }
 }
 
-} // namespace detail
-} // namespace scorbits
+} // namespace utils

@@ -71,7 +71,7 @@ constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
 constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
 
-constexpr auto NFC_CHECK_TIME = 2000ms; // Check NFC nonces every 1000 milliseconds
+constexpr auto NFC_CHECK_TIME = 2000ms;    // Check NFC nonces every 1000 milliseconds
 constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seconds
 
 constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to download to memory
@@ -80,6 +80,14 @@ constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve fo
 constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
+
+std::string elideUrl(const std::string &url, size_t keep = 10)
+{
+    if (url.size() <= keep * 2 + 3) {
+        return url;
+    }
+    return url.substr(0, keep) + "..." + url.substr(url.size() - keep);
+}
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
                     const std::string &timestamp)
@@ -138,7 +146,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
-                                                     std::move(m_deviceInfo.m_eventCallback)))
+                                                    std::move(m_deviceInfo.m_eventCallback)))
 {
     setHostname(m_deviceInfo.hostname, "");
 
@@ -1257,6 +1265,7 @@ void Net::initializeConnectionState()
     requestReleaseTrackInfo();
 
     getConfig(); // Get template
+    requestFirmwaresList();
     sendHeartbeat();
     startHeartbeatTimer();
     centrifugoConnect();
@@ -1627,29 +1636,35 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
         std::ofstream file(filename, std::ios::binary);
         if (!file.is_open()) {
-            ERR("Can't open file for writing: {}", filename);
+            ERR("API Can't open file for writing: {}", filename);
             error = Error::FileError;
         } else {
+            const auto fullUrl = this->url(url);
+            const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
+
+            const auto elidedUrl = elideUrl(fullUrl.str());
+
             for (int i = 0; i < NUM_RETRIES; ++i) {
-                INF("Download file: {}", url);
+                INF("API Download file: {}", elidedUrl);
 
-                auto headers = authHeader();
-                headers[HDR_KEY_ACCEPT_CONTENT] = HDR_VAL_CONTENT_OCTET;
+                auto headers = isInternal ? authHeader() : cpr::Header {};
+                headers[HDR_KEY_ACCEPT_CONTENT] =
+                        std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
 
-                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT}, headers,
+                auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
                 reply = std::move(r.text);
                 statusCode = r.status_code;
 
                 if (statusCode == 200) {
-                    DBG("Download file: ok, {}", reply);
+                    DBG("API Download file: ok, {}", reply);
                     error = Error::Success;
                     break;
                 }
 
                 error = Error::ApiError;
-                ERR("Download file failed: code={}, message: {}, reply: {}", statusCode,
-                    r.error.message, reply);
+                ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}",
+                    statusCode, r.error.message, reply, elidedUrl);
 
                 if (statusCode >= 400) {
                     break;
@@ -1675,18 +1690,29 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
             buffer.reserve(reserveBufferSize);
         }
 
+        const auto fullUrl = this->url(url);
+        const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
+
+        auto headers = isInternal ? authHeader() : cpr::Header {};
+        headers[HDR_KEY_ACCEPT_CONTENT] =
+                std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
+
+        const auto elidedUrl = elideUrl(fullUrl.str());
+
         cpr::Session session;
-        session.SetUrl(cpr::Url {url});
+        session.SetUrl(fullUrl);
         session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
         session.SetSslOptions(sslOptions());
+        session.SetHeader(headers);
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            INF("Download buffer: {}", url);
+            INF("API Download buffer: {}", elidedUrl);
 
             cpr::Response r = session.Download(
                     cpr::WriteCallback {[&buffer](const std::string_view &data, intptr_t) -> bool {
                         if (buffer.size() + data.size() > MAX_BUFFER_DOWNLOAD_SIZE) {
-                            ERR("Download buffer: too big, {} bytes", buffer.size() + data.size());
+                            ERR("API Download buffer: too big, {} bytes",
+                                buffer.size() + data.size());
                             return false;
                         }
                         buffer.insert(buffer.end(), data.begin(), data.end());
@@ -1694,13 +1720,14 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
                     }});
 
             if (r.status_code == 200) {
-                DBG("Download buffer: ok, {} bytes", buffer.size());
+                DBG("API Download buffer: ok, {} bytes", buffer.size());
                 error = Error::Success;
                 break;
             }
 
             error = Error::ApiError;
-            ERR("Download buffer failed: code={}, message: {}", r.status_code, r.error.message);
+            ERR("API Download buffer failed: code={}, message: {}, reply: {}, url: {}",
+                r.status_code, r.error.message, r.text, elidedUrl);
 
             if (r.status_code >= 400) {
                 break;
@@ -1885,54 +1912,54 @@ void Net::centrifugoSetup()
         INF("API-CF Unsubscribed from channel: {}", channel);
     });
 
-    m_centrifugo->onPublication(
-            [this](const std::string &channel, centrifugo::Publication const &pub) {
-                try {
-                    INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
-                        pub.data.dump(), pub.offset);
-                    if (pub.info) {
-                        INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
-                            pub.info->client);
-                    }
+    m_centrifugo->onPublication([this](const std::string &channel,
+                                       centrifugo::Publication const &pub) {
+        try {
+            INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
+                pub.data.dump(), pub.offset);
+            if (pub.info) {
+                INF("API-CF Publication info, from user: {}, client: {}", pub.info->user,
+                    pub.info->client);
+            }
 
-                    if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
-                        const auto &j = pub.data;
-                        if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
-                            payloadIt != j.end() && payloadIt->is_object()) {
-                            const auto type = j.value(JKEY_CHN_TYPE, "");
+            if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
+                const auto &j = pub.data;
+                if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+                    payloadIt != j.end() && payloadIt->is_object()) {
+                    const auto type = j.value(JKEY_CHN_TYPE, "");
 
-                            if (type == JVAL_CHN_TYPE_START_GAME) {
-                                const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
-                                setNumberOfPlayersRequested(playerCount);
-                                m_eventManager->push(
-                                        std::make_shared<GameStartRequestedEvent>(playerCount));
-                            } else if (type == JVAL_TYPE_ACTION) {
-                                const auto method = payloadIt->value(JKEY_METHOD, "");
-                                const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
-                                if (method == JVAL_METHOD_GET) {
-                                    if (name == JVAL_ACITON_GET_SCORBITRON_SESSION) {
-                                        const auto url = payloadIt->value(JKEY_URL, "");
-                                        const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
-                                        requestSessionData(sessionUuid);
-                                    }
-                                } else if (method == JVAL_METHOD_MSG) {
-                                    requestCreditsStatusEvent(); // TODO add extra condition
-                                }
-                            } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
-                                const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);
-                                const auto transaction =
-                                        payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
-                                m_eventManager->push(std::make_shared<CreditsAddRequestedEvent>(
-                                        credits, transaction));
-                            } else {
-                                WRN("API-CF Unknown publication type: {}", type);
+                    if (type == JVAL_CHN_TYPE_START_GAME) {
+                        const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
+                        setNumberOfPlayersRequested(playerCount);
+                        m_eventManager->push(
+                                std::make_shared<GameStartRequestedEvent>(playerCount));
+                    } else if (type == JVAL_TYPE_ACTION) {
+                        const auto method = payloadIt->value(JKEY_METHOD, "");
+                        const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
+                        if (method == JVAL_METHOD_GET) {
+                            if (name == JVAL_ACITON_GET_SCORBITRON_SESSION) {
+                                const auto url = payloadIt->value(JKEY_URL, "");
+                                const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
+                                requestSessionData(sessionUuid);
                             }
+                        } else if (method == JVAL_METHOD_MSG) {
+                            requestCreditsStatusEvent(); // TODO add extra condition
                         }
+                    } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
+                        const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);
+                        const auto transaction =
+                                payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
+                        m_eventManager->push(
+                                std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
+                    } else {
+                        WRN("API-CF Unknown publication type: {}", type);
                     }
-                } catch (const std::exception &e) {
-                    ERR("API-CF Error parsing publication data: {}", e.what());
                 }
-            });
+            }
+        } catch (const std::exception &e) {
+            ERR("API-CF Error parsing publication data: {}", e.what());
+        }
+    });
 }
 
 void Net::centrifugoConnect()
@@ -2049,6 +2076,29 @@ void Net::requestCreditsStatusEvent()
     m_eventManager->push(std::make_shared<CreditsStatusRequestedEvent>());
 }
 
+void Net::requestFirmwaresList()
+{
+    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
+        && m_deviceInfo.provider != PROVIDER_VSCORBITRON)
+        return;
+
+    m_worker.postQueue(createGetRequestTask(
+            [this](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API request firmwares list: ok, {}", reply);
+                    m_eventManager->push(std::make_shared<FirmwaresListReceivedEvent>(reply));
+                } else {
+                    ERR("API request firmwares list: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this]() {
+                const auto endpoint = url(URL_SCORBITRON_FIRMWARES_LIST);
+                INF("API request firmwares list...");
+
+                return make_tuple(endpoint, cpr::Parameters {{"per_page", "100"}});
+            }));
+}
 void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 {
     // This function can be used only once per application lifetime

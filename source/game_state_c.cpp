@@ -291,3 +291,27 @@ void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits,
 {
     handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricing);
 }
+
+void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
+                 sb_string_callback_t callback, void *user_data)
+{
+    handle->gameState.download(
+            [callback, user_data](Error error, const std::string &reply) {
+                if (callback) {
+                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                }
+            },
+            url, filename);
+}
+
+void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
+                        sb_buffer_callback_t callback, void *user_data)
+{
+    handle->gameState.downloadBuffer(
+            [callback, user_data](Error error, const std::vector<uint8_t> &data) {
+                if (callback) {
+                    callback(static_cast<sb_error_t>(error), data.data(), data.size(), user_data);
+                }
+            },
+            url, reserve_buffer_size);
+}

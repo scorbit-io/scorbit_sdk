@@ -72,6 +72,9 @@ public:
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                             StringCallback callback);
 
+    void download(StringCallback callback, const std::string &url, const std::string &filename);
+    void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize);
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
