@@ -1638,7 +1638,8 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                 INF("API Download file: {}", fullUrl.str());
 
                 auto headers = isInternal ? authHeader() : cpr::Header {};
-                headers[HDR_KEY_ACCEPT_CONTENT] = HDR_VAL_CONTENT_OCTET;
+                headers[HDR_KEY_ACCEPT_CONTENT] =
+                        std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
 
                 auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
@@ -1683,7 +1684,8 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
 
         auto headers = isInternal ? authHeader() : cpr::Header {};
-        headers[HDR_KEY_ACCEPT_CONTENT] = HDR_VAL_CONTENT_OCTET;
+        headers[HDR_KEY_ACCEPT_CONTENT] =
+                std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
 
         cpr::Session session;
         session.SetUrl(fullUrl);
