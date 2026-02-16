@@ -19,19 +19,17 @@
 
 #pragma once
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <string>
 
-namespace scorbit {
-namespace detail {
+namespace utils {
 
 struct MakeWritableResult {
     bool ok;
     std::string mountPoint;
 };
 
-MakeWritableResult fsMakeWritable(const boost::filesystem::path &p);
+MakeWritableResult fsMakeWritable(const std::filesystem::path &p);
 void fsRemountReadOnly(const std::string &mp);
 
-} // namespace detail
-} // namespace scorbits
+} // namespace utils

@@ -211,8 +211,6 @@ target_sources(
         source/utils/jwt_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
-        source/utils/fs_read_write.h
-        source/utils/fs_read_write.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp

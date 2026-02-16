@@ -20,8 +20,8 @@
 #include "updater.h"
 #include <logger/logger.h>
 #include "utils/archiver.h"
-#include "utils/fs_read_write.h"
 #include <platform_id.h>
+#include <utils/fs_read_write.h>
 #include <scorbit_sdk/version.h>
 
 #include <fmt/chrono.h>
@@ -445,7 +445,7 @@ bool Updater::isScorbitdVersionCompatible(const std::string &newVersion) const
 
 bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
 {
-    const auto mountResult = fsMakeWritable(binaryInfo.path.parent_path());
+    const auto mountResult = utils::fsMakeWritable(binaryInfo.path.parent_path().native());
     if (!mountResult.ok) {
         const auto msg =
                 fmt::format("Failed to make filesystem writable: {}", mountResult.mountPoint);
@@ -455,7 +455,7 @@ bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &bi
     }
 
     const auto ok = downloadAndupdateTgz(urlInfo, binaryInfo);
-    fsRemountReadOnly(mountResult.mountPoint);
+    utils::fsRemountReadOnly(mountResult.mountPoint);
     return ok;
 }
 
