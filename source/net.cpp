@@ -1759,7 +1759,7 @@ cpr::SslOptions Net::sslOptions() const
     auto fs = cmrc::scorbit::get_filesystem();
     auto certFile = fs.open("cacert.pem");
     cpr::SslOptions ssl;
-    ssl.SetOption(cpr::ssl::CaBuffer {certFile.begin()});
+    ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
     ssl.SetOption(cpr::ssl::VerifyHost {true});
     return ssl;
 }
