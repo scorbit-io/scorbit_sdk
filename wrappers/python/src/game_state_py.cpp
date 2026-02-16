@@ -115,10 +115,8 @@ PYBIND11_MODULE(scorbit, m)
 
     // Capability enum
     py::enum_<Capability>(m, "Capability", "Enumeration of device capabilities.")
-            .value("StartGame", Capability::StartGame,
-                   "Game can be started remotely.")
-            .value("CreditDrop", Capability::CreditDrop,
-                   "Machine can accept coin drop events.");
+            .value("StartGame", Capability::StartGame, "Game can be started remotely.")
+            .value("CreditDrop", Capability::CreditDrop, "Machine can accept coin drop events.");
 
     // Bind EventType enum
     py::enum_<EventType>(m, "EventType", "Enumeration of event types.")
@@ -264,8 +262,7 @@ PYBIND11_MODULE(scorbit, m)
                 // Call the C++ method with our wrapped callback.
                 addLoggerCallback(std::move(safe_callback), max_length);
             },
-            py::arg("callback"),
-            py::arg("max_length"),
+            py::arg("callback"), py::arg("max_length"),
             R"doc(
                 Add a logger callback function to be invoked for log messages.
 
@@ -378,8 +375,8 @@ PYBIND11_MODULE(scorbit, m)
 
             .def(
                     "set_score_features",
-                    [](Config &self, const std::vector<std::string> &features,
-                       int version) -> Config & { return self.setScoreFeatures(features, version); },
+                    [](Config &self, const std::vector<std::string> &features, int version)
+                            -> Config & { return self.setScoreFeatures(features, version); },
                     py::arg("features"), py::arg("version"), py::return_value_policy::reference,
                     "Set score features and version.")
 
@@ -891,8 +888,8 @@ PYBIND11_MODULE(scorbit, m)
                     [](GameState &self, const std::string &url, size_t reserve_buffer_size,
                        py::function callback) {
                         auto safeCallback = makeSafeCallback(
-                                [callback = std::move(callback)](
-                                        Error error, const std::vector<uint8_t> &data) {
+                                [callback = std::move(callback)](Error error,
+                                                                 const std::vector<uint8_t> &data) {
                                     callback(error,
                                              py::bytes(reinterpret_cast<const char *>(data.data()),
                                                        data.size()));
@@ -1010,8 +1007,7 @@ PYBIND11_MODULE(scorbit, m)
 
     // Factory function - primary API
     m.def(
-            "create_game_state",
-            [](Config &config) { return createGameState(config); },
+            "create_game_state", [](Config &config) { return createGameState(config); },
             py::arg("config"),
             R"doc(
                 Factory function to create a GameState instance using Config.
