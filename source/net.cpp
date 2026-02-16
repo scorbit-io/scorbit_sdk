@@ -1637,7 +1637,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                 auto headers = authHeader();
                 headers[HDR_KEY_ACCEPT_CONTENT] = HDR_VAL_CONTENT_OCTET;
 
-                auto r = cpr::Download(file, cpr::Url {url}, cpr::Timeout {NET_TIMEOUT}, headers,
+                auto r = cpr::Download(file, this->url(url), cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
                 reply = std::move(r.text);
                 statusCode = r.status_code;
@@ -1677,7 +1677,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         }
 
         cpr::Session session;
-        session.SetUrl(cpr::Url {url});
+        session.SetUrl(this->url(url));
         session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
         session.SetSslOptions(sslOptions());
 

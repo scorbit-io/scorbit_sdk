@@ -232,6 +232,11 @@ private:
                             fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
                             std::forward<Args>(args)...); // Pass extra args
 
+        if (formattedEndpoint.rfind("http://", 0) == 0
+            || formattedEndpoint.rfind("https://", 0) == 0) {
+            return cpr::Url {formattedEndpoint};
+        }
+
         const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
         return cpr::Url {myurl};
     }
