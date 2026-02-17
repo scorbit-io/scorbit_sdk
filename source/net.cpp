@@ -466,14 +466,17 @@ void Net::requestUnpair(StringCallback callback)
                     });
 }
 
-void Net::download(StringCallback callback, const std::string &url, const std::string &filename)
+void Net::download(StringCallback callback, const std::string &url, const std::string &filename,
+                   const std::string &contentType)
 {
-    createDownloadFileTask(std::move(callback), url, filename)();
+    createDownloadFileTask(std::move(callback), url, filename, contentType)();
 }
 
-void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize)
+void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
+                         const std::string &contentType)
 {
-    m_worker.postQueue(createDownloadBufferTask(std::move(callback), url, reserveBufferSize));
+    m_worker.postQueue(
+            createDownloadBufferTask(std::move(callback), url, reserveBufferSize, contentType));
 }
 
 PlayerProfilesManager &Net::playersManager()
@@ -1626,10 +1629,10 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                   std::string filename)
+                                   std::string filename, std::string contentType)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url),
-            filename = std::move(filename)]() {
+            filename = std::move(filename), contentType = std::move(contentType)]() {
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
@@ -1649,7 +1652,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
                 auto headers = isInternal ? authHeader() : cpr::Header {};
                 headers[HDR_KEY_ACCEPT_CONTENT] =
-                        std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
+                        contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
 
                 auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
@@ -1681,9 +1684,10 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 }
 
 task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
-                                     size_t reserveBufferSize)
+                                     size_t reserveBufferSize, std::string contentType)
 {
-    return [this, callback = std::move(replyCallback), url = std::move(url), reserveBufferSize]() {
+    return [this, callback = std::move(replyCallback), url = std::move(url), reserveBufferSize,
+            contentType = std::move(contentType)]() {
         Error error {Error::ApiError};
         std::vector<uint8_t> buffer;
         if (reserveBufferSize > 0) {
@@ -1695,7 +1699,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
 
         auto headers = isInternal ? authHeader() : cpr::Header {};
         headers[HDR_KEY_ACCEPT_CONTENT] =
-                std::string(HDR_VAL_CONTENT_OCTET) + ", " + HDR_VAL_CONTENT_JSON;
+                contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 

@@ -854,10 +854,12 @@ PYBIND11_MODULE(scorbit, m)
             .def(
                     "download",
                     [](GameState &self, const std::string &url, const std::string &filename,
-                       py::function callback) {
-                        self.download(url, filename, makeSafeCallback(std::move(callback)));
+                       const std::string &content_type, py::function callback) {
+                        self.download(url, filename, content_type,
+                                      makeSafeCallback(std::move(callback)));
                     },
-                    py::arg("url"), py::arg("filename"), py::arg("callback"),
+                    py::arg("url"), py::arg("filename"), py::arg("content_type"),
+                    py::arg("callback"),
                     R"doc(
                         Download a file from a URL and save it to local storage.
 
@@ -869,6 +871,8 @@ PYBIND11_MODULE(scorbit, m)
                         Args:
                             url (str): The URL to download from.
                             filename (str): The local filename to save the downloaded file to.
+                            content_type (str): The accepted content type for the HTTP Accept header
+                                (e.g., "application/octet-stream"). Empty string to keep it default (octet-stream).
                             callback (Callable[[scorbit.Error, str], None]): A callback function that receives
                                 a `scorbit.Error` status and the result string. On success, the result string
                                 contains the path to the downloaded file.
@@ -880,13 +884,14 @@ PYBIND11_MODULE(scorbit, m)
                                 else:
                                     print(f"Download failed: {error}")
 
-                            game_state.download("https://example.com/file.bin", "file.bin", on_download_complete)
+                            game_state.download("https://example.com/file.bin", "file.bin",
+                                                "application/json", on_download_complete)
                     )doc")
 
             .def(
                     "download_buffer",
                     [](GameState &self, const std::string &url, size_t reserve_buffer_size,
-                       py::function callback) {
+                       const std::string &content_type, py::function callback) {
                         auto safeCallback = makeSafeCallback(
                                 [callback = std::move(callback)](Error error,
                                                                  const std::vector<uint8_t> &data) {
@@ -894,9 +899,11 @@ PYBIND11_MODULE(scorbit, m)
                                              py::bytes(reinterpret_cast<const char *>(data.data()),
                                                        data.size()));
                                 });
-                        self.downloadBuffer(url, reserve_buffer_size, std::move(safeCallback));
+                        self.downloadBuffer(url, reserve_buffer_size, content_type,
+                                            std::move(safeCallback));
                     },
-                    py::arg("url"), py::arg("reserve_buffer_size"), py::arg("callback"),
+                    py::arg("url"), py::arg("reserve_buffer_size"), py::arg("content_type"),
+                    py::arg("callback"),
                     R"doc(
                         Download data from a URL into a memory buffer.
 
@@ -908,6 +915,9 @@ PYBIND11_MODULE(scorbit, m)
                         Args:
                             url (str): The URL to download from.
                             reserve_buffer_size (int): The initial buffer size to reserve for the download.
+                            content_type (str): The accepted content type for the HTTP Accept header
+                                (e.g., "application/octet-stream, application/json"). Empty string to keep it
+                                default (octet-stream).
                             callback (Callable[[scorbit.Error, bytes], None]): A callback function that receives
                                 a `scorbit.Error` status and the downloaded data as bytes.
 
@@ -918,7 +928,8 @@ PYBIND11_MODULE(scorbit, m)
                                 else:
                                     print(f"Download failed: {error}")
 
-                            game_state.download_buffer("https://example.com/data", 4096, on_buffer_received)
+                            game_state.download_buffer("https://example.com/data", 4096,
+                                                       "application/json", on_buffer_received)
                     )doc")
 
             // -------------------------- PLAYER PROFILE INFO --------------------------------------

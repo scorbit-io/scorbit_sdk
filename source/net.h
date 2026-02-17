@@ -114,10 +114,10 @@ public:
     void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
-    void download(StringCallback callback, const std::string &url,
-                  const std::string &filename) override;
-    void downloadBuffer(VectorCallback callback, const std::string &url,
-                        size_t reserveBufferSize) override;
+    void download(StringCallback callback, const std::string &url, const std::string &filename,
+                  const std::string &contentType = {}) override;
+    void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
+                        const std::string &contentType = {}) override;
 
     PlayerProfilesManager &playersManager() override;
 
@@ -197,9 +197,9 @@ private:
                                            std::vector<AuthStatus> allowedStatuses = {
                                                    AuthStatus::AuthenticatedPaired});
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                  std::string filename);
+                                  std::string filename, std::string contentType);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
-                                    size_t reserveBufferSize);
+                                    size_t reserveBufferSize, std::string contentType);
 
     cpr::Header header() const;
     cpr::Header authHeader() const;

@@ -69,9 +69,9 @@ public:
     virtual void requestUnpair(StringCallback callback) = 0;
 
     virtual void download(StringCallback callback, const std::string &url,
-                          const std::string &filename) = 0;
+                          const std::string &filename, const std::string &contentType = {}) = 0;
     virtual void downloadBuffer(VectorCallback callback, const std::string &url,
-                                size_t reserveBufferSize) = 0;
+                                size_t reserveBufferSize, const std::string &contentType = {}) = 0;
 
     virtual PlayerProfilesManager &playersManager() = 0;
 
