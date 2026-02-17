@@ -1699,27 +1699,22 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 
-        cpr::Session session;
-        session.SetUrl(fullUrl);
-        session.SetTimeout(cpr::Timeout {NET_TIMEOUT});
-        session.SetSslOptions(sslOptions());
-        session.SetHeader(headers);
-
         for (int i = 0; i < NUM_RETRIES; ++i) {
             INF("API Download buffer: {}", elidedUrl);
 
-            cpr::Response r = session.Download(
-                    cpr::WriteCallback {[&buffer](const std::string_view &data, intptr_t) -> bool {
-                        if (buffer.size() + data.size() > MAX_BUFFER_DOWNLOAD_SIZE) {
-                            ERR("API Download buffer: too big, {} bytes",
-                                buffer.size() + data.size());
-                            return false;
-                        }
-                        buffer.insert(buffer.end(), data.begin(), data.end());
-                        return true;
-                    }});
+            auto r = cpr::Get(fullUrl, headers, cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (r.status_code == 200) {
+                const auto *data = reinterpret_cast<const uint8_t *>(r.text.data());
+                buffer.assign(data, data + r.text.size());
+
+                if (buffer.size() > MAX_BUFFER_DOWNLOAD_SIZE) {
+                    ERR("API Download buffer: too big, {} bytes", buffer.size());
+                    buffer.clear();
+                    error = Error::ApiError;
+                    break;
+                }
+
                 DBG("API Download buffer: ok, {} bytes", buffer.size());
                 error = Error::Success;
                 break;
@@ -1759,7 +1754,7 @@ cpr::SslOptions Net::sslOptions() const
     auto fs = cmrc::scorbit::get_filesystem();
     auto certFile = fs.open("cacert.pem");
     cpr::SslOptions ssl;
-    ssl.SetOption(cpr::ssl::CaBuffer {certFile.begin()});
+    ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
     ssl.SetOption(cpr::ssl::VerifyHost {true});
     return ssl;
 }
