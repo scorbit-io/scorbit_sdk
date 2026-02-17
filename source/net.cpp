@@ -81,6 +81,16 @@ constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
 
+bool isHostMatching(const std::string &url, const std::string &hostname)
+{
+    auto urlResult = boost::urls::parse_uri(url);
+    auto hostResult = boost::urls::parse_uri(hostname);
+    if (!urlResult || !hostResult) {
+        return false;
+    }
+    return urlResult->host() == hostResult->host();
+}
+
 std::string elideUrl(const std::string &url, size_t keep = 20)
 {
     if (url.size() <= keep * 2 + 3) {
@@ -1643,7 +1653,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             error = Error::FileError;
         } else {
             const auto fullUrl = this->url(url);
-            const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
+            const bool isInternal = isHostMatching(fullUrl.str(), m_hostname);
 
             const auto elidedUrl = elideUrl(fullUrl.str());
 
@@ -1695,7 +1705,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         }
 
         const auto fullUrl = this->url(url);
-        const bool isInternal = fullUrl.str().rfind(m_hostname, 0) == 0;
+        const bool isInternal = isHostMatching(fullUrl.str(), m_hostname);
 
         auto headers = isInternal ? authHeader() : cpr::Header {};
         headers[HDR_KEY_ACCEPT_CONTENT] =
