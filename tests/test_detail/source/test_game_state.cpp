@@ -75,8 +75,10 @@ public:
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
-    void download(StringCallback, const std::string &, const std::string &) override { };
-    void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
+    void download(StringCallback, const std::string &, const std::string &,
+                  const std::string &) override { };
+    void downloadBuffer(VectorCallback, const std::string &, size_t, const std::string &) override {
+    };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };

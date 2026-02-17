@@ -23,7 +23,6 @@
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
 #include "game_state_impl.h"
-#include "event_classes.h"
 #include "net.h"
 #include <logger/logger.h>
 #include "utils/decrypt.h"
@@ -293,7 +292,7 @@ void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits,
 }
 
 void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
-                 sb_string_callback_t callback, void *user_data)
+                 const char *content_type, sb_string_callback_t callback, void *user_data)
 {
     handle->gameState.download(
             [callback, user_data](Error error, const std::string &reply) {
@@ -301,11 +300,11 @@ void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
                     callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
                 }
             },
-            url, filename);
+            url, filename, content_type ? content_type : std::string {});
 }
 
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
-                        sb_buffer_callback_t callback, void *user_data)
+                        const char *content_type, sb_buffer_callback_t callback, void *user_data)
 {
     handle->gameState.downloadBuffer(
             [callback, user_data](Error error, const std::vector<uint8_t> &data) {
@@ -313,5 +312,5 @@ void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve
                     callback(static_cast<sb_error_t>(error), data.data(), data.size(), user_data);
                 }
             },
-            url, reserve_buffer_size);
+            url, reserve_buffer_size, content_type ? content_type : std::string {});
 }

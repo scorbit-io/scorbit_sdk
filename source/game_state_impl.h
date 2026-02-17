@@ -72,8 +72,10 @@ public:
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                             StringCallback callback);
 
-    void download(StringCallback callback, const std::string &url, const std::string &filename);
-    void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize);
+    void download(StringCallback callback, const std::string &url, const std::string &filename,
+                  const std::string &contentType = {});
+    void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
+                        const std::string &contentType = {});
 
 private:
     void addNewPlayer(sb_player_t player);

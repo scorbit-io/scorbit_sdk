@@ -429,14 +429,18 @@ public:
      *
      * @param url The URL to download from.
      * @param filename The local filename to save the downloaded file to.
+     * @param contentType The accepted content type to set in the HTTP Accept header
+     * (e.g., "application/octet-stream"). Empty string to keep it default (octet-stream).
      * @param callback A callback function of type @ref StringCallback that receives the result.
      * Returns @ref Error::Success if the download was successful. On success, the reply string
      * contains the path to the downloaded file.
      */
-    void download(const std::string &url, const std::string &filename, StringCallback callback)
+    void download(const std::string &url, const std::string &filename,
+                  const std::string &contentType, StringCallback callback)
     {
         auto cbPair = prepareStringCallback(std::move(callback));
-        sb_download(m_handle.get(), url.c_str(), filename.c_str(), cbPair.first, cbPair.second);
+        sb_download(m_handle.get(), url.c_str(), filename.c_str(), contentType.c_str(),
+                    cbPair.first, cbPair.second);
     }
 
     /**
@@ -447,14 +451,18 @@ public:
      *
      * @param url The URL to download from.
      * @param reserveBufferSize The initial buffer size to reserve for the download.
+     * @param contentType The accepted content type to set in the HTTP Accept header
+     * (e.g., "application/octet-stream, application/json"). Empty string to to keep it default
+     * (octet-stream).
      * @param callback A callback function of type @ref VectorCallback that receives the downloaded
      * data. Returns @ref Error::Success if the download was successful.
      */
-    void downloadBuffer(const std::string &url, size_t reserveBufferSize, VectorCallback callback)
+    void downloadBuffer(const std::string &url, size_t reserveBufferSize,
+                        const std::string &contentType, VectorCallback callback)
     {
         auto cbPair = prepareBufferCallback(std::move(callback));
-        sb_download_buffer(m_handle.get(), url.c_str(), reserveBufferSize, cbPair.first,
-                           cbPair.second);
+        sb_download_buffer(m_handle.get(), url.c_str(), reserveBufferSize, contentType.c_str(),
+                           cbPair.first, cbPair.second);
     }
 
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------

@@ -70,14 +70,17 @@ public:
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
-    MAKE_MOCK3(download, void(StringCallback, const std::string &, const std::string &), override);
+    MAKE_MOCK4(download,
+               void(StringCallback, const std::string &, const std::string &, const std::string &),
+               override);
 
-    void downloadBuffer(VectorCallback, const std::string &, size_t) override { };
+    void downloadBuffer(VectorCallback, const std::string &, size_t, const std::string &) override {
+    };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
-    void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
-    void setCapabilities(Capabilities capabilities) override {};
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override { };
+    void setCapabilities(Capabilities capabilities) override { };
     void setCreditsDropped(int, const std::string &, bool) override { };
     void setCreditsStatus(bool, int, int, const char *) override { };
 
@@ -111,8 +114,9 @@ TEST_CASE("Updater")
 
     SECTION("happy path")
     {
-        REQUIRE_CALL(mockNetRef,
-                     download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
+        REQUIRE_CALL(
+                mockNetRef,
+                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -120,8 +124,9 @@ TEST_CASE("Updater")
 
     SECTION("download error")
     {
-        REQUIRE_CALL(mockNetRef,
-                     download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
+        REQUIRE_CALL(
+                mockNetRef,
+                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
                 .LR_SIDE_EFFECT(_1(Error::ApiError, "some_temp_file.tar.gz");)
                 .TIMES(1);
 
@@ -221,8 +226,9 @@ TEST_CASE("Updater prod key hash check")
         // Create Updater object with mocked NetBase
         Updater updater(*mockNet, false, "1.99.30", "test_platform");
 
-        REQUIRE_CALL(mockNetRef,
-                     download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _))
+        REQUIRE_CALL(
+                mockNetRef,
+                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
