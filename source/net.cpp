@@ -684,7 +684,7 @@ task_t Net::createAuthenticateTask()
 
         // Get noop to get timestamp
         std::string timestamp;
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 10; ++i) {
             INF("API getting noop to retrieve server time...");
             auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
             std::string output =
@@ -697,6 +697,7 @@ task_t Net::createAuthenticateTask()
                 checkSystemTimeAccuracy(timestampUtc);
                 break;
             }
+            std::this_thread::sleep_for(1s);
         }
 
         for (;;) {
