@@ -687,7 +687,11 @@ task_t Net::createAuthenticateTask()
         for (int i = 0; i < 2; ++i) {
             INF("API getting noop to retrieve server time...");
             auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
+            std::string output =
+                    fmt::format("code: {}, reply: {}", noopReply.status_code, noopReply.text);
+            output += fmt::format("\nHEADER: [Date: {}]", noopReply.header["Date"]);
             const auto timestampUtc = parseHttpDateToUnixTimestamp(noopReply.header["Date"]);
+            INF("API noop timestamp: {}, output {}", timestampUtc, output);
             if (timestampUtc > 1770153380) { // Some viable timestamp (2026-02-03)
                 timestamp = std::to_string(timestampUtc);
                 checkSystemTimeAccuracy(timestampUtc);
