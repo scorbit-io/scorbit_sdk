@@ -94,8 +94,6 @@ if(APPLE AND NOT DEFINED LibArchive_ROOT)
 endif()
 find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
 
-include(${MY_CMAKE_DIR}/lib_centrifugo-cpp.cmake)
-
 # Boost -----------
 
 set(BOOST_COMPILED_COMPONENTS filesystem thread url)
@@ -103,6 +101,7 @@ set(BOOST_HEADER_ONLY_COMPONENTS asio uuid dll signals2)
 include(${MY_CMAKE_DIR}/lib_boost.cmake)
 
 include(${MY_CMAKE_DIR}/lib_nlohmann_json.cmake)
+include(${MY_CMAKE_DIR}/lib_centrifugo-cpp.cmake)
 
 CPMAddPackage(
     NAME logger
