@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 #include <tpm/tpm.h>
-#include "crypto_helpers.h"
+#include <tpm/crypto_helpers.h>
 #include <utils/bytearray.h>
 #include <nlohmann/json.hpp>
 

@@ -6,7 +6,7 @@
  * Proprietary License
  */
 
-#include "crypto_helpers.h"
+#include <tpm/crypto_helpers.h>
 #include "crypto_constants.h"
 #include "crypto_utils.h"
 #include <logger/logger.h>

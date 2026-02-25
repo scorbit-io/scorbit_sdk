@@ -188,7 +188,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
 // These callbacks are used to save and load a key to/from persistent storage.
 // The SDK will call these when it needs to persist or retrieve the key.
 
-static const char *KEY_FILE_PATH = "scorbit_key.txt";
+static const char *KEY_FILE_PATH = "scorbit_device_key.json";
 
 void saveKeyCallback(const char *key, void *user_data)
 {
@@ -305,14 +305,12 @@ sb_game_handle_t setup_game_state(void)
 
     // Set optional parameters
     sb_config_set_hostname(config, "staging"); // Optional, default is "production"
-    sb_config_set_uuid(config, "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab"); // Optional
-    sb_config_set_serial_number(config, 0);
     sb_config_set_auto_download_player_pics(config, false);
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);
 
-    // Set authentication - encrypted key (for non-TPM machines)
-    // The encrypted key is generated using encrypt_tool
+    // Provider's encrypted private key (generated using encrypt_tool).
+    // Used for V2 provisioning authentication to prove provider identity.
     sb_config_set_encrypted_key(config,
                                 "8qWNpMPeO1AbgcoPSsdeUORGmO/"
                                 "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
@@ -321,7 +319,9 @@ sb_game_handle_t setup_game_state(void)
     // Setup events callback - this must be done before creating the game state
     sb_config_set_event_callback(config, &eventsCallback, NULL);
 
-    // Setup key persistence callbacks - SDK will use these to save/load keys
+    // Key persistence callbacks - required for software key provisioning.
+    // On first run, the SDK provisions a new device key via the API and saves it.
+    // On subsequent runs, the saved key is loaded and used for authentication.
     sb_config_set_save_key_callback(config, &saveKeyCallback, NULL);
     sb_config_set_load_key_callback(config, &loadKeyCallback, NULL);
 

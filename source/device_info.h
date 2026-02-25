@@ -106,6 +106,14 @@ struct DeviceInfo {
     bool hasAuthenticationCallback() const { return signerCallback != nullptr; }
 
     /**
+     * Check if software key provisioning is possible (encrypted key + both callbacks).
+     */
+    bool hasSoftKeyProvisioning() const
+    {
+        return !encryptedKey.empty() && saveKeyCallback && loadKeyCallback;
+    }
+
+    /**
      * Convert to C sb_device_info_t (for deprecated API compatibility and testing).
      * Note: The returned struct contains pointers to this object's strings,
      * so it's only valid as long as this DeviceInfo exists.

@@ -6,7 +6,7 @@
  ****************************************************************************/
 
 #include "tpm/softwaretpm.h"
-#include "crypto_helpers.h"
+#include <tpm/crypto_helpers.h>
 
 #include <nlohmann/json.hpp>
 #include <logger/logger.h>

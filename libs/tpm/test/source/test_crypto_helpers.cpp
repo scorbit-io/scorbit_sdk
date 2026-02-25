@@ -4,7 +4,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
-#include "crypto_helpers.h"
+#include <tpm/crypto_helpers.h>
 #include <string>
 #include <vector>
 #include <algorithm>

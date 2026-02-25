@@ -24,12 +24,13 @@
 #include "device_info.h"
 #include "game_state_impl.h"
 #include "net.h"
+#include "key_resolver.h"
+#include "nfc_tpm_key_resolver.h"
+#include "soft_key_resolver.h"
 #include <logger/logger.h>
-#include "utils/decrypt.h"
-#include "utils/signer.h"
-#include <obfuscate.h>
 #include <string>
 #include <memory>
+#include <vector>
 
 using namespace scorbit;
 using namespace detail;
@@ -47,38 +48,16 @@ GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &devic
     return GameStateImpl(std::move(net));
 }
 
-GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &deviceInfo)
-{
-    auto signer = [encryptedKey = std::move(encryptedKey),
-                   provider = deviceInfo.provider](const Digest &digest) {
-        Signature signature;
-
-        const auto key = decryptSecret(
-                encryptedKey, provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
-        if (!key.empty()) {
-            const auto result = Signer::sign(signature, digest, key);
-            if (result != SignErrorCode::Ok) {
-                ERR(std::string {AY_OBFUSCATE("Failed to sign the digest. Error: {}")},
-                    static_cast<int>(result));
-                signature.clear();
-            }
-        }
-        return signature;
-    };
-
-    return createGameStateImpl(std::move(signer), deviceInfo, true);
-}
-
 }
 
 sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
-    if (!config || !config->hasAuthentication()) {
+    if (!config) {
         return nullptr;
     }
 
+    // Path 1: Signer callback (scorbitd)
     if (config->hasAuthenticationCallback()) {
-        // Use signer callback authentication
         auto signer = config->signerCallback;
         auto userData = config->signerUserData;
 
@@ -96,8 +75,20 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
         return new sb_game_state_struct {createGameStateImpl(std::move(cb), *config, false)};
     }
 
-    // Use encrypted key authentication
-    return new sb_game_state_struct {createGameStateImpl(config->encryptedKey, *config)};
+    // Path 2: Key resolver chain
+    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
+    resolvers.push_back(std::make_unique<SoftKeyResolver>());
+
+    for (const auto &resolver : resolvers) {
+        if (resolver->tryResolve(*config)) {
+            return new sb_game_state_struct {
+                    createGameStateImpl(resolver->createSigner(), *config, true)};
+        }
+    }
+
+    ERR("No authentication resolver succeeded");
+    return nullptr;
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

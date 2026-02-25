@@ -223,6 +223,13 @@ target_sources(
         source/event_manager.h
         source/dflags.h
         source/session_flags.h
+        source/key_resolver.h
+        source/nfc_tpm_key_resolver.h
+        source/nfc_tpm_key_resolver.cpp
+        source/provisioning_client.h
+        source/provisioning_client.cpp
+        source/soft_key_resolver.h
+        source/soft_key_resolver.cpp
 )
 
 # Conditionally include callback logger API implementation
