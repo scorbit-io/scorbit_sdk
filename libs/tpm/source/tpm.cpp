@@ -12,9 +12,35 @@
 #include <atca_device.h>
 #include <host/atca_host.h>
 #include <assert.h>
+#include <functional>
+#include <thread>
+
+using namespace std::chrono_literals;
 
 constexpr uint8_t SLB_I2C_BUS = 1;
 constexpr uint8_t SCORBITRON_V1_I2C_BUS = 0;
+constexpr auto MAX_RETRY_TIMES = 5;
+constexpr auto DELAY_BEFORE_RETRY = 20ms;
+
+namespace {
+
+ATCA_STATUS atcaRetry(std::function<ATCA_STATUS()> func)
+{
+    ATCA_STATUS status = ATCA_SUCCESS;
+    for (int i = 0; i < MAX_RETRY_TIMES; ++i) {
+        status = func();
+        if (status == ATCA_SUCCESS) {
+            return status;
+        }
+        WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
+            DELAY_BEFORE_RETRY.count());
+        std::this_thread::sleep_for(DELAY_BEFORE_RETRY);
+    }
+    ERR("{}: error {}, giving up after {} retries...", __func__, static_cast<int>(status), MAX_RETRY_TIMES);
+    return status;
+}
+
+} // namespace
 
 struct Tpm::Impl {
     Impl()
@@ -23,7 +49,8 @@ struct Tpm::Impl {
         assert(uuid.size() == 16);
     }
 
-    ~Impl() {
+    ~Impl()
+    {
         if (atcaDevice) {
             atcab_release_ext(&atcaDevice);
         }
@@ -83,7 +110,7 @@ ByteArray Tpm::info()
         return p->infoResult;
 
     ByteArray result(INFO_SIZE, 0);
-    auto status = calib_info(p->atcaDevice, result.data());
+    auto status = atcaRetry(std::bind(calib_info, p->atcaDevice, result.data()));
     if (status != ATCA_SUCCESS) {
         if (status != ATCA_COMM_FAIL) {
             ERR("{}: error {}", __func__, static_cast<int>(status));
@@ -97,7 +124,7 @@ ByteArray Tpm::info()
 ByteArray Tpm::tpmSerialNumber()
 {
     ByteArray result(ATCA_SERIAL_NUM_SIZE, 0);
-    auto status = calib_read_serial_number(p->atcaDevice, result.data());
+    auto status = atcaRetry(std::bind(calib_read_serial_number, p->atcaDevice, result.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -119,8 +146,8 @@ ByteArray Tpm::uuid() const
 bool Tpm::readSerialUuid()
 {
     ByteArray data(ATCA_BLOCK_SIZE, 0);
-    auto status = calib_read_bytes_zone(p->atcaDevice, ATCA_ZONE_DATA, SERIAL_SLOT, 0, data.data(),
-                                        ATCA_BLOCK_SIZE);
+    auto status = atcaRetry(std::bind(calib_read_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA,
+                                      SERIAL_SLOT, 0, data.data(), ATCA_BLOCK_SIZE));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, SERIAL_SLOT, static_cast<int>(status));
         return false;
@@ -138,7 +165,7 @@ bool Tpm::readSerialUuid()
 bool Tpm::isConfigLocked()
 {
     bool isLocked = false;
-    auto status = calib_is_locked(p->atcaDevice, LOCK_ZONE_CONFIG, &isLocked);
+    auto status = atcaRetry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_CONFIG, &isLocked));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
     }
@@ -149,7 +176,7 @@ bool Tpm::isConfigLocked()
 bool Tpm::isDataLocked()
 {
     bool isLocked = false;
-    auto status = calib_is_locked(p->atcaDevice, LOCK_ZONE_DATA, &isLocked);
+    auto status = atcaRetry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_DATA, &isLocked));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
     }
@@ -160,7 +187,7 @@ bool Tpm::isDataLocked()
 ByteArray Tpm::readConfig()
 {
     ByteArray config(ATCA_ECC_CONFIG_SIZE, 0);
-    auto status = calib_read_config_zone(p->atcaDevice, config.data());
+    auto status = atcaRetry(std::bind(calib_read_config_zone, p->atcaDevice, config.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -176,8 +203,8 @@ bool Tpm::verifySignature(const ByteArray &message, const ByteArray &signature,
     atcah_sha256(message.size(), message.data(), digest.data());
 
     bool isVerified;
-    auto status = calib_verify_extern(p->atcaDevice, digest.data(), signature.data(),
-                                      publicKey.data(), &isVerified);
+    auto status = atcaRetry(std::bind(calib_verify_extern, p->atcaDevice, digest.data(),
+                                      signature.data(), publicKey.data(), &isVerified));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return false;
@@ -197,7 +224,8 @@ ByteArray Tpm::signMessage(uint16_t keyId, const ByteArray &message)
 ByteArray Tpm::signDigest(uint16_t keyId, const ByteArray &digest)
 {
     ByteArray signature(ATCA_ECCP256_SIG_SIZE, 0);
-    auto status = calib_sign(p->atcaDevice, keyId, digest.data(), signature.data());
+    auto status =
+            atcaRetry(std::bind(calib_sign, p->atcaDevice, keyId, digest.data(), signature.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -209,7 +237,7 @@ ByteArray Tpm::signDigest(uint16_t keyId, const ByteArray &digest)
 ByteArray Tpm::getPublicKey(uint16_t keyId)
 {
     ByteArray data(ATCA_ECCP256_PUBKEY_SIZE, 0);
-    auto status = calib_get_pubkey(p->atcaDevice, keyId, data.data());
+    auto status = atcaRetry(std::bind(calib_get_pubkey, p->atcaDevice, keyId, data.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -220,7 +248,8 @@ ByteArray Tpm::getPublicKey(uint16_t keyId)
 
 bool Tpm::writeConfig(const uint8_t ATECC508A_CONFIGDATA[])
 {
-    auto status = calib_write_config_zone(p->atcaDevice, ATECC508A_CONFIGDATA);
+    auto status =
+            atcaRetry(std::bind(calib_write_config_zone, p->atcaDevice, ATECC508A_CONFIGDATA));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't write config, error {}", __func__, static_cast<int>(status));
         return false;
@@ -231,7 +260,7 @@ bool Tpm::writeConfig(const uint8_t ATECC508A_CONFIGDATA[])
 
 bool Tpm::lockConfig()
 {
-    auto status = calib_lock_config_zone(p->atcaDevice);
+    auto status = atcaRetry(std::bind(calib_lock_config_zone, p->atcaDevice));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't lock config, error {}", __func__, static_cast<int>(status));
         return false;
@@ -245,7 +274,7 @@ bool Tpm::lockData()
     if (isDataLocked())
         return false;
 
-    auto status = calib_lock_data_zone(p->atcaDevice);
+    auto status = atcaRetry(std::bind(calib_lock_data_zone, p->atcaDevice));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't lock data zone, error {}", __func__, static_cast<int>(status));
         return false;
@@ -261,7 +290,8 @@ bool Tpm::writeKey(uint16_t keyId, const ByteArray &key)
         return false;
     }
 
-    auto status = calib_priv_write(p->atcaDevice, keyId, key.data(), 0, nullptr, nullptr);
+    auto status = atcaRetry(
+            std::bind(calib_priv_write, p->atcaDevice, keyId, key.data(), 0, nullptr, nullptr));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, keyId, static_cast<int>(status));
         return false;
@@ -272,7 +302,7 @@ bool Tpm::writeKey(uint16_t keyId, const ByteArray &key)
 
 bool Tpm::genKey(uint16_t keyId)
 {
-    auto status = calib_genkey(p->atcaDevice, keyId, nullptr);
+    auto status = atcaRetry(std::bind(calib_genkey, p->atcaDevice, keyId, nullptr));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't generate key on slot {}, error {}", __func__, keyId,
             static_cast<int>(status));
@@ -289,8 +319,8 @@ bool Tpm::writeData(uint16_t slot, const ByteArray &data)
         return false;
     }
 
-    auto status = calib_write_bytes_zone(p->atcaDevice, ATCA_ZONE_DATA, slot, 0, data.data(),
-                                         data.size());
+    auto status = atcaRetry(std::bind(calib_write_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA, slot,
+                                      0, data.data(), data.size()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, slot, static_cast<int>(status));
         return false;
