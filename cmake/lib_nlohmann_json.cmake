@@ -48,6 +48,31 @@ else()
              message(FATAL_ERROR "nlohmann_json header not found at expected location: ${nlohmann_json_SOURCE_DIR}/include/nlohmann/json.hpp")
          endif()
      endif()
+
+     # Generate build-tree config so that downstream find_package(nlohmann_json) succeeds
+     set(_nlohmann_json_config_dir "${CMAKE_BINARY_DIR}/cmake/nlohmann_json")
+     file(WRITE "${_nlohmann_json_config_dir}/nlohmann_jsonConfig.cmake"
+         "if(NOT TARGET nlohmann_json::nlohmann_json)\n"
+         "    add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED)\n"
+         "    set_target_properties(nlohmann_json::nlohmann_json PROPERTIES\n"
+         "        INTERFACE_INCLUDE_DIRECTORIES \"${nlohmann_json_SOURCE_DIR}/include\"\n"
+         "    )\n"
+         "endif()\n"
+         "set(nlohmann_json_FOUND TRUE)\n"
+         "set(nlohmann_json_VERSION \"${TRY_NLOHMANN_JSON_VERSION}\")\n"
+     )
+     file(WRITE "${_nlohmann_json_config_dir}/nlohmann_jsonConfigVersion.cmake"
+         "set(PACKAGE_VERSION \"${TRY_NLOHMANN_JSON_VERSION}\")\n"
+         "if(PACKAGE_VERSION VERSION_LESS PACKAGE_FIND_VERSION)\n"
+         "    set(PACKAGE_VERSION_COMPATIBLE FALSE)\n"
+         "else()\n"
+         "    set(PACKAGE_VERSION_COMPATIBLE TRUE)\n"
+         "    if(PACKAGE_VERSION STREQUAL PACKAGE_FIND_VERSION)\n"
+         "        set(PACKAGE_VERSION_EXACT TRUE)\n"
+         "    endif()\n"
+         "endif()\n"
+     )
+     set(nlohmann_json_DIR "${_nlohmann_json_config_dir}" CACHE PATH "" FORCE)
 endif()
 
 # Function to install nlohmann_json when fetched via CPM
