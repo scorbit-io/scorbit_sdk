@@ -24,9 +24,15 @@
 #ifdef __linux__
 #include <unistd.h>
 #include <dirent.h>
-#endif
-#ifdef __APPLE__
+#include <sys/file.h>
+#include <sys/fcntl.h>
+#include <sys/stat.h>
+#elif defined(__APPLE__)
 #include <unistd.h>
+#include <sys/fcntl.h>
+#include <sys/stat.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #endif
 
 #ifndef DBG
@@ -252,3 +258,89 @@ class HardwareDebug
 };
 
 inline uint32_t HardwareDebug::DebugFlags = HardwareDebug::DebugNone;
+
+class InterprocessLock
+{
+    public:
+    explicit InterprocessLock(const std::string& LockName)
+    {
+        #ifdef _WIN32
+        std::string mutexName = "Local\\MyDeviceLock_" + LockName;
+
+        m_handle = ::CreateMutexA(nullptr, FALSE, mutexName.c_str());
+        if (m_handle == nullptr)
+        {
+            ERR("Can't create/open mutex !\n");
+            return;
+        }
+
+        DWORD waitResult = ::WaitForSingleObject(m_handle, INFINITE);
+        if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED)
+            m_locked = true;
+        else
+        {
+            ::CloseHandle(m_handle);
+            m_handle = nullptr;
+            ERR("Can't lock mutex !\n");
+            return;
+        }
+
+        #else
+        
+        std::string path = "/var/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
+        // Try to create the lock file
+        m_fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
+        // 2nd try as Read Only (if root has already created the file with a restrictive umask)
+        if (m_fd < 0 && errno == EACCES)
+            m_fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+        if (m_fd < 0)
+        {
+            ERR("Can't create lock file %s: %s\n", path.c_str(), std::strerror(errno));
+            return;
+        }
+
+        // Widen the permissions for others
+        ::fchmod(m_fd, 0666);
+
+        // Lock the file (and wait if it's already locked)
+        if (::flock(m_fd, LOCK_EX) == 0)
+            m_locked = true;
+        else
+        {
+            ::close(m_fd);
+            m_fd = -1;
+            ERR("Can't flock(%s): %s\n", path.c_str(), std::strerror(errno));
+            return;
+        }
+        #endif
+    }
+
+    ~InterprocessLock()
+    {
+        #ifdef _WIN32
+        if (m_handle != nullptr)
+        {
+            ::ReleaseMutex(m_handle);
+            ::CloseHandle(m_handle);
+        }
+        #else
+        if (m_fd >= 0)
+        {
+            ::flock(m_fd, LOCK_UN);
+            ::close(m_fd);
+        }
+        #endif
+    }
+
+    InterprocessLock(const InterprocessLock&) = delete;
+    InterprocessLock& operator=(const InterprocessLock&) = delete;
+    bool IsLocked() const { return m_locked; }
+
+    private:
+    bool m_locked = false;
+    #ifdef _WIN32
+    HANDLE m_handle = nullptr;
+    #else
+    int m_fd = -1;
+    #endif
+};
