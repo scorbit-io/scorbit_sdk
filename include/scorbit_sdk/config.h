@@ -271,6 +271,12 @@ public:
         return *this;
     }
 
+    Config &setMachineTitle(const std::string &title)
+    {
+        sb_config_set_machine_title(m_handle.get(), title.c_str());
+        return *this;
+    }
+
     // Move semantics
     Config(Config &&) = default;
     Config &operator=(Config &&) = default;

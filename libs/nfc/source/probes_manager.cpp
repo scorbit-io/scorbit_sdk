@@ -7,6 +7,7 @@
 
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
+#include "nfc/Discovery.h"
 #include "list_usb_devices.h"
 
 #include <fmt/format.h>
@@ -58,6 +59,8 @@ void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPat
             m_nfc->SetType(ProbeNFC::NfcType_t::TAG);
         }
     }
+
+    m_discovery = std::make_shared<NetworkDiscovery>();
 }
 
 auto ProbesManager::isNfcTagRead() const -> bool
@@ -92,6 +95,11 @@ auto ProbesManager::setNfcLeds(NfcLedMode mode) -> bool
         }
     }
     return false;
+}
+
+auto ProbesManager::setDiscoveryDescription(const std::string &description) -> bool
+{
+    return m_discovery->Initialize(description);
 }
 
 auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::string>
