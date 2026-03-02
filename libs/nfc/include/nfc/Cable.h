@@ -52,12 +52,27 @@ class ProbeCable
     virtual void Close() {}
     virtual void ListDevices() {} // List sub-devices on this cable
 
-    virtual bool DataWrite(const std::vector<uint8_t>& Buffer, bool bEndTransaction = true) { return false; }
-    virtual std::vector<uint8_t> DataRead(int count, bool bEndTransaction = true, int TimeoutMs = 2000) { return {}; }
-
     virtual bool Command(uint8_t Cmd) { return false; }
     virtual bool CommandWrite(uint8_t Cmd, uint32_t Address, const std::vector<uint8_t>& Data) { return false; }
     virtual std::vector<uint8_t> CommandRead(uint8_t Cmd, uint32_t Address, int Count) { return {}; }
+    virtual std::vector<uint8_t> DataRead(int count, bool bEndTransaction = true, int TimeoutMs = 2000) 
+    { 
+        // Prevent concurrent execution with other processes
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return {};
+        return _DataRead(count, bEndTransaction, TimeoutMs);
+    }
+    virtual bool DataWrite(const std::vector<uint8_t>& Buffer, bool bEndTransaction = true) 
+    { 
+        // Prevent concurrent execution with other processes
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return {};
+        return _DataWrite(Buffer, bEndTransaction);
+    }
+
+    private:
+    virtual std::vector<uint8_t> _DataRead(int count, bool bEndTransaction = true, int TimeoutMs = 2000) { return {}; }
+    virtual bool _DataWrite(const std::vector<uint8_t>& Buffer, bool bEndTransaction = true) { return false; }
 };
 
 class SerialCable : public ProbeCable 
@@ -83,6 +98,10 @@ class SerialCable : public ProbeCable
 
         // Call base function
         ProbeCable::Initialize(sDevice);
+
+        // Interlock the initialization
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return false;
 
         #if defined(_WIN32)
             // Close serial port if necessary
@@ -133,7 +152,7 @@ class SerialCable : public ProbeCable
             if (hSerial < 0) return false;
 
             // Ensure exclusivity
-            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
+            //if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
 
             // Get the current port settings
             struct termios options;
@@ -169,7 +188,7 @@ class SerialCable : public ProbeCable
             }
 
             // Ensure exclusivity
-            if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
+            //if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
 
 		    // Initialize the serial port
 		    struct termios options;
@@ -182,7 +201,7 @@ class SerialCable : public ProbeCable
 		    options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
 		    options.c_iflag &= ~(INPCK | ISTRIP);
 		    options.c_oflag &= ~OPOST;
-		    tcflush(hSerial, TCIFLUSH);
+		    tcflush(hSerial, TCIOFLUSH);
 		    tcsetattr(hSerial, TCSANOW, &options);
         #else
             #error "Platform not supported !"
@@ -194,7 +213,7 @@ class SerialCable : public ProbeCable
             DeviceIndex = std::stoi(sDevice.substr(pos + 1));
 
         // To resync the receiver
-        DataWrite({ 0x00, 0x00, 0x00, 0x00, 0x00 });
+        _DataWrite({ 0x00, 0x00, 0x00, 0x00, 0x00 });
 
         return true;
     }
@@ -286,20 +305,74 @@ class SerialCable : public ProbeCable
         #endif
     }
 
-    virtual bool DataWrite(const std::vector<uint8_t>& buffer, bool bEndTransaction = true)
-    {
+    // Serial USB Protocol
+    // Frames sent to the probes :
+    //   Header16 Cmd8 Address16 Count16 Data* Crc16
+    //      Header16  : 0x4503 (Little Endian)
+    //      Cmd8      : This byte is defined as follow :
+    //		    {ID[5:0], HASPARAMS, WR}
+    //		    - ID: Message id
+    // 		    - WR: Read(0) or Write(1) message
+    //		    - HASPARAMS : 0 when the message has no address and data, 1 otherwise
+    //      Address16 : 16-bit address for the data (Little Endian)
+    //      Count16   : 16-bit count for the data (Little Endian)
+    //      Data*     : 1 or multiple bytes to read/write
+    //      Crc16     : 16-bit (Little Endian) 1-complement sum of all bytes in the frame (Header included, Crc excluded)
+    //
+    // The reply from the probe is a frame with the following format :
+    //  Header16 Data* Crc16
+    //      Header16  : 0x4604 (Little Endian)
+    //      Data*     : 1 or multiple bytes (the Count is specfied in the request)
+    //      Crc16     : 16-bit (Little Endian) 1-complement sum of all bytes in the frame (Header included, Crc excluded)
 
-        #ifdef _WIN32
-        if (hSerial == INVALID_HANDLE_VALUE) return false;
-        DWORD bytesWritten;
-        WriteFile(hSerial, buffer.data(), (DWORD)buffer.size(), &bytesWritten, nullptr);
-        return bytesWritten == buffer.size();
-        #else
-        return hSerial >= 0 && write(hSerial, buffer.data(), (int)buffer.size()) == buffer.size();
-        #endif
+    virtual bool Command(uint8_t cmd)
+    {
+        // Prevent concurrent execution with other processes
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return false;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!_DataWrite(AddCrc({ 0x03, 0x45, cmd }))) return false;
+        std::vector<uint8_t> data;
+        return WaitForReply(data, 0);
     }
 
-    virtual std::vector<uint8_t> DataRead(int count, bool bEndTransaction = true, int TimeoutMs = 2000)
+    virtual bool CommandWrite(uint8_t cmd, uint32_t address, const std::vector<uint8_t>& data)
+    {
+        // Prevent concurrent execution with other processes
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return false;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::vector <uint8_t> buffer = { 0x03, 0x45, cmd, (uint8_t)address, (uint8_t)(address >> 8), (uint8_t)data.size(), (uint8_t)(data.size() >> 8) };
+        buffer.insert(buffer.end(), data.begin(), data.end());
+        if (!_DataWrite(AddCrc({ buffer }))) return false;
+        return WaitForReply(buffer, 0);
+    }
+
+    virtual std::vector<uint8_t> CommandRead(uint8_t cmd, uint32_t address, int Count)
+    {
+        // Prevent concurrent execution with other processes
+        InterprocessLock lock(DeviceName);
+        if (!lock.IsLocked()) return {};
+
+        #ifndef _WIN32
+        // Flush any pending char
+        // Due to a bug in the cdc driver, the whole system crashes when closing a non-empty channel from a probe with a composite USB device
+        // This can only happen during a "--spb detect" with probes compiles with a debug log (2nd cdc)
+        char c; while (read(hSerial, &c, 1) > 0) /* Do nothing */;
+        #endif
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!_DataWrite(AddCrc({ 0x03, 0x45, cmd, (uint8_t)address, (uint8_t)(address >> 8), (uint8_t)Count, (uint8_t)(Count >> 8) }), false)) 
+            return {};
+        std::vector<uint8_t> Data;
+        if (!WaitForReply(Data, Count)) return {};
+        return Data;
+    }
+
+    private:
+    virtual std::vector<uint8_t> _DataRead(int count, bool bEndTransaction = true, int TimeoutMs = 2000)
     {
         #ifdef _WIN32
         if (hSerial == INVALID_HANDLE_VALUE) return {};
@@ -351,62 +424,19 @@ class SerialCable : public ProbeCable
 
         return buffer;
     }
-
-    // Serial USB Protocol
-    // Frames sent to the probes :
-    //   Header16 Cmd8 Address16 Count16 Data* Crc16
-    //      Header16  : 0x4503 (Little Endian)
-    //      Cmd8      : This byte is defined as follow :
-    //		    {ID[5:0], HASPARAMS, WR}
-    //		    - ID: Message id
-    // 		    - WR: Read(0) or Write(1) message
-    //		    - HASPARAMS : 0 when the message has no address and data, 1 otherwise
-    //      Address16 : 16-bit address for the data (Little Endian)
-    //      Count16   : 16-bit count for the data (Little Endian)
-    //      Data*     : 1 or multiple bytes to read/write
-    //      Crc16     : 16-bit (Little Endian) 1-complement sum of all bytes in the frame (Header included, Crc excluded)
-    //
-    // The reply from the probe is a frame with the following format :
-    //  Header16 Data* Crc16
-    //      Header16  : 0x4604 (Little Endian)
-    //      Data*     : 1 or multiple bytes (the Count is specfied in the request)
-    //      Crc16     : 16-bit (Little Endian) 1-complement sum of all bytes in the frame (Header included, Crc excluded)
-
-    virtual bool Command(uint8_t cmd)
+    virtual bool _DataWrite(const std::vector<uint8_t>& buffer, bool bEndTransaction = true)
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        if (!DataWrite(AddCrc({ 0x03, 0x45, cmd }))) return false;
-        std::vector<uint8_t> data;
-        return WaitForReply(data, 0);
-    }
 
-    virtual bool CommandWrite(uint8_t cmd, uint32_t address, const std::vector<uint8_t>& data)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        std::vector <uint8_t> buffer = { 0x03, 0x45, cmd, (uint8_t)address, (uint8_t)(address >> 8), (uint8_t)data.size(), (uint8_t)(data.size() >> 8) };
-        buffer.insert(buffer.end(), data.begin(), data.end());
-        if (!DataWrite(AddCrc({ buffer }))) return false;
-        return WaitForReply(buffer, 0);
-    }
-
-    virtual std::vector<uint8_t> CommandRead(uint8_t cmd, uint32_t address, int Count)
-    {
-        #ifndef _WIN32
-        // Flush any pending char
-        // Due to a bug in the cdc driver, the whole system crashes when closing a non-empty channel from a probe with a composite USB device
-        // This can only happen during a "--spb detect" with probes compiles with a debug log (2nd cdc)
-        char c; while (read(hSerial, &c, 1) > 0) /* Do nothing */;
+        #ifdef _WIN32
+        if (hSerial == INVALID_HANDLE_VALUE) return false;
+        DWORD bytesWritten;
+        WriteFile(hSerial, buffer.data(), (DWORD)buffer.size(), &bytesWritten, nullptr);
+        return bytesWritten == buffer.size();
+        #else
+        return hSerial >= 0 && write(hSerial, buffer.data(), (int)buffer.size()) == buffer.size();
         #endif
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        if (!DataWrite(AddCrc({ 0x03, 0x45, cmd, (uint8_t)address, (uint8_t)(address >> 8), (uint8_t)Count, (uint8_t)(Count >> 8) }), false)) 
-            return {};
-        std::vector<uint8_t> Data;
-        if (!WaitForReply(Data, Count)) return {};
-        return Data;
     }
 
-    private:
     std::vector<uint8_t> AddCrc(std::vector<uint8_t> data)
     {
         uint16_t Crc = 0;
@@ -420,16 +450,16 @@ class SerialCable : public ProbeCable
     bool WaitForReply(std::vector<uint8_t>& Data, int Count)
     {
         // Receive and verify header
-        auto Header = DataRead(2);
+        auto Header = _DataRead(2);
         if (Header.size() != 2) return false;
         if (Header[0] != 0x04 || Header[1] != 0x46) return false;
         // Receive data
         if (Count)
-            Data = DataRead(Count);
+            Data = _DataRead(Count);
         else
             Data = {};
         // Receive Crc
-        auto Crc = DataRead(2);
+        auto Crc = _DataRead(2);
         if (Crc.size() != 2) return false;
         // Verify Crc
         uint16_t Sum = 0;
