@@ -133,6 +133,13 @@ void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform
     }
 }
 
+void sb_config_set_machine_title(sb_config_t config, const char *title)
+{
+    if (config) {
+        config->machineTitle = title ? title : std::string {};
+    }
+}
+
 void sb_config_set_event_callback(sb_config_t config, sb_event_callback_t callback, void *user_data)
 {
     using scorbit::detail::EventBase;

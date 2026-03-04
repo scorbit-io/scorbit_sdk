@@ -82,6 +82,7 @@ class Net : public NetBase
         std::string machineUuid;
         std::optional<std::string> variantUuid;
         std::optional<std::string> venueUuid;
+        std::string title;
     };
 
 public:
@@ -159,6 +160,7 @@ private:
     void sendScorbitronObject();
 
     void requestReleaseTrackInfo();
+    void requestMachineObject();
 
     void requestSessionData(const std::string &sessionUuid);
 
@@ -222,6 +224,7 @@ private:
     void requestFirmwaresList();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
+    void updateDiscoveryDescription();
 
     // Make url() a variadic template that forwards all args to fmt::format
     template<typename... Args>
@@ -269,6 +272,7 @@ private:
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
+    std::string m_disoveryDescription;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;

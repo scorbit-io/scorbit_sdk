@@ -177,6 +177,9 @@ void sb_config_set_scorbitd_version(sb_config_t config, const char *version);
 SCORBIT_SDK_EXPORT
 void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform_id);
 
+SCORBIT_SDK_EXPORT
+void sb_config_set_machine_title(sb_config_t config, const char *title);
+
 // ------------------------------------------------------------------------------------------------
 // Event callback configuration
 // ------------------------------------------------------------------------------------------------

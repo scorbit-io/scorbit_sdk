@@ -549,6 +549,7 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
     }
 
     checkNfcBootReason();
+    updateDiscoveryDescription();
 }
 
 void Net::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -1368,6 +1369,34 @@ void Net::requestReleaseTrackInfo()
             }));
 }
 
+void Net::requestMachineObject()
+{
+    INF("API request machine object...");
+
+    auto callback = [this](Error error, std::string reply) {
+        if (error == Error::Success) {
+            INF("API request machine object: ok, {}", reply);
+            try {
+                const auto j = json::parse(reply);
+                const auto name = j.value(JKEY_MOBJ_NAME, std::string {});
+                const auto edition = j.value(JKEY_MOBJ_EDITION, std::string {});
+
+                m_machineInfo.title = fmt::format("{} ({})", name, edition);
+                updateDiscoveryDescription();
+            } catch (const std::exception &e) {
+                ERR("API reuquest machine object parse error: {}, reply: {}", e.what(), reply);
+            }
+        } else {
+            ERR("API reuquest machine object: failed, error code: {}, reply: {}",
+                static_cast<int>(error), reply);
+        }
+    };
+
+    m_worker.post(createGetRequestTask(std::move(callback), [this]() {
+        return make_tuple(url(URL_MACHINE_OBJECT), cpr::Parameters {});
+    }));
+}
+
 void Net::requestSessionData(const std::string &sessionUuid)
 {
     INF("API post queue request session data, uuid: {} ...", sessionUuid);
@@ -1485,6 +1514,11 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             m_machineInfo.machineUuid.clear();
             m_machineInfo.variantUuid.reset();
             m_machineInfo.venueUuid.reset();
+            m_machineInfo.title = fmt::format("not paired");
+
+            updateDiscoveryDescription();
+        } else {
+            requestMachineObject();
         }
 
         // Get release track url
@@ -1713,8 +1747,7 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         const bool isInternal = isHostMatching(fullUrl.str(), m_hostname);
 
         auto headers = isInternal ? authHeader() : cpr::Header {};
-        headers[HDR_KEY_ACCEPT_CONTENT] =
-                contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
+        headers[HDR_KEY_ACCEPT_CONTENT] = contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 
@@ -2136,6 +2169,34 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
         } else {
             WRN("Couldn't set system date time");
         }
+    }
+}
+
+void Net::updateDiscoveryDescription()
+{
+    const auto version = std::invoke([this]() {
+        if (m_deviceInfo.provider == PROVIDER_SCORBITRON
+            || m_deviceInfo.provider == PROVIDER_VSCORBITRON) {
+            return fmt::format("scorbitd: {}", m_deviceInfo.scorbitdVersion);
+        }
+        return fmt::format("provider: {}, version: {}", m_deviceInfo.provider,
+                           m_deviceInfo.gameCodeVersion);
+    });
+
+    const auto clientDescription = std::invoke([this]() {
+        if (!m_deviceInfo.machineTitle.empty()) {
+            return fmt::format(", client description: {}", m_deviceInfo.machineTitle);
+        }
+        return std::string {};
+    });
+
+    const auto description = fmt::format("serial: {}, machine: {}{}, {}", m_deviceInfo.serialNumber,
+                                         m_machineInfo.title, clientDescription, version);
+
+    if (m_disoveryDescription != description
+        && m_probesManager->setDiscoveryDescription(description)) {
+        m_disoveryDescription = description;
+        INF("Discovery description updated: {}", m_disoveryDescription);
     }
 }
 

@@ -29,6 +29,7 @@ constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
 constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
 constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
 constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
+constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 
@@ -155,6 +156,10 @@ constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};
 constexpr auto JKEY_SOBJ_PAYMENTS_ENABLED {"payments_enabled"};
+
+// Machine object
+constexpr auto JKEY_MOBJ_NAME {"name"};
+constexpr auto JKEY_MOBJ_EDITION {"edition"};
 
 // Session
 constexpr auto JKEY_SESS_UUID {"id"};

@@ -15,6 +15,7 @@
 
 class ProbeBase;
 class ProbeNFC;
+class NetworkDiscovery;
 
 namespace nfc {
 
@@ -48,10 +49,13 @@ public:
     auto setNfcTag(const std::string &tag) -> bool;
     auto setNfcLeds(NfcLedMode mode) -> bool;
 
+    auto setDiscoveryDescription(const std::string &description) -> bool;
+
     auto probesBootReason(ProbeType probeType) -> std::optional<std::string>;
 
 private:
     std::shared_ptr<ProbeNFC> m_nfc;
+    std::shared_ptr<NetworkDiscovery> m_discovery;
 };
 
 } // namespace nfc
