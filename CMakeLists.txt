@@ -203,7 +203,7 @@ target_sources(
         source/utils/mac_address.cpp
         source/utils/decrypt.h
         source/utils/decrypt.cpp
-        source/utils/signer.h
+
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
         source/utils/jwt_parser.h

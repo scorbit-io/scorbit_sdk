@@ -95,7 +95,7 @@ DeviceInfo makeSoftKeyDeviceInfo(LoadKeyCallback loadCb)
     info.gameCodeVersion = "1.0.0";
     info.hostname = "staging";
     info.encryptedKey = makeProviderEncryptedKey();
-    info.saveKeyCallback = [](const std::string &) {};
+    info.saveKeyCallback = [](const std::string &) { };
     info.loadKeyCallback = std::move(loadCb);
     return info;
 }
@@ -112,7 +112,7 @@ TEST_CASE("hasSoftKeyProvisioning requires all three components", "[DeviceInfo][
     {
         DeviceInfo info;
         info.encryptedKey = "some_key";
-        info.saveKeyCallback = [](const std::string &) {};
+        info.saveKeyCallback = [](const std::string &) { };
         info.loadKeyCallback = []() { return std::string {}; };
         REQUIRE(info.hasSoftKeyProvisioning());
     }
@@ -120,7 +120,7 @@ TEST_CASE("hasSoftKeyProvisioning requires all three components", "[DeviceInfo][
     SECTION("Returns false without encrypted key")
     {
         DeviceInfo info;
-        info.saveKeyCallback = [](const std::string &) {};
+        info.saveKeyCallback = [](const std::string &) { };
         info.loadKeyCallback = []() { return std::string {}; };
         REQUIRE_FALSE(info.hasSoftKeyProvisioning());
     }
@@ -137,7 +137,7 @@ TEST_CASE("hasSoftKeyProvisioning requires all three components", "[DeviceInfo][
     {
         DeviceInfo info;
         info.encryptedKey = "some_key";
-        info.saveKeyCallback = [](const std::string &) {};
+        info.saveKeyCallback = [](const std::string &) { };
         REQUIRE_FALSE(info.hasSoftKeyProvisioning());
     }
 
@@ -261,7 +261,7 @@ TEST_CASE("SoftKeyResolver requires soft key provisioning config", "[SoftKeyReso
     SECTION("No encrypted key")
     {
         DeviceInfo info;
-        info.saveKeyCallback = [](const std::string &) {};
+        info.saveKeyCallback = [](const std::string &) { };
         info.loadKeyCallback = []() { return makeValidKeyJson(); };
 
         SoftKeyResolver resolver;
@@ -282,7 +282,7 @@ TEST_CASE("SoftKeyResolver requires soft key provisioning config", "[SoftKeyReso
     {
         DeviceInfo info;
         info.encryptedKey = makeProviderEncryptedKey();
-        info.saveKeyCallback = [](const std::string &) {};
+        info.saveKeyCallback = [](const std::string &) { };
 
         SoftKeyResolver resolver;
         REQUIRE_FALSE(resolver.tryResolve(info));
@@ -427,9 +427,8 @@ TEST_CASE("SoftKeyResolver createSigner produces valid signatures", "[SoftKeyRes
     auto signature = signer(digest);
     REQUIRE_FALSE(signature.empty());
 
-    // DER-encoded ECDSA P-256 signatures are typically 70-72 bytes
-    CHECK(signature.size() >= 68);
-    CHECK(signature.size() <= 72);
+    // Raw (r||s) ECDSA P-256 signatures are always 64 bytes
+    CHECK(signature.size() == 64);
 }
 
 TEST_CASE("SoftKeyResolver createSigner is deterministic for same key", "[SoftKeyResolver]")

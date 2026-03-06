@@ -20,16 +20,13 @@
 #include "provisioning_client.h"
 #include "identifiers.h"
 #include "net_util.h"
-#include "utils/signer.h"
+#include <tpm/crypto_helpers.h>
 #include <logger/logger.h>
 #include <utils/bytearray.h>
 #include <nlohmann/json.hpp>
 #include <cmrc/cmrc.hpp>
-#include <openssl/sha.h>
 #include <fmt/format.h>
 #include <chrono>
-#include <iomanip>
-#include <sstream>
 
 CMRC_DECLARE(scorbit);
 
@@ -45,18 +42,6 @@ constexpr auto PROVISION_TIMEOUT = std::chrono::seconds(14);
 constexpr auto HDR_PROVIDER_ID = "X-Provider-ID";
 constexpr auto HDR_PROVIDER_TIMESTAMP = "X-Provider-Timestamp";
 constexpr auto HDR_PROVIDER_SIGNATURE = "X-Provider-Signature";
-
-std::string sha256HexDigest(const std::string &data)
-{
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char *>(data.data()), data.size(), hash);
-
-    std::ostringstream oss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-        oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(hash[i]);
-    }
-    return oss.str();
-}
 
 std::string currentTimestamp()
 {
@@ -147,30 +132,27 @@ cpr::Header ProvisioningClient::buildProviderAuthHeaders(const std::string &prov
                                                          const std::string &body)
 {
     const auto timestamp = currentTimestamp();
-    const auto bodyHash = sha256HexDigest(body);
+    const auto bodyHash = sha256Hash(
+            utils::ByteArray(reinterpret_cast<const uint8_t *>(body.data()), body.size()));
 
-    // message = provider_id + timestamp + body_hash
-    const auto message = providerId + timestamp + bodyHash;
+    // message = provider_id + timestamp + body_hash (hex)
+    const auto message = providerId + timestamp + bodyHash.hex();
 
-    // SHA-256 hash of the message
-    std::array<uint8_t, SHA256_DIGEST_LENGTH> digest {};
-    SHA256(reinterpret_cast<const unsigned char *>(message.data()), message.size(), digest.data());
+    // SHA-256 hash of the message, then sign with provider's private key (raw r||s format)
+    const auto digest = sha256Hash(
+            utils::ByteArray(reinterpret_cast<const uint8_t *>(message.data()), message.size()));
 
-    // Sign the digest with the provider's private key (DER format)
-    std::vector<uint8_t> signature;
-    auto signResult = Signer::sign(signature, digest, providerKey);
-    if (signResult != SignErrorCode::Ok) {
-        ERR("Failed to sign provider auth header: error {}", static_cast<int>(signResult));
+    utils::ByteArray key(providerKey.data(), providerKey.size());
+    utils::ByteArray signature;
+    if (!ecdsaSign(key, digest, signature)) {
+        ERR("Failed to sign provider auth header");
         return {};
     }
-
-    // Convert signature to hex
-    utils::ByteArray sigBytes(signature.data(), signature.size());
 
     return {
             {HDR_PROVIDER_ID, providerId},
             {HDR_PROVIDER_TIMESTAMP, timestamp},
-            {HDR_PROVIDER_SIGNATURE, sigBytes.hex()},
+            {HDR_PROVIDER_SIGNATURE, signature.hex()},
     };
 }
 

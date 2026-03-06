@@ -22,7 +22,6 @@
 #include "provisioning_client.h"
 #include "net_util.h"
 #include "utils/decrypt.h"
-#include "utils/signer.h"
 #include <tpm/crypto_helpers.h>
 #include <logger/logger.h>
 #include <utils/bytearray.h>
@@ -91,17 +90,19 @@ SignerCallback SoftKeyResolver::createSigner() const
             return {};
         }
 
-        Signature signature;
-        auto result = Signer::sign(signature, digest, decrypted);
+        utils::ByteArray key(decrypted.data(), decrypted.size());
+        utils::ByteArray digestBa(digest.data(), digest.size());
+        utils::ByteArray sig;
+        bool ok = ecdsaSign(key, digestBa, sig);
 
         OPENSSL_cleanse(decrypted.data(), decrypted.size());
         decrypted.clear();
 
-        if (result != SignErrorCode::Ok) {
-            ERR("SoftKeyResolver: signing failed, error {}", static_cast<int>(result));
+        if (!ok) {
+            ERR("SoftKeyResolver: signing failed");
             return {};
         }
-        return signature;
+        return Signature(sig.begin(), sig.end());
     };
 }
 
