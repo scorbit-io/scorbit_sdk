@@ -12,9 +12,6 @@
 #pragma once
 
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <iphlpapi.h>
@@ -33,6 +30,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -42,6 +40,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <string_view>
+#include "Util.h"
 
 class NetworkDiscovery
 {
@@ -85,7 +85,7 @@ class NetworkDiscovery
         uint16_t Version;
         uint16_t Type;
         uint32_t RequestId;
-        char Description[128];
+        uint8_t Data[1024];
     };
     #pragma pack(pop)
 
@@ -102,19 +102,28 @@ class NetworkDiscovery
     NetworkDiscovery(const NetworkDiscovery&) = delete;
     NetworkDiscovery& operator=(const NetworkDiscovery&) = delete;
 
-    bool Initialize(const std::string& description)
+    class DeviceInfo_t
     {
+        public:
+		std::string GameName;           // "Iron Maiden LE - Legacy of the Beast"
+        std::string ProviderInfo;       // "scorbitd 0.4.12"
+        uint64_t    ProviderSerial = 0; // 21950
+		std::string ExtraInfo;          // Anything. For example, the result of '--spike infos'
+		std::string IpAddress;          // This field is filled by the discovery system
+    };
+
+    bool Initialize(const DeviceInfo_t &DeviceInfo)
+    { 
         // Make sure sockets are available
         if (!EnsureSocketsReady()) return false;
         // UnInitialize the class if necessary
         UnInitialize();
         // Initialize the class
-        m_Description = description;
+        m_DeviceInfo = DeviceInfo;
         m_Running = true;
         m_Thread = std::thread(&NetworkDiscovery::ListenerThreadProc, this);
         return true;
     }
-
     void UnInitialize()
     {
         // stop the listening thread
@@ -125,14 +134,9 @@ class NetworkDiscovery
         if (socketFd != kInvalidSocket) CloseSocket(socketFd);
     }
 
-    struct DeviceInfo
+    static std::vector<DeviceInfo_t> Discover(int timeoutMs = 1000)
     {
-        std::string IpAddress;
-        std::string Description;
-    };
-    static std::vector<DeviceInfo> Discover(int timeoutMs = 1000)
-    {
-        std::vector<DeviceInfo> devices;
+        std::vector<DeviceInfo_t> devices;
 
         // Make sure sockets are available
         if (!EnsureSocketsReady()) return devices;
@@ -204,7 +208,7 @@ class NetworkDiscovery
                 continue;
 
             // Read packet
-            uint8_t buffer[512];
+            uint8_t buffer[sizeof(DiscoveryResponsePacket)];
             sockaddr_in fromAddr;
             SocketLength fromLen = static_cast<SocketLength>(sizeof(fromAddr));
             std::memset(&fromAddr, 0, sizeof(fromAddr));
@@ -241,10 +245,34 @@ class NetworkDiscovery
             if (::inet_ntop(AF_INET, &fromAddr.sin_addr, ipBuffer, sizeof(ipBuffer)) == nullptr)
                 continue;
 
-            // Extract device info
-            DeviceInfo info;
+            // Decode response info
+            auto ReadNextZ = [](const uint8_t* buffer, size_t bufferSize, size_t& pos) -> std::string
+                {
+                    // Return empty if there is nothing left to read
+                    if (pos >= bufferSize) return {};
+
+                    // Treat a leading '\0' as end-of-list sentinel
+                    if (buffer[pos] == 0) { pos++; return {}; }
+					// Read a \0-terminated string from the buffer
+                    const uint8_t* start = buffer + pos;
+                    size_t remaining = bufferSize - pos;
+                    const void* zero = std::memchr(start, 0, remaining);
+                    if (zero == nullptr) return {}; // No terminator found within bounds
+                    const uint8_t* end = static_cast<const uint8_t*>(zero);
+                    // Move the position after it
+                    size_t len = static_cast<size_t>(end - start);
+                    pos += len + 1;
+                    return std::string(reinterpret_cast<const char*>(start), len);
+                };
+            DeviceInfo_t info;
+			// Insert the IP address in the device info (as a string)
             info.IpAddress = ipBuffer;
-            info.Description = FixedBufferToString(response.Description, sizeof(response.Description));
+            // Read GameName, ProviderInfo, ProviderSerial and ExtraInfo in the response data
+            size_t Pos = 0;
+			info.GameName = ReadNextZ(response.Data, sizeof(response.Data), Pos);
+			info.ProviderInfo = ReadNextZ(response.Data, sizeof(response.Data), Pos);
+			info.ProviderSerial = Util::ReadUInt64LE(response.Data, sizeof(response.Data), Pos); Pos += 8;
+			info.ExtraInfo = ReadNextZ(response.Data, sizeof(response.Data), Pos);
 
             // Store this device info in the list
             if (seenKeys.insert(info.IpAddress).second)
@@ -336,7 +364,28 @@ class NetworkDiscovery
             response.Version = htons(kVersion);
             response.Type = htons(kPacketTypeResponse);
             response.RequestId = request.RequestId;
-            CopyStringToFixed(response.Description, sizeof(response.Description), m_Description);
+            auto AppendZ = [](uint8_t* buffer, size_t bufferSize, size_t& pos, std::string_view s) -> size_t
+                {
+                    // Only take first part of the string if it contains a \0, and ignore the rest
+                    size_t z = s.find('\0');
+                    if (z != std::string_view::npos) s = s.substr(0, z);
+                    if (pos >= bufferSize) return 0;
+                    // Copy the string in the buffer
+                    size_t remaining = bufferSize - pos;
+                    size_t toCopy = s.size();
+                    if (toCopy > remaining - 1) toCopy = remaining - 1;
+                    if (toCopy != 0) std::memcpy(buffer + pos, s.data(), toCopy);
+                    // Add a \0 at the end of the string
+                    buffer[pos + toCopy] = 0;
+                    pos += toCopy + 1;
+                    return toCopy;
+                };
+			// Write GameName, ProviderInfo, ProviderSerial and ExtraInfo in the response data
+            size_t Pos = 0;
+            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.GameName);
+            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.ProviderInfo);
+			Util::WriteLE(reinterpret_cast<uint8_t*>(response.Data), sizeof(response.Data), Pos, m_DeviceInfo.ProviderSerial); Pos += 8;
+            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.ExtraInfo);
 
             // Wait for a random delay to prevent collisions when all devices answer at the same time
             if (kMaxResponseDelayMs > 0)
@@ -354,6 +403,10 @@ class NetworkDiscovery
             if (!m_Running) break;
 
             // Send reply
+            char ipBuffer[INET_ADDRSTRLEN]; std::memset(ipBuffer, 0, sizeof(ipBuffer));
+            if (::inet_ntop(AF_INET, &fromAddr.sin_addr, ipBuffer, sizeof(ipBuffer)) == nullptr)
+                std::snprintf(ipBuffer, sizeof(ipBuffer), "???");
+            INF("Received a valid discovery request from %s\n", ipBuffer);
             ::sendto(
                 sock,
                 reinterpret_cast<const char*>(&response),
@@ -407,10 +460,9 @@ class NetworkDiscovery
         return std::string(buffer, length);
     }
 
-    static void CopyStringToFixed(char* dst, size_t dstSize, const std::string& src)
+    static void CopyStringToFixed(char *dst, size_t dstSize, const std::string& src)
     {
-        if (dst == nullptr || dstSize == 0)
-            return;
+        if (dst == nullptr || dstSize == 0) return;
 
         std::memset(dst, 0, dstSize);
 
@@ -603,7 +655,7 @@ class NetworkDiscovery
     }
 
     private:
-    std::string m_Description = "???";
+    DeviceInfo_t m_DeviceInfo;
     std::thread m_Thread;
     std::atomic<bool> m_Running;
     std::atomic<SocketHandle> m_ListenSocket;
