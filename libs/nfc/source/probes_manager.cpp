@@ -7,7 +7,6 @@
 
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
-#include "nfc/Discovery.h"
 #include "list_usb_devices.h"
 
 #include <fmt/format.h>
@@ -97,9 +96,23 @@ auto ProbesManager::setNfcLeds(NfcLedMode mode) -> bool
     return false;
 }
 
-auto ProbesManager::setDiscoveryDescription(const std::string &description) -> bool
+auto ProbesManager::setDiscoveryDescription(uint64_t providerSerial, const std::string &gameName,
+                                            const std::string &providerInfo,
+                                            const std::string &extraInfo) -> bool
 {
-    return m_discovery->Initialize(description);
+    NetworkDiscovery::DeviceInfo_t info;
+    info.ProviderSerial = providerSerial;
+    info.GameName = gameName;
+    info.ProviderInfo = providerInfo;
+    info.ExtraInfo = extraInfo;
+
+    if (m_discoveryInfo == info) {
+        // Skip setting if same info
+        return true;
+    }
+
+    m_discoveryInfo = info;
+    return m_discovery->Initialize(m_discoveryInfo);
 }
 
 auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::string>
