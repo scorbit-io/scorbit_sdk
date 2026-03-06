@@ -82,30 +82,56 @@ class Util
         }
     }
 
-    static std::string StringFromBuffer(std::vector<uint8_t>& data, int Pos, int MaxLen)
+    static std::string ReadString(const uint8_t *data, size_t dataLen, size_t Pos, size_t MaxLen)
     {
-        // Get string from buffer
-        std::string str = std::string(&data[Pos], &data[Pos + MaxLen]);
-        // Strip ending '\0'
-        size_t pos = str.find('\0');
-        if (pos != std::string::npos)
-            str.erase(pos);
-        return str;
+        if (Pos >= dataLen) return {};
+        size_t len = std::min(MaxLen, dataLen - Pos);
+        const uint8_t* start = data + Pos;
+        const void* zero = std::memchr(start, 0, len);
+        size_t realLen = (zero != nullptr) ? static_cast<size_t>(static_cast<const uint8_t*>(zero) - start) : len;
+        return std::string(reinterpret_cast<const char*>(start), realLen);
     }
-    static uint16_t UInt16FromBuffer(std::vector<uint8_t>& data, int Pos)
+	static std::string ReadString(const std::vector<uint8_t>& data, size_t Pos, size_t MaxLen) { return ReadString(data.data(), data.size(), Pos, MaxLen); }
+    static uint16_t ReadUInt16LE(const uint8_t *data, size_t dataLen, size_t Pos)
     {
-        if (Pos + 2 > data.size()) return 0;
-        return data[Pos] | (data[Pos + 1] << 8);
+        if (Pos + 2 > dataLen) return 0;
+        return static_cast<uint16_t>(data[Pos + 0]) | static_cast<uint16_t>(data[Pos + 1] << 8);
     }
-    static uint32_t UInt32FromBuffer(std::vector<uint8_t>& data, int Pos)
+    static uint16_t ReadUInt16LE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt16LE(data.data(), data.size(), Pos); }
+    static uint32_t ReadUInt32LE(const uint8_t* data, size_t dataLen, size_t Pos)
     {
-        if (Pos + 4 > data.size()) return 0;
-        return data[Pos] | (data[Pos + 1] << 8) | (data[Pos + 2] << 16) | (data[Pos + 3] << 24);
+        if (Pos + 4 > dataLen) return 0;
+        return static_cast<uint32_t>(ReadUInt16LE(data, dataLen, Pos + 0)) |
+            (static_cast<uint32_t>(ReadUInt16LE(data, dataLen, Pos + 2)) << 16);
     }
-    static uint64_t UInt64FromBuffer(std::vector<uint8_t>& data, int Pos)
+    static uint32_t ReadUInt32LE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt32LE(data.data(), data.size(), Pos); }
+    static uint64_t ReadUInt64LE(const uint8_t* data, size_t dataLen, size_t Pos)
     {
-        if (Pos + 8 > data.size()) return 0;
-        return (uint64_t)UInt32FromBuffer(data, Pos) | ((uint64_t)UInt32FromBuffer(data, Pos + 4) << 32);
+        if (Pos + 8 > dataLen) return 0;
+        return static_cast<uint64_t>(ReadUInt32LE(data, dataLen, Pos + 0)) |
+            (static_cast<uint64_t>(ReadUInt32LE(data, dataLen, Pos + 4)) << 32);
+    }
+    static uint64_t ReadUInt64LE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt64LE(data.data(), data.size(), Pos); }
+    static bool WriteLE(uint8_t* data, size_t dataLen, size_t Pos, uint16_t value)
+    {
+		if (Pos + 2 > dataLen) return false;
+        data[Pos + 0] = static_cast<uint8_t>(value);
+        data[Pos + 1] = static_cast<uint8_t>(value >> 8);
+        return true;
+    }
+    static bool WriteLE(uint8_t* data, size_t dataLen, size_t Pos, uint32_t value)
+    {
+        if (Pos + 4 > dataLen) return false;
+        WriteLE(data, dataLen, Pos + 0, static_cast<uint16_t>(value));
+        WriteLE(data, dataLen, Pos + 2, static_cast<uint16_t>(value >> 16));
+        return true;
+    }
+    static bool WriteLE(uint8_t* data, size_t dataLen, size_t Pos, uint64_t value)
+    {
+        if (Pos + 8 > dataLen) return false;
+        WriteLE(data, dataLen, Pos + 0, static_cast<uint32_t>(value));
+        WriteLE(data, dataLen, Pos + 4, static_cast<uint32_t>(value >> 32));
+        return true;
     }
     static std::vector<uint8_t> ReadAllBytes(const std::string& Filename)
     {

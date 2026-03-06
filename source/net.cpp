@@ -2174,29 +2174,18 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 
 void Net::updateDiscoveryDescription()
 {
-    const auto version = std::invoke([this]() {
+    const auto providerVersion = std::invoke([this]() {
         if (m_deviceInfo.provider == PROVIDER_SCORBITRON
             || m_deviceInfo.provider == PROVIDER_VSCORBITRON) {
-            return fmt::format("scorbitd: {}", m_deviceInfo.scorbitdVersion);
+            return fmt::format("scorbitd {}", m_deviceInfo.scorbitdVersion);
         }
-        return fmt::format("provider: {}, version: {}", m_deviceInfo.provider,
-                           m_deviceInfo.gameCodeVersion);
+        return fmt::format("{} {}", m_deviceInfo.provider, m_deviceInfo.gameCodeVersion);
     });
 
-    const auto clientDescription = std::invoke([this]() {
-        if (!m_deviceInfo.machineTitle.empty()) {
-            return fmt::format(", client description: {}", m_deviceInfo.machineTitle);
-        }
-        return std::string {};
-    });
-
-    const auto description = fmt::format("serial: {}, machine: {}{}, {}", m_deviceInfo.serialNumber,
-                                         m_machineInfo.title, clientDescription, version);
-
-    if (m_disoveryDescription != description
-        && m_probesManager->setDiscoveryDescription(description)) {
-        m_disoveryDescription = description;
-        INF("Discovery description updated: {}", m_disoveryDescription);
+    if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, m_machineInfo.title,
+                                                 providerVersion, m_deviceInfo.machineTitle)) {
+        INF("Discovery description updated machine: {}, provider: {}, extra info: {}",
+            m_machineInfo.title, providerVersion, m_deviceInfo.machineTitle);
     }
 }
 

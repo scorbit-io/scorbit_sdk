@@ -187,19 +187,19 @@ class ProbeBase
         // Read probe memory
         auto data = Cable.CommandRead(ProbeCommand_t::ReadProbeInfos, 0, 128);
         if (data.empty()) return false;
-        pbi->Magic = Util::UInt16FromBuffer(data, 0);
+        pbi->Magic = Util::ReadUInt16LE(data, 0);
         if (pbi->Magic != 0xCAFE) return false;
         // Extract the probe name
-        pbi->Id = Util::StringFromBuffer(data, 2, 4);
-        pbi->Name = Util::StringFromBuffer(data, 6, 12);
+        pbi->Id = Util::ReadString(data, 2, 4);
+        pbi->Name = Util::ReadString(data, 6, 12);
         pbi->VersionMajor = data[18];
         pbi->VersionMinor = data[19];
-        pbi->VersionRevision = Util::UInt16FromBuffer(data, 20);
-        pbi->TimestampHeader = Util::UInt16FromBuffer(data, 22);
+        pbi->VersionRevision = Util::ReadUInt16LE(data, 20);
+        pbi->TimestampHeader = Util::ReadUInt16LE(data, 22);
         if (pbi->TimestampHeader != 0)
         {
             // Obsolete : Timestamp is a string
-            pbi->Timestamp = Util::StringFromBuffer(data, 22, 32);
+            pbi->Timestamp = Util::ReadString(data, 22, 32);
             pbi->TimestampUTC = 0; // Unknown timestamp 64
             pbi->BootReason = BootReason_t::Unknown; // Unknown
             pbi->WatchdogCount = 0;                  // Unknown
@@ -207,7 +207,7 @@ class ProbeBase
         else
         {
             // New version : timestamp is a uint64_t (ex: 20250812122400)
-            pbi->TimestampUTC = Util::UInt64FromBuffer(data, 24);
+            pbi->TimestampUTC = Util::ReadUInt64LE(data, 24);
             uint64_t ymdhms = pbi->TimestampUTC;
             unsigned sec = ymdhms % 100; ymdhms /= 100;
             unsigned min = ymdhms % 100; ymdhms /= 100;
@@ -231,16 +231,16 @@ class ProbeBase
             pbi->BootReason = (BootReason_t)data[32];
             pbi->WatchdogCount = data[33];
         }
-        pbi->TimeMs = Util::UInt32FromBuffer(data, 54);
-        pbi->SysClockFrequency = Util::UInt32FromBuffer(data, 58);
+        pbi->TimeMs = Util::ReadUInt32LE(data, 54);
+        pbi->SysClockFrequency = Util::ReadUInt32LE(data, 58);
         pbi->UsbFlags = data[62];
         pbi->Reserved3ForAlignment = data[63];
-        pbi->UID = Util::UInt32FromBuffer(data, 64);
+        pbi->UID = Util::ReadUInt32LE(data, 64);
         std::memcpy(pbi->TpmSerial, data.data() + 68, sizeof(pbi->TpmSerial));
         pbi->TpmType = data[77];
         std::memcpy(pbi->TpmUUID, data.data() + 78, sizeof(pbi->TpmUUID));
-        pbi->Reserved4ForAlignment = Util::UInt16FromBuffer(data, 94);
-        pbi->TpmScorbitSerial = Util::UInt64FromBuffer(data, 96);
+        pbi->Reserved4ForAlignment = Util::ReadUInt16LE(data, 94);
+        pbi->TpmScorbitSerial = Util::ReadUInt64LE(data, 96);
         std::memcpy(pbi->Reserved5, data.data() + 104, sizeof(pbi->Reserved5));
 
         return true;
@@ -526,11 +526,11 @@ class ProbeNFC : public ProbeBase
         Infos->Brightness = NfcInfos[1];
         Infos->Capacitance = NfcInfos[2];
         Infos->Unused = NfcInfos[3];
-        Infos->LastId = Util::UInt32FromBuffer(NfcInfos, 4);
+        Infos->LastId = Util::ReadUInt32LE(NfcInfos, 4);
 
         int UriLen = (int)strnlen((const char*)&NfcInfos[8], 255);
         Infos->TagUri = std::string((const char *)&NfcInfos[8], UriLen);
-        Infos->RSSI = Util::UInt16FromBuffer(NfcInfos, 264);
+        Infos->RSSI = Util::ReadUInt16LE(NfcInfos, 264);
         return true;
     }
     bool SetLedsAnimation(const std::vector<uint8_t> &AnimationStruct)

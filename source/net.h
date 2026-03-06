@@ -272,7 +272,6 @@ private:
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
-    std::string m_disoveryDescription;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;
