@@ -20,8 +20,9 @@
 #pragma once
 
 #include "key_resolver.h"
-#include <vector>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
@@ -34,9 +35,10 @@ public:
 
 private:
     bool tryLoadKey(DeviceInfo &info);
-    bool provisionNewKey(DeviceInfo &info);
+    bool provisionNewKey(DeviceInfo &info, const std::vector<uint8_t> &providerKey);
 
-    std::vector<uint8_t> m_devicePrivateKey;
+    std::string m_encryptedDeviceKey;
+    std::string m_deviceKeyPassword;
 };
 
 } // namespace detail

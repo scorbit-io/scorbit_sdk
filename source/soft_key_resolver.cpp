@@ -28,8 +28,10 @@
 #include <utils/bytearray.h>
 #include <nlohmann/json.hpp>
 #include <obfuscate.h>
+#include <openssl/crypto.h>
 #include <openssl/sha.h>
 #include <chrono>
+#include <cstring>
 
 using json = nlohmann::json;
 
@@ -39,7 +41,12 @@ namespace detail {
 namespace {
 
 constexpr int ECDSA_P256_KEY_SIZE = 32;
-// constexpr int ECDSA_P256_PUBKEY_SIZE = 65;
+
+std::string buildHmacMessage(const std::string &provider, const std::string &uuid,
+                             uint64_t serialNumber, const std::string &encryptedKey)
+{
+    return provider + uuid + std::to_string(serialNumber) + encryptedKey;
+}
 
 } // namespace
 
@@ -49,22 +56,50 @@ bool SoftKeyResolver::tryResolve(DeviceInfo &info)
         return false;
     }
 
-    if (tryLoadKey(info)) {
-        return true;
+    auto providerKey =
+            decryptSecret(info.encryptedKey,
+                          info.provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
+    if (providerKey.empty()) {
+        ERR("SoftKeyResolver: failed to decrypt provider key");
+        return false;
     }
 
-    return provisionNewKey(info);
+    utils::ByteArray providerKeyBa(providerKey.data(), providerKey.size());
+    m_deviceKeyPassword = providerKeyBa.hex();
+
+    bool success = tryLoadKey(info) || provisionNewKey(info, providerKey);
+
+    OPENSSL_cleanse(providerKey.data(), providerKey.size());
+
+    if (!success) {
+        OPENSSL_cleanse(m_deviceKeyPassword.data(), m_deviceKeyPassword.size());
+        m_deviceKeyPassword.clear();
+    }
+
+    return success;
 }
 
 SignerCallback SoftKeyResolver::createSigner() const
 {
-    auto key = m_devicePrivateKey;
-    return [key](const Digest &digest) -> Signature {
+    auto encDevKey = m_encryptedDeviceKey;
+    auto password = m_deviceKeyPassword;
+
+    return [encDevKey, password](const Digest &digest) -> Signature {
+        auto decrypted = decryptSecret(encDevKey, password);
+        if (decrypted.empty()) {
+            ERR("SoftKeyResolver: failed to decrypt device key for signing");
+            return {};
+        }
+
         Signature signature;
-        auto result = Signer::sign(signature, digest, key);
+        auto result = Signer::sign(signature, digest, decrypted);
+
+        OPENSSL_cleanse(decrypted.data(), decrypted.size());
+        decrypted.clear();
+
         if (result != SignErrorCode::Ok) {
             ERR("SoftKeyResolver: signing failed, error {}", static_cast<int>(result));
-            signature.clear();
+            return {};
         }
         return signature;
     };
@@ -84,18 +119,44 @@ bool SoftKeyResolver::tryLoadKey(DeviceInfo &info)
 
     try {
         auto j = json::parse(keyData);
-        const auto privateKeyHex = j.at("private_key").get<std::string>();
+        const auto encryptedKey = j.at("encrypted_key").get<std::string>();
         const auto uuid = j.at("uuid").get<std::string>();
         const auto serialNumber = j.at("serial_number").get<uint64_t>();
+        const auto provider = j.at("provider").get<std::string>();
+        const auto storedHmac = j.at("hmac").get<std::string>();
 
-        utils::ByteArray privateKey(privateKeyHex);
-        if (privateKey.size() != ECDSA_P256_KEY_SIZE) {
-            ERR("SoftKeyResolver: invalid key size {}, expected {}", privateKey.size(),
-                ECDSA_P256_KEY_SIZE);
+        if (provider != info.provider) {
+            ERR("SoftKeyResolver: provider mismatch (stored='{}', expected='{}')", provider,
+                info.provider);
             return false;
         }
 
-        m_devicePrivateKey.assign(privateKey.begin(), privateKey.end());
+        const auto expectedHmac = computeHmac(
+                buildHmacMessage(provider, uuid, serialNumber, encryptedKey), m_deviceKeyPassword);
+
+        if (storedHmac.size() != expectedHmac.size()
+            || CRYPTO_memcmp(storedHmac.data(), expectedHmac.data(), expectedHmac.size()) != 0) {
+            ERR("SoftKeyResolver: HMAC verification failed -- key data may have been tampered "
+                "with");
+            return false;
+        }
+
+        auto decrypted = decryptSecret(encryptedKey, m_deviceKeyPassword);
+        if (decrypted.empty()) {
+            ERR("SoftKeyResolver: failed to decrypt stored device key");
+            return false;
+        }
+
+        if (decrypted.size() != ECDSA_P256_KEY_SIZE) {
+            ERR("SoftKeyResolver: invalid key size {}, expected {}", decrypted.size(),
+                ECDSA_P256_KEY_SIZE);
+            OPENSSL_cleanse(decrypted.data(), decrypted.size());
+            return false;
+        }
+
+        OPENSSL_cleanse(decrypted.data(), decrypted.size());
+
+        m_encryptedDeviceKey = encryptedKey;
         info.uuid = uuid;
         info.serialNumber = serialNumber;
 
@@ -107,18 +168,9 @@ bool SoftKeyResolver::tryLoadKey(DeviceInfo &info)
     }
 }
 
-bool SoftKeyResolver::provisionNewKey(DeviceInfo &info)
+bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
+                                      const std::vector<uint8_t> &providerKey)
 {
-    // Decrypt the provider's private key
-    const auto providerKey =
-            decryptSecret(info.encryptedKey,
-                          info.provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
-    if (providerKey.empty()) {
-        ERR("SoftKeyResolver: failed to decrypt provider key");
-        return false;
-    }
-
-    // Generate a unique device ECDSA key pair
     utils::ByteArray publicKey;
     utils::ByteArray privateKey;
     if (!generateEcdsaKeyPair(publicKey, privateKey)) {
@@ -128,14 +180,12 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info)
 
     ProvisioningClient client(info.hostname);
 
-    // Step 1: Initiate provisioning (GET) to receive uuid and serial
     auto result = client.initiate(info.provider, providerKey);
     if (!result) {
         ERR("SoftKeyResolver: provisioning initiation failed");
         return false;
     }
 
-    // Step 2: Create device signature over uuid_bytes + timestamp
     const auto timestamp =
             std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
@@ -155,23 +205,31 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info)
         return false;
     }
 
-    // Step 3: Confirm provisioning (POST)
     if (!client.confirm(*result, publicKey.hex(), deviceSignature.hex(), timestamp, info.provider,
                         providerKey)) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;
     }
 
-    // Persist the device key via callback
-    m_devicePrivateKey.assign(privateKey.begin(), privateKey.end());
+    std::vector<uint8_t> rawKey(privateKey.begin(), privateKey.end());
+    const auto encDevKey = encryptSecret(rawKey, m_deviceKeyPassword);
+    OPENSSL_cleanse(rawKey.data(), rawKey.size());
+
     info.uuid = result->uuid;
     info.serialNumber = result->serialNumber;
+    m_encryptedDeviceKey = encDevKey;
 
     if (info.saveKeyCallback) {
+        const auto hmac = computeHmac(
+                buildHmacMessage(info.provider, result->uuid, result->serialNumber, encDevKey),
+                m_deviceKeyPassword);
+
         json keyJson;
-        keyJson["private_key"] = privateKey.hex();
+        keyJson["encrypted_key"] = encDevKey;
         keyJson["uuid"] = result->uuid;
         keyJson["serial_number"] = result->serialNumber;
+        keyJson["provider"] = info.provider;
+        keyJson["hmac"] = hmac;
         info.saveKeyCallback(keyJson.dump());
     }
 

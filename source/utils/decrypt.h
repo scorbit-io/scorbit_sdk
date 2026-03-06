@@ -27,7 +27,10 @@ namespace scorbit {
 namespace detail {
 
 std::vector<uint8_t> base64Decode(const std::string &encoded);
+std::string base64Encode(const std::vector<uint8_t> &data);
 std::vector<uint8_t> decryptSecret(const std::string &encryptedData, const std::string &password);
+std::string encryptSecret(const std::vector<uint8_t> &data, const std::string &password);
+std::string computeHmac(const std::string &message, const std::string &key);
 
 } // namespace detail
 } // namespace scorbit
