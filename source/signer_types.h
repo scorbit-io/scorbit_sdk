@@ -19,37 +19,18 @@
 
 #pragma once
 
-#include "signer_types.h"
+#include <scorbit_sdk/net_types.h>
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <vector>
 
 namespace scorbit {
-
-struct DeviceInfo;
-
 namespace detail {
 
-class IKeyResolver
-{
-public:
-    virtual ~IKeyResolver() = default;
-
-    IKeyResolver() = default;
-    IKeyResolver(const IKeyResolver &) = delete;
-    IKeyResolver &operator=(const IKeyResolver &) = delete;
-    IKeyResolver(IKeyResolver &&) = default;
-    IKeyResolver &operator=(IKeyResolver &&) = default;
-
-    /**
-     * Attempt to resolve authentication for this device.
-     * On success: populates info.uuid and info.serialNumber, returns true.
-     */
-    virtual bool tryResolve(DeviceInfo &info) = 0;
-
-    /**
-     * Create a signer callback from the resolved key material.
-     * Must only be called after tryResolve() returns true.
-     */
-    virtual SignerCallback createSigner() const = 0;
-};
+using Signature = std::vector<uint8_t>;
+using Digest = std::array<uint8_t, DIGEST_LENGTH>;
+using SignerCallback = std::function<Signature(const Digest &digest)>;
 
 } // namespace detail
 } // namespace scorbit

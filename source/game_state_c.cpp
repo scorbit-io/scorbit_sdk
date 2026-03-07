@@ -39,17 +39,6 @@ struct sb_game_state_struct {
     detail::GameStateImpl gameState;
 };
 
-namespace {
-
-GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &deviceInfo,
-                                  bool useEncryptedKey)
-{
-    auto net = std::make_unique<Net>(std::move(signer), deviceInfo, useEncryptedKey);
-    return GameStateImpl(std::move(net));
-}
-
-}
-
 sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
     if (!config) {
@@ -72,23 +61,17 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
             return signature;
         };
 
-        return new sb_game_state_struct {createGameStateImpl(std::move(cb), *config, false)};
+        auto net = std::make_unique<Net>(std::move(cb), *config, false);
+        return new sb_game_state_struct {GameStateImpl(std::move(net))};
     }
 
-    // Path 2: Key resolver chain
+    // Path 2: Key resolver chain — resolved asynchronously inside Net
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
     resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
     resolvers.push_back(std::make_unique<SoftKeyResolver>());
 
-    for (const auto &resolver : resolvers) {
-        if (resolver->tryResolve(*config)) {
-            return new sb_game_state_struct {
-                    createGameStateImpl(resolver->createSigner(), *config, true)};
-        }
-    }
-
-    ERR("No authentication resolver succeeded");
-    return nullptr;
+    auto net = std::make_unique<Net>(*config, true, std::move(resolvers));
+    return new sb_game_state_struct {GameStateImpl(std::move(net))};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

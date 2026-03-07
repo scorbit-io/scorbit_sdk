@@ -225,6 +225,7 @@ target_sources(
         source/event_manager.h
         source/dflags.h
         source/session_flags.h
+        source/signer_types.h
         source/key_resolver.h
         source/nfc_tpm_key_resolver.h
         source/nfc_tpm_key_resolver.cpp

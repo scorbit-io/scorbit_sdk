@@ -160,31 +160,16 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
 {
     setHostname(m_deviceInfo.hostname, m_deviceInfo.cfHostname);
 
-    // Verify that mandatory "provider" field in deviceInfo is set
-    if (m_deviceInfo.provider.empty()) {
-        ERR("Provider is not set");
-        // TODO: Set an appropriate error status
+    if (!validateDeviceInfo()) {
         return;
     }
 
-    // Verify that mandatory "provider" field in deviceInfo is set for manufacturers (except
-    // scorbitron, vscorbitron)
-    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
-        && m_deviceInfo.provider != PROVIDER_VSCORBITRON) {
-        if (m_deviceInfo.machineId == 0) {
-            ERR("Machine ID not set");
-            // TODO: Set an appropriate error status
-            return;
-        }
-    }
-
-    // Parse UUID to if it's in correct format
+    // Parse UUID — for the signer path the UUID is known at construction time
     if (!m_deviceInfo.uuid.empty()) {
         const auto originalUuid = m_deviceInfo.uuid;
         m_deviceInfo.uuid = parseUuid(originalUuid);
         if (m_deviceInfo.uuid.empty()) {
             ERR("Given UUID is not in correct format: {}", originalUuid);
-            // TODO: set error status
             return;
         }
     } else {
@@ -194,11 +179,74 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     }
 
     initScorbitronObject();
-
     centrifugoSetup();
-
-    // Start worker thread
     m_worker.start();
+}
+
+Net::Net(DeviceInfo deviceInfo, bool useEncryptedKey,
+         std::vector<std::unique_ptr<IKeyResolver>> resolvers)
+    : m_keyResolvers(std::move(resolvers))
+    , m_deviceInfo(std::move(deviceInfo))
+    , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
+                m_deviceInfo.scorbitdPlatformId)
+    , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
+                                                    std::move(m_deviceInfo.m_eventCallback)))
+{
+    setHostname(m_deviceInfo.hostname, m_deviceInfo.cfHostname);
+
+    if (!validateDeviceInfo()) {
+        return;
+    }
+
+    // UUID will be resolved asynchronously by key resolvers before authentication
+
+    initScorbitronObject();
+    centrifugoSetup();
+    m_worker.start();
+}
+
+bool Net::validateDeviceInfo() const
+{
+    if (m_deviceInfo.provider.empty()) {
+        ERR("Provider is not set");
+        return false;
+    }
+
+    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
+        && m_deviceInfo.provider != PROVIDER_VSCORBITRON) {
+        if (m_deviceInfo.machineId == 0) {
+            ERR("Machine ID not set");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool Net::resolveKeys()
+{
+    for (auto &resolver : m_keyResolvers) {
+        if (resolver->tryResolve(m_deviceInfo)) {
+            m_signer = resolver->createSigner();
+            m_keyResolvers.clear();
+
+            if (!m_deviceInfo.uuid.empty()) {
+                const auto originalUuid = m_deviceInfo.uuid;
+                m_deviceInfo.uuid = parseUuid(originalUuid);
+                if (m_deviceInfo.uuid.empty()) {
+                    ERR("Key resolver set invalid UUID: {}", originalUuid);
+                    return false;
+                }
+            }
+
+            INF("Key resolution succeeded, uuid={}", m_deviceInfo.uuid);
+            return true;
+        }
+    }
+
+    ERR("No authentication resolver succeeded");
+    m_keyResolvers.clear();
+    return false;
 }
 
 Net::~Net()
@@ -681,6 +729,17 @@ task_t Net::createAuthenticateTask()
             lockOpt.emplace(m_authMutex);
             m_status = AuthStatus::Authenticating;
         }
+
+        // Resolve keys if we don't have a signer yet (async key resolver path)
+        if (!m_signer && !m_keyResolvers.empty()) {
+            if (!resolveKeys()) {
+                m_status = AuthStatus::AuthenticationFailed;
+                ERR("API there is no functional key to authenticate");
+                m_authCV.notify_all();
+                return;
+            }
+        }
+
         m_isRefreshingToken = true;
 
         // Get noop to get timestamp
