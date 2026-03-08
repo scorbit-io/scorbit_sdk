@@ -158,7 +158,7 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
-    setHostname(m_deviceInfo.hostname, "");
+    setHostname(m_deviceInfo.hostname, m_deviceInfo.cfHostname);
 
     // Verify that mandatory "provider" field in deviceInfo is set
     if (m_deviceInfo.provider.empty()) {

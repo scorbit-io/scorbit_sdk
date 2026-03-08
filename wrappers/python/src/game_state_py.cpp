@@ -350,6 +350,14 @@ PYBIND11_MODULE(scorbit, m)
                     "Set the server hostname. Optional. Examples: 'production', 'staging'.")
 
             .def(
+                    "set_cf_hostname",
+                    [](Config &self, const std::string &hostname) -> Config & {
+                        return self.setCfHostname(hostname);
+                    },
+                    py::arg("hostname"), py::return_value_policy::reference,
+                    "Set the Centrifugo server hostname. Optional.")
+
+            .def(
                     "set_uuid",
                     [](Config &self, const std::string &uuid) -> Config & {
                         return self.setUuid(uuid);

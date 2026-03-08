@@ -44,6 +44,7 @@ struct DeviceInfo {
     int32_t machineId {0};
     std::string gameCodeVersion;
     std::string hostname;
+    std::string cfHostname;
     std::string uuid;
     uint64_t serialNumber {0};
     bool autoDownloadPlayerPics {false};

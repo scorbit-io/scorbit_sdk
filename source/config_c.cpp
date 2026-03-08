@@ -59,6 +59,13 @@ void sb_config_set_hostname(sb_config_t config, const char *hostname)
     }
 }
 
+void sb_config_set_cf_hostname(sb_config_t config, const char *cf_hostname)
+{
+    if (config) {
+        config->cfHostname = cf_hostname ? cf_hostname : std::string {};
+    }
+}
+
 void sb_config_set_uuid(sb_config_t config, const char *uuid)
 {
     if (config) {
