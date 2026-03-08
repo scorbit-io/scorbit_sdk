@@ -431,10 +431,13 @@ void Net::getConfig()
 
 void Net::requestPairCode(StringCallback callback)
 {
-    // Return cached short code if available
-    if (!m_cachedShortCode.empty()) {
-        callback(Error::Success, m_cachedShortCode);
-        return;
+    {
+        std::lock_guard lock(m_shortCodeMutex);
+        if (!m_cachedShortCode.empty()) {
+            auto shortCode = m_cachedShortCode;
+            callback(Error::Success, shortCode);
+            return;
+        }
     }
 
     // If shortcode is not cached, wait for it to be received
@@ -1237,6 +1240,9 @@ void Net::sendLatestGameData(int sessionId)
         // Cancel timer if any
         m_worker.stopTimer(Worker::Timer::GameData);
 
+        if (!m_centrifugo)
+            return;
+
         GameSession *gameSession = nullptr;
         GameData data;
         std::string sessionUuid;
@@ -1547,7 +1553,10 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         // "shortcode"
         if (const auto it = json.find(JKEY_SOBJ_SHORTCODE); it != json.end() && it->is_string()) {
-            it->get_to(m_cachedShortCode);
+            {
+                std::lock_guard lock(m_shortCodeMutex);
+                it->get_to(m_cachedShortCode);
+            }
             m_shortCodeCV.notify_all();
         }
 
