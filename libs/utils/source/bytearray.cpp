@@ -104,17 +104,25 @@ ByteArray::ByteArray(const std::string::const_iterator &cBegin,
     }
 }
 
-std::string ByteArray::hex(const std::string &separator, const std::string &prefix) const
+std::string ByteArray::hex(Case strCase, const std::string &separator,
+                           const std::string &prefix) const
 {
+    if (empty())
+        return {};
+
+    const auto elemLen = prefix.size() + 2;
+    const auto sepLen = separator.size();
     std::string result;
-    bool isSeparate = false;
-    for (auto a : *this) {
-        if (isSeparate) {
-            result += fmt::format("{}{}{:02X}", separator, prefix, a);
-        } else {
-            isSeparate = true;
-            result += fmt::format("{}{:02X}", prefix, a);
-        }
+    result.reserve(elemLen + (size() - 1) * (sepLen + elemLen));
+
+    const char *hexFmt = (strCase == Case::UpperCase) ? "{:02X}" : "{:02x}";
+    auto it = cbegin();
+    result += prefix;
+    result += fmt::format(fmt::runtime(hexFmt), *it);
+    for (++it; it != cend(); ++it) {
+        result += separator;
+        result += prefix;
+        result += fmt::format(fmt::runtime(hexFmt), *it);
     }
 
     return result;
