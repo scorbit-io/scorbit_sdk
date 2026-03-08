@@ -211,7 +211,10 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
         fingerprints.macAddressPrimary, fingerprints.boardSerial, fingerprints.cpuSerial,
         fingerprints.platformType);
 
-    if (!client.confirm(*result, publicKey.hex(), deviceSignature.hex(), timestamp, info.provider,
+    // Strip the 0x04 uncompressed point prefix — API expects raw 64-byte (x || y)
+    utils::ByteArray rawPublicKey(publicKey.data() + 1, publicKey.size() - 1);
+
+    if (!client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(), timestamp, info.provider,
                         providerKey, fingerprints)) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;
