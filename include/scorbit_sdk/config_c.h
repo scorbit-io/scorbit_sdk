@@ -92,6 +92,15 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_hostname(sb_config_t config, const char *hostname);
 
 /**
+ * @brief Set the Centrifugo server hostname.
+ *
+ * @param config The configuration handle.
+ * @param hostname The hostname of the Centrifugo server. Optional.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_cf_hostname(sb_config_t config, const char *cf_hostname);
+
+/**
  * @brief Set the device UUID.
  *
  * @param config The configuration handle.

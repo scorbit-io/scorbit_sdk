@@ -120,6 +120,18 @@ public:
     }
 
     /**
+     * @brief Set the Centrifugo server hostname.
+     * @param hostname The hostname of the Centrifugo server. Optional.
+     *                 If not set, it will be derived from the main hostname.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setCfHostname(const std::string &hostname)
+    {
+        sb_config_set_cf_hostname(m_handle.get(), hostname.c_str());
+        return *this;
+    }
+
+    /**
      * @brief Set the device UUID.
      * @param uuid The device's UUID. Optional.
      * @return Reference to this Config for method chaining.
