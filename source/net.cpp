@@ -1614,11 +1614,13 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
         std::string reply;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this, allowedStatuses] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop
-                    || checkAllowedStatuses(allowedStatuses);
-            });
+            {
+                std::unique_lock lock(m_authMutex);
+                m_authCV.wait(lock, [this, &allowedStatuses] {
+                    return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed
+                        || m_stop || checkAllowedStatuses(allowedStatuses);
+                });
+            }
 
             auto setupResult = deferredSetup();
             auto url = std::get<0>(setupResult);
