@@ -254,7 +254,11 @@ Net::~Net()
     stopHeartbeatTimer();
     stopTokenRefreshTimer();
     m_stop = true;
+    m_eventManager->stop();
     m_authCV.notify_all();
+    m_shortCodeCV.notify_all();
+    m_centrifugo.reset();
+    m_worker.stop();
 }
 
 AuthStatus Net::status() const
@@ -431,13 +435,15 @@ void Net::getConfig()
 
 void Net::requestPairCode(StringCallback callback)
 {
+    std::string shortCodeCopy;
     {
         std::lock_guard lock(m_shortCodeMutex);
-        if (!m_cachedShortCode.empty()) {
-            auto shortCode = m_cachedShortCode;
-            callback(Error::Success, shortCode);
-            return;
-        }
+        shortCodeCopy = m_cachedShortCode;
+    }
+
+    if (!shortCodeCopy.empty()) {
+        callback(Error::Success, shortCodeCopy);
+        return;
     }
 
     // If shortcode is not cached, wait for it to be received
@@ -724,12 +730,11 @@ task_t Net::createAuthenticateTask()
         const auto normalAuthentication = !m_isRefreshingToken;
         std::optional<std::lock_guard<std::mutex>> lockOpt;
 
-        if (m_status != AuthStatus::NotAuthenticated && normalAuthentication) {
-            return;
-        }
-
         if (normalAuthentication) {
             lockOpt.emplace(m_authMutex);
+            if (m_status != AuthStatus::NotAuthenticated) {
+                return;
+            }
             m_status = AuthStatus::Authenticating;
         }
 
@@ -747,7 +752,7 @@ task_t Net::createAuthenticateTask()
 
         // Get noop to get timestamp
         std::string timestamp;
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 10 && !m_stop; ++i) {
             INF("API getting noop to retrieve server time...");
             auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
             std::string output =
@@ -1173,6 +1178,10 @@ task_t Net::createHeartbeatTask()
 
 void Net::sessionUpdate(int sessionId, SessionFlags flags)
 {
+    if (m_stop) {
+        return;
+    }
+
     m_worker.stopTimer(Worker::Timer::SessionUpdate);
 
     if (!flags.has(SessionFlag::UploadHistoryLogs) && !flags.has(SessionFlag::Debounced)
@@ -1240,8 +1249,9 @@ void Net::sendLatestGameData(int sessionId)
         // Cancel timer if any
         m_worker.stopTimer(Worker::Timer::GameData);
 
-        if (!m_centrifugo)
+        if (m_stop || !m_centrifugo) {
             return;
+        }
 
         GameSession *gameSession = nullptr;
         GameData data;
@@ -1670,7 +1680,15 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
                 break;
             }
 
-            m_status = AuthStatus::NotAuthenticated;
+            {
+                std::lock_guard lock(m_authMutex);
+                if (m_status == AuthStatus::NotAuthenticated
+                    || m_status == AuthStatus::Authenticating
+                    || m_status == AuthStatus::AuthenticationFailed) {
+                    continue;
+                }
+                m_status = AuthStatus::NotAuthenticated;
+            }
             stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
@@ -1940,14 +1958,10 @@ void Net::centrifugoSetup()
     config.version = SCORBIT_SDK_VERSION;
     config.refreshTokenBeforeExpiry = 3min;
     config.getToken = [this]() -> std::string {
-        // TODO: check if this unique_lock needed
+        if (m_stop) {
+            return {};
+        }
 
-        // std::unique_lock lock(m_authMutex);
-        // m_authCV.wait(lock, [this] {
-        //     return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-        // });
-
-        // Get JWT token for Centrifugo connection
         std::shared_lock lock(m_tokenMutex);
         return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken, sslOptions());
     };
@@ -1990,12 +2004,20 @@ void Net::centrifugoSetup()
     });
 
     m_centrifugo->onConnected([this] {
+        if (m_stop) {
+            return;
+        }
+
         INF("API-CF Connected to Centrifugo!");
         requestCreditsStatusEvent();
     });
 
     m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
+
+        if (m_stop) {
+            return;
+        }
 
         constexpr auto RECONNECT_DELAY = 10s;
 
@@ -2031,6 +2053,10 @@ void Net::centrifugoSetup()
 
     m_centrifugo->onPublication([this](const std::string &channel,
                                        centrifugo::Publication const &pub) {
+        if (m_stop) {
+            return;
+        }
+
         try {
             INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
                 pub.data.dump(), pub.offset);
@@ -2081,6 +2107,10 @@ void Net::centrifugoSetup()
 
 void Net::centrifugoConnect()
 {
+    if (m_stop || !m_centrifugo) {
+        return;
+    }
+
     if (auto const res = m_centrifugo->connect(); !res) {
         ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
             res.error().message);
