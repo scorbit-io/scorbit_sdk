@@ -37,7 +37,7 @@ TEST_SUITE("SHA-256 Hash Tests")
 
         // SHA-256 of empty string should be:
         std::string expected = "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
-        CHECK(hash.hex() == expected);
+        CHECK(hash.hex(ByteArray::Case::UpperCase) == expected);
     }
 
     TEST_CASE("sha256Hash - Known test vectors")
@@ -49,7 +49,7 @@ TEST_SUITE("SHA-256 Hash Tests")
             CHECK(hash.size() == kSHA256Size);
             std::string expected =
                     "6E340B9CFFB37A989CA544E6BB780A2C78901D3FB33738768511A30617AFA01D";
-            CHECK(hash.hex() == expected);
+            CHECK(hash.hex(ByteArray::Case::UpperCase) == expected);
         }
 
         SUBCASE("ASCII text")
@@ -61,7 +61,7 @@ TEST_SUITE("SHA-256 Hash Tests")
             // SHA-256("hello world") =
             std::string expected =
                     "B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9";
-            CHECK(hash.hex() == expected);
+            CHECK(hash.hex(ByteArray::Case::UpperCase) == expected);
         }
     }
 

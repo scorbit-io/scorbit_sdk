@@ -29,6 +29,11 @@ using ByteArrayBase = std::vector<uint8_t>;
 class ByteArray : public ByteArrayBase
 {
 public:
+    enum class Case {
+        LowerCase,
+        UpperCase,
+    };
+
     ByteArray() = default;
     explicit ByteArray(size_type count, const uint8_t defaultValue = 0);
     ByteArray(std::initializer_list<uint8_t> init);
@@ -36,15 +41,16 @@ public:
     ByteArray(ByteArray &&other);
     ByteArray(const ByteArrayBase &other);
     ByteArray(ByteArrayBase &&other);
-    ByteArray& operator=(const ByteArray &other);
-    ByteArray& operator=(ByteArray &&other);
+    ByteArray &operator=(const ByteArray &other);
+    ByteArray &operator=(ByteArray &&other);
 
     explicit ByteArray(const uint8_t array[], size_t length);
     explicit ByteArray(std::string hexArray);
     explicit ByteArray(const std::string::const_iterator &cBegin,
                        const std::string::const_iterator &cEnd);
 
-    std::string hex(const std::string &separator = "", const std::string &prefix="") const;
+    std::string hex(Case strCase = Case::LowerCase, const std::string &separator = {},
+                    const std::string &prefix = {}) const;
     std::string string() const;
 
     void initialize(const ByteArray &initArray);
