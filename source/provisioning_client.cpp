@@ -97,7 +97,8 @@ std::optional<ProvisionResult> ProvisioningClient::initiate(const std::string &p
 bool ProvisioningClient::confirm(const ProvisionResult &result, const std::string &publicKeyHex,
                                  const std::string &deviceSignatureHex,
                                  const std::string &timestamp, const std::string &providerId,
-                                 const std::vector<uint8_t> &providerKey)
+                                 const std::vector<uint8_t> &providerKey,
+                                 const MachineFingerprint &fingerprints)
 {
     json body;
     body["uuid"] = result.uuid;
@@ -105,6 +106,19 @@ bool ProvisioningClient::confirm(const ProvisionResult &result, const std::strin
     body["timestamp"] = std::stoull(timestamp);
     body["signature"] = deviceSignatureHex;
     body["key_source"] = "soft_key";
+
+    if (fingerprints.hasAny()) {
+        json fp;
+        if (!fingerprints.macAddressPrimary.empty())
+            fp["mac_address_primary"] = fingerprints.macAddressPrimary;
+        if (!fingerprints.boardSerial.empty())
+            fp["board_serial"] = fingerprints.boardSerial;
+        if (!fingerprints.cpuSerial.empty())
+            fp["cpu_serial"] = fingerprints.cpuSerial;
+        if (!fingerprints.platformType.empty())
+            fp["platform_type"] = fingerprints.platformType;
+        body["fingerprints"] = fp;
+    }
 
     const auto bodyStr = body.dump();
 

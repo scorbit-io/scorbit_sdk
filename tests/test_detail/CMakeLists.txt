@@ -109,6 +109,9 @@ target_sources(
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp
+        ../../source/utils/machine_fingerprint.h
+        ../../source/utils/machine_fingerprint.cpp
+        source/test_machine_fingerprint.cpp
         ../../source/utils/decrypt.h
         ../../source/utils/decrypt.cpp
         source/test_decrypt.cpp

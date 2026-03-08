@@ -201,6 +201,8 @@ target_sources(
         source/updater.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
+        source/utils/machine_fingerprint.h
+        source/utils/machine_fingerprint.cpp
         source/utils/decrypt.h
         source/utils/decrypt.cpp
 

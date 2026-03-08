@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "utils/machine_fingerprint.h"
 #include <cpr/cpr.h>
 #include <string>
 #include <vector>
@@ -51,7 +52,8 @@ public:
      */
     bool confirm(const ProvisionResult &result, const std::string &publicKeyHex,
                  const std::string &deviceSignatureHex, const std::string &timestamp,
-                 const std::string &providerId, const std::vector<uint8_t> &providerKey);
+                 const std::string &providerId, const std::vector<uint8_t> &providerKey,
+                 const MachineFingerprint &fingerprints);
 
 private:
     cpr::Header buildProviderAuthHeaders(const std::string &providerId,

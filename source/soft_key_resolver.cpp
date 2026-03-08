@@ -206,8 +206,13 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
         return false;
     }
 
+    auto fingerprints = collectFingerprints();
+    INF("SoftKeyResolver: collected fingerprints mac={}, board={}, cpu={}, platform={}",
+        fingerprints.macAddressPrimary, fingerprints.boardSerial, fingerprints.cpuSerial,
+        fingerprints.platformType);
+
     if (!client.confirm(*result, publicKey.hex(), deviceSignature.hex(), timestamp, info.provider,
-                        providerKey)) {
+                        providerKey, fingerprints)) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;
     }
