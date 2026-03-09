@@ -50,11 +50,15 @@ public:
     /**
      * Step 2: POST /api/v2/provision/
      * Confirms provisioning with the device's public key and signature.
+     * Returns the authoritative UUID/serial from the API response, which may
+     * differ from the initiate values when fingerprint recovery finds an
+     * existing Scorbitron.
      */
-    bool confirm(const ProvisionResult &result, const std::string &publicKeyHex,
-                 const std::string &deviceSignatureHex, const std::string &timestamp,
-                 const std::string &providerId, const std::vector<uint8_t> &providerKey,
-                 const MachineFingerprint &fingerprints);
+    std::optional<ProvisionResult>
+    confirm(const ProvisionResult &initiated, const std::string &publicKeyHex,
+            const std::string &deviceSignatureHex, const std::string &timestamp,
+            const std::string &providerId, const std::vector<uint8_t> &providerKey,
+            const MachineFingerprint &fingerprints);
 
 private:
     cpr::Header buildProviderAuthHeaders(const std::string &providerId,

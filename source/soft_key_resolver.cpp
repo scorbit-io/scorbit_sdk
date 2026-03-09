@@ -168,8 +168,7 @@ bool SoftKeyResolver::tryLoadKey(DeviceInfo &info)
     }
 }
 
-bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
-                                      const std::vector<uint8_t> &providerKey,
+bool SoftKeyResolver::provisionNewKey(DeviceInfo &info, const std::vector<uint8_t> &providerKey,
                                       const std::string &serverTimestamp)
 {
     utils::ByteArray publicKey;
@@ -209,8 +208,9 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
     // Strip the 0x04 uncompressed point prefix — API expects raw 64-byte (x || y)
     utils::ByteArray rawPublicKey(publicKey.data() + 1, publicKey.size() - 1);
 
-    if (!client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(), serverTimestamp,
-                        info.provider, providerKey, fingerprints)) {
+    auto confirmed = client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(),
+                                    serverTimestamp, info.provider, providerKey, fingerprints);
+    if (!confirmed) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;
     }
@@ -219,25 +219,25 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
     const auto encDevKey = encryptSecret(rawKey, m_deviceKeyPassword);
     OPENSSL_cleanse(rawKey.data(), rawKey.size());
 
-    info.uuid = result->uuid;
-    info.serialNumber = result->serialNumber;
+    info.uuid = confirmed->uuid;
+    info.serialNumber = confirmed->serialNumber;
     m_encryptedDeviceKey = encDevKey;
 
     if (info.saveKeyCallback) {
-        const auto hmac = computeHmac(
-                buildHmacMessage(info.provider, result->uuid, result->serialNumber, encDevKey),
-                m_deviceKeyPassword);
+        const auto hmac = computeHmac(buildHmacMessage(info.provider, confirmed->uuid,
+                                                       confirmed->serialNumber, encDevKey),
+                                      m_deviceKeyPassword);
 
         json keyJson;
         keyJson["encrypted_key"] = encDevKey;
-        keyJson["uuid"] = result->uuid;
-        keyJson["serial_number"] = result->serialNumber;
+        keyJson["uuid"] = confirmed->uuid;
+        keyJson["serial_number"] = confirmed->serialNumber;
         keyJson["provider"] = info.provider;
         keyJson["hmac"] = hmac;
         info.saveKeyCallback(keyJson.dump());
     }
 
-    INF("SoftKeyResolver: provisioned new device, uuid={}", result->uuid);
+    INF("SoftKeyResolver: provisioned new device, uuid={}", confirmed->uuid);
     return true;
 }
 

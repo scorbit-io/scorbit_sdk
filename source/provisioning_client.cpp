@@ -77,14 +77,14 @@ std::optional<ProvisionResult> ProvisioningClient::initiate(const std::string &p
     }
 }
 
-bool ProvisioningClient::confirm(const ProvisionResult &result, const std::string &publicKeyHex,
-                                 const std::string &deviceSignatureHex,
-                                 const std::string &timestamp, const std::string &providerId,
-                                 const std::vector<uint8_t> &providerKey,
-                                 const MachineFingerprint &fingerprints)
+std::optional<ProvisionResult>
+ProvisioningClient::confirm(const ProvisionResult &initiated, const std::string &publicKeyHex,
+                            const std::string &deviceSignatureHex, const std::string &timestamp,
+                            const std::string &providerId, const std::vector<uint8_t> &providerKey,
+                            const MachineFingerprint &fingerprints)
 {
     json body;
-    body["uuid"] = result.uuid;
+    body["uuid"] = initiated.uuid;
     body["public_key"] = publicKeyHex;
     body["timestamp"] = std::stoull(timestamp);
     body["signature"] = deviceSignatureHex;
@@ -117,11 +117,23 @@ bool ProvisioningClient::confirm(const ProvisionResult &result, const std::strin
 
     if (r.status_code != 200 && r.status_code != 201) {
         ERR("Provisioning confirm failed: HTTP {} - {}", r.status_code, r.text);
-        return false;
+        return std::nullopt;
     }
 
-    INF("Provisioning confirmed successfully");
-    return true;
+    try {
+        auto j = json::parse(r.text);
+        ProvisionResult confirmed;
+        confirmed.uuid = j.at("uuid").get<std::string>();
+        confirmed.serialNumber = j.at("serial_number").get<uint64_t>();
+
+        const auto status = j.value("status", "");
+        INF("Provisioning confirmed: uuid={}, serial={}, status={}", confirmed.uuid,
+            confirmed.serialNumber, status);
+        return confirmed;
+    } catch (const std::exception &e) {
+        ERR("Provisioning confirm: failed to parse response: {}", e.what());
+        return std::nullopt;
+    }
 }
 
 cpr::Header ProvisioningClient::buildProviderAuthHeaders(const std::string &providerId,
