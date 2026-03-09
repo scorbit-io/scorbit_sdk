@@ -244,7 +244,8 @@ private:
 
 private:
     bool validateDeviceInfo() const;
-    bool resolveKeys();
+    bool resolveKeys(const std::string &serverTimestamp);
+    bool reprovisionSoftKey(const std::string &serverTimestamp);
 
     SignerCallback m_signer;
     std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;

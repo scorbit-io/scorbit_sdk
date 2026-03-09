@@ -20,6 +20,7 @@
 #pragma once
 
 #include "game_data.h"
+#include <cpr/cpr.h>
 #include <string>
 #include <string_view>
 
@@ -45,6 +46,8 @@ std::string gameHistoryToCsv(const GameHistory &history);
 std::string to_iso8601(std::chrono::system_clock::time_point tp);
 
 auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string;
+
+cpr::SslOptions makeSslOptions();
 
 } // namespace detail
 } // namespace scorbit

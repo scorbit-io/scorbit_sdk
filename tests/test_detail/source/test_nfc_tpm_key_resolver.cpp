@@ -39,7 +39,7 @@ TEST_CASE("NfcTpmKeyResolver returns false on non-HW platform", "[NfcTpmKeyResol
     info.provider = "testprovider";
 
     NfcTpmKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, "1773013652"));
 }
 
 TEST_CASE("NfcTpmKeyResolver createSigner returns empty on non-HW platform", "[NfcTpmKeyResolver]")
@@ -57,8 +57,7 @@ TEST_CASE("NfcTpmKeyResolver tryResolve on HW platform", "[NfcTpmKeyResolver]")
     info.provider = "testprovider";
 
     NfcTpmKeyResolver resolver;
-    // On HW platform without an actual NFC TPM plugged in, should return false
-    bool resolved = resolver.tryResolve(info);
+    bool resolved = resolver.tryResolve(info, "1773013652");
     if (!resolved) {
         CHECK(info.uuid.empty());
         CHECK(info.serialNumber == 0);

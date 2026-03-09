@@ -37,14 +37,15 @@ struct ProvisionResult {
 class ProvisioningClient
 {
 public:
-    explicit ProvisioningClient(std::string hostname);
+    ProvisioningClient(std::string formattedHostname, cpr::SslOptions sslOptions);
 
     /**
-     * Step 1: GET /api/v2/provision/?provider={id}
+     * Step 1: GET /api/v2/provision/
      * Returns uuid and serial_number assigned by the API.
      */
     std::optional<ProvisionResult> initiate(const std::string &providerId,
-                                            const std::vector<uint8_t> &providerKey);
+                                            const std::vector<uint8_t> &providerKey,
+                                            const std::string &serverTimestamp);
 
     /**
      * Step 2: POST /api/v2/provision/
@@ -58,10 +59,11 @@ public:
 private:
     cpr::Header buildProviderAuthHeaders(const std::string &providerId,
                                          const std::vector<uint8_t> &providerKey,
+                                         const std::string &serverTimestamp,
                                          const std::string &body = "");
-    cpr::SslOptions sslOptions() const;
 
     std::string m_hostname;
+    cpr::SslOptions m_sslOptions;
 };
 
 } // namespace detail

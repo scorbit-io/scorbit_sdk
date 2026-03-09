@@ -30,12 +30,13 @@ namespace detail {
 class SoftKeyResolver : public IKeyResolver
 {
 public:
-    bool tryResolve(DeviceInfo &info) override;
+    bool tryResolve(DeviceInfo &info, const std::string &serverTimestamp) override;
     SignerCallback createSigner() const override;
 
 private:
     bool tryLoadKey(DeviceInfo &info);
-    bool provisionNewKey(DeviceInfo &info, const std::vector<uint8_t> &providerKey);
+    bool provisionNewKey(DeviceInfo &info, const std::vector<uint8_t> &providerKey,
+                         const std::string &serverTimestamp);
 
     std::string m_encryptedDeviceKey;
     std::string m_deviceKeyPassword;

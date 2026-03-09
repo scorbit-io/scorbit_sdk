@@ -43,6 +43,7 @@ constexpr auto TEST_PROVIDER_KEY_HEX =
 constexpr auto TEST_UUID = "c7f1fd0b-82f7-5504-8fbe-740c09bc7dab";
 constexpr uint64_t TEST_SERIAL = 12345;
 constexpr auto TEST_PROVIDER = "testprovider";
+constexpr auto TEST_SERVER_TIMESTAMP = "1773013652";
 
 std::vector<uint8_t> hexToBytes(const std::string &hex)
 {
@@ -157,7 +158,7 @@ TEST_CASE("SoftKeyResolver loads valid saved key", "[SoftKeyResolver]")
     auto info = makeSoftKeyDeviceInfo([]() { return makeValidKeyJson(); });
 
     SoftKeyResolver resolver;
-    REQUIRE(resolver.tryResolve(info));
+    REQUIRE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     CHECK(info.uuid == TEST_UUID);
     CHECK(info.serialNumber == TEST_SERIAL);
 }
@@ -167,7 +168,7 @@ TEST_CASE("SoftKeyResolver returns false when no key saved", "[SoftKeyResolver]"
     auto info = makeSoftKeyDeviceInfo([]() { return std::string {}; });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver returns false with invalid JSON", "[SoftKeyResolver]")
@@ -175,7 +176,7 @@ TEST_CASE("SoftKeyResolver returns false with invalid JSON", "[SoftKeyResolver]"
     auto info = makeSoftKeyDeviceInfo([]() { return "not json"; });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver]")
@@ -192,7 +193,7 @@ TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver
         });
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("Missing uuid")
@@ -207,7 +208,7 @@ TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver
         });
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("Missing serial_number")
@@ -222,7 +223,7 @@ TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver
         });
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("Missing provider")
@@ -237,7 +238,7 @@ TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver
         });
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("Missing hmac")
@@ -252,7 +253,7 @@ TEST_CASE("SoftKeyResolver returns false with missing fields", "[SoftKeyResolver
         });
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 }
 
@@ -265,7 +266,7 @@ TEST_CASE("SoftKeyResolver requires soft key provisioning config", "[SoftKeyReso
         info.loadKeyCallback = []() { return makeValidKeyJson(); };
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("No save callback")
@@ -275,7 +276,7 @@ TEST_CASE("SoftKeyResolver requires soft key provisioning config", "[SoftKeyReso
         info.loadKeyCallback = []() { return makeValidKeyJson(); };
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 
     SECTION("No load callback")
@@ -285,7 +286,7 @@ TEST_CASE("SoftKeyResolver requires soft key provisioning config", "[SoftKeyReso
         info.saveKeyCallback = [](const std::string &) { };
 
         SoftKeyResolver resolver;
-        REQUIRE_FALSE(resolver.tryResolve(info));
+        REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
     }
 }
 
@@ -303,7 +304,7 @@ TEST_CASE("SoftKeyResolver rejects tampered HMAC", "[SoftKeyResolver][Integrity]
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver rejects tampered UUID", "[SoftKeyResolver][Integrity]")
@@ -316,7 +317,7 @@ TEST_CASE("SoftKeyResolver rejects tampered UUID", "[SoftKeyResolver][Integrity]
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver rejects tampered serial number", "[SoftKeyResolver][Integrity]")
@@ -329,7 +330,7 @@ TEST_CASE("SoftKeyResolver rejects tampered serial number", "[SoftKeyResolver][I
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver rejects tampered encrypted_key", "[SoftKeyResolver][Integrity]")
@@ -342,7 +343,7 @@ TEST_CASE("SoftKeyResolver rejects tampered encrypted_key", "[SoftKeyResolver][I
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver rejects provider mismatch", "[SoftKeyResolver][Integrity]")
@@ -361,7 +362,7 @@ TEST_CASE("SoftKeyResolver rejects provider mismatch", "[SoftKeyResolver][Integr
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver rejects key encrypted with wrong provider key",
@@ -386,7 +387,7 @@ TEST_CASE("SoftKeyResolver rejects key encrypted with wrong provider key",
     });
 
     SoftKeyResolver resolver;
-    REQUIRE_FALSE(resolver.tryResolve(info));
+    REQUIRE_FALSE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 }
 
 TEST_CASE("SoftKeyResolver works with re-encrypted provider key", "[SoftKeyResolver]")
@@ -403,8 +404,8 @@ TEST_CASE("SoftKeyResolver works with re-encrypted provider key", "[SoftKeyResol
     // But both should successfully load the same device key
     SoftKeyResolver resolver1;
     SoftKeyResolver resolver2;
-    REQUIRE(resolver1.tryResolve(info1));
-    REQUIRE(resolver2.tryResolve(info2));
+    REQUIRE(resolver1.tryResolve(info1, TEST_SERVER_TIMESTAMP));
+    REQUIRE(resolver2.tryResolve(info2, TEST_SERVER_TIMESTAMP));
     CHECK(info1.uuid == info2.uuid);
     CHECK(info1.serialNumber == info2.serialNumber);
 }
@@ -418,7 +419,7 @@ TEST_CASE("SoftKeyResolver createSigner produces valid signatures", "[SoftKeyRes
     auto info = makeSoftKeyDeviceInfo([]() { return makeValidKeyJson(); });
 
     SoftKeyResolver resolver;
-    REQUIRE(resolver.tryResolve(info));
+    REQUIRE(resolver.tryResolve(info, TEST_SERVER_TIMESTAMP));
 
     auto signer = resolver.createSigner();
     REQUIRE(signer);
@@ -438,8 +439,8 @@ TEST_CASE("SoftKeyResolver createSigner is deterministic for same key", "[SoftKe
 
     SoftKeyResolver resolver1;
     SoftKeyResolver resolver2;
-    REQUIRE(resolver1.tryResolve(info1));
-    REQUIRE(resolver2.tryResolve(info2));
+    REQUIRE(resolver1.tryResolve(info1, TEST_SERVER_TIMESTAMP));
+    REQUIRE(resolver2.tryResolve(info2, TEST_SERVER_TIMESTAMP));
 
     auto signer1 = resolver1.createSigner();
     auto signer2 = resolver2.createSigner();

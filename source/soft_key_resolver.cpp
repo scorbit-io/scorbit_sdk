@@ -29,7 +29,6 @@
 #include <obfuscate.h>
 #include <openssl/crypto.h>
 #include <openssl/sha.h>
-#include <chrono>
 #include <cstring>
 
 using json = nlohmann::json;
@@ -49,7 +48,7 @@ std::string buildHmacMessage(const std::string &provider, const std::string &uui
 
 } // namespace
 
-bool SoftKeyResolver::tryResolve(DeviceInfo &info)
+bool SoftKeyResolver::tryResolve(DeviceInfo &info, const std::string &serverTimestamp)
 {
     if (!info.hasSoftKeyProvisioning()) {
         return false;
@@ -66,7 +65,7 @@ bool SoftKeyResolver::tryResolve(DeviceInfo &info)
     utils::ByteArray providerKeyBa(providerKey.data(), providerKey.size());
     m_deviceKeyPassword = providerKeyBa.hex();
 
-    bool success = tryLoadKey(info) || provisionNewKey(info, providerKey);
+    bool success = tryLoadKey(info) || provisionNewKey(info, providerKey, serverTimestamp);
 
     OPENSSL_cleanse(providerKey.data(), providerKey.size());
 
@@ -170,7 +169,8 @@ bool SoftKeyResolver::tryLoadKey(DeviceInfo &info)
 }
 
 bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
-                                      const std::vector<uint8_t> &providerKey)
+                                      const std::vector<uint8_t> &providerKey,
+                                      const std::string &serverTimestamp)
 {
     utils::ByteArray publicKey;
     utils::ByteArray privateKey;
@@ -179,21 +179,16 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
         return false;
     }
 
-    ProvisioningClient client(info.hostname);
+    ProvisioningClient client(info.hostname, makeSslOptions());
 
-    auto result = client.initiate(info.provider, providerKey);
+    auto result = client.initiate(info.provider, providerKey, serverTimestamp);
     if (!result) {
         ERR("SoftKeyResolver: provisioning initiation failed");
         return false;
     }
 
-    const auto timestamp =
-            std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
-                                   std::chrono::system_clock::now().time_since_epoch())
-                                   .count());
-
     utils::ByteArray uuidBytes(removeSymbols(result->uuid, "-{}"));
-    utils::ByteArray timestampBytes(timestamp.cbegin(), timestamp.cend());
+    utils::ByteArray timestampBytes(serverTimestamp.cbegin(), serverTimestamp.cend());
     uuidBytes.insert(uuidBytes.end(), timestampBytes.cbegin(), timestampBytes.cend());
 
     std::array<uint8_t, SHA256_DIGEST_LENGTH> digest {};
@@ -214,8 +209,8 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info,
     // Strip the 0x04 uncompressed point prefix — API expects raw 64-byte (x || y)
     utils::ByteArray rawPublicKey(publicKey.data() + 1, publicKey.size() - 1);
 
-    if (!client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(), timestamp, info.provider,
-                        providerKey, fingerprints)) {
+    if (!client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(), serverTimestamp,
+                        info.provider, providerKey, fingerprints)) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;
     }

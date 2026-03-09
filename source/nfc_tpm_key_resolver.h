@@ -30,7 +30,7 @@ namespace detail {
 class NfcTpmKeyResolver : public IKeyResolver
 {
 public:
-    bool tryResolve(DeviceInfo &info) override;
+    bool tryResolve(DeviceInfo &info, const std::string &serverTimestamp) override;
     SignerCallback createSigner() const override;
 
 private:

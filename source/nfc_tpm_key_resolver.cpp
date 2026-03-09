@@ -27,7 +27,7 @@
 namespace scorbit {
 namespace detail {
 
-bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info)
+bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
 {
     auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB);
     if (!tpm->hasTpm() || !tpm->isValid()) {

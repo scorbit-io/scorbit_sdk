@@ -23,8 +23,11 @@
 #include <boost/uuid.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
+#include <cmrc/cmrc.hpp>
 #include <iomanip>
 #include <regex>
+
+CMRC_DECLARE(scorbit);
 
 namespace scorbit {
 namespace detail {
@@ -159,6 +162,16 @@ auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::st
     }
 
     return uuid;
+}
+
+cpr::SslOptions makeSslOptions()
+{
+    auto fs = cmrc::scorbit::get_filesystem();
+    auto certFile = fs.open("cacert.pem");
+    cpr::SslOptions ssl;
+    ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
+    ssl.SetOption(cpr::ssl::VerifyHost {true});
+    return ssl;
 }
 
 } // namespace detail

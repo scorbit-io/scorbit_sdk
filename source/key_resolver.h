@@ -20,6 +20,7 @@
 #pragma once
 
 #include "signer_types.h"
+#include <string>
 
 namespace scorbit {
 
@@ -41,8 +42,9 @@ public:
     /**
      * Attempt to resolve authentication for this device.
      * On success: populates info.uuid and info.serialNumber, returns true.
+     * @param serverTimestamp Unix timestamp string obtained from server for accurate time.
      */
-    virtual bool tryResolve(DeviceInfo &info) = 0;
+    virtual bool tryResolve(DeviceInfo &info, const std::string &serverTimestamp) = 0;
 
     /**
      * Create a signer callback from the resolved key material.

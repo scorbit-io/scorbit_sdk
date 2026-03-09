@@ -19,6 +19,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "soft_key_resolver.h"
 #include "fmt_formatters.h"
 #include <logger/logger.h>
 #include "updater.h"
@@ -223,10 +224,13 @@ bool Net::validateDeviceInfo() const
     return true;
 }
 
-bool Net::resolveKeys()
+bool Net::resolveKeys(const std::string &serverTimestamp)
 {
+    // Provide the normalized hostname to resolvers so provisioning can use it directly
+    m_deviceInfo.hostname = m_hostname;
+
     for (auto &resolver : m_keyResolvers) {
-        if (resolver->tryResolve(m_deviceInfo)) {
+        if (resolver->tryResolve(m_deviceInfo, serverTimestamp)) {
             m_signer = resolver->createSigner();
             m_keyResolvers.clear();
 
@@ -247,6 +251,41 @@ bool Net::resolveKeys()
     ERR("No authentication resolver succeeded");
     m_keyResolvers.clear();
     return false;
+}
+
+bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
+{
+    if (!m_deviceInfo.hasSoftKeyProvisioning()) {
+        return false;
+    }
+
+    INF("Scorbitron not found in API, clearing stale key and re-provisioning...");
+
+    // Clear the stale saved key so the next load returns empty
+    m_deviceInfo.saveKeyCallback("");
+
+    m_deviceInfo.hostname = m_hostname;
+    m_signer = {};
+
+    SoftKeyResolver resolver;
+    if (!resolver.tryResolve(m_deviceInfo, serverTimestamp)) {
+        ERR("Re-provisioning failed");
+        return false;
+    }
+
+    m_signer = resolver.createSigner();
+
+    if (!m_deviceInfo.uuid.empty()) {
+        const auto originalUuid = m_deviceInfo.uuid;
+        m_deviceInfo.uuid = parseUuid(originalUuid);
+        if (m_deviceInfo.uuid.empty()) {
+            ERR("Re-provisioned key resolver set invalid UUID: {}", originalUuid);
+            return false;
+        }
+    }
+
+    INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
+    return true;
 }
 
 Net::~Net()
@@ -738,19 +777,9 @@ task_t Net::createAuthenticateTask()
             m_status = AuthStatus::Authenticating;
         }
 
-        // Resolve keys if we don't have a signer yet (async key resolver path)
-        if (!m_signer && !m_keyResolvers.empty()) {
-            if (!resolveKeys()) {
-                m_status = AuthStatus::AuthenticationFailed;
-                ERR("API there is no functional key to authenticate");
-                m_authCV.notify_all();
-                return;
-            }
-        }
-
         m_isRefreshingToken = true;
 
-        // Get noop to get timestamp
+        // Get server time first — provisioning and authentication both need accurate timestamps
         std::string timestamp;
         for (int i = 0; i < 10 && !m_stop; ++i) {
             INF("API getting noop to retrieve server time...");
@@ -766,6 +795,17 @@ task_t Net::createAuthenticateTask()
                 break;
             }
             std::this_thread::sleep_for(1s);
+        }
+
+        // Resolve keys if we don't have a signer yet (async key resolver path).
+        // Done after obtaining server time so provisioning uses accurate timestamps.
+        if (!m_signer && !m_keyResolvers.empty()) {
+            if (!resolveKeys(timestamp)) {
+                m_status = AuthStatus::AuthenticationFailed;
+                ERR("API there is no functional key to authenticate");
+                m_authCV.notify_all();
+                return;
+            }
         }
 
         for (;;) {
@@ -836,6 +876,9 @@ task_t Net::createAuthenticateTask()
                 // Retry with new timestamp parsed from reply header
                 INF("API authentication failed: code {}, {}, will retry with new timestamp",
                     r.status_code, r.error.message);
+            } else if (r.status_code == 404 && reprovisionSoftKey(timestamp)) {
+                // Scorbitron was deleted from API — re-provisioned with a new identity, retry auth
+                continue;
             } else if (r.status_code == 0) {
                 // Network error, retry
                 ERR("API authentication network error: {}, will retry in 10s", r.error.message);
@@ -1891,12 +1934,7 @@ cpr::Header Net::authHeader() const
 
 cpr::SslOptions Net::sslOptions() const
 {
-    auto fs = cmrc::scorbit::get_filesystem();
-    auto certFile = fs.open("cacert.pem");
-    cpr::SslOptions ssl;
-    ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
-    ssl.SetOption(cpr::ssl::VerifyHost {true});
-    return ssl;
+    return makeSslOptions();
 }
 
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
