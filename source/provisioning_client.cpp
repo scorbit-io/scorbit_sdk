@@ -81,7 +81,7 @@ std::optional<ProvisionResult>
 ProvisioningClient::confirm(const ProvisionResult &initiated, const std::string &publicKeyHex,
                             const std::string &deviceSignatureHex, const std::string &timestamp,
                             const std::string &providerId, const std::vector<uint8_t> &providerKey,
-                            const MachineFingerprint &fingerprints)
+                            const std::string &fingerprintHash)
 {
     json body;
     body["uuid"] = initiated.uuid;
@@ -90,24 +90,15 @@ ProvisioningClient::confirm(const ProvisionResult &initiated, const std::string 
     body["signature"] = deviceSignatureHex;
     body["key_source"] = "soft_key";
 
-    if (fingerprints.hasAny()) {
-        json fp;
-        if (!fingerprints.macAddressPrimary.empty())
-            fp["mac_address_primary"] = fingerprints.macAddressPrimary;
-        if (!fingerprints.boardSerial.empty())
-            fp["board_serial"] = fingerprints.boardSerial;
-        if (!fingerprints.cpuSerial.empty())
-            fp["cpu_serial"] = fingerprints.cpuSerial;
-        if (!fingerprints.platformType.empty())
-            fp["platform_type"] = fingerprints.platformType;
-        body["fingerprints"] = fp;
-    }
-
     const auto bodyStr = body.dump();
 
     auto headers = buildProviderAuthHeaders(providerId, providerKey, timestamp, bodyStr);
     headers[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_JSON;
     headers[HDR_KEY_CACHE_CONTROL] = HDR_VAL_NO_CACHE;
+
+    if (!fingerprintHash.empty()) {
+        headers[HDR_KEY_FINGERPRINT_HASH] = fingerprintHash;
+    }
 
     const auto fullUrl = fmt::format("{}/{}/{}", m_hostname, URL_API, URL_V2_PROVISION);
     INF("Provisioning: confirming POST {}", fullUrl);

@@ -22,6 +22,7 @@
 #include "provisioning_client.h"
 #include "net_util.h"
 #include "utils/decrypt.h"
+#include "utils/machine_fingerprint.h"
 #include <tpm/crypto_helpers.h>
 #include <logger/logger.h>
 #include <utils/bytearray.h>
@@ -201,15 +202,14 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info, const std::vector<uint8_
     }
 
     auto fingerprints = collectFingerprints();
-    INF("SoftKeyResolver: collected fingerprints mac={}, board={}, cpu={}, platform={}",
-        fingerprints.macAddressPrimary, fingerprints.boardSerial, fingerprints.cpuSerial,
-        fingerprints.platformType);
+    const auto fpHash = fingerprints.computeHash();
+    INF("SoftKeyResolver: fingerprint hash={}", fpHash);
 
     // Strip the 0x04 uncompressed point prefix — API expects raw 64-byte (x || y)
     utils::ByteArray rawPublicKey(publicKey.data() + 1, publicKey.size() - 1);
 
     auto confirmed = client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(),
-                                    serverTimestamp, info.provider, providerKey, fingerprints);
+                                    serverTimestamp, info.provider, providerKey, fpHash);
     if (!confirmed) {
         ERR("SoftKeyResolver: provisioning confirmation failed");
         return false;

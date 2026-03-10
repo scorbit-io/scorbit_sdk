@@ -21,6 +21,7 @@
 #include "mac_address.h"
 #include <platform_id.h>
 #include <logger/logger.h>
+#include <tpm/crypto_helpers.h>
 #include <boost/predef.h>
 
 #if BOOST_OS_LINUX
@@ -218,6 +219,30 @@ MachineFingerprint collectFingerprints()
     fp.cpuSerial = getCpuSerial();
     fp.platformType = SCORBIT_SDK_PLATFORM_ID;
     return fp;
+}
+
+std::string MachineFingerprint::computeHash() const
+{
+    auto normalize = [](const std::string &s) {
+        std::string result;
+        result.reserve(s.size());
+        for (char c : s) {
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+                result += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        return result;
+    };
+
+    // Must match API's compute_composite_hash: mac_primary|mac_secondary|board|cpu|platform
+    const std::string combined = normalize(macAddressPrimary) + "|"
+                               + "|" // mac_address_secondary is always empty in the SDK
+                               + normalize(boardSerial) + "|" + normalize(cpuSerial) + "|"
+                               + normalize(platformType);
+    INF("Collected fingerprint: mac={}, board={}, cpu={}, platform={}", macAddressPrimary,
+        boardSerial, cpuSerial, platformType);
+
+    const utils::ByteArray message(combined.cbegin(), combined.cend());
+    return sha256Hash(message).hex();
 }
 
 } // namespace detail

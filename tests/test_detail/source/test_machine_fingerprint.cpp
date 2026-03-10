@@ -95,3 +95,61 @@ TEST_CASE("collectFingerprints is consistent across calls", "[MachineFingerprint
     CHECK(fp1.cpuSerial == fp2.cpuSerial);
     CHECK(fp1.platformType == fp2.platformType);
 }
+
+TEST_CASE("computeHash returns 64-char hex SHA-256", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    fp.macAddressPrimary = "AA:BB:CC:DD:EE:FF";
+    fp.boardSerial = "BOARD123";
+    fp.cpuSerial = "CPU456";
+    fp.platformType = "spike2";
+
+    const auto hash = fp.computeHash();
+    REQUIRE(hash.size() == 64);
+
+    static const auto hexRe = std::regex("[0-9a-f]{64}");
+    CHECK(std::regex_match(hash, hexRe));
+}
+
+TEST_CASE("computeHash normalizes to lowercase", "[MachineFingerprint]")
+{
+    MachineFingerprint fp1;
+    fp1.macAddressPrimary = "AA:BB:CC:DD:EE:FF";
+    fp1.platformType = "SPIKE2";
+
+    MachineFingerprint fp2;
+    fp2.macAddressPrimary = "aa:bb:cc:dd:ee:ff";
+    fp2.platformType = "spike2";
+
+    CHECK(fp1.computeHash() == fp2.computeHash());
+}
+
+TEST_CASE("computeHash is deterministic", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    fp.macAddressPrimary = "42:00:61:74:98:37";
+    fp.platformType = "arm64_unknown";
+
+    CHECK(fp.computeHash() == fp.computeHash());
+}
+
+TEST_CASE("computeHash differs for different inputs", "[MachineFingerprint]")
+{
+    MachineFingerprint fp1;
+    fp1.macAddressPrimary = "AA:BB:CC:DD:EE:FF";
+
+    MachineFingerprint fp2;
+    fp2.macAddressPrimary = "11:22:33:44:55:66";
+
+    CHECK(fp1.computeHash() != fp2.computeHash());
+}
+
+TEST_CASE("computeHash works with all empty fields", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    const auto hash = fp.computeHash();
+
+    REQUIRE(hash.size() == 64);
+    static const auto hexRe = std::regex("[0-9a-f]{64}");
+    CHECK(std::regex_match(hash, hexRe));
+}

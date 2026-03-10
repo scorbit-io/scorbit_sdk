@@ -25,6 +25,7 @@
 #include "updater.h"
 #include "safe_multipart.h"
 #include "utils/mac_address.h"
+#include "utils/machine_fingerprint.h"
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
 #include <utils/bytearray.h>
@@ -178,6 +179,10 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
         m_deviceInfo.uuid = deriveUuid(fmt::format("{}|{}", m_deviceInfo.provider, macAddress));
         INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
+
+    // Compute fingerprint hash once for use in provisioning and authentication
+    m_fingerprintHash = collectFingerprints().computeHash();
+    INF("API fingerprint hash: {}", m_fingerprintHash);
 
     initScorbitronObject();
     centrifugoSetup();
@@ -831,8 +836,11 @@ task_t Net::createAuthenticateTask()
             INF("API authenticating to {}", m_hostname);
 
             // Use custom HTTP request since authentication has special retry logic
-            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload},
-                               cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}},
+            cpr::Header authHeaders {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}};
+            if (!m_fingerprintHash.empty()) {
+                authHeaders[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
+            }
+            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload}, authHeaders,
                                cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
@@ -1011,7 +1019,9 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
         }
     };
 
-    return createPostRequestTask(std::move(callback), std::move(deferredSetup));
+    return createPostRequestTask(std::move(callback), std::move(deferredSetup),
+                                 {AuthStatus::AuthenticatedPaired},
+                                 true /* includeFingerprintHash */);
 }
 
 task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
@@ -1113,7 +1123,9 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         }
     };
 
-    return createPatchMultipartRequestTask(std::move(callback), std::move(deferredSetup));
+    return createPatchMultipartRequestTask(std::move(callback), std::move(deferredSetup),
+                                           {AuthStatus::AuthenticatedPaired},
+                                           true /* includeFingerprintHash */);
 }
 
 task_t Net::createHeartbeatTask()
@@ -1667,11 +1679,12 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 template<typename DeferredSetupT, typename HttpMethodT>
 task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
-                                  std::vector<AuthStatus> allowedStatuses)
+                                  std::vector<AuthStatus> allowedStatuses,
+                                  bool includeFingerprintHash)
 {
     return [this, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
-            allowedStatuses = std::move(allowedStatuses)]() {
+            allowedStatuses = std::move(allowedStatuses), includeFingerprintHash]() {
         Error error {Error::ApiError};
         std::string reply;
 
@@ -1701,8 +1714,11 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
 
             INF("API {} request: {}", requestType, url.str());
 
-            auto r = httpMethod(url, std::get<1>(setupResult), authHeader(),
-                                cpr::Timeout {NET_TIMEOUT});
+            auto hdrs = authHeader();
+            if (includeFingerprintHash && !m_fingerprintHash.empty()) {
+                hdrs[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
+            }
+            auto r = httpMethod(url, std::get<1>(setupResult), hdrs, cpr::Timeout {NET_TIMEOUT});
             reply = std::move(r.text);
 
             if (r.status_code >= 200 && r.status_code < 300) {
@@ -1756,7 +1772,8 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
 }
 
 task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
-                                  std::vector<AuthStatus> allowedStatuses)
+                                  std::vector<AuthStatus> allowedStatuses,
+                                  bool includeFingerprintHash)
 {
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
@@ -1764,7 +1781,7 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
                    const cpr::Timeout &timeout) {
                 return cpr::Post(url, body, header, timeout, sslOptions());
             },
-            std::move(allowedStatuses));
+            std::move(allowedStatuses), includeFingerprintHash);
 }
 
 task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
@@ -1796,7 +1813,8 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
 
 task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
                                             deferred_patch_multipart_setup_t deferredSetup,
-                                            std::vector<AuthStatus> allowedStatuses)
+                                            std::vector<AuthStatus> allowedStatuses,
+                                            bool includeFingerprintHash)
 {
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
@@ -1805,7 +1823,7 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
                 return cpr::Patch(url, multipart.get(), header, timeout, sslOptions());
             },
-            std::move(allowedStatuses));
+            std::move(allowedStatuses), includeFingerprintHash);
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,

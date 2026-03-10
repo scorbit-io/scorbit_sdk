@@ -35,6 +35,8 @@ struct MachineFingerprint {
         return !macAddressPrimary.empty() || !boardSerial.empty() || !cpuSerial.empty()
              || !platformType.empty();
     }
+
+    std::string computeHash() const;
 };
 
 MachineFingerprint collectFingerprints();

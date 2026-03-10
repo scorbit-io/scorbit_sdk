@@ -172,18 +172,20 @@ private:
 
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
-    task_t createHttpRequestTask(const char *requestType, StringCallback replyCallback,
-                                 DeferredSetupT deferredSetup, HttpMethodT httpMethod,
-                                 std::vector<AuthStatus> allowedStatuses = {
-                                         AuthStatus::AuthenticatedPaired});
+    task_t createHttpRequestTask(
+            const char *requestType, StringCallback replyCallback, DeferredSetupT deferredSetup,
+            HttpMethodT httpMethod,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
                                         AuthStatus::AuthenticatedPaired});
-    task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
-                                 std::vector<AuthStatus> allowedStatuses = {
-                                         AuthStatus::AuthenticatedPaired});
+    task_t createPostRequestTask(
+            StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
     task_t createPostMultipartRequestTask(StringCallback replyCallback,
                                           deferred_post_multipart_setup_t deferredSetup,
                                           std::vector<AuthStatus> allowedStatuses = {
@@ -192,10 +194,10 @@ private:
                                   deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
                                           AuthStatus::AuthenticatedPaired});
-    task_t createPatchMultipartRequestTask(StringCallback replyCallback,
-                                           deferred_patch_multipart_setup_t deferredSetup,
-                                           std::vector<AuthStatus> allowedStatuses = {
-                                                   AuthStatus::AuthenticatedPaired});
+    task_t createPatchMultipartRequestTask(
+            StringCallback replyCallback, deferred_patch_multipart_setup_t deferredSetup,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename, std::string contentType);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
@@ -275,6 +277,7 @@ private:
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
+    std::string m_fingerprintHash;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;

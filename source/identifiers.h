@@ -61,6 +61,8 @@ constexpr auto HDR_VAL_CONTENT_OCTET {"application/octet-stream"};
 constexpr auto HDR_KEY_CACHE_CONTROL {"Cache-Control"};
 constexpr auto HDR_VAL_NO_CACHE {"no-cache"};
 
+constexpr auto HDR_KEY_FINGERPRINT_HASH {"X-Fingerprint-Hash"};
+
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};
 constexpr auto PROVIDER_VSCORBITRON {"vscorbitron"};
