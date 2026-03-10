@@ -82,9 +82,7 @@ class Net : public NetBase
     };
 
 public:
-    Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey);
-    Net(DeviceInfo deviceInfo, bool useEncryptedKey,
-        std::vector<std::unique_ptr<IKeyResolver>> resolvers);
+    Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers);
     ~Net() override;
 
     AuthStatus status() const override;

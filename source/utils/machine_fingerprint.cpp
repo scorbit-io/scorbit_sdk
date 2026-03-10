@@ -238,7 +238,7 @@ std::string MachineFingerprint::computeHash() const
                                + "|" // mac_address_secondary is always empty in the SDK
                                + normalize(boardSerial) + "|" + normalize(cpuSerial) + "|"
                                + normalize(platformType);
-    INF("Collected fingerprint: mac={}, board={}, cpu={}, platform={}", macAddressPrimary,
+    INF("Collected fingerprint: mac=[{}], board=[{}], cpu=[{}], platform=[{}]", macAddressPrimary,
         boardSerial, cpuSerial, platformType);
 
     const utils::ByteArray message(combined.cbegin(), combined.cend());

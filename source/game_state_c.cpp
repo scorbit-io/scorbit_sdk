@@ -25,6 +25,7 @@
 #include "game_state_impl.h"
 #include "net.h"
 #include "key_resolver.h"
+#include "signer_key_resolver.h"
 #include "nfc_tpm_key_resolver.h"
 #include "soft_key_resolver.h"
 #include <logger/logger.h>
@@ -45,8 +46,10 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
         return nullptr;
     }
 
-    // Path 1: Signer callback (scorbitd)
+    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+
     if (config->hasAuthenticationCallback()) {
+        // 1. Signer callback given, use it exclusively
         auto signer = config->signerCallback;
         auto userData = config->signerUserData;
 
@@ -61,16 +64,14 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
             return signature;
         };
 
-        auto net = std::make_unique<Net>(std::move(cb), *config, false);
-        return new sb_game_state_struct {GameStateImpl(std::move(net))};
+        resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
+    } else {
+        // 2. Without signer callback use following resolvers
+        resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
+        resolvers.push_back(std::make_unique<SoftKeyResolver>());
     }
 
-    // Path 2: Key resolver chain — resolved asynchronously inside Net
-    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
-    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
-    resolvers.push_back(std::make_unique<SoftKeyResolver>());
-
-    auto net = std::make_unique<Net>(*config, true, std::move(resolvers));
+    auto net = std::make_unique<Net>(*config, std::move(resolvers));
     return new sb_game_state_struct {GameStateImpl(std::move(net))};
 }
 

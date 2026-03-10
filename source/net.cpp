@@ -24,7 +24,6 @@
 #include <logger/logger.h>
 #include "updater.h"
 #include "safe_multipart.h"
-#include "utils/mac_address.h"
 #include "utils/machine_fingerprint.h"
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
@@ -152,10 +151,10 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 
 // --------------------------------------------------------------------------------
 
-Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
-    : m_signer(std::move(signer))
+Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
+    : m_keyResolvers(std::move(resolvers))
     , m_deviceInfo(std::move(deviceInfo))
-    , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
+    , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
@@ -164,47 +163,11 @@ Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
 
     if (!validateDeviceInfo()) {
         return;
-    }
-
-    // Parse UUID — for the signer path the UUID is known at construction time
-    if (!m_deviceInfo.uuid.empty()) {
-        const auto originalUuid = m_deviceInfo.uuid;
-        m_deviceInfo.uuid = parseUuid(originalUuid);
-        if (m_deviceInfo.uuid.empty()) {
-            ERR("Given UUID is not in correct format: {}", originalUuid);
-            return;
-        }
-    } else {
-        const auto macAddress = getMacAddress();
-        m_deviceInfo.uuid = deriveUuid(fmt::format("{}|{}", m_deviceInfo.provider, macAddress));
-        INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
     // Compute fingerprint hash once for use in provisioning and authentication
     m_fingerprintHash = collectFingerprints().computeHash();
     INF("API fingerprint hash: {}", m_fingerprintHash);
-
-    initScorbitronObject();
-    centrifugoSetup();
-    m_worker.start();
-}
-
-Net::Net(DeviceInfo deviceInfo, bool useEncryptedKey,
-         std::vector<std::unique_ptr<IKeyResolver>> resolvers)
-    : m_keyResolvers(std::move(resolvers))
-    , m_deviceInfo(std::move(deviceInfo))
-    , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
-                m_deviceInfo.scorbitdPlatformId)
-    , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
-                                                    std::move(m_deviceInfo.m_eventCallback)))
-{
-    setHostname(m_deviceInfo.hostname, m_deviceInfo.cfHostname);
-
-    if (!validateDeviceInfo()) {
-        return;
-    }
-
-    // UUID will be resolved asynchronously by key resolvers before authentication
 
     initScorbitronObject();
     centrifugoSetup();
@@ -803,6 +766,7 @@ task_t Net::createAuthenticateTask()
         }
 
         // Resolve keys if we don't have a signer yet (async key resolver path).
+        // Resolve keys via the resolver chain (signer, NFC TPM, soft key).
         // Done after obtaining server time so provisioning uses accurate timestamps.
         if (!m_signer && !m_keyResolvers.empty()) {
             if (!resolveKeys(timestamp)) {
