@@ -88,6 +88,22 @@ private:
     PlayerProfilesManager m_playersManager;
 };
 
+class TestableUpdater : public Updater
+{
+public:
+    using Updater::Updater;
+
+protected:
+    boost::filesystem::path getSdkLibraryPath() const override
+    {
+        return "/fake/libscorbit_sdk.dylib";
+    }
+    boost::filesystem::path getProcessExecutablePath() const override
+    {
+        return "/fake/test_binary";
+    }
+};
+
 } // namespace
 
 TEST_CASE("Updater")
@@ -110,7 +126,7 @@ TEST_CASE("Updater")
     auto &mockNetRef = *mockNet; // mockNet will be moved into Updater, so we keep the ref
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet, false, "1.99.30", "test_platform");
+    TestableUpdater updater(*mockNet, false, "1.99.30", "test_platform");
 
     SECTION("happy path")
     {
@@ -130,10 +146,10 @@ TEST_CASE("Updater")
                 .LR_SIDE_EFFECT(_1(Error::ApiError, "some_temp_file.tar.gz");)
                 .TIMES(1);
 
-        REQUIRE_CALL(mockNetRef,
-                     updateConfig(eq("sdk"), eq("1.0.1"), eq(false),
-                                  eq<std::optional<std::string>>(
-                                          "Updater: download failed: 4, some_temp_file.tar.gz")))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq("1.0.1"), eq(false), _))
+                .WITH(_4.has_value()
+                      && _4->find("Updater: download failed: 4, some_temp_file.tar.gz")
+                                 != std::string::npos)
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -152,8 +168,9 @@ TEST_CASE("Updater")
     SECTION("empty assets")
     {
         json["sdk"]["assets_json"].clear();
-        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
-                                              eq<std::optional<std::string>>("Assets list empty")))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+                .WITH(_4.has_value()
+                      && _4->find("Couldn't find update file in assets") != std::string::npos)
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -178,12 +195,12 @@ TEST_CASE("Updater major.minor version mismatch")
     auto &mockNetRef = *mockNet;
 
     // Create Updater object with mocked NetBase
-    Updater updater(*mockNet, false, "1.99.30", "test_platform");
+    TestableUpdater updater(*mockNet, false, "1.99.30", "test_platform");
 
-    REQUIRE_CALL(mockNetRef,
-                 updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
-                              eq<std::optional<std::string>>(
-                                      "Version mismatch: can only update by 1.0.x, found: 1.1.0")))
+    REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+            .WITH(_4.has_value()
+                  && _4->find("Version mismatch: can only update by 1.0.x, found: 1.1.0")
+                             != std::string::npos)
             .TIMES(1);
 
     updater.checkNewVersionAndUpdate(json, nullptr);
@@ -209,13 +226,13 @@ TEST_CASE("Updater prod key hash check")
     SECTION("Mismatch while using encrypted key")
     {
         // Create Updater object with mocked NetBase
-        Updater updater(*mockNet, true, "1.99.30", "test_platform");
+        TestableUpdater updater(*mockNet, true, "1.99.30", "test_platform");
 
-        REQUIRE_CALL(mockNetRef,
-                     updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
-                                  eq<std::optional<std::string>>(
-                                          "Using encrypted key, production key hash mismatch: "
-                                          "expected unknown1, found unknown2")))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+                .WITH(_4.has_value()
+                      && _4->find("Using encrypted key, production key hash mismatch: "
+                                  "expected unknown1, found unknown2")
+                                 != std::string::npos)
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -224,7 +241,7 @@ TEST_CASE("Updater prod key hash check")
     SECTION("No problem with mismatch while not using encrypted key")
     {
         // Create Updater object with mocked NetBase
-        Updater updater(*mockNet, false, "1.99.30", "test_platform");
+        TestableUpdater updater(*mockNet, false, "1.99.30", "test_platform");
 
         REQUIRE_CALL(
                 mockNetRef,

@@ -33,7 +33,8 @@ TEST_CASE("Decrypt")
     /*
         SCORBIT_SDK_ENCRYPT_SECRET=secret cmake -Bbuild -D SCORBIT_SDK_PRODUCTION=OFF . \
         && cmake --build build \
-        && ./build/encrypt_tool 07D54D8B3B2743550071639FDA6F5ED7BB0407C479FDA3A5CDBD22B09870DCF9 test
+        && ./build/encrypt_tool 07D54D8B3B2743550071639FDA6F5ED7BB0407C479FDA3A5CDBD22B09870DCF9
+       test
      */
     constexpr auto TEST_ENCRYPTED_KEY {
             "PxRcOEcf47gKYGbnrYBTtB/"
@@ -42,6 +43,7 @@ TEST_CASE("Decrypt")
 
     // Make sure that encrypted key is decrypted correctly.
     // Encrypted key TEST_ENCRYPTED_KEY is generated during cmake configuration
-    auto decrypted = utils::ByteArray(decryptSecret(TEST_ENCRYPTED_KEY, "testsecret")).hex();
+    auto decrypted = utils::ByteArray(decryptSecret(TEST_ENCRYPTED_KEY, "testsecret"))
+                             .hex(utils::ByteArray::Case::UpperCase);
     CHECK(decrypted == TEST_KEY);
 }

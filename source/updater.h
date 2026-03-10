@@ -71,6 +71,10 @@ private:
 
     void feedback(std::string_view out) const;
 
+protected:
+    virtual boost::filesystem::path getSdkLibraryPath() const;
+    virtual boost::filesystem::path getProcessExecutablePath() const;
+
 private:
     NetBase &m_net;
     std::atomic_bool m_updateInProgress {false};
