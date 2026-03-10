@@ -210,7 +210,13 @@ TEST_CASE("setGameFinished functionality")
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
-        // Second call will be when the game is finished
+        // Bonus score for previous player (player 1) whose score changed during player switch
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.isGameActive == false && _1.activePlayer == 1 && _1.ball == 1)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Final call will be when the game is finished
         REQUIRE_CALL(mockNetRef, submitGameData(ANY(GameData), _))
                 .WITH(GameDataMatcher(expected)(_1))
                 .IN_SEQUENCE(seq)
@@ -700,6 +706,12 @@ TEST_CASE("commit functionality")
         gameState.addMode("MB:Multiball");
         gameState.setScore(1, 500);
         gameState.setActivePlayer(2);
+
+        // Bonus score for previous player (player 1) whose score changed during player switch
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.activePlayer == 1 && _1.players.at(1).score() == 500)
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
 
         // Assert: commit should trigger submitGameData with the appropriate game state
         REQUIRE_CALL(mockNetRef, submitGameData(_, _))

@@ -50,18 +50,6 @@ namespace fs = boost::filesystem;
 using namespace scorbit;
 using namespace detail;
 
-fs::path getLibraryPath()
-{
-    // Get the current library path, but if it's symlink, follow it to find the real path
-    return fs::canonical(boost::dll::this_line_location());
-}
-
-fs::path getExecutablePath()
-{
-    // Get the current process binary path, but if it's symlink, follow it to find the real path
-    return fs::canonical(boost::dll::program_location());
-}
-
 fs::path findFile(const fs::path &dir, const std::regex &pattern)
 {
     for (const auto &entry : fs::recursive_directory_iterator(dir)) {
@@ -88,6 +76,18 @@ Updater::Updater(NetBase &net, bool useEncryptedKey, const std::string &scorbitd
 {
 }
 
+fs::path Updater::getSdkLibraryPath() const
+{
+    // Get the current library path, but if it's symlink, follow it to find the real path
+    return fs::canonical(boost::dll::this_line_location());
+}
+
+fs::path Updater::getProcessExecutablePath() const
+{
+    // Get the current process binary path, but if it's symlink, follow it to find the real path
+    return fs::canonical(boost::dll::program_location());
+}
+
 void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
                                        std::shared_ptr<EventManager> eventManager)
 {
@@ -103,7 +103,7 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     // Check for SDK update
     if (const auto it = json.find("sdk"); it != json.end() && it->is_object()) {
         const auto urlInfo = parseUrls(*it);
-        const BinaryInfo binaryInfo {getLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
+        const BinaryInfo binaryInfo {getSdkLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
 
         if (canUpdateSdk(urlInfo, binaryInfo)) {
             INF("Updater: trying to update SDK to version: {}", urlInfo.version);
@@ -114,7 +114,6 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
             const auto timestamp = std::chrono::system_clock::now();
             logs.append(fmt::format("----- SDK ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
                                     m_feedback));
-
         }
     }
 
@@ -123,7 +122,7 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     // Check for Scorbitd update
     if (const auto it = json.find("scorbitd"); it != json.end() && it->is_object()) {
         const auto urlInfo = parseUrls(*it);
-        const BinaryInfo binaryInfo {getExecutablePath(), std::regex {SCORBITD_PATTERN}};
+        const BinaryInfo binaryInfo {getProcessExecutablePath(), std::regex {SCORBITD_PATTERN}};
 
         if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
@@ -315,7 +314,7 @@ bool Updater::replaceBinary(const std::string &libPath, const std::string &newLi
 bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const
 {
     try {
-        if (binaryInfo.path == getExecutablePath()) {
+        if (binaryInfo.path == getProcessExecutablePath()) {
             // SDK is statically linked into the executable, skip update
             return false;
         }
