@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <nlohmann/json.hpp>
 #include <string>
 
 namespace scorbit {
@@ -37,6 +38,8 @@ struct MachineFingerprint {
     }
 
     std::string computeHash() const;
+
+    nlohmann::json toJson() const;
 };
 
 MachineFingerprint collectFingerprints();

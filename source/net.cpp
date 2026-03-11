@@ -165,8 +165,9 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
         return;
     }
 
-    // Compute fingerprint hash once for use in provisioning and authentication
-    m_fingerprintHash = collectFingerprints().computeHash();
+    // Collect fingerprints once for use in provisioning and authentication
+    m_fingerprint = collectFingerprints();
+    m_fingerprintHash = m_fingerprint.computeHash();
     INF("API fingerprint hash: {}", m_fingerprintHash);
 
     initScorbitronObject();
@@ -211,7 +212,8 @@ bool Net::resolveKeys(const std::string &serverTimestamp)
                 }
             }
 
-            INF("Key resolution succeeded, uuid={}", m_deviceInfo.uuid);
+            INF("Key resolution succeeded, serial: {}, uuid: {}", m_deviceInfo.serialNumber,
+                m_deviceInfo.uuid);
             return true;
         }
     }
@@ -777,7 +779,7 @@ task_t Net::createAuthenticateTask()
             }
         }
 
-        for (;;) {
+        for (int i = 0;; ++i) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
@@ -795,6 +797,10 @@ task_t Net::createAuthenticateTask()
                     {JKEY_AUTH_SIGNATURE, signature},
                     {JKEY_AUTH_SERIAL_NUMBER, 0},
             };
+
+            if (m_fingerprint.hasAny()) {
+                j["fingerprint"] = m_fingerprint.toJson();
+            }
 
             const auto payload = j.dump();
             INF("API authenticating to {}", m_hostname);
@@ -846,8 +852,12 @@ task_t Net::createAuthenticateTask()
                 }
             } else if (r.status_code == 400) {
                 // Retry with new timestamp parsed from reply header
-                INF("API authentication failed: code {}, {}, will retry with new timestamp",
-                    r.status_code, r.error.message);
+                INF("API authentication failed: code {}, {}, {}, will retry with new timestamp",
+                    r.status_code, r.error.message, r.text);
+                if (i < 10) {
+                    std::this_thread::sleep_for(1000ms);
+                    continue;
+                }
             } else if (r.status_code == 404 && reprovisionSoftKey(timestamp)) {
                 // Scorbitron was deleted from API — re-provisioned with a new identity, retry auth
                 continue;
@@ -855,18 +865,19 @@ task_t Net::createAuthenticateTask()
                 // Network error, retry
                 ERR("API authentication network error: {}, will retry in 10s", r.error.message);
                 std::this_thread::sleep_for(10s);
-            } else {
-                m_status = AuthStatus::AuthenticationFailed;
-                stopTokenRefreshTimer();
-                const auto msg = fmt::format("API authentication failed: code {}, {}",
-                                             r.status_code, r.error.message);
-                ERR("{}", msg);
-                ERR("{}", r.text);
-                // TODO: Sentry
-                // SentryManager::message(msg);
-                m_authCV.notify_all();
-                break;
+                continue;
             }
+
+            m_status = AuthStatus::AuthenticationFailed;
+            stopTokenRefreshTimer();
+            const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
+                                         r.error.message);
+            ERR("{}", msg);
+            ERR("{}", r.text);
+            // TODO: Sentry
+            // SentryManager::message(msg);
+            m_authCV.notify_all();
+            break;
         }
     };
 }

@@ -144,12 +144,45 @@ TEST_CASE("computeHash differs for different inputs", "[MachineFingerprint]")
     CHECK(fp1.computeHash() != fp2.computeHash());
 }
 
-TEST_CASE("computeHash works with all empty fields", "[MachineFingerprint]")
+TEST_CASE("computeHash returns empty for all-empty fields", "[MachineFingerprint]")
 {
     MachineFingerprint fp;
-    const auto hash = fp.computeHash();
+    CHECK(fp.computeHash().empty());
+}
 
-    REQUIRE(hash.size() == 64);
-    static const auto hexRe = std::regex("[0-9a-f]{64}");
-    CHECK(std::regex_match(hash, hexRe));
+TEST_CASE("toJson includes only non-empty fields", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    fp.macAddressPrimary = "AA:BB:CC:DD:EE:FF";
+    fp.platformType = "linux_x86_64";
+
+    auto j = fp.toJson();
+    REQUIRE(j.contains("mac_address_primary"));
+    CHECK(j["mac_address_primary"] == "AA:BB:CC:DD:EE:FF");
+    REQUIRE(j.contains("platform_type"));
+    CHECK(j["platform_type"] == "linux_x86_64");
+    CHECK_FALSE(j.contains("board_serial"));
+    CHECK_FALSE(j.contains("cpu_serial"));
+}
+
+TEST_CASE("toJson includes all fields when populated", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    fp.macAddressPrimary = "11:22:33:44:55:66";
+    fp.boardSerial = "BOARD123";
+    fp.cpuSerial = "CPU456";
+    fp.platformType = "arm64_rpi";
+
+    auto j = fp.toJson();
+    CHECK(j["mac_address_primary"] == "11:22:33:44:55:66");
+    CHECK(j["board_serial"] == "BOARD123");
+    CHECK(j["cpu_serial"] == "CPU456");
+    CHECK(j["platform_type"] == "arm64_rpi");
+}
+
+TEST_CASE("toJson returns empty object for empty fingerprint", "[MachineFingerprint]")
+{
+    MachineFingerprint fp;
+    auto j = fp.toJson();
+    CHECK(j.empty());
 }

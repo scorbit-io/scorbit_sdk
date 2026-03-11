@@ -27,6 +27,7 @@
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
+#include "utils/machine_fingerprint.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
@@ -275,6 +276,7 @@ private:
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
+    MachineFingerprint m_fingerprint;
     std::string m_fingerprintHash;
 
     DeviceInfo m_deviceInfo;

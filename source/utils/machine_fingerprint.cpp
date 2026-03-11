@@ -233,6 +233,10 @@ std::string MachineFingerprint::computeHash() const
         return result;
     };
 
+    if (!hasAny()) {
+        return {};
+    }
+
     // Must match API's compute_composite_hash: mac_primary|mac_secondary|board|cpu|platform
     const std::string combined = normalize(macAddressPrimary) + "|"
                                + "|" // mac_address_secondary is always empty in the SDK
@@ -243,6 +247,20 @@ std::string MachineFingerprint::computeHash() const
 
     const utils::ByteArray message(combined.cbegin(), combined.cend());
     return sha256Hash(message).hex();
+}
+
+nlohmann::json MachineFingerprint::toJson() const
+{
+    nlohmann::json j;
+    if (!macAddressPrimary.empty())
+        j["mac_address_primary"] = macAddressPrimary;
+    if (!boardSerial.empty())
+        j["board_serial"] = boardSerial;
+    if (!cpuSerial.empty())
+        j["cpu_serial"] = cpuSerial;
+    if (!platformType.empty())
+        j["platform_type"] = platformType;
+    return j;
 }
 
 } // namespace detail
