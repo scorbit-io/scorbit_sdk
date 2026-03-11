@@ -60,6 +60,7 @@ struct DeviceInfo {
     std::string scorbitdVersion;
     std::string scorbitdPlatformId;
     std::string machineTitle;
+    std::string extraFingerprint;
 
     // Event callback - stored here and passed to EventManager
     detail::EventCallback m_eventCallback;

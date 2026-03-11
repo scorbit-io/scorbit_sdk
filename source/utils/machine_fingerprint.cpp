@@ -211,13 +211,16 @@ std::string getCpuSerial()
 
 } // namespace
 
-MachineFingerprint collectFingerprints()
+MachineFingerprint collectFingerprints(const std::string &extraFingerprint)
 {
     MachineFingerprint fp;
     fp.macAddressPrimary = getMacAddress();
     fp.boardSerial = getBoardSerial();
     fp.cpuSerial = getCpuSerial();
     fp.platformType = SCORBIT_SDK_PLATFORM_ID;
+    if (!extraFingerprint.empty()) {
+        fp.platformType += ", " + extraFingerprint;
+    }
     return fp;
 }
 

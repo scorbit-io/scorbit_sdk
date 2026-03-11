@@ -189,6 +189,9 @@ void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);
 
+SCORBIT_SDK_EXPORT
+void sb_config_set_extra_fingerprint(sb_config_t config, const char *extra);
+
 // ------------------------------------------------------------------------------------------------
 // Event callback configuration
 // ------------------------------------------------------------------------------------------------

@@ -42,7 +42,7 @@ struct MachineFingerprint {
     nlohmann::json toJson() const;
 };
 
-MachineFingerprint collectFingerprints();
+MachineFingerprint collectFingerprints(const std::string &extraFingerprint = {});
 
 } // namespace detail
 } // namespace scorbit

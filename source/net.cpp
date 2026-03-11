@@ -166,7 +166,7 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
     }
 
     // Collect fingerprints once for use in provisioning and authentication
-    m_fingerprint = collectFingerprints();
+    m_fingerprint = collectFingerprints(m_deviceInfo.extraFingerprint);
     m_fingerprintHash = m_fingerprint.computeHash();
     INF("API fingerprint hash: {}", m_fingerprintHash);
 

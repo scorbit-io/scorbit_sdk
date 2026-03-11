@@ -201,7 +201,7 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info, const std::vector<uint8_
         return false;
     }
 
-    auto fingerprints = collectFingerprints();
+    auto fingerprints = collectFingerprints(info.extraFingerprint);
     const auto fpHash = fingerprints.computeHash();
     INF("SoftKeyResolver: fingerprint hash={}", fpHash);
 
