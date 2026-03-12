@@ -827,7 +827,10 @@ task_t Net::createAuthenticateTask()
             }
 
             // Check system time and timestamp from response header
-            timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
+            const auto parsedTimestamp = parseHttpDateToUnixTimestamp(r.header["Date"]);
+            if (parsedTimestamp > 0) {
+                timestamp = std::to_string(parsedTimestamp);
+            }
 
             if (r.status_code == 200) {
                 try {
