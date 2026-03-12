@@ -866,7 +866,9 @@ task_t Net::createAuthenticateTask()
                 }
             } else if (r.status_code == 404 && reprovisionSoftKey(timestamp)) {
                 // Scorbitron was deleted from API — re-provisioned with a new identity, retry auth
-                continue;
+                if (i < 10) {
+                    continue;
+                }
             } else if (r.status_code == 0) {
                 // Network error, retry
                 ERR("API authentication network error: {}, will retry in 10s", r.error.message);
