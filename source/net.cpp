@@ -243,8 +243,6 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
         return false;
     }
 
-    m_signer = resolver.createSigner();
-
     if (!m_deviceInfo.uuid.empty()) {
         const auto originalUuid = m_deviceInfo.uuid;
         m_deviceInfo.uuid = parseUuid(originalUuid);
@@ -253,6 +251,8 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
             return false;
         }
     }
+
+    m_signer = resolver.createSigner();
 
     INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
     return true;
