@@ -767,6 +767,12 @@ task_t Net::createAuthenticateTask()
             std::this_thread::sleep_for(1s);
         }
 
+        if (timestamp.empty()) {
+            // Fallback to local time
+            timestamp = std::to_string(std::time(nullptr));
+            WRN("API failed to get server time, falling back to local time: {}", timestamp);
+        }
+
         // Resolve keys if we don't have a signer yet (async key resolver path).
         // Resolve keys via the resolver chain (signer, NFC TPM, soft key).
         // Done after obtaining server time so provisioning uses accurate timestamps.
