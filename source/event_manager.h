@@ -38,7 +38,9 @@ public:
     {
     }
 
-    ~EventManager() { m_stopped = true; }
+    ~EventManager() { stop(); }
+
+    auto stop() -> void { m_stopped = true; }
 
     auto push(EventPtr event) -> void
     {

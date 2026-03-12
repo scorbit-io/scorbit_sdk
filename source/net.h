@@ -21,11 +21,13 @@
 
 #include <scorbit_sdk/net_types.h>
 #include "net_base.h"
+#include "key_resolver.h"
 #include "game_data.h"
 #include "worker.h"
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
+#include "utils/machine_fingerprint.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
@@ -40,11 +42,6 @@
 
 namespace scorbit {
 namespace detail {
-
-using Signature = std::vector<uint8_t>;
-using Digest = std::array<uint8_t, DIGEST_LENGTH>;
-
-using SignerCallback = std::function<Signature(const Digest &digest)>;
 
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
@@ -86,7 +83,7 @@ class Net : public NetBase
     };
 
 public:
-    Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey);
+    Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers);
     ~Net() override;
 
     AuthStatus status() const override;
@@ -174,18 +171,20 @@ private:
 
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
-    task_t createHttpRequestTask(const char *requestType, StringCallback replyCallback,
-                                 DeferredSetupT deferredSetup, HttpMethodT httpMethod,
-                                 std::vector<AuthStatus> allowedStatuses = {
-                                         AuthStatus::AuthenticatedPaired});
+    task_t createHttpRequestTask(
+            const char *requestType, StringCallback replyCallback, DeferredSetupT deferredSetup,
+            HttpMethodT httpMethod,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
                                         AuthStatus::AuthenticatedPaired});
-    task_t createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
-                                 std::vector<AuthStatus> allowedStatuses = {
-                                         AuthStatus::AuthenticatedPaired});
+    task_t createPostRequestTask(
+            StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
     task_t createPostMultipartRequestTask(StringCallback replyCallback,
                                           deferred_post_multipart_setup_t deferredSetup,
                                           std::vector<AuthStatus> allowedStatuses = {
@@ -194,10 +193,10 @@ private:
                                   deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
                                           AuthStatus::AuthenticatedPaired});
-    task_t createPatchMultipartRequestTask(StringCallback replyCallback,
-                                           deferred_patch_multipart_setup_t deferredSetup,
-                                           std::vector<AuthStatus> allowedStatuses = {
-                                                   AuthStatus::AuthenticatedPaired});
+    task_t createPatchMultipartRequestTask(
+            StringCallback replyCallback, deferred_patch_multipart_setup_t deferredSetup,
+            std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
+            bool includeFingerprintHash = false);
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename, std::string contentType);
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
@@ -245,7 +244,12 @@ private:
     }
 
 private:
+    bool validateDeviceInfo() const;
+    bool resolveKeys(const std::string &serverTimestamp);
+    bool reprovisionSoftKey(const std::string &serverTimestamp);
+
     SignerCallback m_signer;
+    std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;
 
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
     std::condition_variable m_authCV;
@@ -272,6 +276,8 @@ private:
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
+    MachineFingerprint m_fingerprint;
+    std::string m_fingerprintHash;
 
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;

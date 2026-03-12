@@ -60,6 +60,7 @@ struct DeviceInfo {
     std::string scorbitdVersion;
     std::string scorbitdPlatformId;
     std::string machineTitle;
+    std::string extraFingerprint;
 
     // Event callback - stored here and passed to EventManager
     detail::EventCallback m_eventCallback;
@@ -104,6 +105,14 @@ struct DeviceInfo {
     bool usesEncryptedKey() const { return !encryptedKey.empty(); }
 
     bool hasAuthenticationCallback() const { return signerCallback != nullptr; }
+
+    /**
+     * Check if software key provisioning is possible (encrypted key + both callbacks).
+     */
+    bool hasSoftKeyProvisioning() const
+    {
+        return !encryptedKey.empty() && saveKeyCallback && loadKeyCallback;
+    }
 
     /**
      * Convert to C sb_device_info_t (for deprecated API compatibility and testing).

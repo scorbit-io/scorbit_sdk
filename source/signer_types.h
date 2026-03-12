@@ -19,35 +19,18 @@
 
 #pragma once
 
-#include "game_data.h"
-#include <cpr/cpr.h>
-#include <string>
-#include <string_view>
+#include <scorbit_sdk/net_types.h>
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
 
-struct UrlInfo {
-    std::string protocol;
-    std::string hostname;
-    std::string port;
-};
-
-UrlInfo exctractHostAndPort(const std::string &url);
-
-std::string removeSymbols(std::string_view str, std::string_view symbols);
-
-std::string deriveUuid(const std::string &source);
-
-std::string parseUuid(const std::string &str);
-
-std::string gameHistoryToCsv(const GameHistory &history);
-
-std::string to_iso8601(std::chrono::system_clock::time_point tp);
-
-auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string;
-
-cpr::SslOptions makeSslOptions();
+using Signature = std::vector<uint8_t>;
+using Digest = std::array<uint8_t, DIGEST_LENGTH>;
+using SignerCallback = std::function<Signature(const Digest &digest)>;
 
 } // namespace detail
 } // namespace scorbit

@@ -19,35 +19,11 @@
 
 #pragma once
 
-#include "game_data.h"
-#include <cpr/cpr.h>
-#include <string>
-#include <string_view>
+#include <utils/bytearray.h>
 
-namespace scorbit {
-namespace detail {
+using ByteArray = utils::ByteArray;
 
-struct UrlInfo {
-    std::string protocol;
-    std::string hostname;
-    std::string port;
-};
-
-UrlInfo exctractHostAndPort(const std::string &url);
-
-std::string removeSymbols(std::string_view str, std::string_view symbols);
-
-std::string deriveUuid(const std::string &source);
-
-std::string parseUuid(const std::string &str);
-
-std::string gameHistoryToCsv(const GameHistory &history);
-
-std::string to_iso8601(std::chrono::system_clock::time_point tp);
-
-auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string;
-
-cpr::SslOptions makeSslOptions();
-
-} // namespace detail
-} // namespace scorbit
+ByteArray sha256Hash(const ByteArray &data);
+bool ecdsaSign(const ByteArray &privateKey, const ByteArray &hash, ByteArray &signature);
+bool ecdsaVerify(const ByteArray &publicKey, const ByteArray &hash, const ByteArray &signature);
+bool generateEcdsaKeyPair(ByteArray &publicKey, ByteArray &privateKey);

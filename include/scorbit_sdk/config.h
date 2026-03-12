@@ -289,6 +289,12 @@ public:
         return *this;
     }
 
+    Config &setExtraFingerprint(const std::string &extra)
+    {
+        sb_config_set_extra_fingerprint(m_handle.get(), extra.c_str());
+        return *this;
+    }
+
     // Move semantics
     Config(Config &&) = default;
     Config &operator=(Config &&) = default;

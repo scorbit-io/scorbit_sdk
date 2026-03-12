@@ -201,9 +201,11 @@ target_sources(
         source/updater.cpp
         source/utils/mac_address.h
         source/utils/mac_address.cpp
+        source/utils/machine_fingerprint.h
+        source/utils/machine_fingerprint.cpp
         source/utils/decrypt.h
         source/utils/decrypt.cpp
-        source/utils/signer.h
+
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
         source/utils/jwt_parser.h
@@ -223,6 +225,14 @@ target_sources(
         source/event_manager.h
         source/dflags.h
         source/session_flags.h
+        source/signer_types.h
+        source/key_resolver.h
+        source/nfc_tpm_key_resolver.h
+        source/nfc_tpm_key_resolver.cpp
+        source/provisioning_client.h
+        source/provisioning_client.cpp
+        source/soft_key_resolver.h
+        source/soft_key_resolver.cpp
 )
 
 # Conditionally include callback logger API implementation

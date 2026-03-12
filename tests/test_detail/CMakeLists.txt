@@ -109,6 +109,9 @@ target_sources(
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp
+        ../../source/utils/machine_fingerprint.h
+        ../../source/utils/machine_fingerprint.cpp
+        source/test_machine_fingerprint.cpp
         ../../source/utils/decrypt.h
         ../../source/utils/decrypt.cpp
         source/test_decrypt.cpp
@@ -135,6 +138,16 @@ target_sources(
         source/test_event_manager.cpp
         ../../source/updater.h
         ../../source/updater.cpp
+        # Provisioning
+        ../../source/key_resolver.h
+        ../../source/soft_key_resolver.h
+        ../../source/soft_key_resolver.cpp
+        ../../source/provisioning_client.h
+        ../../source/provisioning_client.cpp
+        ../../source/nfc_tpm_key_resolver.h
+        ../../source/nfc_tpm_key_resolver.cpp
+        source/test_soft_key_resolver.cpp
+        source/test_nfc_tpm_key_resolver.cpp
 )
 
 target_link_libraries(
@@ -150,7 +163,10 @@ target_link_libraries(
         centrifugo-cpp
         logger
         nfc
+        tpm
         utils
+        $<BUILD_INTERFACE:scorbit::rc>
+        nlohmann_json::nlohmann_json
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
@@ -162,7 +178,9 @@ target_include_directories(
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/include"
         "${scorbit_sdk_SOURCE_DIR}/source"
+        "${scorbit_sdk_SOURCE_DIR}/3rd/obfuscate"
         "${scorbit_sdk_BINARY_DIR}/PackageProjectInclude"
+        "${scorbit_sdk_BINARY_DIR}"
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
@@ -176,12 +194,15 @@ if(NOT TEST_INSTALLED_VERSION)
     endif()
 endif()
 
+include(${MY_CMAKE_DIR}/encrypt.cmake)
+
 # Pass compile definitions
 target_compile_definitions(
     ${PROJECT_NAME}
     PRIVATE
         # We are building manually source files which will be statically built-in to test main
         SCORBIT_SDK_STATIC_DEFINE=1
+        SCORBIT_SDK_ENCRYPT_SECRET="${SCORBIT_SDK_ENCRYPT_SECRET}"
 )
 
 if(WIN32)

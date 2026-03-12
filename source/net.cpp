@@ -19,11 +19,12 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "soft_key_resolver.h"
 #include "fmt_formatters.h"
 #include <logger/logger.h>
 #include "updater.h"
 #include "safe_multipart.h"
-#include "utils/mac_address.h"
+#include "utils/machine_fingerprint.h"
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
 #include <utils/bytearray.h>
@@ -150,55 +151,111 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 
 // --------------------------------------------------------------------------------
 
-Net::Net(SignerCallback signer, DeviceInfo deviceInfo, bool useEncryptedKey)
-    : m_signer(std::move(signer))
+Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
+    : m_keyResolvers(std::move(resolvers))
     , m_deviceInfo(std::move(deviceInfo))
-    , m_updater(*this, useEncryptedKey, m_deviceInfo.scorbitdVersion,
+    , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
     setHostname(m_deviceInfo.hostname, m_deviceInfo.cfHostname);
 
-    // Verify that mandatory "provider" field in deviceInfo is set
-    if (m_deviceInfo.provider.empty()) {
-        ERR("Provider is not set");
-        // TODO: Set an appropriate error status
+    if (!validateDeviceInfo()) {
         return;
     }
 
-    // Verify that mandatory "provider" field in deviceInfo is set for manufacturers (except
-    // scorbitron, vscorbitron)
+    // Collect fingerprints once for use in provisioning and authentication
+    m_fingerprint = collectFingerprints(m_deviceInfo.extraFingerprint);
+    m_fingerprintHash = m_fingerprint.computeHash();
+    INF("API fingerprint hash: {}", m_fingerprintHash);
+
+    initScorbitronObject();
+    centrifugoSetup();
+    m_worker.start();
+}
+
+bool Net::validateDeviceInfo() const
+{
+    if (m_deviceInfo.provider.empty()) {
+        ERR("Provider is not set");
+        return false;
+    }
+
     if (m_deviceInfo.provider != PROVIDER_SCORBITRON
         && m_deviceInfo.provider != PROVIDER_VSCORBITRON) {
         if (m_deviceInfo.machineId == 0) {
             ERR("Machine ID not set");
-            // TODO: Set an appropriate error status
-            return;
+            return false;
         }
     }
 
-    // Parse UUID to if it's in correct format
+    return true;
+}
+
+bool Net::resolveKeys(const std::string &serverTimestamp)
+{
+    // Provide the normalized hostname to resolvers so provisioning can use it directly
+    m_deviceInfo.hostname = m_hostname;
+
+    for (auto &resolver : m_keyResolvers) {
+        if (resolver->tryResolve(m_deviceInfo, serverTimestamp)) {
+            m_signer = resolver->createSigner();
+            m_keyResolvers.clear();
+
+            if (!m_deviceInfo.uuid.empty()) {
+                const auto originalUuid = m_deviceInfo.uuid;
+                m_deviceInfo.uuid = parseUuid(originalUuid);
+                if (m_deviceInfo.uuid.empty()) {
+                    ERR("Key resolver set invalid UUID: {}", originalUuid);
+                    return false;
+                }
+            }
+
+            INF("Key resolution succeeded, serial: {}, uuid: {}", m_deviceInfo.serialNumber,
+                m_deviceInfo.uuid);
+            return true;
+        }
+    }
+
+    ERR("No authentication resolver succeeded");
+    m_keyResolvers.clear();
+    return false;
+}
+
+bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
+{
+    if (!m_deviceInfo.hasSoftKeyProvisioning()) {
+        return false;
+    }
+
+    INF("Scorbitron not found in API, clearing stale key and re-provisioning...");
+
+    // Clear the stale saved key so the next load returns empty
+    m_deviceInfo.saveKeyCallback("");
+
+    m_deviceInfo.hostname = m_hostname;
+    m_signer = {};
+
+    SoftKeyResolver resolver;
+    if (!resolver.tryResolve(m_deviceInfo, serverTimestamp)) {
+        ERR("Re-provisioning failed");
+        return false;
+    }
+
     if (!m_deviceInfo.uuid.empty()) {
         const auto originalUuid = m_deviceInfo.uuid;
         m_deviceInfo.uuid = parseUuid(originalUuid);
         if (m_deviceInfo.uuid.empty()) {
-            ERR("Given UUID is not in correct format: {}", originalUuid);
-            // TODO: set error status
-            return;
+            ERR("Re-provisioned key resolver set invalid UUID: {}", originalUuid);
+            return false;
         }
-    } else {
-        const auto macAddress = getMacAddress();
-        m_deviceInfo.uuid = deriveUuid(fmt::format("{}|{}", m_deviceInfo.provider, macAddress));
-        INF("Derived UUID: {} from mac address: {}", m_deviceInfo.uuid, macAddress);
     }
 
-    initScorbitronObject();
+    m_signer = resolver.createSigner();
 
-    centrifugoSetup();
-
-    // Start worker thread
-    m_worker.start();
+    INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
+    return true;
 }
 
 Net::~Net()
@@ -206,7 +263,11 @@ Net::~Net()
     stopHeartbeatTimer();
     stopTokenRefreshTimer();
     m_stop = true;
+    m_eventManager->stop();
     m_authCV.notify_all();
+    m_shortCodeCV.notify_all();
+    m_centrifugo.reset();
+    m_worker.stop();
 }
 
 AuthStatus Net::status() const
@@ -383,9 +444,14 @@ void Net::getConfig()
 
 void Net::requestPairCode(StringCallback callback)
 {
-    // Return cached short code if available
-    if (!m_cachedShortCode.empty()) {
-        callback(Error::Success, m_cachedShortCode);
+    std::string shortCodeCopy;
+    {
+        std::lock_guard lock(m_shortCodeMutex);
+        shortCodeCopy = m_cachedShortCode;
+    }
+
+    if (!shortCodeCopy.empty()) {
+        callback(Error::Success, shortCodeCopy);
         return;
     }
 
@@ -673,19 +739,19 @@ task_t Net::createAuthenticateTask()
         const auto normalAuthentication = !m_isRefreshingToken;
         std::optional<std::lock_guard<std::mutex>> lockOpt;
 
-        if (m_status != AuthStatus::NotAuthenticated && normalAuthentication) {
-            return;
-        }
-
         if (normalAuthentication) {
             lockOpt.emplace(m_authMutex);
+            if (m_status != AuthStatus::NotAuthenticated) {
+                return;
+            }
             m_status = AuthStatus::Authenticating;
         }
+
         m_isRefreshingToken = true;
 
-        // Get noop to get timestamp
+        // Get server time first — provisioning and authentication both need accurate timestamps
         std::string timestamp;
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 10 && !m_stop; ++i) {
             INF("API getting noop to retrieve server time...");
             auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
             std::string output =
@@ -701,7 +767,25 @@ task_t Net::createAuthenticateTask()
             std::this_thread::sleep_for(1s);
         }
 
-        for (;;) {
+        if (timestamp.empty()) {
+            // Fallback to local time
+            timestamp = std::to_string(std::time(nullptr));
+            WRN("API failed to get server time, falling back to local time: {}", timestamp);
+        }
+
+        // Resolve keys if we don't have a signer yet (async key resolver path).
+        // Resolve keys via the resolver chain (signer, NFC TPM, soft key).
+        // Done after obtaining server time so provisioning uses accurate timestamps.
+        if (!m_signer && !m_keyResolvers.empty()) {
+            if (!resolveKeys(timestamp)) {
+                m_status = AuthStatus::AuthenticationFailed;
+                ERR("API there is no functional key to authenticate");
+                m_authCV.notify_all();
+                return;
+            }
+        }
+
+        for (int i = 0;; ++i) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
@@ -720,12 +804,19 @@ task_t Net::createAuthenticateTask()
                     {JKEY_AUTH_SERIAL_NUMBER, 0},
             };
 
+            if (m_fingerprint.hasAny()) {
+                j["fingerprint"] = m_fingerprint.toJson();
+            }
+
             const auto payload = j.dump();
             INF("API authenticating to {}", m_hostname);
 
             // Use custom HTTP request since authentication has special retry logic
-            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload},
-                               cpr::Header {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}},
+            cpr::Header authHeaders {{HDR_KEY_CONTENT_TYPE, HDR_VAL_CONTENT_JSON}};
+            if (!m_fingerprintHash.empty()) {
+                authHeaders[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
+            }
+            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload}, authHeaders,
                                cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
@@ -736,7 +827,10 @@ task_t Net::createAuthenticateTask()
             }
 
             // Check system time and timestamp from response header
-            timestamp = std::to_string(parseHttpDateToUnixTimestamp(r.header["Date"]));
+            const auto parsedTimestamp = parseHttpDateToUnixTimestamp(r.header["Date"]);
+            if (parsedTimestamp > 0) {
+                timestamp = std::to_string(parsedTimestamp);
+            }
 
             if (r.status_code == 200) {
                 try {
@@ -767,24 +861,34 @@ task_t Net::createAuthenticateTask()
                 }
             } else if (r.status_code == 400) {
                 // Retry with new timestamp parsed from reply header
-                INF("API authentication failed: code {}, {}, will retry with new timestamp",
-                    r.status_code, r.error.message);
+                INF("API authentication failed: code {}, {}, {}, will retry with new timestamp",
+                    r.status_code, r.error.message, r.text);
+                if (i < 10) {
+                    std::this_thread::sleep_for(1000ms);
+                    continue;
+                }
+            } else if (r.status_code == 404 && reprovisionSoftKey(timestamp)) {
+                // Scorbitron was deleted from API — re-provisioned with a new identity, retry auth
+                if (i < 10) {
+                    continue;
+                }
             } else if (r.status_code == 0) {
                 // Network error, retry
                 ERR("API authentication network error: {}, will retry in 10s", r.error.message);
                 std::this_thread::sleep_for(10s);
-            } else {
-                m_status = AuthStatus::AuthenticationFailed;
-                stopTokenRefreshTimer();
-                const auto msg = fmt::format("API authentication failed: code {}, {}",
-                                             r.status_code, r.error.message);
-                ERR("{}", msg);
-                ERR("{}", r.text);
-                // TODO: Sentry
-                // SentryManager::message(msg);
-                m_authCV.notify_all();
-                break;
+                continue;
             }
+
+            m_status = AuthStatus::AuthenticationFailed;
+            stopTokenRefreshTimer();
+            const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
+                                         r.error.message);
+            ERR("{}", msg);
+            ERR("{}", r.text);
+            // TODO: Sentry
+            // SentryManager::message(msg);
+            m_authCV.notify_all();
+            break;
         }
     };
 }
@@ -901,7 +1005,9 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
         }
     };
 
-    return createPostRequestTask(std::move(callback), std::move(deferredSetup));
+    return createPostRequestTask(std::move(callback), std::move(deferredSetup),
+                                 {AuthStatus::AuthenticatedPaired},
+                                 true /* includeFingerprintHash */);
 }
 
 task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
@@ -1003,7 +1109,9 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         }
     };
 
-    return createPatchMultipartRequestTask(std::move(callback), std::move(deferredSetup));
+    return createPatchMultipartRequestTask(std::move(callback), std::move(deferredSetup),
+                                           {AuthStatus::AuthenticatedPaired},
+                                           true /* includeFingerprintHash */);
 }
 
 task_t Net::createHeartbeatTask()
@@ -1111,6 +1219,10 @@ task_t Net::createHeartbeatTask()
 
 void Net::sessionUpdate(int sessionId, SessionFlags flags)
 {
+    if (m_stop) {
+        return;
+    }
+
     m_worker.stopTimer(Worker::Timer::SessionUpdate);
 
     if (!flags.has(SessionFlag::UploadHistoryLogs) && !flags.has(SessionFlag::Debounced)
@@ -1177,6 +1289,10 @@ void Net::sendLatestGameData(int sessionId)
     m_worker.postCommitTask([this, sessionId]() {
         // Cancel timer if any
         m_worker.stopTimer(Worker::Timer::GameData);
+
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
 
         GameSession *gameSession = nullptr;
         GameData data;
@@ -1488,7 +1604,10 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         // "shortcode"
         if (const auto it = json.find(JKEY_SOBJ_SHORTCODE); it != json.end() && it->is_string()) {
-            it->get_to(m_cachedShortCode);
+            {
+                std::lock_guard lock(m_shortCodeMutex);
+                it->get_to(m_cachedShortCode);
+            }
             m_shortCodeCV.notify_all();
         }
 
@@ -1546,20 +1665,23 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 template<typename DeferredSetupT, typename HttpMethodT>
 task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
-                                  std::vector<AuthStatus> allowedStatuses)
+                                  std::vector<AuthStatus> allowedStatuses,
+                                  bool includeFingerprintHash)
 {
     return [this, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
-            allowedStatuses = std::move(allowedStatuses)]() {
+            allowedStatuses = std::move(allowedStatuses), includeFingerprintHash]() {
         Error error {Error::ApiError};
         std::string reply;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this, allowedStatuses] {
-                return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop
-                    || checkAllowedStatuses(allowedStatuses);
-            });
+            {
+                std::unique_lock lock(m_authMutex);
+                m_authCV.wait(lock, [this, &allowedStatuses] {
+                    return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed
+                        || m_stop || checkAllowedStatuses(allowedStatuses);
+                });
+            }
 
             auto setupResult = deferredSetup();
             auto url = std::get<0>(setupResult);
@@ -1578,8 +1700,11 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
 
             INF("API {} request: {}", requestType, url.str());
 
-            auto r = httpMethod(url, std::get<1>(setupResult), authHeader(),
-                                cpr::Timeout {NET_TIMEOUT});
+            auto hdrs = authHeader();
+            if (includeFingerprintHash && !m_fingerprintHash.empty()) {
+                hdrs[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
+            }
+            auto r = httpMethod(url, std::get<1>(setupResult), hdrs, cpr::Timeout {NET_TIMEOUT});
             reply = std::move(r.text);
 
             if (r.status_code >= 200 && r.status_code < 300) {
@@ -1600,7 +1725,15 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
                 break;
             }
 
-            m_status = AuthStatus::NotAuthenticated;
+            {
+                std::lock_guard lock(m_authMutex);
+                if (m_status == AuthStatus::NotAuthenticated
+                    || m_status == AuthStatus::Authenticating
+                    || m_status == AuthStatus::AuthenticationFailed) {
+                    continue;
+                }
+                m_status = AuthStatus::NotAuthenticated;
+            }
             stopTokenRefreshTimer();
             auto auth = createAuthenticateTask();
             auth();
@@ -1625,7 +1758,8 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
 }
 
 task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
-                                  std::vector<AuthStatus> allowedStatuses)
+                                  std::vector<AuthStatus> allowedStatuses,
+                                  bool includeFingerprintHash)
 {
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
@@ -1633,7 +1767,7 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
                    const cpr::Timeout &timeout) {
                 return cpr::Post(url, body, header, timeout, sslOptions());
             },
-            std::move(allowedStatuses));
+            std::move(allowedStatuses), includeFingerprintHash);
 }
 
 task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
@@ -1665,7 +1799,8 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
 
 task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
                                             deferred_patch_multipart_setup_t deferredSetup,
-                                            std::vector<AuthStatus> allowedStatuses)
+                                            std::vector<AuthStatus> allowedStatuses,
+                                            bool includeFingerprintHash)
 {
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
@@ -1674,7 +1809,7 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
                 return cpr::Patch(url, multipart.get(), header, timeout, sslOptions());
             },
-            std::move(allowedStatuses));
+            std::move(allowedStatuses), includeFingerprintHash);
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
@@ -1803,12 +1938,7 @@ cpr::Header Net::authHeader() const
 
 cpr::SslOptions Net::sslOptions() const
 {
-    auto fs = cmrc::scorbit::get_filesystem();
-    auto certFile = fs.open("cacert.pem");
-    cpr::SslOptions ssl;
-    ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
-    ssl.SetOption(cpr::ssl::VerifyHost {true});
-    return ssl;
+    return makeSslOptions();
 }
 
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
@@ -1870,14 +2000,10 @@ void Net::centrifugoSetup()
     config.version = SCORBIT_SDK_VERSION;
     config.refreshTokenBeforeExpiry = 3min;
     config.getToken = [this]() -> std::string {
-        // TODO: check if this unique_lock needed
+        if (m_stop) {
+            return {};
+        }
 
-        // std::unique_lock lock(m_authMutex);
-        // m_authCV.wait(lock, [this] {
-        //     return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed || m_stop;
-        // });
-
-        // Get JWT token for Centrifugo connection
         std::shared_lock lock(m_tokenMutex);
         return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken, sslOptions());
     };
@@ -1920,12 +2046,20 @@ void Net::centrifugoSetup()
     });
 
     m_centrifugo->onConnected([this] {
+        if (m_stop) {
+            return;
+        }
+
         INF("API-CF Connected to Centrifugo!");
         requestCreditsStatusEvent();
     });
 
     m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
+
+        if (m_stop) {
+            return;
+        }
 
         constexpr auto RECONNECT_DELAY = 10s;
 
@@ -1961,6 +2095,10 @@ void Net::centrifugoSetup()
 
     m_centrifugo->onPublication([this](const std::string &channel,
                                        centrifugo::Publication const &pub) {
+        if (m_stop) {
+            return;
+        }
+
         try {
             INF("API-CF Publication received on channel: {}, data: {}, offset: {}", channel,
                 pub.data.dump(), pub.offset);
@@ -2011,6 +2149,10 @@ void Net::centrifugoSetup()
 
 void Net::centrifugoConnect()
 {
+    if (m_stop || !m_centrifugo) {
+        return;
+    }
+
     if (auto const res = m_centrifugo->connect(); !res) {
         ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
             res.error().message);

@@ -31,6 +31,8 @@ constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uu
 constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
 constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
 
+constexpr auto URL_V2_PROVISION {"v2/provision/"};
+
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
@@ -58,6 +60,8 @@ constexpr auto HDR_VAL_CONTENT_OCTET {"application/octet-stream"};
 
 constexpr auto HDR_KEY_CACHE_CONTROL {"Cache-Control"};
 constexpr auto HDR_VAL_NO_CACHE {"no-cache"};
+
+constexpr auto HDR_KEY_FINGERPRINT_HASH {"X-Fingerprint-Hash"};
 
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};
@@ -211,7 +215,6 @@ constexpr auto JKEY_CREDITS_FREE_PLAY {"free_play"};
 constexpr auto JKEY_CREDITS_CURRENT {"credits"};
 constexpr auto JKEY_CREDITS_MAX {"max_credits"};
 constexpr auto JKEY_CREDITS_PRICING {"pricing"};
-
 
 } // namespace detail
 } // namespace scorbit

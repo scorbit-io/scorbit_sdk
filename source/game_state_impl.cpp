@@ -259,6 +259,10 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
 
 void GameStateImpl::submitGameData(bool forceSending)
 {
+    if (m_net->status() == AuthStatus::AuthenticationFailed) {
+        return;
+    }
+
     if (isChanged() || forceSending) {
         m_data.timestamp = std::chrono::system_clock::now();
 
@@ -345,6 +349,10 @@ bool GameStateImpl::isBallValid(sb_ball_t ball) const
 bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 {
     if (m_data.isGameActive) {
+        return false;
+    }
+
+    if (m_net->status() == AuthStatus::AuthenticationFailed) {
         return false;
     }
 

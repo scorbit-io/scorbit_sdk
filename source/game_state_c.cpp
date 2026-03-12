@@ -24,12 +24,14 @@
 #include "device_info.h"
 #include "game_state_impl.h"
 #include "net.h"
+#include "key_resolver.h"
+#include "signer_key_resolver.h"
+#include "nfc_tpm_key_resolver.h"
+#include "soft_key_resolver.h"
 #include <logger/logger.h>
-#include "utils/decrypt.h"
-#include "utils/signer.h"
-#include <obfuscate.h>
 #include <string>
 #include <memory>
+#include <vector>
 
 using namespace scorbit;
 using namespace detail;
@@ -38,47 +40,16 @@ struct sb_game_state_struct {
     detail::GameStateImpl gameState;
 };
 
-namespace {
-
-GameStateImpl createGameStateImpl(SignerCallback signer, const DeviceInfo &deviceInfo,
-                                  bool useEncryptedKey)
-{
-    auto net = std::make_unique<Net>(std::move(signer), deviceInfo, useEncryptedKey);
-    return GameStateImpl(std::move(net));
-}
-
-GameStateImpl createGameStateImpl(std::string encryptedKey, const DeviceInfo &deviceInfo)
-{
-    auto signer = [encryptedKey = std::move(encryptedKey),
-                   provider = deviceInfo.provider](const Digest &digest) {
-        Signature signature;
-
-        const auto key = decryptSecret(
-                encryptedKey, provider + std::string(AY_OBFUSCATE(SCORBIT_SDK_ENCRYPT_SECRET)));
-        if (!key.empty()) {
-            const auto result = Signer::sign(signature, digest, key);
-            if (result != SignErrorCode::Ok) {
-                ERR(std::string {AY_OBFUSCATE("Failed to sign the digest. Error: {}")},
-                    static_cast<int>(result));
-                signature.clear();
-            }
-        }
-        return signature;
-    };
-
-    return createGameStateImpl(std::move(signer), deviceInfo, true);
-}
-
-}
-
 sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
-    if (!config || !config->hasAuthentication()) {
+    if (!config) {
         return nullptr;
     }
 
+    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+
     if (config->hasAuthenticationCallback()) {
-        // Use signer callback authentication
+        // 1. Signer callback given, use it exclusively
         auto signer = config->signerCallback;
         auto userData = config->signerUserData;
 
@@ -93,11 +64,15 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
             return signature;
         };
 
-        return new sb_game_state_struct {createGameStateImpl(std::move(cb), *config, false)};
+        resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
+    } else {
+        // 2. Without signer callback use following resolvers
+        resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
+        resolvers.push_back(std::make_unique<SoftKeyResolver>());
     }
 
-    // Use encrypted key authentication
-    return new sb_game_state_struct {createGameStateImpl(config->encryptedKey, *config)};
+    auto net = std::make_unique<Net>(*config, std::move(resolvers));
+    return new sb_game_state_struct {GameStateImpl(std::move(net))};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)

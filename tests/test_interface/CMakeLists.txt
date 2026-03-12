@@ -41,6 +41,8 @@ CPMAddPackage(
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
 
+include(${MY_CMAKE_DIR}/lib_nlohmann_json.cmake)
+
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
@@ -59,7 +61,7 @@ target_sources(
 
 target_link_libraries(
     ${PROJECT_NAME}
-    PRIVATE scorbit_sdk::scorbit_sdk Catch2::Catch2WithMain trompeloeil::trompeloeil fmt::fmt
+    PRIVATE scorbit_sdk::scorbit_sdk Catch2::Catch2WithMain trompeloeil::trompeloeil fmt::fmt nlohmann_json::nlohmann_json
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE pthread)
