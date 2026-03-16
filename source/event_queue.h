@@ -64,7 +64,7 @@ public:
             return nullptr;
         }
 
-        EventPtr event {std::move(m_queue.top())};
+        EventPtr event {m_queue.top()};
         m_queue.pop();
         return event;
     }
