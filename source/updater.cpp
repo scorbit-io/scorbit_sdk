@@ -327,7 +327,7 @@ bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
             const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
                                          SCORBIT_SDK_PLATFORM_ID);
             feedback(msg);
-            ERR("Updater: {}", msg);
+            WRN("Updater: {}", msg);
             return false;
         }
 
@@ -370,7 +370,7 @@ bool Updater::canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binary
         const auto msg = fmt::format("Couldn't find update file in assets for the platform: {}",
                                      m_scorbitdPlatformId);
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
         return false;
     }
 
@@ -384,7 +384,7 @@ bool Updater::isPlatformIdValid(std::string_view platformId) const
     if (!rv) {
         const auto msg = fmt::format("Invalid platform ID: {}", platformId);
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
     }
     return rv;
 }
@@ -397,7 +397,7 @@ bool Updater::isBinaryObjectValid(const BinaryInfo &binaryInfo) const
         const auto msg = fmt::format("Binary path doesn't match the pattern, path: {}",
                                      binaryInfo.path.string());
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
     }
     return rv;
 }
@@ -411,7 +411,7 @@ bool Updater::isEncryptedKeyValid() const
                 "Using encrypted key, production key hash mismatch: expected {}, found {}",
                 SCORBIT_SDK_PRODUCTION_KEY_HASH, SCORBIT_SDK_THIS_KEY_HASH);
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
         return false;
     }
     return true;
@@ -430,7 +430,7 @@ bool Updater::isSdkVersionCompatible(const std::string &newVersion) const
         const auto msg = fmt::format("Version mismatch: can only update by {}x, found: {}",
                                      majorMinor, newVersion);
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
         return false;
     }
 
@@ -449,7 +449,7 @@ bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &bi
         const auto msg =
                 fmt::format("Failed to make filesystem writable: {}", mountResult.mountPoint);
         feedback(msg);
-        ERR("Updater: {}", msg);
+        WRN("Updater: {}", msg);
         return false;
     }
 
@@ -484,7 +484,7 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
                     boost::system::error_code ec;
                     fs::remove(filename, ec);
                     if (ec) {
-                        ERR("Updater: failed to remove temp file: {}, {}", filename, ec.message());
+                        WRN("Updater: failed to remove temp file: {}, {}", filename, ec.message());
                     }
                 } else {
                     const auto msg = fmt::format("Updater: download failed: {}, {}",
