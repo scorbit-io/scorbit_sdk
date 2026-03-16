@@ -533,7 +533,10 @@ int main(void)
 #ifdef _WIN32
         Sleep(sleep_ms);
 #else
-        usleep(sleep_ms * 1000);
+        struct timespec ts;
+        ts.tv_sec = 0;
+        ts.tv_nsec = sleep_ms * 1000000L; // Convert milliseconds to nanoseconds
+        nanosleep(&ts, NULL);
 #endif
     }
 
@@ -543,6 +546,11 @@ int main(void)
 
     // Cleanup
     sb_destroy_game_state(gs);
+
+    struct timespec ts;
+    ts.tv_sec = 5;
+    ts.tv_nsec = 0;
+    nanosleep(&ts, NULL);
 
     printf("Example finished\n");
     return 0;
