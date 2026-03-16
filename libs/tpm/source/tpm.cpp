@@ -91,7 +91,7 @@ Tpm::Tpm(TpmBusFlags busFlags)
             readSerialUuid();
         }
     } else {
-        ERR("Coudn't initialize HSM device");
+        WRN("Coudn't initialize HSM device");
     }
 }
 
