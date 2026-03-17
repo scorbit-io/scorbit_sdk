@@ -17,12 +17,14 @@
  * SOFTWARE.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include <scorbit_sdk/scorbit_sdk_c.h>
 
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdint.h>
 
 #ifdef _WIN32
 #    include <windows.h>
@@ -68,7 +70,7 @@ bool is_game_start_requested(void)
 // ------------ Dummy functions to simulate game state just to get file compiled  --------------
 int isGameFinished(int i)
 {
-    return i == 99;
+    return i >= 90000;
 }
 
 int isGameJustStartedByStartButton(int i)
@@ -78,14 +80,14 @@ int isGameJustStartedByStartButton(int i)
 
 int isGameActive(int i)
 {
-    return i >= 5 && i < 99;
+    return i >= 5 && i < 90000;
 }
 
 int player1Score(int i)
 {
     if (i == 5)
         return 0;
-    return 1010 + i * 500;
+    return 1010 + i;
 }
 
 int hasPlayer2(void)
@@ -125,7 +127,7 @@ int currentPlayer(void)
 
 int currentBall(int i)
 {
-    return i / 33 + 1;
+    return i / 33000 + 1;
 }
 
 int timeToClearModes(void)
@@ -382,6 +384,26 @@ void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data
     }
 }
 
+// Helper to compute time difference in microseconds
+// Helper to compute time difference in microseconds (handles nsec borrow)
+static inline uint64_t time_diff_us(struct timespec start, struct timespec end)
+{
+    int64_t sec = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
+    int64_t nsec = (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
+
+    if (nsec < 0) {
+        sec -= 1;
+        nsec += 1000000000LL; // borrow 1 second
+    }
+
+    if (sec < 0) {
+        // end < start; shouldn't happen with CLOCK_MONOTONIC, but guard anyway
+        return 0;
+    }
+
+    return (uint64_t)sec * 1000000ULL + (uint64_t)(nsec / 1000LL);
+}
+
 int main(void)
 {
     // Allocate memory for player names
@@ -414,18 +436,25 @@ int main(void)
     // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
     sb_request_pair_code(gs, &shortcode_callback, NULL);
 
-    // Main loop which is typically an infinite loop, but this example runs for 100 cycles
-    for (int i = 0; i < 100; ++i) {
-        // Check the auth (networking) status. It's not necessary, just for demo
-        if (i % 10 == 0) {
-            sb_auth_status_t status = sb_get_status(gs);
-            printf("Networking status: %d\n", status);
-        }
+    // ---------------- BENCHMARK VARIABLES ----------------
+    struct timespec t_start, t_end, cycle_start, cycle_end, commit_start, commit_end;
+    uint64_t total_us = 0;
+    uint64_t max_cycle_us = 0;
+    uint64_t total_commit_us = 0;
+    uint64_t max_commit_us = 0;
+    int total_cycles = 100000;
 
-        // Next game cycle started. First check if game is finished, because it might happen,
-        // that in the same cycle one game finished and started new game
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
+
+    for (int i = 0; i < total_cycles; ++i) {
+        clock_gettime(CLOCK_MONOTONIC, &cycle_start);
+
+        // if (i % 1000 == 0) {
+        //     sb_auth_status_t status = sb_get_status(gs);
+        //     printf("Networking status: %d\n", status);
+        // }
+
         if (isGameFinished(i)) {
-            // This will close current active session and do commit.
             sb_set_game_finished(gs);
         }
 
@@ -447,105 +476,90 @@ int main(void)
         }
 
         if (isGameActive(i)) {
-            // Let's pretend that this players_num is current number of players in the game
-            int players_num = 1;
+            // int players_num = 1;
 
-            // Check if players info was updated
-            if (sb_is_players_info_updated(gs)) {
-                // Get player info for each player
-                for (int j = 1; j <= players_num; ++j) {
-                    // First check if player's info is available
-                    if (sb_has_player_info(gs, j)) {
-                        // Get player's name
-                        const char *name = sb_get_player_preferred_name(gs, j);
-                        // we use it as preferred name, also there are functions
-                        // for initials and name. Preferred name is either initials or name chosen
-                        // by the player.
-                        snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
+            // if (sb_is_players_info_updated(gs)) {
+            //     for (int j = 1; j <= players_num; ++j) {
+            //         if (sb_has_player_info(gs, j)) {
+            //             const char *name = sb_get_player_preferred_name(gs, j);
+            //             snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
+            //             size_t pic_size;
+            //             (void)sb_get_player_picture(gs, j, &pic_size);
+            //         } else {
+            //             player_names[j][0] = 0;
+            //         }
+            //     }
+            // }
 
-                        // Get player's picture if available
-                        size_t pic_size;
-                        const uint8_t *picture_data = sb_get_player_picture(gs, j, &pic_size);
-                        // Here using pic_size and picture pointer, copy it to the allocated memory.
-                        // This is jpg image, can be displayed on the screen or saved to file.
-                        (void)picture_data;
+            // for (int j = 1; j <= players_num; ++j)
+            //     printf("Player %d: %s\n", j, player_names[j]);
 
-                    } else {
-                        // Name is not available, let's clear the name
-                        player_names[j][0] = 0;
-
-                        // And clear allocated picture ...
-                    }
+            if (i % 10 == 0) {
+                sb_set_score(gs, 1, i, 2);
+                if (i % 1000 == 0) {
+                    printf("Player 1 score: %d\n", i);
                 }
             }
-
-            for (int j = 1; j <= players_num; ++j) {
-                // Print player's name
-                printf("Player %d: %s\n", j, player_names[j]);
-            }
-
-            // Set player1 score, no problem, if it was not changed in the current cycle
-            sb_set_score(gs, 1, player1Score(i), 2); // 2 is a feature, e.g., right spinner
-
-            if (hasPlayer2()) {
-                // Set player2 score if player2 is present
-                sb_set_score(gs, 2, player2Score(), 0);
-            }
-
-            if (hasPlayer3()) {
-                // Set player3 score if player3 is present
-                sb_set_score(gs, 3, player3Score(), 0);
-            }
-
-            if (hasPlayer4()) {
-                // Set player4 score if player4 is present
-                sb_set_score(gs, 4, player4Score(), 0);
-            }
-
-            // Set active player
             sb_set_active_player(gs, currentPlayer());
-
-            // Set current ball
             sb_set_current_ball(gs, currentBall(i));
 
-            // Add/remove game modes:
-            if (i % 10 == 0) {
+            if (i % 10 == 0)
                 sb_add_mode(gs, "MB:Multiball");
-            } else {
+            else
                 sb_remove_mode(gs, "MB:Multiball");
-            }
+
             sb_add_mode(gs, "MB:Multiball");
             sb_add_mode(gs, "NA:SomeMode");
             sb_remove_mode(gs, "NA:AnotherMode");
 
-            // Sometimes we might need to clear all modes
-            if (timeToClearModes()) {
+            if (timeToClearModes())
                 sb_clear_modes(gs);
-            }
         }
 
-        // Commit game state at the end of each cycle. This ensures that any changes
-        // in the game state are captured and sent to the cloud. If no changes occurred,
-        // the commit will be ignored, avoiding unnecessary uploads.
+        // ---------- BENCHMARK sb_commit() ----------
+        clock_gettime(CLOCK_MONOTONIC, &commit_start);
         sb_commit(gs);
+        clock_gettime(CLOCK_MONOTONIC, &commit_end);
 
-        const int sleep_ms = 300;
+        uint64_t commit_us = time_diff_us(commit_start, commit_end);
+        total_commit_us += commit_us;
+        if (commit_us > max_commit_us)
+            max_commit_us = commit_us;
+
 #ifdef _WIN32
-        Sleep(sleep_ms);
+        Sleep(1);
 #else
         struct timespec ts;
         ts.tv_sec = 0;
-        ts.tv_nsec = sleep_ms * 1000000L; // Convert milliseconds to nanoseconds
+        ts.tv_nsec = 100 * 1000L; // 100 us for benchmark
         nanosleep(&ts, NULL);
 #endif
+
+        clock_gettime(CLOCK_MONOTONIC, &cycle_end);
+        uint64_t cycle_us = time_diff_us(cycle_start, cycle_end);
+        total_us += cycle_us;
+        if (cycle_us > max_cycle_us)
+            max_cycle_us = cycle_us;
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
+
+    uint64_t total_runtime_us = time_diff_us(t_start, t_end);
 
     if (isUnpairTriggeredByUser()) {
         sb_request_unpair(gs, &unpair_callback, NULL);
     }
 
-    // Cleanup
     sb_destroy_game_state(gs);
+
+    // ------------- PRINT RESULTS -------------
+    printf("\nBenchmark results:\n");
+    printf("Total cycles: %d\n", total_cycles);
+    printf("Total runtime: %.3f s\n", total_runtime_us / 1e6);
+    printf("Average cycle time: %.3f µs\n", (double)total_us / total_cycles);
+    printf("Max cycle time: %.3f µs\n", (double)max_cycle_us);
+    printf("Average sb_commit() time: %.3f µs\n", (double)total_commit_us / total_cycles);
+    printf("Max sb_commit() time: %.3f µs\n", (double)max_commit_us);
 
     printf("Example finished\n");
     return 0;
