@@ -302,22 +302,20 @@ sb_game_handle_t setup_game_state(void)
     sb_config_t config = sb_config_create();
 
     // Set required parameters
-    sb_config_set_provider(config, "dilshodpinball");
-    sb_config_set_machine_id(config, 4379);
+    sb_config_set_provider(config, "pedretti");
+    sb_config_set_machine_id(config, 4365);
     sb_config_set_game_code_version(config, "0.1.0");
 
     // Set optional parameters
-    sb_config_set_hostname(config, "staging"); // Optional, default is "production"
+    sb_config_set_hostname(config, "http://192.168.8.34:8000"); // Optional, default is "production"
+    sb_config_set_cf_hostname(config, "ws://192.168.8.34:8888");
     sb_config_set_auto_download_player_pics(config, false);
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);
 
     // Provider's encrypted private key (generated using encrypt_tool).
     // Used for V2 provisioning authentication to prove provider identity.
-    sb_config_set_encrypted_key(config,
-                                "8qWNpMPeO1AbgcoPSsdeUORGmO/"
-                                "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
-                                "YaHLGkW4p/yWmA==");
+    sb_config_set_encrypted_key(config, "C3DgX1/NpOG8qf8giUG0c0ZrvFe4wobdso02KRsobW2FWIgElq3cZRVt3wAH1zZQOvXF3KsHmOZU7wYeHl+7564Bcimgs3KurvJr8w==");
 
     // Setup events callback - this must be done before creating the game state
     sb_config_set_event_callback(config, &eventsCallback, NULL);
