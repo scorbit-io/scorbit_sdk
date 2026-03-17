@@ -170,6 +170,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
         break;
     case SB_INFO:
         levelStr = "INF";
+        return; // Skip info messages
         break;
     case SB_WARN:
         levelStr = "WRN";
