@@ -2092,12 +2092,14 @@ void Net::centrifugoSetup()
         case 3500:
         case 3501:
         case 3502:
-            INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
-            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this]() {
-                centrifugoSetup();
-                centrifugoConnect();
-            });
-            // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset here?
+            if (!m_stop) {
+                INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
+                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this]() {
+                    centrifugoSetup();
+                    centrifugoConnect();
+                });
+                // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset?
+            }
             break;
 
         default:
