@@ -25,6 +25,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <inttypes.h>
 
 #ifdef _WIN32
 #    include <windows.h>
@@ -170,7 +171,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
         break;
     case SB_INFO:
         levelStr = "INF";
-        return; // Skip info messages
+        // return; // Skip info messages
         break;
     case SB_WARN:
         levelStr = "WRN";
@@ -441,7 +442,8 @@ int main(void)
     uint64_t max_cycle_us = 0;
     uint64_t total_commit_us = 0;
     uint64_t max_commit_us = 0;
-    int total_cycles = 100000;
+    int long_commits = 0;
+    int total_cycles = 30000;
 
     clock_gettime(CLOCK_MONOTONIC, &t_start);
 
@@ -495,7 +497,7 @@ int main(void)
 
             if (i % 10 == 0) {
                 sb_set_score(gs, 1, i, 2);
-                if (i % 1000 == 0) {
+                if (i % 10000 == 0) {
                     printf("Player 1 score: %d\n", i);
                 }
             }
@@ -524,6 +526,10 @@ int main(void)
         total_commit_us += commit_us;
         if (commit_us > max_commit_us)
             max_commit_us = commit_us;
+        if (commit_us > 50) {
+            ++long_commits;
+            printf("This is long commit: %" PRIu64 "\n", commit_us);
+        }
 
 #ifdef _WIN32
         Sleep(1);
@@ -559,6 +565,7 @@ int main(void)
     printf("Max cycle time: %.3f µs\n", (double)max_cycle_us);
     printf("Average sb_commit() time: %.3f µs\n", (double)total_commit_us / total_cycles);
     printf("Max sb_commit() time: %.3f µs\n", (double)max_commit_us);
+    printf("Long commits number (over 50us): %i\n", long_commits);
 
     printf("Example finished\n");
     return 0;
