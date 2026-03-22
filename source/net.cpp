@@ -41,6 +41,7 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <optional>
+#include <future>
 
 CMRC_DECLARE(scorbit);
 
@@ -266,8 +267,27 @@ Net::~Net()
     m_eventManager->stop();
     m_authCV.notify_all();
     m_shortCodeCV.notify_all();
-    m_centrifugo.reset();
+
+    // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
+    // Transport must stay alive so pending async handlers (async_close, timer cancels,
+    // async_read completion) don't access freed memory.
+    if (m_worker.isRunning() && m_centrifugo) {
+        auto done = std::make_shared<std::promise<void>>();
+        auto wait = done->get_future();
+        m_worker.post([this, done]() {
+            if (m_centrifugo) {
+                m_centrifugo->disconnect();
+            }
+            done->set_value();
+        });
+        wait.wait();
+    }
+
+    // Drains all queued handlers while Transport is still alive.
     m_worker.stop();
+
+    // After worker stops, io_context is idle and all threads joined.
+    // m_centrifugo is destroyed safely by member destruction order.
 }
 
 AuthStatus Net::status() const
@@ -701,6 +721,10 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
 void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
 {
     m_worker.post([this, freePlay, credits, maxCredits]() {
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
+
         const auto createdAt = to_iso8601(chrono::system_clock::now());
 
         json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
@@ -2073,7 +2097,10 @@ void Net::centrifugoSetup()
                 centrifugoSetup();
                 centrifugoConnect();
             });
-            m_centrifugo.reset();
+            // Defer reset via post so we don't destroy Transport while still
+            // inside its own signal invocation chain (would be use-after-free
+            // when the signal call unwinds back through Transport methods).
+            m_worker.post([this]() { m_centrifugo.reset(); });
             break;
 
         default:
