@@ -547,11 +547,6 @@ int main(void)
     // Cleanup
     sb_destroy_game_state(gs);
 
-    struct timespec ts;
-    ts.tv_sec = 5;
-    ts.tv_nsec = 0;
-    nanosleep(&ts, NULL);
-
     printf("Example finished\n");
     return 0;
 }
