@@ -19,8 +19,12 @@
 
 #include "worker.h"
 #include <logger/logger.h>
+#include <chrono>
+
+using namespace std::chrono_literals;
 
 constexpr auto NUM_OF_THREADS = 4;
+constexpr auto SLEEP_BEETWEEN_CHECKING_QUEUE = 50ms;
 
 using namespace scorbit::detail;
 using namespace std::chrono_literals;
@@ -77,6 +81,7 @@ void Worker::start()
     for (int i = 0; i < NUM_OF_THREADS; ++i) {
         m_threads.create_thread([this] { m_ioc.run(); });
     }
+    m_gameDataConsumer = std::thread([this] { gameDataConsumerLoop(); });
 }
 
 void Worker::stop()
@@ -87,6 +92,12 @@ void Worker::stop()
     INF("Worker: stopping...");
 
     stopAllTimers();
+
+    m_running = false;
+    if (m_gameDataConsumer.joinable()) {
+        m_gameDataConsumer.join();
+    }
+
     m_workGuard.reset();
     m_threads.join_all();
 
@@ -108,9 +119,25 @@ void Worker::postSessionQueue(task_t func)
     boost::asio::post(m_sessionStrand, std::move(func));
 }
 
-void Worker::postGameDataQueue(task_t func)
+void Worker::postCentrifugoMessage(task_t func)
 {
-    boost::asio::post(centrifugoStrand(), std::move(func));
+    m_gameDataQueue.enqueue(std::move(func));
+}
+
+void Worker::gameDataConsumerLoop()
+{
+    task_t task;
+    while (m_running) {
+        if (m_gameDataQueue.try_dequeue(task)) {
+            boost::asio::post(m_ioc, std::move(task));
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(SLEEP_BEETWEEN_CHECKING_QUEUE));
+        }
+    }
+
+    while (m_gameDataQueue.try_dequeue(task)) {
+        boost::asio::post(m_ioc, std::move(task));
+    }
 }
 
 void Worker::postHeartbeatQueue(task_t func)

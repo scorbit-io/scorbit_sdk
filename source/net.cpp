@@ -376,7 +376,7 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
 void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
-    m_worker.post([this, data, flags]() {
+    m_worker.postCentrifugoMessage([this, data, flags]() {
         GameSession *gameSession = nullptr;
         {
             std::lock_guard lock(m_gameSessionsMutex);
@@ -720,7 +720,7 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
 
 void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
 {
-    m_worker.post([this, freePlay, credits, maxCredits]() {
+    m_worker.postCentrifugoMessage([this, freePlay, credits, maxCredits]() {
         if (m_stop || !m_centrifugo) {
             return;
         }

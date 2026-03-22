@@ -19,12 +19,14 @@
 
 #pragma once
 
+#include <concurrentqueue.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/thread.hpp>
 #include <atomic>
 #include <chrono>
+#include <thread>
 
 namespace scorbit {
 namespace detail {
@@ -56,7 +58,7 @@ public:
     void post(task_t func);
     void postQueue(task_t func);
     void postSessionQueue(task_t func);
-    void postGameDataQueue(task_t func);
+    void postCentrifugoMessage(task_t func);
     void postHeartbeatQueue(task_t func);
     void postCommitTask(task_t func);
 
@@ -70,6 +72,7 @@ private:
     void run();
     auto getTimer(Timer timerType) -> boost::asio::steady_timer *;
     auto stopAllTimers() -> void;
+    void gameDataConsumerLoop();
 
 private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
@@ -90,6 +93,9 @@ private:
     boost::thread_group m_threads;
 
     std::unordered_map<Timer, std::optional<boost::asio::steady_timer>> m_timers;
+
+    moodycamel::ConcurrentQueue<task_t> m_gameDataQueue;
+    std::thread m_gameDataConsumer;
 };
 
 } // namespace detail

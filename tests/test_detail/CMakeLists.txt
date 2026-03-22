@@ -60,6 +60,8 @@ include(${MY_CMAKE_DIR}/lib_boost.cmake)
 
 include(${MY_CMAKE_DIR}/lib_nlohmann_json.cmake)
 
+include(${MY_CMAKE_DIR}/lib_concurrentqueue.cmake)
+
 # scorbit_sdk
 if(TEST_INSTALLED_VERSION)
     find_package(scorbit_sdk REQUIRED)
@@ -167,6 +169,7 @@ target_link_libraries(
         utils
         $<BUILD_INTERFACE:scorbit::rc>
         nlohmann_json::nlohmann_json
+        concurrentqueue
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
