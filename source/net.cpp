@@ -2097,10 +2097,7 @@ void Net::centrifugoSetup()
                 centrifugoSetup();
                 centrifugoConnect();
             });
-            // Defer reset via post so we don't destroy Transport while still
-            // inside its own signal invocation chain (would be use-after-free
-            // when the signal call unwinds back through Transport methods).
-            m_worker.post([this]() { m_centrifugo.reset(); });
+            // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset here?
             break;
 
         default:
