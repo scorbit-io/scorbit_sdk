@@ -81,14 +81,16 @@ void Worker::start()
 
 void Worker::stop()
 {
-    INF("Stopping worker...");
     if (!m_running)
         return;
+
+    INF("Worker: stopping...");
 
     stopAllTimers();
     m_workGuard.reset();
     m_threads.join_all();
-    m_running = false;
+
+    INF("Worker: stopped");
 }
 
 void Worker::post(task_t func)
