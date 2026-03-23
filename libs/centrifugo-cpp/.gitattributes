@@ -1,0 +1,4 @@
+# Use bd merge for beads JSONL files
+# linguist-generated collapses diffs in GitHub PR views
+.beads/issues.jsonl merge=beads linguist-generated=true
+.beads/metadata.json linguist-generated=true

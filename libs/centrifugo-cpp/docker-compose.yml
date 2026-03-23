@@ -1,0 +1,19 @@
+services:
+  jwt-generator:
+    build: ./services/jwt-generator
+    container_name: jwt-generator
+    ports:
+      - "3001:3001"
+    environment:
+      - JWT_SECRET=my-secret-key
+    restart: unless-stopped
+
+  centrifugo:
+    image: centrifugo/centrifugo:v6
+    container_name: centrifugo
+    command: centrifugo --config=/centrifugo/config.yaml
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/centrifugo/config.yaml:/centrifugo/config.yaml
+    restart: unless-stopped

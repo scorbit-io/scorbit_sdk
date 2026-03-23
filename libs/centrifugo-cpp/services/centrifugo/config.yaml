@@ -1,0 +1,17 @@
+admin:
+  enabled: true
+  password: "password"
+  secret: "admin-secret"
+
+client:
+  token:
+    hmac_secret_key: "my-secret-key"
+  allowed_origins: ["*"]
+
+channel:
+  without_namespace:
+    allow_subscribe_for_client: true
+    allow_publish_for_subscriber: true
+
+log:
+  level: "debug"

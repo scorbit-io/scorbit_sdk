@@ -1,0 +1,52 @@
+.envrc
+.cache
+.claude
+.vscode
+.DS_Store
+build
+compile_commands.json
+
+# services
+/services/scorbit-token
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+.qtcreator/
+
+# Qt unit tests
+target_wrapper.*
+
+# QtCreator
+*.autosave
+
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
+
+# QtCreator CMake
+CMakeLists.txt.user*
+
+# QtCreator 4.8< compilation database
+compile_commands.json
+
+# QtCreator local machine specific files for imported projects
+*creator.user*
+
+*_qmlcache.qrc
+
+.DS_Store
+
+# Python specific
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+.vscode/
+.cache/
