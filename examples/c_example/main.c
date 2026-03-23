@@ -436,6 +436,12 @@ int main(void)
     // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
     sb_request_pair_code(gs, &shortcode_callback, NULL);
 
+    // ---------------- GIVE TIME TO CONNECT BEFORE BENCHMARKING ----------------
+    struct timespec ts;
+    ts.tv_sec = 5;
+    ts.tv_nsec = 0;
+    nanosleep(&ts, NULL);
+
     // ---------------- BENCHMARK VARIABLES ----------------
     struct timespec t_start, t_end, cycle_start, cycle_end, commit_start, commit_end;
     uint64_t total_us = 0;
