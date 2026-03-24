@@ -24,8 +24,10 @@
 #include <boost/asio/strand.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/thread.hpp>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <thread>
 
 namespace scorbit {
@@ -44,10 +46,13 @@ public:
         SessionUpdate,
         CentrifugoReconnect,
         NfcBootReason,
+
+        // IMPORTANT! This must be last entry!
+        Count,
     };
 
 public:
-    Worker() = default;
+    Worker();
     ~Worker();
 
     void start();
@@ -92,7 +97,7 @@ private:
 
     boost::thread_group m_threads;
 
-    std::unordered_map<Timer, std::optional<boost::asio::steady_timer>> m_timers;
+    std::array<boost::asio::steady_timer, static_cast<std::size_t>(Timer::Count)> m_timers;
 
     moodycamel::ConcurrentQueue<task_t> m_gameDataQueue;
     std::thread m_gameDataConsumer;
