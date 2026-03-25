@@ -453,105 +453,108 @@ int main(void)
 
     clock_gettime(CLOCK_MONOTONIC, &t_start);
 
-    for (int i = 0; i < total_cycles; ++i) {
-        clock_gettime(CLOCK_MONOTONIC, &cycle_start);
+    for (int session = 0; session < 3; ++session) {
+        for (int i = 0; i < total_cycles; ++i) {
+            clock_gettime(CLOCK_MONOTONIC, &cycle_start);
 
-        // if (i % 1000 == 0) {
-        //     sb_auth_status_t status = sb_get_status(gs);
-        //     printf("Networking status: %d\n", status);
-        // }
+                   // if (i % 1000 == 0) {
+                   //     sb_auth_status_t status = sb_get_status(gs);
+                   //     printf("Networking status: %d\n", status);
+                   // }
 
-        if (isGameFinished(i)) {
-            sb_set_game_finished(gs);
-        }
-
-        if (isGameJustStartedByStartButton(i)) {
-            // Game was just started by player pressing start button
-
-            // In the same game cycle before commit it can be set new score, active player, etc.
-            // This will start new game session with player1 score 0 and current ball 1.
-            // So, player1's initial score will be not 0, but the one set in the current cycle
-            sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
-        } else if (is_game_start_requested()) {
-            // Game was started from the app and requested to start the game on the machine
-            // call function to start the game on the machine with players_count players ...
-            sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
-            for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
-                sb_set_score(gs, i, 0, 0);
+            if (isGameFinished(i)) {
+                sb_set_game_finished(gs);
             }
-            printf("Started from mobile app with %d players!\n", players_count);
-        }
 
-        if (isGameActive(i)) {
-            // int players_num = 1;
+            if (isGameJustStartedByStartButton(i)) {
+                // Game was just started by player pressing start button
 
-            // if (sb_is_players_info_updated(gs)) {
-            //     for (int j = 1; j <= players_num; ++j) {
-            //         if (sb_has_player_info(gs, j)) {
-            //             const char *name = sb_get_player_preferred_name(gs, j);
-            //             snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
-            //             size_t pic_size;
-            //             (void)sb_get_player_picture(gs, j, &pic_size);
-            //         } else {
-            //             player_names[j][0] = 0;
-            //         }
-            //     }
-            // }
-
-            // for (int j = 1; j <= players_num; ++j)
-            //     printf("Player %d: %s\n", j, player_names[j]);
-
-            if (i % 10 == 0) {
-                sb_set_score(gs, 1, i, 2);
-                if (i % 10000 == 0) {
-                    printf("Player 1 score: %d\n", i);
+                       // In the same game cycle before commit it can be set new score, active player, etc.
+                       // This will start new game session with player1 score 0 and current ball 1.
+                       // So, player1's initial score will be not 0, but the one set in the current cycle
+                sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
+            } else if (is_game_start_requested()) {
+                // Game was started from the app and requested to start the game on the machine
+                // call function to start the game on the machine with players_count players ...
+                sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
+                for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
+                    sb_set_score(gs, i, 0, 0);
                 }
+                printf("Started from mobile app with %d players!\n", players_count);
             }
-            sb_set_active_player(gs, currentPlayer());
-            sb_set_current_ball(gs, currentBall(i));
 
-            if (i % 10 == 0)
+            if (isGameActive(i)) {
+                // int players_num = 1;
+
+                       // if (sb_is_players_info_updated(gs)) {
+                       //     for (int j = 1; j <= players_num; ++j) {
+                       //         if (sb_has_player_info(gs, j)) {
+                       //             const char *name = sb_get_player_preferred_name(gs, j);
+                       //             snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
+                       //             size_t pic_size;
+                       //             (void)sb_get_player_picture(gs, j, &pic_size);
+                       //         } else {
+                       //             player_names[j][0] = 0;
+                       //         }
+                       //     }
+                       // }
+
+                       // for (int j = 1; j <= players_num; ++j)
+                       //     printf("Player %d: %s\n", j, player_names[j]);
+
+                if (i % 10 == 0) {
+                    sb_set_score(gs, 1, i, 2);
+                    if (i % 10000 == 0) {
+                        printf("Player 1 score: %d\n", i);
+                    }
+                }
+                sb_set_active_player(gs, currentPlayer());
+                sb_set_current_ball(gs, currentBall(i));
+
+                if (i % 10 == 0)
+                    sb_add_mode(gs, "MB:Multiball");
+                else
+                    sb_remove_mode(gs, "MB:Multiball");
+
                 sb_add_mode(gs, "MB:Multiball");
-            else
-                sb_remove_mode(gs, "MB:Multiball");
+                sb_add_mode(gs, "NA:SomeMode");
+                sb_remove_mode(gs, "NA:AnotherMode");
 
-            sb_add_mode(gs, "MB:Multiball");
-            sb_add_mode(gs, "NA:SomeMode");
-            sb_remove_mode(gs, "NA:AnotherMode");
+                if (timeToClearModes())
+                    sb_clear_modes(gs);
+            }
 
-            if (timeToClearModes())
-                sb_clear_modes(gs);
-        }
+                   // ---------- BENCHMARK sb_commit() ----------
+            clock_gettime(CLOCK_MONOTONIC, &commit_start);
+            sb_commit(gs);
+            clock_gettime(CLOCK_MONOTONIC, &commit_end);
 
-        // ---------- BENCHMARK sb_commit() ----------
-        clock_gettime(CLOCK_MONOTONIC, &commit_start);
-        sb_commit(gs);
-        clock_gettime(CLOCK_MONOTONIC, &commit_end);
-
-        uint64_t commit_us = time_diff_us(commit_start, commit_end);
-        total_commit_us += commit_us;
-        if (commit_us > max_commit_us)
-            max_commit_us = commit_us;
-        if (commit_us > 50) {
-            ++long_commits;
-            printf("This is long commit: %" PRIu64 "\n", commit_us);
-        }
+            uint64_t commit_us = time_diff_us(commit_start, commit_end);
+            total_commit_us += commit_us;
+            if (commit_us > max_commit_us)
+                max_commit_us = commit_us;
+            if (commit_us > 50) {
+                ++long_commits;
+                printf("This is long commit: %" PRIu64 "\n", commit_us);
+            }
 
 #ifdef _WIN32
-        Sleep(1);
+            Sleep(1);
 #else
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 100 * 1000L; // 100 us for benchmark
-        nanosleep(&ts, NULL);
+            struct timespec ts;
+            ts.tv_sec = 0;
+            ts.tv_nsec = 100 * 1000L; // 100 us for benchmark
+            nanosleep(&ts, NULL);
 #endif
 
-        clock_gettime(CLOCK_MONOTONIC, &cycle_end);
-        uint64_t cycle_us = time_diff_us(cycle_start, cycle_end);
-        total_us += cycle_us;
-        if (cycle_us > max_cycle_us)
-            max_cycle_us = cycle_us;
+            clock_gettime(CLOCK_MONOTONIC, &cycle_end);
+            uint64_t cycle_us = time_diff_us(cycle_start, cycle_end);
+            total_us += cycle_us;
+            if (cycle_us > max_cycle_us)
+                max_cycle_us = cycle_us;
+        }
     }
+
 
     clock_gettime(CLOCK_MONOTONIC, &t_end);
 
