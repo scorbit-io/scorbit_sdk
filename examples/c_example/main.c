@@ -543,7 +543,7 @@ int main(void)
 #else
             struct timespec ts;
             ts.tv_sec = 0;
-            ts.tv_nsec = 100 * 1000L; // 100 us for benchmark
+            ts.tv_nsec = 400 * 1000L; // 100 us for benchmark
             nanosleep(&ts, NULL);
 #endif
 
