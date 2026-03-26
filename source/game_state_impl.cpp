@@ -26,6 +26,7 @@
 #include <boost/uuid.hpp>
 #include <utility>
 #include <functional>
+#include <chrono>
 
 using namespace std::placeholders;
 
@@ -63,6 +64,14 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->setProbesManager(m_probesManager);
     // m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
+}
+
+GameStateImpl::~GameStateImpl()
+{
+    for (int i = 0; i < kBenchCount; ++i) {
+        const auto &b = m_benchStats[i];
+        WRN("Bench {}: count={}, avg={:.2f} us, max={:.2f} us", i + 1, b.count, b.avgUs(), b.maxUs);
+    }
 }
 
 void GameStateImpl::setGameStarted(GameStartOrigin origin)
@@ -270,7 +279,17 @@ void GameStateImpl::submitGameData(bool forceSending)
         return;
     }
 
-    if (isChanged() || forceSending) {
+    // Bench start 1
+    const auto benchStart1 = std::chrono::steady_clock::now();
+    const auto isChangedToSubmit = isChanged();
+    m_benchStats[0].record(
+            std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - benchStart1)
+                    .count());
+    // Bench end 1
+
+    if (isChangedToSubmit || forceSending) {
+        // Bench start 2
+        const auto benchStart2 = std::chrono::steady_clock::now();
         m_data.timestamp = std::chrono::system_clock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
@@ -281,6 +300,11 @@ void GameStateImpl::submitGameData(bool forceSending)
         const auto isPlayersNumberChanged = m_prevData.players.size() != m_data.players.size();
 
         bool bonusScoreSubmitted = false;
+        m_benchStats[1].record(
+                std::chrono::duration<double, std::micro>(
+                        std::chrono::steady_clock::now() - benchStart2)
+                        .count());
+        // Bench end 2
 
         // If active player changed and previous player's score also changed due to bonus, do extra
         // submit with previous player as current player and then submit again with new active
@@ -300,14 +324,31 @@ void GameStateImpl::submitGameData(bool forceSending)
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
 
+                    // Bench start 3
+                    const auto benchStart3 = std::chrono::steady_clock::now();
                     INF("Detected bonus score for previous player {}, submit CSV logs as current "
                         "player",
                         prevActivePlayer);
+                    m_benchStats[2].record(
+                            std::chrono::duration<double, std::micro>(
+                                    std::chrono::steady_clock::now() - benchStart3)
+                                    .count());
+                    // Bench end 3
+                    // Bench start 4
+                    const auto benchStart4 = std::chrono::steady_clock::now();
                     m_net->submitGameData(tempData, tempFlags);
+                    m_benchStats[3].record(
+                            std::chrono::duration<double, std::micro>(
+                                    std::chrono::steady_clock::now() - benchStart4)
+                                    .count());
+                    // Bench end 4
                     bonusScoreSubmitted = true;
                 }
             }
         }
+
+        // Bench start 5
+        const auto benchStart5 = std::chrono::steady_clock::now();
 
         // Conditions to upload session logs
         // Skip session update right after game start or if bonus score already submitted
@@ -330,11 +371,23 @@ void GameStateImpl::submitGameData(bool forceSending)
                 flags.set(SessionFlag::PlayersAdd);
             }
         }
+        m_benchStats[4].record(
+                std::chrono::duration<double, std::micro>(
+                        std::chrono::steady_clock::now() - benchStart5)
+                        .count());
+        // Bench end 5
 
+        // Bench start 6
+        const auto benchStart6 = std::chrono::steady_clock::now();
         // Publish game data
         m_net->submitGameData(m_data, flags);
 
         m_prevData = m_data;
+        m_benchStats[5].record(
+                std::chrono::duration<double, std::micro>(
+                        std::chrono::steady_clock::now() - benchStart6)
+                        .count());
+        // Bench end 6
     }
 }
 

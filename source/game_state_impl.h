@@ -27,6 +27,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <memory>
+#include <array>
 
 namespace scorbit {
 namespace detail {
@@ -35,6 +37,7 @@ class GameStateImpl
 {
 public:
     GameStateImpl(std::unique_ptr<NetBase> net);
+    ~GameStateImpl();
 
     void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
@@ -92,13 +95,32 @@ private:
 private:
     // Members destroy in reverse declaration order. m_net must be destroyed FIRST so ~Net()
     // drains HTTP/onCreated before GameData is destroyed; otherwise late session-create replies
-    // call submitGameData() on torn-down m_data. m_stateMutex last so it outlives ~Net().
+    // call submitGameData() on torn-down m_data
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
     std::unique_ptr<NetBase> m_net;
+
+    struct BenchStats {
+        uint64_t count = 0;
+        double totalUs = 0.0;
+        double maxUs = 0.0;
+
+        void record(double us)
+        {
+            ++count;
+            totalUs += us;
+            if (us > maxUs)
+                maxUs = us;
+        }
+
+        double avgUs() const { return count > 0 ? totalUs / count : 0.0; }
+    };
+
+    static constexpr int kBenchCount = 6;
+    std::array<BenchStats, kBenchCount> m_benchStats {};
 };
 
 } // namespace detail
