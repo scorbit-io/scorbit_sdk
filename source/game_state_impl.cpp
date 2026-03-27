@@ -47,8 +47,8 @@ namespace scorbit {
 namespace detail {
 
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
-    : m_net {std::move(net)}
-    , m_probesManager {std::make_shared<nfc::ProbesManager>()}
+    : m_probesManager {std::make_shared<nfc::ProbesManager>()}
+    , m_net {std::move(net)}
 {
     m_probesManager->enumerate(nfc::ProbeType::NFC, std::string {}, displayProbeInfo);
     m_probesManager->setNfcLeds(nfc::NfcLedMode::Idle);

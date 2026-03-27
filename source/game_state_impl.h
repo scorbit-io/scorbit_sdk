@@ -24,8 +24,8 @@
 #include "net_base.h"
 #include "game_data.h"
 #include "event_classes.h"
-#include <string>
 #include <memory>
+#include <string>
 
 namespace scorbit {
 namespace detail {
@@ -86,12 +86,15 @@ private:
     bool startGame(int playersCount, GameStartOrigin origin);
 
 private:
-    std::unique_ptr<NetBase> m_net;
+    // Members destroy in reverse declaration order. m_net must be destroyed FIRST so ~Net()
+    // stops timers/worker and sets m_stop before GameData is destroyed; otherwise late
+    // session-create replies can call submitGameData() on torn-down m_data.
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
+    std::unique_ptr<NetBase> m_net;
 };
 
 } // namespace detail

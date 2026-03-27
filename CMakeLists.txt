@@ -89,6 +89,8 @@ find_package(OpenSSL REQUIRED)
 
 include(${MY_CMAKE_DIR}/lib_cpr.cmake)
 
+include(${MY_CMAKE_DIR}/lib_concurrentqueue.cmake)
+
 if(APPLE AND NOT DEFINED LibArchive_ROOT)
     set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
 endif()
@@ -277,6 +279,7 @@ target_link_libraries(
         nfc
         $<BUILD_INTERFACE:tpm>
         $<BUILD_INTERFACE:logger>
+        concurrentqueue
 )
 if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC dl)

@@ -261,12 +261,13 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
 Net::~Net()
 {
-    stopHeartbeatTimer();
-    stopTokenRefreshTimer();
-    m_stop = true;
-    m_eventManager->stop();
-    m_authCV.notify_all();
-    m_shortCodeCV.notify_all();
+    if (!m_stop.exchange(true)) {
+        stopHeartbeatTimer();
+        stopTokenRefreshTimer();
+        m_eventManager->stop();
+        m_authCV.notify_all();
+        m_shortCodeCV.notify_all();
+    }
 
     // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
     // Transport must stay alive so pending async handlers (async_close, timer cancels,
@@ -377,18 +378,19 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
     m_worker.post([this, data, flags]() {
-        GameSession *gameSession = nullptr;
+        int sessionCounterAfterUpdate = 0;
         {
             std::lock_guard lock(m_gameSessionsMutex);
-            gameSession = &m_gameSessions[data.id];
-            gameSession->gameData = data;
-            gameSession->history.push_back(data);
+            auto &session = m_gameSessions[data.id];
+            session.gameData = data;
+            session.history.push_back(data);
+            sessionCounterAfterUpdate = session.sessionCounter;
         }
 
         const auto sessionId = data.id;
 
         // If this is first data submission or it's finished send data right away
-        if (!data.isGameActive || gameSession->sessionCounter == 1) {
+        if (!data.isGameActive || sessionCounterAfterUpdate == 1) {
             sendLatestGameData(sessionId);
         }
 
@@ -952,7 +954,8 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
 {
     INF("API session create for id: {}, started by: {} ...", sessionId, origin);
     int sessionCounter;
-    GameSession *gameSession = nullptr;
+    size_t playerCount = 0;
+    int64_t elapsedMilliseconds = 0;
     {
         std::lock_guard lock(m_gameSessionsMutex);
         if (m_gameSessions.count(sessionId) == 0) {
@@ -962,15 +965,14 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
             return noop_task;
         }
 
-        gameSession = &m_gameSessions[sessionId];
-        sessionCounter = ++gameSession->sessionCounter;
+        auto &gameSession = m_gameSessions[sessionId];
+        sessionCounter = ++gameSession.sessionCounter;
+        playerCount = gameSession.gameData.players.size();
+        elapsedMilliseconds =
+                chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                            - gameSession.startedTime)
+                        .count();
     }
-
-    const auto playerCount = gameSession->gameData.players.size();
-    const int64_t elapsedMilliseconds =
-            chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
-                                                        - gameSession->startedTime)
-                    .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
     const auto isUseLobby = (origin == GameStartOrigin::FromLobby);
@@ -998,27 +1000,39 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                 if (const auto it = json.find(JKEY_SESS_UUID);
                     it != json.end() && it->is_string()) {
 
-                    GameSession *gameSession = nullptr;
+                    std::string newSessionUuid;
+                    it->get_to(newSessionUuid);
+
+                    bool sessionUpdated = false;
                     {
                         std::lock_guard lock(m_gameSessionsMutex);
-                        gameSession = &m_gameSessions[sessionId];
+                        const auto gsIt = m_gameSessions.find(sessionId);
+                        if (gsIt == m_gameSessions.end()) {
+                            ERR("API create session: session {} no longer in game sessions",
+                                sessionId);
+                        } else {
+                            gsIt->second.sessionUuid = std::move(newSessionUuid);
+                            sessionUpdated = true;
+
+                            INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
+                                gsIt->second.sessionUuid, (uint64_t)&gsIt->second.gameData);
+
+                            // Scores array will have players' profiles
+                            if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
+                                scoresIt != json.end() && scoresIt->is_array()) {
+                                processScoresAndPlayersProfiles(*scoresIt, gsIt->second);
+                            } else {
+                                WRN("API create session: can't find scores list in reply");
+                            }
+                        }
                     }
 
-                    it->get_to(gameSession->sessionUuid);
-
-                    INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
-                        gameSession->sessionUuid, (uint64_t)&gameSession->gameData);
-
-                    // Scores array will have players' profiles
-                    if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
-                        scoresIt != json.end() && scoresIt->is_array()) {
-                        processScoresAndPlayersProfiles(*scoresIt, *gameSession);
-                    } else {
-                        WRN("API create session: can't find scores list in reply");
-                    }
-
-                    if (onCreated) {
-                        onCreated();
+                    if (onCreated && !m_stop && sessionUpdated) {
+                        try {
+                            onCreated();
+                        } catch (const std::exception &e) {
+                            ERR("API create session onCreated: {}", e.what());
+                        }
                     }
                 } else {
                     ERR("API create session: can't find session UUID in reply");
@@ -1036,7 +1050,13 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
 
 task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
 {
-    GameSession *gameSession = nullptr;
+    std::string sessionUuid;
+    size_t playerCount = 0;
+    int64_t elapsedMilliseconds = 0;
+    bool isActive = false;
+    int sessionCounterForForm = 0;
+    std::string csv;
+
     {
         std::lock_guard lock(m_gameSessionsMutex);
         if (m_gameSessions.count(sessionId) == 0) {
@@ -1046,9 +1066,19 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
             return noop_task;
         }
 
-        gameSession = &m_gameSessions[sessionId];
+        const auto &gameSession = m_gameSessions[sessionId];
+        sessionUuid = gameSession.sessionUuid;
+        playerCount = gameSession.gameData.players.size();
+        elapsedMilliseconds =
+                chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
+                                                            - gameSession.startedTime)
+                        .count();
+        isActive = gameSession.gameData.isGameActive;
+        sessionCounterForForm = gameSession.sessionCounter;
+        if (flags.has(SessionFlag::UploadHistoryLogs)) {
+            csv = gameHistoryToCsv(gameSession.history);
+        }
     }
-    const auto &sessionUuid = gameSession->sessionUuid;
     if (sessionUuid.empty()) {
         // Try again later
         INF("API update session for id: {} will be retried in {}, session uuid not ready yet...",
@@ -1060,23 +1090,17 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         return noop_task;
     }
 
-    const auto playerCount = gameSession->gameData.players.size();
     INF("API update session for id: {}, uuid: {}, upload logs: {}, players count: {} ...",
         sessionId, sessionUuid, flags.has(SessionFlag::UploadHistoryLogs), playerCount);
 
-    const int64_t elapsedMilliseconds =
-            chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
-                                                        - gameSession->startedTime)
-                    .count();
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
     const auto filename = fmt::format("{}.{}", sessionUuid, SESS_LOG_EXTENSION);
-    const auto isActive = gameSession->gameData.isGameActive;
 
     // Here we can't use json in case of uploading session log file, so we are using multipart
     cpr::Multipart formData {
             {JKEY_SESS_PLAYER_COUNT, std::to_string(playerCount)},
-            {JKEY_SESS_SEQUENCE_NUMBER, std::to_string(gameSession->sessionCounter)},
+            {JKEY_SESS_SEQUENCE_NUMBER, std::to_string(sessionCounterForForm)},
             {JKEY_SESS_SESSION_TIME, std::to_string(elapsedMilliseconds)},
             {(isActive ? JKEY_SESS_ACTIVE_ON : JKEY_SESS_SETTLED_ON), currentDateTime},
     };
@@ -1086,13 +1110,9 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         formData.parts.push_back({JKEY_SESS_SUCCESSFULLY_COMPLETED, "True"});
     }
 
-    // History CSV logs
-    // This variable must be declared here to have same life length as formData, otherwise
-    // cpr::Buffer will use invalid reference upon exit from "if" clause which will cause memory
-    // corruption. Later, in SafeMultipart the cpr::Buffer will be copied
-    std::string csv;
+    // History CSV logs — built under m_gameSessionsMutex from session.history (no GameHistory copy).
+    // csv must outlive formData for cpr::Buffer; SafeMultipart copies buffers later.
     if (flags.has(SessionFlag::UploadHistoryLogs)) {
-        csv = gameHistoryToCsv(gameSession->history);
         formData.parts.push_back(
                 {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});
     }
@@ -1318,17 +1338,26 @@ void Net::sendLatestGameData(int sessionId)
             return;
         }
 
-        GameSession *gameSession = nullptr;
         GameData data;
         std::string sessionUuid;
+        int sessionCounter = 0;
+        std::chrono::system_clock::time_point startedSystemTime {};
+        std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadataSnapshot;
+
         {
             std::lock_guard lock(m_gameSessionsMutex);
-            gameSession = &m_gameSessions[sessionId];
-            data = gameSession->gameData;
-            sessionUuid = gameSession->sessionUuid;
+            const auto it = m_gameSessions.find(sessionId);
+            if (it == m_gameSessions.end()) {
+                return;
+            }
+            GameSession &gameSession = it->second;
+            data = gameSession.gameData;
+            sessionUuid = gameSession.sessionUuid;
+            startedSystemTime = gameSession.startedSystemTime;
+            scoresMetadataSnapshot = gameSession.scoresMetadata;
         }
 
-        const auto &gameData = gameSession->gameData;
+        const auto &gameData = data;
 
         // Ensure that only single task in the queue (while another can be running).
         // However, if game session is finished (not active), post task anyway, because this is the
@@ -1340,11 +1369,17 @@ void Net::sendLatestGameData(int sessionId)
                 !sessionUuid.empty(),
                 m_centrifugo->state() == centrifugo::ConnectionState::Connected);
         } else {
-            // TODO: check if it's needed to lock mutex here
-            const auto sessionCounter = ++gameSession->sessionCounter;
+            {
+                std::lock_guard lock(m_gameSessionsMutex);
+                const auto it = m_gameSessions.find(sessionId);
+                if (it == m_gameSessions.end()) {
+                    return;
+                }
+                sessionCounter = ++it->second.sessionCounter;
+            }
             const auto modes = json::parse(gameData.modes.jsonStr());
             const auto updatedAt = to_iso8601(chrono::system_clock::now());
-            const auto createdAt = to_iso8601(gameSession->startedSystemTime);
+            const auto createdAt = to_iso8601(startedSystemTime);
 
             json::array_t scores;
             for (const auto &[playerNum, playerState] : gameData.players) {
@@ -1362,12 +1397,16 @@ void Net::sendLatestGameData(int sessionId)
                 const auto valBallInProgress =
                         gameData.isGameActive && (gameData.activePlayer == playerNum);
 
+                ScoreMetadata meta;
+                if (const auto metaIt = scoresMetadataSnapshot.find(playerNum);
+                    metaIt != scoresMetadataSnapshot.end()) {
+                    meta = metaIt->second;
+                }
+
                 json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
-                                      {JKEY_SCR_ID, gameSession->scoresMetadata[playerNum].id},
-                                      {JKEY_SCR_IS_NFC_VERIFIED,
-                                       gameSession->scoresMetadata[playerNum].isNfcVerified},
-                                      {JKEY_SCR_TOURNAMENT_UUID,
-                                       gameSession->scoresMetadata[playerNum].tournamentUuid},
+                                      {JKEY_SCR_ID, meta.id},
+                                      {JKEY_SCR_IS_NFC_VERIFIED, meta.isNfcVerified},
+                                      {JKEY_SCR_TOURNAMENT_UUID, meta.tournamentUuid},
                                       {JKEY_SCR_PLAYER, playerProfileJson},
                                       {JKEY_SCR_SCORE, playerState.score()},
                                       {JKEY_SCR_BALL, gameData.ball},
@@ -1546,10 +1585,13 @@ void Net::requestSessionData(const std::string &sessionUuid)
             INF("API get session data: ok, {}", reply);
             // Find out sessionId
             int sessionId = -1;
-            for (const auto &[id, gameSession] : m_gameSessions) {
-                if (gameSession.sessionUuid == sessionUuid) {
-                    sessionId = id;
-                    break;
+            {
+                std::lock_guard lock(m_gameSessionsMutex);
+                for (const auto &[id, gameSession] : m_gameSessions) {
+                    if (gameSession.sessionUuid == sessionUuid) {
+                        sessionId = id;
+                        break;
+                    }
                 }
             }
 
@@ -1557,12 +1599,11 @@ void Net::requestSessionData(const std::string &sessionUuid)
                 json j = json::parse(reply);
                 if (const auto scoresIt = j.find(JKEY_SCR_SCORES);
                     scoresIt != j.end() && scoresIt->is_array()) {
-                    GameSession *gameSession = nullptr;
-                    {
-                        std::lock_guard lock(m_gameSessionsMutex);
-                        gameSession = &m_gameSessions[sessionId];
+                    std::lock_guard lock(m_gameSessionsMutex);
+                    const auto gsIt = m_gameSessions.find(sessionId);
+                    if (gsIt != m_gameSessions.end()) {
+                        processScoresAndPlayersProfiles(*scoresIt, gsIt->second);
                     }
-                    processScoresAndPlayersProfiles(*scoresIt, *gameSession);
                 }
             }
         } else {
