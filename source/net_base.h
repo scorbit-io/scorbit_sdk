@@ -89,6 +89,10 @@ public:
     virtual void setCreditsStatus(bool freePlay, int credits, int maxCredits,
                                   const char *pricing) = 0;
 
+    /// Called from sb_destroy_game_state before GameStateImpl / Net are destroyed so HTTP
+    /// completions can skip callbacks (e.g. session onCreated) that touch game state.
+    virtual void prepareForDestroy() {}
+
     // ---------------------------------------------------------------------------------
 
     virtual void setProbesManager(std::shared_ptr<nfc::ProbesManager> manager) { (void)manager; };

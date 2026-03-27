@@ -259,14 +259,22 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
     return true;
 }
 
-Net::~Net()
+void Net::prepareForDestroy()
 {
+    if (m_stop) {
+        return;
+    }
     stopHeartbeatTimer();
     stopTokenRefreshTimer();
     m_stop = true;
     m_eventManager->stop();
     m_authCV.notify_all();
     m_shortCodeCV.notify_all();
+}
+
+Net::~Net()
+{
+    prepareForDestroy();
 
     // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
     // Transport must stay alive so pending async handlers (async_close, timer cancels,
@@ -1017,8 +1025,12 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                         WRN("API create session: can't find scores list in reply");
                     }
 
-                    if (onCreated) {
-                        onCreated();
+                    if (onCreated && !m_stop) {
+                        try {
+                            onCreated();
+                        } catch (const std::exception &e) {
+                            ERR("API create session onCreated: {}", e.what());
+                        }
                     }
                 } else {
                     ERR("API create session: can't find session UUID in reply");

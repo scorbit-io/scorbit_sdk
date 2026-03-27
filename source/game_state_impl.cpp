@@ -46,9 +46,16 @@ void displayProbeInfo(ProbeBase *probe, const std::string &device)
 namespace scorbit {
 namespace detail {
 
+void GameStateImpl::prepareForDestroy()
+{
+    if (m_net) {
+        m_net->prepareForDestroy();
+    }
+}
+
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
-    : m_net {std::move(net)}
-    , m_probesManager {std::make_shared<nfc::ProbesManager>()}
+    : m_probesManager {std::make_shared<nfc::ProbesManager>()}
+    , m_net {std::move(net)}
 {
     m_probesManager->enumerate(nfc::ProbeType::NFC, std::string {}, displayProbeInfo);
     m_probesManager->setNfcLeds(nfc::NfcLedMode::Idle);
@@ -348,6 +355,7 @@ bool GameStateImpl::isBallValid(sb_ball_t ball) const
 
 bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
 {
+    // Caller must hold m_stateMutex (e.g. setGameStarted).
     if (m_data.isGameActive) {
         return false;
     }
@@ -368,8 +376,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
         addNewPlayer(i);
     }
 
-    setCurrentBall(1);
-    setActivePlayer(1);
+    m_data.ball = 1;
+    m_data.activePlayer = 1;
     m_data.timestamp = std::chrono::system_clock::now();
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);

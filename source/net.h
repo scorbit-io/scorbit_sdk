@@ -133,6 +133,7 @@ public:
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
+    void prepareForDestroy() override;
 
 private:
     task_t createAuthenticateTask();

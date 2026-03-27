@@ -24,8 +24,9 @@
 #include "net_base.h"
 #include "game_data.h"
 #include "event_classes.h"
-#include <string>
 #include <memory>
+#include <mutex>
+#include <string>
 
 namespace scorbit {
 namespace detail {
@@ -77,6 +78,9 @@ public:
     void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
                         const std::string &contentType = {});
 
+    /// Must run before GameStateImpl is destroyed (see sb_destroy_game_state).
+    void prepareForDestroy();
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
@@ -86,12 +90,15 @@ private:
     bool startGame(int playersCount, GameStartOrigin origin);
 
 private:
-    std::unique_ptr<NetBase> m_net;
+    // Members destroy in reverse declaration order. m_net must be destroyed FIRST so ~Net()
+    // drains HTTP/onCreated before GameData is destroyed; otherwise late session-create replies
+    // call submitGameData() on torn-down m_data. m_stateMutex last so it outlives ~Net().
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
+    std::unique_ptr<NetBase> m_net;
 };
 
 } // namespace detail
