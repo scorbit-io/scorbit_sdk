@@ -53,6 +53,8 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::NfcBootReason:
             name = "NfcBootReason";
             break;
+        case Worker::Timer::Count:
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }
@@ -60,6 +62,19 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
 
 namespace scorbit {
 namespace detail {
+
+Worker::Worker()
+    : m_timers {{
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
+      }}
+{
+}
 
 Worker::~Worker()
 {
@@ -165,25 +180,23 @@ void Worker::stopTimer(Timer timerType)
 
 auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
 {
-    if (m_timers.count(timerType) == 0) {
-        m_timers[timerType] = boost::asio::steady_timer {m_ioc};
+    const auto i = static_cast<std::size_t>(timerType);
+    if (i >= m_timers.size()) {
+        return nullptr;
     }
-
-    return &m_timers[timerType].value();
+    return &m_timers[i];
 }
 
 void Worker::stopAllTimers()
 {
     DBG("Stopping all timers...");
 
-    for (auto &[timerType, timer] : m_timers) {
-        if (timer.has_value()) {
-            try {
-                timer->cancel();
-                DBG("Timer {} stopped", timerType);
-            } catch (const std::exception &e) {
-                ERR("Failed to cancel timer {}: {}", timerType, e.what());
-            }
+    for (std::size_t i = 0; i < m_timers.size(); ++i) {
+        try {
+            m_timers[i].cancel();
+            DBG("Timer {} stopped", static_cast<Timer>(i));
+        } catch (const std::exception &e) {
+            ERR("Failed to cancel timer {}: {}", static_cast<Timer>(i), e.what());
         }
     }
 }
