@@ -13,7 +13,7 @@ CFLAGS = -std=c99 -I../.. -I/usr/local/include
 LDFLAGS = -L/usr/local/lib -lscorbit_sdk -lrt
 
 # Source files
-SRC = main.c
+SRC = main.c c_api_bench.c
 
 # Output binary
 OUT = c_example
@@ -23,9 +23,9 @@ all: $(OUT)
 
 # Compile the executable
 $(OUT): $(SRC)
-        $(CC) $(CFLAGS) -o $(OUT) $(SRC) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $(OUT) $(SRC) $(LDFLAGS)
 
 # Clean the build
 clean:
-        rm -f $(OUT)
+	rm -f $(OUT)
 

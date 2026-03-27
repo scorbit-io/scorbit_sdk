@@ -20,7 +20,10 @@
 #define _POSIX_C_SOURCE 200809L
 #include <scorbit_sdk/scorbit_sdk_c.h>
 
+#include "c_api_bench.h"
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <string.h>
 #include <pthread.h>
@@ -404,6 +407,36 @@ static inline uint64_t time_diff_us(struct timespec start, struct timespec end)
     return (uint64_t)sec * 1000000ULL + (uint64_t)(nsec / 1000LL);
 }
 
+static uint64_t time_diff_ns(struct timespec start, struct timespec end)
+{
+    int64_t sec = (int64_t)end.tv_sec - (int64_t)start.tv_sec;
+    int64_t nsec = (int64_t)end.tv_nsec - (int64_t)start.tv_nsec;
+
+    if (nsec < 0) {
+        sec -= 1;
+        nsec += 1000000000LL;
+    }
+
+    if (sec < 0) {
+        return 0;
+    }
+
+    return (uint64_t)sec * 1000000000ULL + (uint64_t)nsec;
+}
+
+static void mode_call_bench_record(CApiBenchTick *tick, uint64_t *wall_buf, uint64_t *cpu_buf,
+                                   uint64_t *tsc_buf, size_t *count, size_t cap)
+{
+    CApiBenchSpan span;
+    c_api_bench_tock(tick, &span);
+    if (*count < cap) {
+        wall_buf[*count] = span.wall_ns;
+        cpu_buf[*count] = span.cpu_ns;
+        tsc_buf[*count] = span.tsc_delta;
+        ++*count;
+    }
+}
+
 int main(void)
 {
     // Allocate memory for player names
@@ -443,24 +476,64 @@ int main(void)
     nanosleep(&ts, NULL);
 
     // ---------------- BENCHMARK VARIABLES ----------------
-    struct timespec t_start, t_end, cycle_start, cycle_end, commit_start, commit_end;
+    struct timespec t_start, t_end, cycle_start, cycle_end;
     uint64_t total_us = 0;
     uint64_t max_cycle_us = 0;
-    uint64_t total_commit_us = 0;
-    uint64_t max_commit_us = 0;
-    int long_commits = 0;
-    int total_cycles = 30000;
+    const int total_cycles = 30000;
+    const size_t n_samples = (size_t)total_cycles;
+
+    uint64_t *commit_wall_ns = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *commit_cpu_ns = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *commit_tsc = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *sdk_wall_ns = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *sdk_cpu_ns = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *sdk_tsc = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+    uint64_t *cycle_wall_ns = (uint64_t *)calloc(n_samples, sizeof(uint64_t));
+
+    /* Upper bound: per active iteration at most 3 sb_add_mode + 2 sb_remove_mode */
+    const size_t mode_sample_cap = n_samples * 4u;
+    uint64_t *add_mode_wall_ns = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    uint64_t *add_mode_cpu_ns = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    uint64_t *add_mode_tsc = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    uint64_t *remove_mode_wall_ns = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    uint64_t *remove_mode_cpu_ns = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    uint64_t *remove_mode_tsc = (uint64_t *)calloc(mode_sample_cap, sizeof(uint64_t));
+    size_t add_mode_n = 0;
+    size_t remove_mode_n = 0;
+
+    if (!commit_wall_ns || !commit_cpu_ns || !commit_tsc || !sdk_wall_ns || !sdk_cpu_ns || !sdk_tsc
+        || !cycle_wall_ns || !add_mode_wall_ns || !add_mode_cpu_ns || !add_mode_tsc
+        || !remove_mode_wall_ns || !remove_mode_cpu_ns || !remove_mode_tsc) {
+        fprintf(stderr, "Benchmark: out of memory for sample buffers\n");
+        free(commit_wall_ns);
+        free(commit_cpu_ns);
+        free(commit_tsc);
+        free(sdk_wall_ns);
+        free(sdk_cpu_ns);
+        free(sdk_tsc);
+        free(cycle_wall_ns);
+        free(add_mode_wall_ns);
+        free(add_mode_cpu_ns);
+        free(add_mode_tsc);
+        free(remove_mode_wall_ns);
+        free(remove_mode_cpu_ns);
+        free(remove_mode_tsc);
+        sb_destroy_game_state(gs);
+        return 1;
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &t_start);
 
-    for (int session = 0; session < 3; ++session) {
+    for (int session = 0; session < 1; ++session) {
         for (int i = 0; i < total_cycles; ++i) {
             clock_gettime(CLOCK_MONOTONIC, &cycle_start);
+            CApiBenchTick sdk_tick;
+            c_api_bench_tick(&sdk_tick);
 
-                   // if (i % 1000 == 0) {
-                   //     sb_auth_status_t status = sb_get_status(gs);
-                   //     printf("Networking status: %d\n", status);
-                   // }
+            // if (i % 1000 == 0) {
+            //     sb_auth_status_t status = sb_get_status(gs);
+            //     printf("Networking status: %d\n", status);
+            // }
 
             if (isGameFinished(i)) {
                 sb_set_game_finished(gs);
@@ -469,9 +542,9 @@ int main(void)
             if (isGameJustStartedByStartButton(i)) {
                 // Game was just started by player pressing start button
 
-                       // In the same game cycle before commit it can be set new score, active player, etc.
-                       // This will start new game session with player1 score 0 and current ball 1.
-                       // So, player1's initial score will be not 0, but the one set in the current cycle
+                // In the same game cycle before commit it can be set new score, active player, etc.
+                // This will start new game session with player1 score 0 and current ball 1.
+                // So, player1's initial score will be not 0, but the one set in the current cycle
                 sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
             } else if (is_game_start_requested()) {
                 // Game was started from the app and requested to start the game on the machine
@@ -486,21 +559,21 @@ int main(void)
             if (isGameActive(i)) {
                 // int players_num = 1;
 
-                       // if (sb_is_players_info_updated(gs)) {
-                       //     for (int j = 1; j <= players_num; ++j) {
-                       //         if (sb_has_player_info(gs, j)) {
-                       //             const char *name = sb_get_player_preferred_name(gs, j);
-                       //             snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
-                       //             size_t pic_size;
-                       //             (void)sb_get_player_picture(gs, j, &pic_size);
-                       //         } else {
-                       //             player_names[j][0] = 0;
-                       //         }
-                       //     }
-                       // }
+                // if (sb_is_players_info_updated(gs)) {
+                //     for (int j = 1; j <= players_num; ++j) {
+                //         if (sb_has_player_info(gs, j)) {
+                //             const char *name = sb_get_player_preferred_name(gs, j);
+                //             snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
+                //             size_t pic_size;
+                //             (void)sb_get_player_picture(gs, j, &pic_size);
+                //         } else {
+                //             player_names[j][0] = 0;
+                //         }
+                //     }
+                // }
 
-                       // for (int j = 1; j <= players_num; ++j)
-                       //     printf("Player %d: %s\n", j, player_names[j]);
+                // for (int j = 1; j <= players_num; ++j)
+                //     printf("Player %d: %s\n", j, player_names[j]);
 
                 if (i % 10 == 0) {
                     sb_set_score(gs, 1, i, 2);
@@ -511,50 +584,74 @@ int main(void)
                 sb_set_active_player(gs, currentPlayer());
                 sb_set_current_ball(gs, currentBall(i));
 
-                if (i % 10 == 0)
-                    sb_add_mode(gs, "MB:Multiball");
-                else
-                    sb_remove_mode(gs, "MB:Multiball");
+                {
+                    CApiBenchTick mode_tick;
+                    if (i % 10 == 0) {
+                        c_api_bench_tick(&mode_tick);
+                        sb_add_mode(gs, "MB:Multiball");
+                        mode_call_bench_record(&mode_tick, add_mode_wall_ns, add_mode_cpu_ns,
+                                               add_mode_tsc, &add_mode_n, mode_sample_cap);
+                    } else {
+                        c_api_bench_tick(&mode_tick);
+                        sb_remove_mode(gs, "MB:Multiball");
+                        mode_call_bench_record(&mode_tick, remove_mode_wall_ns, remove_mode_cpu_ns,
+                                               remove_mode_tsc, &remove_mode_n, mode_sample_cap);
+                    }
 
-                sb_add_mode(gs, "MB:Multiball");
-                sb_add_mode(gs, "NA:SomeMode");
-                sb_remove_mode(gs, "NA:AnotherMode");
+                    c_api_bench_tick(&mode_tick);
+                    sb_add_mode(gs, "MB:Multiball");
+                    mode_call_bench_record(&mode_tick, add_mode_wall_ns, add_mode_cpu_ns,
+                                           add_mode_tsc, &add_mode_n, mode_sample_cap);
+
+                    c_api_bench_tick(&mode_tick);
+                    sb_add_mode(gs, "NA:SomeMode");
+                    mode_call_bench_record(&mode_tick, add_mode_wall_ns, add_mode_cpu_ns,
+                                           add_mode_tsc, &add_mode_n, mode_sample_cap);
+
+                    c_api_bench_tick(&mode_tick);
+                    sb_remove_mode(gs, "NA:AnotherMode");
+                    mode_call_bench_record(&mode_tick, remove_mode_wall_ns, remove_mode_cpu_ns,
+                                           remove_mode_tsc, &remove_mode_n, mode_sample_cap);
+                }
 
                 if (timeToClearModes())
                     sb_clear_modes(gs);
             }
 
-                   // ---------- BENCHMARK sb_commit() ----------
-            clock_gettime(CLOCK_MONOTONIC, &commit_start);
-            sb_commit(gs);
-            clock_gettime(CLOCK_MONOTONIC, &commit_end);
+            {
+                CApiBenchTick commit_tick;
+                c_api_bench_tick(&commit_tick);
+                sb_commit(gs);
+                CApiBenchSpan commit_span;
+                c_api_bench_tock(&commit_tick, &commit_span);
+                commit_wall_ns[(size_t)i] = commit_span.wall_ns;
+                commit_cpu_ns[(size_t)i] = commit_span.cpu_ns;
+                commit_tsc[(size_t)i] = commit_span.tsc_delta;
 
-            uint64_t commit_us = time_diff_us(commit_start, commit_end);
-            total_commit_us += commit_us;
-            if (commit_us > max_commit_us)
-                max_commit_us = commit_us;
-            if (commit_us > 50) {
-                ++long_commits;
-                printf("This is long commit: %" PRIu64 "\n", commit_us);
+                CApiBenchSpan sdk_span;
+                c_api_bench_tock(&sdk_tick, &sdk_span);
+                sdk_wall_ns[(size_t)i] = sdk_span.wall_ns;
+                sdk_cpu_ns[(size_t)i] = sdk_span.cpu_ns;
+                sdk_tsc[(size_t)i] = sdk_span.tsc_delta;
             }
 
 #ifdef _WIN32
             Sleep(1);
 #else
-            struct timespec ts;
-            ts.tv_sec = 0;
-            ts.tv_nsec = 400 * 1000L; // 100 us for benchmark
-            nanosleep(&ts, NULL);
+            struct timespec ts_sleep;
+            ts_sleep.tv_sec = 0;
+            ts_sleep.tv_nsec = 300 * 1000L;
+            nanosleep(&ts_sleep, NULL);
 #endif
 
             clock_gettime(CLOCK_MONOTONIC, &cycle_end);
             uint64_t cycle_us = time_diff_us(cycle_start, cycle_end);
+            cycle_wall_ns[(size_t)i] = time_diff_ns(cycle_start, cycle_end);
             total_us += cycle_us;
             if (cycle_us > max_cycle_us)
                 max_cycle_us = cycle_us;
         }
     }
-
 
     clock_gettime(CLOCK_MONOTONIC, &t_end);
 
@@ -567,14 +664,86 @@ int main(void)
     sb_destroy_game_state(gs);
 
     // ------------- PRINT RESULTS -------------
-    printf("\nBenchmark results:\n");
-    printf("Total cycles: %d\n", total_cycles);
-    printf("Total runtime: %.3f s\n", total_runtime_us / 1e6);
-    printf("Average cycle time: %.3f µs\n", (double)total_us / total_cycles);
-    printf("Max cycle time: %.3f µs\n", (double)max_cycle_us);
-    printf("Average sb_commit() time: %.3f µs\n", (double)total_commit_us / total_cycles);
-    printf("Max sb_commit() time: %.3f µs\n", (double)max_commit_us);
-    printf("Long commits number (over 50us): %i\n", long_commits);
+    printf("\nBenchmark results (call-site; void APIs measure return latency, not async work done):\n");
+    fputs("Total cycles: ", stdout);
+    c_api_bench_fprint_u64_grouped(stdout, (uint64_t)total_cycles);
+    fputc('\n', stdout);
+    fputs("Total runtime: ", stdout);
+    c_api_bench_fprint_u64_grouped(stdout, total_runtime_us);
+    fputs(" µs (", stdout);
+    c_api_bench_fprint_double_grouped(stdout, (double)total_runtime_us / 1e6, 3);
+    fputs(" s)\n", stdout);
+    fputs("Average cycle wall (incl. sleep): ", stdout);
+    c_api_bench_fprint_double_grouped(stdout, (double)total_us / (double)total_cycles, 3);
+    fputs(" µs\n", stdout);
+    fputs("Max cycle wall (incl. sleep): ", stdout);
+    c_api_bench_fprint_double_grouped(stdout, (double)max_cycle_us, 3);
+    fputs(" µs\n", stdout);
+
+    if (!c_api_bench_thread_cpu_supported()) {
+        printf("Note: CLOCK_THREAD_CPUTIME_ID not available; CPU columns are zero.\n");
+    }
+    c_api_bench_print_distribution("sb_commit() wall time (ns)", commit_wall_ns, n_samples);
+    c_api_bench_print_distribution("sb_commit() thread CPU time (ns)", commit_cpu_ns, n_samples);
+    if (c_api_bench_tsc_supported()) {
+        c_api_bench_print_distribution("sb_commit() TSC delta (cycles)", commit_tsc, n_samples);
+    } else {
+        printf("\nsb_commit() TSC: not available on this platform\n");
+    }
+
+    c_api_bench_print_distribution(
+            "Per-iteration SDK wall (ns), cycle start through after sb_commit, excludes nanosleep",
+            sdk_wall_ns, n_samples);
+    c_api_bench_print_distribution(
+            "Per-iteration SDK thread CPU time (ns), same span as SDK wall", sdk_cpu_ns, n_samples);
+    if (c_api_bench_tsc_supported()) {
+        c_api_bench_print_distribution("Per-iteration SDK TSC delta (same span)", sdk_tsc, n_samples);
+    }
+
+    c_api_bench_print_distribution("Full cycle wall (ns), includes nanosleep", cycle_wall_ns,
+                                   n_samples);
+
+    c_api_bench_print_distribution("sb_add_mode() wall time (ns), per call", add_mode_wall_ns,
+                                   add_mode_n);
+    c_api_bench_print_distribution("sb_add_mode() thread CPU time (ns), per call", add_mode_cpu_ns,
+                                   add_mode_n);
+    if (c_api_bench_tsc_supported()) {
+        c_api_bench_print_distribution("sb_add_mode() TSC delta (cycles), per call", add_mode_tsc,
+                                       add_mode_n);
+    }
+
+    c_api_bench_print_distribution("sb_remove_mode() wall time (ns), per call", remove_mode_wall_ns,
+                                   remove_mode_n);
+    c_api_bench_print_distribution("sb_remove_mode() thread CPU time (ns), per call",
+                                   remove_mode_cpu_ns, remove_mode_n);
+    if (c_api_bench_tsc_supported()) {
+        c_api_bench_print_distribution("sb_remove_mode() TSC delta (cycles), per call",
+                                       remove_mode_tsc, remove_mode_n);
+    }
+
+    if (add_mode_n == mode_sample_cap || remove_mode_n == mode_sample_cap) {
+        fputs("Warning: mode call sample cap reached; add_mode samples=", stdout);
+        c_api_bench_fprint_size_grouped(stdout, add_mode_n);
+        fputs(", remove_mode samples=", stdout);
+        c_api_bench_fprint_size_grouped(stdout, remove_mode_n);
+        fputs(", cap=", stdout);
+        c_api_bench_fprint_size_grouped(stdout, mode_sample_cap);
+        fputs("\n", stdout);
+    }
+
+    free(commit_wall_ns);
+    free(commit_cpu_ns);
+    free(commit_tsc);
+    free(sdk_wall_ns);
+    free(sdk_cpu_ns);
+    free(sdk_tsc);
+    free(cycle_wall_ns);
+    free(add_mode_wall_ns);
+    free(add_mode_cpu_ns);
+    free(add_mode_tsc);
+    free(remove_mode_wall_ns);
+    free(remove_mode_cpu_ns);
+    free(remove_mode_tsc);
 
     printf("Example finished\n");
     return 0;
