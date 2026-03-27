@@ -128,7 +128,8 @@ TEST_CASE("Create game state returns nullptr with null config", "[GameState]")
     REQUIRE(h == nullptr);
 }
 
-TEST_CASE("Create game state fails when load callback returns empty", "[GameState][SoftKey]")
+TEST_CASE("Create game state with soft key when load callback returns empty (first run)",
+          "[GameState][SoftKey]")
 {
     sb_config_t cfg = sb_config_create();
     sb_config_set_provider(cfg, "testprovider");
@@ -139,9 +140,10 @@ TEST_CASE("Create game state fails when load callback returns empty", "[GameStat
     sb_config_set_save_key_callback(cfg, testSaveKeyCallback, nullptr);
     sb_config_set_load_key_callback(cfg, testEmptyLoadKeyCallback, nullptr);
 
-    // No saved key and provisionNewKey will fail (no real server)
+    // No saved key yet: provisioning is attempted asynchronously after create; handle is still valid.
     sb_game_handle_t h = sb_create_game_state(cfg);
-    REQUIRE(h == nullptr);
+    REQUIRE(h != nullptr);
 
+    sb_destroy_game_state(h);
     sb_config_destroy(cfg);
 }

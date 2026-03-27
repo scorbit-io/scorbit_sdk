@@ -46,6 +46,10 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
         return nullptr;
     }
 
+    if (!config->hasAuthentication()) {
+        return nullptr;
+    }
+
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
 
     if (config->hasAuthenticationCallback()) {
