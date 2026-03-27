@@ -36,37 +36,264 @@
 #include <vector>
 #include <atomic>
 #include <exception>
-#include <functional>
 #include <thread>
 #include <utility>
+#include <variant>
 
 using namespace scorbit;
 using namespace detail;
 
-namespace {
+struct sb_game_state_struct;
+
+namespace scorbit_c_api_queue {
 
 inline std::string copyCStr(const char *p)
 {
     return p ? std::string(p) : std::string {};
 }
 
-} // namespace
+struct CApiPoison {
+};
+
+struct JobSetGameStarted {
+    sb_game_state_struct *h;
+    sb_game_start_origin_t origin;
+};
+
+struct JobSetGameFinished {
+    sb_game_state_struct *h;
+};
+
+struct JobSetCurrentBall {
+    sb_game_state_struct *h;
+    sb_ball_t ball;
+};
+
+struct JobSetActivePlayer {
+    sb_game_state_struct *h;
+    sb_player_t player;
+};
+
+struct JobSetScore {
+    sb_game_state_struct *h;
+    sb_player_t player;
+    sb_score_t score;
+    sb_score_feature_t feature;
+};
+
+struct JobAddMode {
+    sb_game_state_struct *h;
+    std::string mode;
+};
+
+struct JobRemoveMode {
+    sb_game_state_struct *h;
+    std::string mode;
+};
+
+struct JobClearModes {
+    sb_game_state_struct *h;
+};
+
+struct JobCommit {
+    sb_game_state_struct *h;
+};
+
+struct JobRequestTopScores {
+    sb_game_state_struct *h;
+    sb_score_t score_filter;
+    sb_string_callback_t callback;
+    void *user_data;
+};
+
+struct JobRequestPairCode {
+    sb_game_state_struct *h;
+    sb_string_callback_t callback;
+    void *user_data;
+};
+
+struct JobRequestUnpair {
+    sb_game_state_struct *h;
+    sb_string_callback_t callback;
+    void *user_data;
+};
+
+struct JobSetCapabilities {
+    sb_game_state_struct *h;
+    sb_capabilities_t capabilities;
+};
+
+struct JobPairMachine {
+    sb_game_state_struct *h;
+    std::string machine_uuid;
+    std::string owner_uuid;
+    sb_string_callback_t callback;
+    void *user_data;
+};
+
+struct JobCreditsDropped {
+    sb_game_state_struct *h;
+    int credits;
+    std::string transaction;
+    bool success;
+};
+
+struct JobCreditsStatus {
+    sb_game_state_struct *h;
+    bool free_play;
+    int credits;
+    int max_credits;
+    std::string pricing;
+};
+
+struct JobDownload {
+    sb_game_state_struct *h;
+    std::string url;
+    std::string filename;
+    std::string content_type;
+    sb_string_callback_t callback;
+    void *user_data;
+};
+
+struct JobDownloadBuffer {
+    sb_game_state_struct *h;
+    std::string url;
+    size_t reserve_buffer_size;
+    std::string content_type;
+    sb_buffer_callback_t callback;
+    void *user_data;
+};
+
+using CApiQueueItem =
+        std::variant<CApiPoison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
+                     JobSetActivePlayer, JobSetScore, JobAddMode, JobRemoveMode, JobClearModes,
+                     JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
+                     JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
+                     JobDownload, JobDownloadBuffer>;
+
+} // namespace scorbit_c_api_queue
 
 struct sb_game_state_struct {
     detail::GameStateImpl gameState;
-    moodycamel::BlockingConcurrentQueue<std::function<void()>> cApiQueue;
+    moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::CApiQueueItem> cApiQueue;
     std::atomic<bool> cApiAccepting {true};
     std::thread cApiDispatcher;
 
     explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
     ~sb_game_state_struct();
 
-    void postCApiTask(std::function<void()> &&f);
+    void postApiJob(scorbit_c_api_queue::CApiQueueItem &&job);
     void shutdownCApiDispatcher();
 
 private:
     void cApiDispatcherLoop();
 };
+
+namespace scorbit_c_api_queue {
+
+void dispatchCApiJob(CApiQueueItem &&item)
+{
+    std::visit(
+            [](auto &&j) {
+                using T = std::decay_t<decltype(j)>;
+                if constexpr (std::is_same_v<T, CApiPoison>) {
+                    (void)j;
+                } else if constexpr (std::is_same_v<T, JobSetGameStarted>) {
+                    j.h->gameState.setGameStarted(static_cast<GameStartOrigin>(j.origin));
+                } else if constexpr (std::is_same_v<T, JobSetGameFinished>) {
+                    j.h->gameState.setGameFinished();
+                } else if constexpr (std::is_same_v<T, JobSetCurrentBall>) {
+                    j.h->gameState.setCurrentBall(j.ball);
+                } else if constexpr (std::is_same_v<T, JobSetActivePlayer>) {
+                    j.h->gameState.setActivePlayer(j.player);
+                } else if constexpr (std::is_same_v<T, JobSetScore>) {
+                    j.h->gameState.setScore(j.player, j.score, j.feature);
+                } else if constexpr (std::is_same_v<T, JobAddMode>) {
+                    j.h->gameState.addMode(std::move(j.mode));
+                } else if constexpr (std::is_same_v<T, JobRemoveMode>) {
+                    j.h->gameState.removeMode(j.mode);
+                } else if constexpr (std::is_same_v<T, JobClearModes>) {
+                    j.h->gameState.clearModes();
+                } else if constexpr (std::is_same_v<T, JobCommit>) {
+                    j.h->gameState.commit();
+                } else if constexpr (std::is_same_v<T, JobRequestTopScores>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    j.h->gameState.requestTopScores(
+                            j.score_filter, [cb, ud](Error error, const std::string &reply) {
+                                if (cb) {
+                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
+                                }
+                            });
+                } else if constexpr (std::is_same_v<T, JobRequestPairCode>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    j.h->gameState.requestPairCode([cb, ud](Error error, const std::string &reply) {
+                        if (cb) {
+                            cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
+                        }
+                    });
+                } else if constexpr (std::is_same_v<T, JobRequestUnpair>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    j.h->gameState.requestUnpair([cb, ud](Error error, const std::string &reply) {
+                        if (cb) {
+                            cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
+                        }
+                    });
+                } else if constexpr (std::is_same_v<T, JobSetCapabilities>) {
+                    j.h->gameState.setCapabilities(j.capabilities);
+                } else if constexpr (std::is_same_v<T, JobPairMachine>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    std::string mu = std::move(j.machine_uuid);
+                    std::string ou = std::move(j.owner_uuid);
+                    j.h->gameState.requestPairMachine(
+                            mu, ou, [cb, ud](Error error, const std::string &reply) {
+                                if (cb) {
+                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
+                                }
+                            });
+                } else if constexpr (std::is_same_v<T, JobCreditsDropped>) {
+                    j.h->gameState.setCreditsDropped(j.credits, j.transaction, j.success);
+                } else if constexpr (std::is_same_v<T, JobCreditsStatus>) {
+                    j.h->gameState.setCreditsStatus(j.free_play, j.credits, j.max_credits,
+                                                    j.pricing.c_str());
+                } else if constexpr (std::is_same_v<T, JobDownload>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    std::string url = std::move(j.url);
+                    std::string fn = std::move(j.filename);
+                    std::string ct = std::move(j.content_type);
+                    j.h->gameState.download(
+                            [cb, ud](Error error, const std::string &reply) {
+                                if (cb) {
+                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
+                                }
+                            },
+                            url, fn, ct);
+                } else if constexpr (std::is_same_v<T, JobDownloadBuffer>) {
+                    auto cb = j.callback;
+                    auto ud = j.user_data;
+                    std::string url = std::move(j.url);
+                    size_t res = j.reserve_buffer_size;
+                    std::string ct = std::move(j.content_type);
+                    j.h->gameState.downloadBuffer(
+                            [cb, ud](Error error, const std::vector<uint8_t> &data) {
+                                if (cb) {
+                                    cb(static_cast<sb_error_t>(error), data.data(), data.size(),
+                                       ud);
+                                }
+                            },
+                            url, res, ct);
+                }
+            },
+            std::move(item));
+}
+
+} // namespace scorbit_c_api_queue
+
+using namespace scorbit_c_api_queue;
 
 sb_game_state_struct::sb_game_state_struct(std::unique_ptr<NetBase> net)
     : gameState(std::move(net))
@@ -82,13 +309,13 @@ sb_game_state_struct::~sb_game_state_struct()
 void sb_game_state_struct::cApiDispatcherLoop()
 {
     for (;;) {
-        std::function<void()> task;
-        cApiQueue.wait_dequeue(task);
-        if (!task) {
+        CApiQueueItem item;
+        cApiQueue.wait_dequeue(item);
+        if (std::holds_alternative<CApiPoison>(item)) {
             break;
         }
         try {
-            task();
+            dispatchCApiJob(std::move(item));
         } catch (const std::exception &e) {
             ERR("C API dispatcher task failed: {}", e.what());
         } catch (...) {
@@ -97,25 +324,18 @@ void sb_game_state_struct::cApiDispatcherLoop()
     }
 }
 
-void sb_game_state_struct::postCApiTask(std::function<void()> &&f)
+void sb_game_state_struct::postApiJob(scorbit_c_api_queue::CApiQueueItem &&job)
 {
-    // std::lock_guard lock(cApiEnqueueMutex);
-    // if (!cApiAccepting.load(std::memory_order_relaxed)) {
-    //     return;
-    // }
-    cApiQueue.enqueue(std::move(f));
+    cApiQueue.enqueue(std::move(job));
 }
 
 void sb_game_state_struct::shutdownCApiDispatcher()
 {
-    {
-        if (!cApiDispatcher.joinable()) {
-            return;
-        }
-        cApiAccepting.store(false, std::memory_order_relaxed);
-        std::function<void()> poison;
-        cApiQueue.enqueue(std::move(poison));
+    if (!cApiDispatcher.joinable()) {
+        return;
     }
+    cApiAccepting.store(false, std::memory_order_relaxed);
+    cApiQueue.enqueue(CApiQueueItem {CApiPoison {}});
     cApiDispatcher.join();
 }
 
@@ -128,7 +348,6 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
 
     if (config->hasAuthenticationCallback()) {
-        // 1. Signer callback given, use it exclusively
         auto signer = config->signerCallback;
         auto userData = config->signerUserData;
 
@@ -145,7 +364,6 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
 
         resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
     } else {
-        // 2. Without signer callback use following resolvers
         resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
         resolvers.push_back(std::make_unique<SoftKeyResolver>());
     }
@@ -163,54 +381,48 @@ void sb_destroy_game_state(sb_game_handle_t handle)
 
 void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin)
 {
-    handle->postCApiTask([handle, origin] {
-        handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
-    });
+    handle->postApiJob(JobSetGameStarted {handle, origin});
 }
 
 void sb_set_game_finished(sb_game_handle_t handle)
 {
-    handle->postCApiTask([handle] { handle->gameState.setGameFinished(); });
+    handle->postApiJob(JobSetGameFinished {handle});
 }
 
 void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball)
 {
-    handle->postCApiTask([handle, ball] { handle->gameState.setCurrentBall(ball); });
+    handle->postApiJob(JobSetCurrentBall {handle, ball});
 }
 
 void sb_set_active_player(sb_game_handle_t handle, sb_player_t player)
 {
-    handle->postCApiTask([handle, player] { handle->gameState.setActivePlayer(player); });
+    handle->postApiJob(JobSetActivePlayer {handle, player});
 }
 
 void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score,
                   sb_score_feature_t feature)
 {
-    handle->postCApiTask([handle, player, score, feature] {
-        handle->gameState.setScore(player, score, feature);
-    });
+    handle->postApiJob(JobSetScore {handle, player, score, feature});
 }
 
 void sb_add_mode(sb_game_handle_t handle, const char *mode)
 {
-    const std::string modeCopy = copyCStr(mode);
-    handle->postCApiTask([handle, modeCopy] { handle->gameState.addMode(modeCopy); });
+    handle->postApiJob(JobAddMode {handle, copyCStr(mode)});
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)
 {
-    const std::string modeCopy = copyCStr(mode);
-    handle->postCApiTask([handle, modeCopy] { handle->gameState.removeMode(modeCopy); });
+    handle->postApiJob(JobRemoveMode {handle, copyCStr(mode)});
 }
 
 void sb_clear_modes(sb_game_handle_t handle)
 {
-    handle->postCApiTask([handle] { handle->gameState.clearModes(); });
+    handle->postApiJob(JobClearModes {handle});
 }
 
 void sb_commit(sb_game_handle_t handle)
 {
-    handle->postCApiTask([handle] { handle->gameState.commit(); });
+    handle->postApiJob(JobCommit {handle});
 }
 
 const char *sb_get_machine_uuid(sb_game_handle_t handle)
@@ -231,26 +443,12 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
 void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
                            sb_string_callback_t callback, void *user_data)
 {
-    handle->postCApiTask([handle, score_filter, callback, user_data] {
-        handle->gameState.requestTopScores(
-                score_filter, [callback, user_data](Error error, const std::string &reply) {
-                    if (callback) {
-                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                    }
-                });
-    });
+    handle->postApiJob(JobRequestTopScores {handle, score_filter, callback, user_data});
 }
 
 void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
-    handle->postCApiTask([handle, callback, user_data] {
-        handle->gameState.requestPairCode(
-                [callback, user_data](Error error, const std::string &reply) {
-                    if (callback) {
-                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                    }
-                });
-    });
+    handle->postApiJob(JobRequestPairCode {handle, callback, user_data});
 }
 
 sb_auth_status_t sb_get_status(sb_game_handle_t handle)
@@ -260,14 +458,7 @@ sb_auth_status_t sb_get_status(sb_game_handle_t handle)
 
 void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
-    handle->postCApiTask([handle, callback, user_data] {
-        handle->gameState.requestUnpair(
-                [callback, user_data](Error error, const std::string &reply) {
-                    if (callback) {
-                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                    }
-                });
-    });
+    handle->postApiJob(JobRequestUnpair {handle, callback, user_data});
 }
 
 bool sb_is_players_info_updated(sb_game_handle_t handle)
@@ -282,11 +473,7 @@ bool sb_has_player_info(sb_game_handle_t handle, sb_player_t player)
 
 int64_t sb_get_player_id(sb_game_handle_t /*handle*/, sb_player_t /*player*/)
 {
-    // FIXME: this should be string
-    // if (auto profile = handle->gameState.getPlayerProfile(player)) {
-    //     return static_cast<int>(profile->id);
-    // }
-    return -1; // Invalid player ID
+    return -1;
 }
 
 const char *sb_get_player_preferred_name(sb_game_handle_t handle, sb_player_t player)
@@ -334,76 +521,40 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 
 void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities)
 {
-    handle->postCApiTask(
-            [handle, capabilities] { handle->gameState.setCapabilities(capabilities); });
+    handle->postApiJob(JobSetCapabilities {handle, capabilities});
 }
 
 void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
                                   const char *owner_uuid, sb_string_callback_t callback,
                                   void *user_data)
 {
-    const std::string machineUuid = copyCStr(machine_uuid);
-    const std::string ownerUuid = copyCStr(owner_uuid);
-    handle->postCApiTask([handle, machineUuid, ownerUuid, callback, user_data] {
-        handle->gameState.requestPairMachine(
-                machineUuid, ownerUuid,
-                [callback, user_data](Error error, const std::string &reply) {
-                    if (callback) {
-                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                    }
-                });
-    });
+    handle->postApiJob(JobPairMachine {handle, copyCStr(machine_uuid), copyCStr(owner_uuid),
+                                       callback, user_data});
 }
 
 void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
                             bool success)
 {
-    const std::string transactionCopy = copyCStr(transaction);
-    handle->postCApiTask([handle, credits, transactionCopy, success] {
-        handle->gameState.setCreditsDropped(credits, transactionCopy, success);
-    });
+    handle->postApiJob(JobCreditsDropped {handle, credits, copyCStr(transaction), success});
 }
 
 void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
                            const char *pricing)
 {
-    const std::string pricingCopy = copyCStr(pricing);
-    handle->postCApiTask([handle, free_play, credits, max_credits, pricingCopy] {
-        handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricingCopy.c_str());
-    });
+    handle->postApiJob(
+            JobCreditsStatus {handle, free_play, credits, max_credits, copyCStr(pricing)});
 }
 
 void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
                  const char *content_type, sb_string_callback_t callback, void *user_data)
 {
-    const std::string urlCopy = copyCStr(url);
-    const std::string filenameCopy = copyCStr(filename);
-    const std::string contentTypeCopy = copyCStr(content_type);
-    handle->postCApiTask([handle, urlCopy, filenameCopy, contentTypeCopy, callback, user_data] {
-        handle->gameState.download(
-                [callback, user_data](Error error, const std::string &reply) {
-                    if (callback) {
-                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                    }
-                },
-                urlCopy, filenameCopy, contentTypeCopy);
-    });
+    handle->postApiJob(JobDownload {handle, copyCStr(url), copyCStr(filename),
+                                    copyCStr(content_type), callback, user_data});
 }
 
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
                         const char *content_type, sb_buffer_callback_t callback, void *user_data)
 {
-    const std::string urlCopy = copyCStr(url);
-    const std::string contentTypeCopy = copyCStr(content_type);
-    handle->postCApiTask(
-            [handle, urlCopy, reserve_buffer_size, contentTypeCopy, callback, user_data] {
-                handle->gameState.downloadBuffer(
-                        [callback, user_data](Error error, const std::vector<uint8_t> &data) {
-                            if (callback) {
-                                callback(static_cast<sb_error_t>(error), data.data(), data.size(),
-                                         user_data);
-                            }
-                        },
-                        urlCopy, reserve_buffer_size, contentTypeCopy);
-            });
+    handle->postApiJob(JobDownloadBuffer {handle, copyCStr(url), reserve_buffer_size,
+                                          copyCStr(content_type), callback, user_data});
 }
