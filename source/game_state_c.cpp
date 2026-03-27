@@ -23,22 +23,101 @@
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
 #include "game_state_impl.h"
+#include "net_base.h"
 #include "net.h"
 #include "key_resolver.h"
 #include "signer_key_resolver.h"
 #include "nfc_tpm_key_resolver.h"
 #include "soft_key_resolver.h"
 #include <logger/logger.h>
+#include <blockingconcurrentqueue.h>
 #include <string>
 #include <memory>
 #include <vector>
+#include <atomic>
+#include <exception>
+#include <functional>
+#include <thread>
+#include <utility>
 
 using namespace scorbit;
 using namespace detail;
 
+namespace {
+
+inline std::string copyCStr(const char *p)
+{
+    return p ? std::string(p) : std::string {};
+}
+
+} // namespace
+
 struct sb_game_state_struct {
     detail::GameStateImpl gameState;
+    moodycamel::BlockingConcurrentQueue<std::function<void()>> cApiQueue;
+    std::atomic<bool> cApiAccepting {true};
+    std::thread cApiDispatcher;
+
+    explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
+    ~sb_game_state_struct();
+
+    void postCApiTask(std::function<void()> &&f);
+    void shutdownCApiDispatcher();
+
+private:
+    void cApiDispatcherLoop();
 };
+
+sb_game_state_struct::sb_game_state_struct(std::unique_ptr<NetBase> net)
+    : gameState(std::move(net))
+    , cApiDispatcher([this] { cApiDispatcherLoop(); })
+{
+}
+
+sb_game_state_struct::~sb_game_state_struct()
+{
+    shutdownCApiDispatcher();
+}
+
+void sb_game_state_struct::cApiDispatcherLoop()
+{
+    for (;;) {
+        std::function<void()> task;
+        cApiQueue.wait_dequeue(task);
+        if (!task) {
+            break;
+        }
+        try {
+            task();
+        } catch (const std::exception &e) {
+            ERR("C API dispatcher task failed: {}", e.what());
+        } catch (...) {
+            ERR("C API dispatcher task failed: unknown exception");
+        }
+    }
+}
+
+void sb_game_state_struct::postCApiTask(std::function<void()> &&f)
+{
+    // std::lock_guard lock(cApiEnqueueMutex);
+    // if (!cApiAccepting.load(std::memory_order_relaxed)) {
+    //     return;
+    // }
+    cApiQueue.enqueue(std::move(f));
+}
+
+void sb_game_state_struct::shutdownCApiDispatcher()
+{
+    {
+        if (!cApiDispatcher.joinable()) {
+            return;
+        }
+        cApiAccepting.store(false, std::memory_order_relaxed);
+        std::function<void()> poison;
+        cApiQueue.enqueue(std::move(poison));
+    }
+    cApiDispatcher.join();
+}
 
 sb_game_handle_t sb_create_game_state(sb_config_t config)
 {
@@ -72,58 +151,66 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
     }
 
     auto net = std::make_unique<Net>(*config, std::move(resolvers));
-    return new sb_game_state_struct {GameStateImpl(std::move(net))};
+    return new sb_game_state_struct {std::move(net)};
 }
 
 void sb_destroy_game_state(sb_game_handle_t handle)
 {
+    handle->shutdownCApiDispatcher();
+    handle->gameState.prepareForDestroy();
     delete handle;
 }
 
 void sb_set_game_started(sb_game_handle_t handle, sb_game_start_origin_t origin)
 {
-    handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
+    handle->postCApiTask([handle, origin] {
+        handle->gameState.setGameStarted(static_cast<GameStartOrigin>(origin));
+    });
 }
 
 void sb_set_game_finished(sb_game_handle_t handle)
 {
-    handle->gameState.setGameFinished();
+    handle->postCApiTask([handle] { handle->gameState.setGameFinished(); });
 }
 
 void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball)
 {
-    handle->gameState.setCurrentBall(ball);
+    handle->postCApiTask([handle, ball] { handle->gameState.setCurrentBall(ball); });
 }
 
 void sb_set_active_player(sb_game_handle_t handle, sb_player_t player)
 {
-    handle->gameState.setActivePlayer(player);
+    handle->postCApiTask([handle, player] { handle->gameState.setActivePlayer(player); });
 }
 
 void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score,
                   sb_score_feature_t feature)
 {
-    handle->gameState.setScore(player, score, feature);
+    handle->postCApiTask([handle, player, score, feature] {
+        handle->gameState.setScore(player, score, feature);
+    });
 }
 
 void sb_add_mode(sb_game_handle_t handle, const char *mode)
 {
-    handle->gameState.addMode(mode);
+    const std::string modeCopy = copyCStr(mode);
+    handle->postCApiTask([handle, modeCopy] { handle->gameState.addMode(modeCopy); });
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)
 {
-    handle->gameState.removeMode(mode);
+    const std::string modeCopy = copyCStr(mode);
+    handle->postCApiTask([handle, modeCopy] { handle->gameState.removeMode(modeCopy); });
 }
 
 void sb_clear_modes(sb_game_handle_t handle)
 {
-    handle->gameState.clearModes();
+    handle->postCApiTask([handle] { handle->gameState.clearModes(); });
 }
 
 void sb_commit(sb_game_handle_t handle)
 {
-    handle->gameState.commit();
+    handle->postCApiTask([handle] { handle->gameState.commit(); });
 }
 
 const char *sb_get_machine_uuid(sb_game_handle_t handle)
@@ -144,20 +231,25 @@ const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
 void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
                            sb_string_callback_t callback, void *user_data)
 {
-    handle->gameState.requestTopScores(
-            score_filter, [callback, user_data](Error error, const std::string &reply) {
-                if (callback) {
-                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                }
-            });
+    handle->postCApiTask([handle, score_filter, callback, user_data] {
+        handle->gameState.requestTopScores(
+                score_filter, [callback, user_data](Error error, const std::string &reply) {
+                    if (callback) {
+                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                    }
+                });
+    });
 }
 
 void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
-    handle->gameState.requestPairCode([callback, user_data](Error error, const std::string &reply) {
-        if (callback) {
-            callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-        }
+    handle->postCApiTask([handle, callback, user_data] {
+        handle->gameState.requestPairCode(
+                [callback, user_data](Error error, const std::string &reply) {
+                    if (callback) {
+                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                    }
+                });
     });
 }
 
@@ -168,10 +260,13 @@ sb_auth_status_t sb_get_status(sb_game_handle_t handle)
 
 void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
-    handle->gameState.requestUnpair([callback, user_data](Error error, const std::string &reply) {
-        if (callback) {
-            callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-        }
+    handle->postCApiTask([handle, callback, user_data] {
+        handle->gameState.requestUnpair(
+                [callback, user_data](Error error, const std::string &reply) {
+                    if (callback) {
+                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                    }
+                });
     });
 }
 
@@ -239,53 +334,76 @@ const uint8_t *sb_get_player_picture(sb_game_handle_t handle, sb_player_t player
 
 void sb_set_capabilities(sb_game_handle_t handle, sb_capabilities_t capabilities)
 {
-    handle->gameState.setCapabilities(capabilities);
+    handle->postCApiTask(
+            [handle, capabilities] { handle->gameState.setCapabilities(capabilities); });
 }
 
 void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_uuid,
                                   const char *owner_uuid, sb_string_callback_t callback,
                                   void *user_data)
 {
-    handle->gameState.requestPairMachine(
-            machine_uuid, owner_uuid, [callback, user_data](Error error, const std::string &reply) {
-                if (callback) {
-                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                }
-            });
+    const std::string machineUuid = copyCStr(machine_uuid);
+    const std::string ownerUuid = copyCStr(owner_uuid);
+    handle->postCApiTask([handle, machineUuid, ownerUuid, callback, user_data] {
+        handle->gameState.requestPairMachine(
+                machineUuid, ownerUuid,
+                [callback, user_data](Error error, const std::string &reply) {
+                    if (callback) {
+                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                    }
+                });
+    });
 }
 
 void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,
                             bool success)
 {
-    handle->gameState.setCreditsDropped(credits, transaction, success);
+    const std::string transactionCopy = copyCStr(transaction);
+    handle->postCApiTask([handle, credits, transactionCopy, success] {
+        handle->gameState.setCreditsDropped(credits, transactionCopy, success);
+    });
 }
 
 void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
                            const char *pricing)
 {
-    handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricing);
+    const std::string pricingCopy = copyCStr(pricing);
+    handle->postCApiTask([handle, free_play, credits, max_credits, pricingCopy] {
+        handle->gameState.setCreditsStatus(free_play, credits, max_credits, pricingCopy.c_str());
+    });
 }
 
 void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
                  const char *content_type, sb_string_callback_t callback, void *user_data)
 {
-    handle->gameState.download(
-            [callback, user_data](Error error, const std::string &reply) {
-                if (callback) {
-                    callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-                }
-            },
-            url, filename, content_type ? content_type : std::string {});
+    const std::string urlCopy = copyCStr(url);
+    const std::string filenameCopy = copyCStr(filename);
+    const std::string contentTypeCopy = copyCStr(content_type);
+    handle->postCApiTask([handle, urlCopy, filenameCopy, contentTypeCopy, callback, user_data] {
+        handle->gameState.download(
+                [callback, user_data](Error error, const std::string &reply) {
+                    if (callback) {
+                        callback(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+                    }
+                },
+                urlCopy, filenameCopy, contentTypeCopy);
+    });
 }
 
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
                         const char *content_type, sb_buffer_callback_t callback, void *user_data)
 {
-    handle->gameState.downloadBuffer(
-            [callback, user_data](Error error, const std::vector<uint8_t> &data) {
-                if (callback) {
-                    callback(static_cast<sb_error_t>(error), data.data(), data.size(), user_data);
-                }
-            },
-            url, reserve_buffer_size, content_type ? content_type : std::string {});
+    const std::string urlCopy = copyCStr(url);
+    const std::string contentTypeCopy = copyCStr(content_type);
+    handle->postCApiTask(
+            [handle, urlCopy, reserve_buffer_size, contentTypeCopy, callback, user_data] {
+                handle->gameState.downloadBuffer(
+                        [callback, user_data](Error error, const std::vector<uint8_t> &data) {
+                            if (callback) {
+                                callback(static_cast<sb_error_t>(error), data.data(), data.size(),
+                                         user_data);
+                            }
+                        },
+                        urlCopy, reserve_buffer_size, contentTypeCopy);
+            });
 }
