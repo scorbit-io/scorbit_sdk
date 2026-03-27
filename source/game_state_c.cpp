@@ -52,7 +52,7 @@ inline std::string copyCStr(const char *p)
     return p ? std::string(p) : std::string {};
 }
 
-struct CApiPoison {
+struct Poison {
 };
 
 struct JobSetGameStarted {
@@ -164,25 +164,53 @@ struct JobDownloadBuffer {
     void *user_data;
 };
 
-using CApiQueueItem =
-        std::variant<CApiPoison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
+using ApiQueueItem =
+        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobRemoveMode, JobClearModes,
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer>;
 
+// Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
+// std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
+// (std::overloaded).
+template<class... Ts>
+struct Overloaded : Ts... {
+    using Ts::operator()...;
+};
+template<class... Ts>
+Overloaded(Ts...) -> Overloaded<Ts...>;
+
+inline auto makeCStringReplyBridge(sb_string_callback_t cb, void *user_data)
+{
+    return [cb, user_data](Error error, const std::string &reply) {
+        if (cb) {
+            cb(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+        }
+    };
+}
+
+inline auto makeBufferReplyBridge(sb_buffer_callback_t cb, void *user_data)
+{
+    return [cb, user_data](Error error, const std::vector<uint8_t> &data) {
+        if (cb) {
+            cb(static_cast<sb_error_t>(error), data.data(), data.size(), user_data);
+        }
+    };
+}
+
 } // namespace scorbit_c_api_queue
 
 struct sb_game_state_struct {
     detail::GameStateImpl gameState;
-    moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::CApiQueueItem> cApiQueue;
+    moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::ApiQueueItem> cApiQueue;
     std::atomic<bool> cApiAccepting {true};
     std::thread cApiDispatcher;
 
     explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
     ~sb_game_state_struct();
 
-    void postApiJob(scorbit_c_api_queue::CApiQueueItem &&job);
+    void postApiJob(scorbit_c_api_queue::ApiQueueItem &&job);
     void shutdownCApiDispatcher();
 
 private:
@@ -191,102 +219,57 @@ private:
 
 namespace scorbit_c_api_queue {
 
-void dispatchCApiJob(CApiQueueItem &&item)
+void dispatchApiJob(ApiQueueItem &&item)
 {
     std::visit(
-            [](auto &&j) {
-                using T = std::decay_t<decltype(j)>;
-                if constexpr (std::is_same_v<T, CApiPoison>) {
-                    (void)j;
-                } else if constexpr (std::is_same_v<T, JobSetGameStarted>) {
-                    j.h->gameState.setGameStarted(static_cast<GameStartOrigin>(j.origin));
-                } else if constexpr (std::is_same_v<T, JobSetGameFinished>) {
-                    j.h->gameState.setGameFinished();
-                } else if constexpr (std::is_same_v<T, JobSetCurrentBall>) {
-                    j.h->gameState.setCurrentBall(j.ball);
-                } else if constexpr (std::is_same_v<T, JobSetActivePlayer>) {
-                    j.h->gameState.setActivePlayer(j.player);
-                } else if constexpr (std::is_same_v<T, JobSetScore>) {
-                    j.h->gameState.setScore(j.player, j.score, j.feature);
-                } else if constexpr (std::is_same_v<T, JobAddMode>) {
-                    j.h->gameState.addMode(std::move(j.mode));
-                } else if constexpr (std::is_same_v<T, JobRemoveMode>) {
-                    j.h->gameState.removeMode(j.mode);
-                } else if constexpr (std::is_same_v<T, JobClearModes>) {
-                    j.h->gameState.clearModes();
-                } else if constexpr (std::is_same_v<T, JobCommit>) {
-                    j.h->gameState.commit();
-                } else if constexpr (std::is_same_v<T, JobRequestTopScores>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    j.h->gameState.requestTopScores(
-                            j.score_filter, [cb, ud](Error error, const std::string &reply) {
-                                if (cb) {
-                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
-                                }
-                            });
-                } else if constexpr (std::is_same_v<T, JobRequestPairCode>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    j.h->gameState.requestPairCode([cb, ud](Error error, const std::string &reply) {
-                        if (cb) {
-                            cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
-                        }
-                    });
-                } else if constexpr (std::is_same_v<T, JobRequestUnpair>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    j.h->gameState.requestUnpair([cb, ud](Error error, const std::string &reply) {
-                        if (cb) {
-                            cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
-                        }
-                    });
-                } else if constexpr (std::is_same_v<T, JobSetCapabilities>) {
-                    j.h->gameState.setCapabilities(j.capabilities);
-                } else if constexpr (std::is_same_v<T, JobPairMachine>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    std::string mu = std::move(j.machine_uuid);
-                    std::string ou = std::move(j.owner_uuid);
-                    j.h->gameState.requestPairMachine(
-                            mu, ou, [cb, ud](Error error, const std::string &reply) {
-                                if (cb) {
-                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
-                                }
-                            });
-                } else if constexpr (std::is_same_v<T, JobCreditsDropped>) {
-                    j.h->gameState.setCreditsDropped(j.credits, j.transaction, j.success);
-                } else if constexpr (std::is_same_v<T, JobCreditsStatus>) {
-                    j.h->gameState.setCreditsStatus(j.free_play, j.credits, j.max_credits,
-                                                    j.pricing.c_str());
-                } else if constexpr (std::is_same_v<T, JobDownload>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    std::string url = std::move(j.url);
-                    std::string fn = std::move(j.filename);
-                    std::string ct = std::move(j.content_type);
-                    j.h->gameState.download(
-                            [cb, ud](Error error, const std::string &reply) {
-                                if (cb) {
-                                    cb(static_cast<sb_error_t>(error), reply.c_str(), ud);
-                                }
-                            },
-                            url, fn, ct);
-                } else if constexpr (std::is_same_v<T, JobDownloadBuffer>) {
-                    auto cb = j.callback;
-                    auto ud = j.user_data;
-                    std::string url = std::move(j.url);
-                    size_t res = j.reserve_buffer_size;
-                    std::string ct = std::move(j.content_type);
-                    j.h->gameState.downloadBuffer(
-                            [cb, ud](Error error, const std::vector<uint8_t> &data) {
-                                if (cb) {
-                                    cb(static_cast<sb_error_t>(error), data.data(), data.size(),
-                                       ud);
-                                }
-                            },
-                            url, res, ct);
-                }
+            Overloaded {
+                    [](Poison) {},
+                    [](JobSetGameStarted &&j) {
+                        j.h->gameState.setGameStarted(static_cast<GameStartOrigin>(j.origin));
+                    },
+                    [](JobSetGameFinished &&j) { j.h->gameState.setGameFinished(); },
+                    [](JobSetCurrentBall &&j) { j.h->gameState.setCurrentBall(j.ball); },
+                    [](JobSetActivePlayer &&j) { j.h->gameState.setActivePlayer(j.player); },
+                    [](JobSetScore &&j) { j.h->gameState.setScore(j.player, j.score, j.feature); },
+                    [](JobAddMode &&j) { j.h->gameState.addMode(std::move(j.mode)); },
+                    [](JobRemoveMode &&j) { j.h->gameState.removeMode(j.mode); },
+                    [](JobClearModes &&j) { j.h->gameState.clearModes(); },
+                    [](JobCommit &&j) { j.h->gameState.commit(); },
+                    [](JobRequestTopScores &&j) {
+                        j.h->gameState.requestTopScores(
+                                j.score_filter, makeCStringReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobRequestPairCode &&j) {
+                        j.h->gameState.requestPairCode(
+                                makeCStringReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobRequestUnpair &&j) {
+                        j.h->gameState.requestUnpair(
+                                makeCStringReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSetCapabilities &&j) { j.h->gameState.setCapabilities(j.capabilities); },
+                    [](JobPairMachine &&j) {
+                        j.h->gameState.requestPairMachine(
+                                std::move(j.machine_uuid), std::move(j.owner_uuid),
+                                makeCStringReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobCreditsDropped &&j) {
+                        j.h->gameState.setCreditsDropped(j.credits, j.transaction, j.success);
+                    },
+                    [](JobCreditsStatus &&j) {
+                        j.h->gameState.setCreditsStatus(j.free_play, j.credits, j.max_credits,
+                                                        j.pricing.c_str());
+                    },
+                    [](JobDownload &&j) {
+                        j.h->gameState.download(makeCStringReplyBridge(j.callback, j.user_data),
+                                                std::move(j.url), std::move(j.filename),
+                                                std::move(j.content_type));
+                    },
+                    [](JobDownloadBuffer &&j) {
+                        j.h->gameState.downloadBuffer(
+                                makeBufferReplyBridge(j.callback, j.user_data), std::move(j.url),
+                                j.reserve_buffer_size, std::move(j.content_type));
+                    },
             },
             std::move(item));
 }
@@ -309,13 +292,13 @@ sb_game_state_struct::~sb_game_state_struct()
 void sb_game_state_struct::cApiDispatcherLoop()
 {
     for (;;) {
-        CApiQueueItem item;
+        ApiQueueItem item;
         cApiQueue.wait_dequeue(item);
-        if (std::holds_alternative<CApiPoison>(item)) {
+        if (std::holds_alternative<Poison>(item)) {
             break;
         }
         try {
-            dispatchCApiJob(std::move(item));
+            dispatchApiJob(std::move(item));
         } catch (const std::exception &e) {
             ERR("C API dispatcher task failed: {}", e.what());
         } catch (...) {
@@ -324,7 +307,7 @@ void sb_game_state_struct::cApiDispatcherLoop()
     }
 }
 
-void sb_game_state_struct::postApiJob(scorbit_c_api_queue::CApiQueueItem &&job)
+void sb_game_state_struct::postApiJob(scorbit_c_api_queue::ApiQueueItem &&job)
 {
     cApiQueue.enqueue(std::move(job));
 }
@@ -335,7 +318,7 @@ void sb_game_state_struct::shutdownCApiDispatcher()
         return;
     }
     cApiAccepting.store(false, std::memory_order_relaxed);
-    cApiQueue.enqueue(CApiQueueItem {CApiPoison {}});
+    cApiQueue.enqueue(ApiQueueItem {Poison {}});
     cApiDispatcher.join();
 }
 
