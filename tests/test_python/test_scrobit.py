@@ -192,9 +192,6 @@ class TestGameStateCreation(unittest.TestCase):
         
         pair_link = game_state.get_pair_deeplink()
         self.assertIsInstance(pair_link, str)
-        
-        claim_link = game_state.get_claim_deeplink(1)
-        self.assertIsInstance(claim_link, str)
 
 
 class TestGameStateGameLogic(unittest.TestCase):

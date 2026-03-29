@@ -421,11 +421,6 @@ const char *sb_get_pair_deeplink(sb_game_handle_t handle)
     return handle->gameState.getPairDeeplink().c_str();
 }
 
-const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player)
-{
-    return handle->gameState.getClaimDeeplink(player).c_str();
-}
-
 void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
                            sb_string_callback_t callback, void *user_data)
 {

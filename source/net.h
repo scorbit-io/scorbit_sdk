@@ -105,7 +105,6 @@ public:
 
     const std::string &getMachineUuid() const override;
     const std::string &getPairDeeplink() const override;
-    const std::string &getClaimDeeplink(int player) const override;
 
     const DeviceInfo &deviceInfo() const override;
 
@@ -270,7 +269,6 @@ private:
     std::chrono::system_clock::time_point m_tokenExpiration;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
-    mutable std::string m_cachedCclaimDeeplink;
 
     std::string m_machineChannel;
     std::string m_releaseTrackUrl;

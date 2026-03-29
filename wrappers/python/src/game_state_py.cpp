@@ -732,20 +732,6 @@ PYBIND11_MODULE(scorbit, m)
                         authenticated, an empty string is returned.
             )doc")
 
-            .def("get_claim_deeplink", &GameState::getClaimDeeplink, py::arg("player"), R"doc(
-                Retrieve the claim and navigation deeplink.
-
-                This link must be encoded and displayed as a QR code, allowing the user to scan it with
-                a mobile app to claim the player's slot.
-
-                Args:
-                    player (int): The player number (starting from 1).
-
-                Returns:
-                    str: The claim deeplink string. If the machine is not paired or the SDK is not yet
-                        authenticated, an empty string is returned.
-            )doc")
-
             .def(
                     "request_top_scores",
                     [](GameState &self, int64_t score_filter, py::function callback) {

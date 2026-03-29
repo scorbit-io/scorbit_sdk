@@ -177,11 +177,6 @@ const std::string &GameStateImpl::getPairDeeplink() const
     return m_net->getPairDeeplink();
 }
 
-const std::string &GameStateImpl::getClaimDeeplink(int player) const
-{
-    return m_net->getClaimDeeplink(player);
-}
-
 bool GameStateImpl::isPlayersInfoUpdated()
 {
     return m_net->playersManager().hasUpdate();

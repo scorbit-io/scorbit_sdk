@@ -61,7 +61,6 @@ public:
 
     virtual const std::string &getMachineUuid() const = 0;
     virtual const std::string &getPairDeeplink() const = 0;
-    virtual const std::string &getClaimDeeplink(int player) const = 0;
 
     virtual const DeviceInfo &deviceInfo() const = 0;
 

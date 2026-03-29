@@ -200,9 +200,6 @@ def main():
         if is_game_finished(i):
             gs.set_game_finished()
 
-        if i == 50:
-            print(f"Deeplink for claiming: {gs.get_claim_deeplink(1)}")
-
         if is_unpair_triggered_by_user():
             gs.request_unpair(lambda error, reply: print(
                 "Unpairing successful" if error == scorbit.Error.Success else f"Error: {error}"

@@ -253,20 +253,6 @@ SCORBIT_SDK_EXPORT
 const char *sb_get_pair_deeplink(sb_game_handle_t handle);
 
 /**
- * @brief Retrieve the claim and navigation deeplink.
- *
- * @note The returned string pointer remains valid until this function is called again or the handle
- * is destroyed.
- *
- * @param handle The game handle created using @ref sb_create_game_state.
- * @param player The player number (starting from 1).
- * @return A pointer to the claim deeplink string. If the machine is not paired or the SDK is not
- * yet authenticated, an empty string is returned.
- */
-SCORBIT_SDK_EXPORT
-const char *sb_get_claim_deeplink(sb_game_handle_t handle, int player);
-
-/**
  * @brief Retrieves the top scores from the leaderboard.
  *
  * @note The callback function is invoked asynchronously when the operation completes, running in

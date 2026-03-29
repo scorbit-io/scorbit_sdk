@@ -53,7 +53,6 @@ public:
 
     const std::string &getMachineUuid() const;
     const std::string &getPairDeeplink() const;
-    const std::string &getClaimDeeplink(int player) const;
 
     bool isPlayersInfoUpdated();
     std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;

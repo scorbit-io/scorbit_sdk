@@ -54,11 +54,6 @@ public:
         static std::string rv;
         return rv;
     };
-    const std::string &getClaimDeeplink(int) const override
-    {
-        static std::string rv;
-        return rv;
-    };
     const DeviceInfo &deviceInfo() const override
     {
         static DeviceInfo info;

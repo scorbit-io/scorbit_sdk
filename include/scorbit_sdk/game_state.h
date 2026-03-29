@@ -226,21 +226,6 @@ public:
     }
 
     /**
-     * @brief Retrieve the claim and navigation deeplink.
-     *
-     * This link has to be encoded and displayed as QR code, so that the user can scan it with
-     * mobile app to claim the player's slot.
-     *
-     * @param player The player number (starting from 1).
-     * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
-     * authenticated, an empty string is returned.
-     */
-    std::string getClaimDeeplink(int player) const
-    {
-        return std::string {sb_get_claim_deeplink(m_handle.get(), player)};
-    }
-
-    /**
      * @brief Retrieves the top scores from the leaderboard.
      *
      * @note The callback function is invoked asynchronously when the operation completes, running

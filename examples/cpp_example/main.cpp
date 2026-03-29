@@ -350,10 +350,6 @@ int main()
             gs.setGameFinished();
         }
 
-        if (i == 50) {
-            cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
-        }
-
         if (isUnpairTriggeredByUser()) {
             // Request unpairing
             gs.requestUnpair([](scorbit::Error error, std::string reply) {

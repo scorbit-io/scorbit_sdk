@@ -61,8 +61,6 @@ constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
-// constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
-//                                "&opdb={opdb_id}&position={player_number}"};
 
 constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
@@ -507,23 +505,6 @@ const string &Net::getPairDeeplink() const
                         fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
                         fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
     return m_cachedPairDeeplink;
-}
-
-const string &Net::getClaimDeeplink(int /*player*/) const
-{
-    // FIXME: disable claim deeplink for now, find out what will be claim deeplink format
-
-    // if (m_machineInfo.venuemachineId == 0) {
-    //     DBG("Venue machine ID is not set, make sure that the device is authenticated "
-    //         "and paired");
-    //     m_cachedCclaimDeeplink.clear();
-    // } else {
-    //     m_cachedCclaimDeeplink = fmt::format(
-    //             CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_machineInfo.venuemachineId),
-    //             fmt::arg("opdb_id", m_machineInfo.opdbId), fmt::arg("player_number", player));
-    // }
-
-    return m_cachedCclaimDeeplink;
 }
 
 const DeviceInfo &Net::deviceInfo() const
