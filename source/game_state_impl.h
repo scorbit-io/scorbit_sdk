@@ -23,7 +23,6 @@
 #include <nfc/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
-#include "event_classes.h"
 #include <memory>
 #include <string>
 
@@ -53,10 +52,6 @@ public:
 
     const std::string &getMachineUuid() const;
     const std::string &getPairDeeplink() const;
-
-    bool isPlayersInfoUpdated();
-    std::optional<PlayerProfile> getPlayerProfile(sb_player_t player) const;
-    const Picture &getPlayerPicture(sb_player_t player) const;
 
     void setCapabilities(Capabilities capabilities);
 

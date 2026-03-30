@@ -48,9 +48,9 @@ TEST_CASE("PlayerProfile 1 player")
 
     PlayerProfilesManager pm;
 
-    pm.setProfiles(profiles);
-    bool hasUpdate = pm.hasUpdate();
-    REQUIRE(hasUpdate);
+    auto result = pm.setProfiles(profiles);
+    REQUIRE(result.has_value());
+    REQUIRE(result->size() == 1);
 
     auto p1 = pm.profile(1);
     REQUIRE(p1.has_value());
@@ -123,16 +123,14 @@ TEST_CASE("PlayerProfile 2 players")
 
     PlayerProfilesManager pm;
 
-    pm.setProfiles(profiles);
-    bool hasUpdate = pm.hasUpdate();
-    REQUIRE(hasUpdate);
+    auto result = pm.setProfiles(profiles);
+    REQUIRE(result.has_value());
 
     auto p2 = pm.profile(2);
     CHECK_FALSE(p2.has_value());
 
-    pm.setProfiles(profiles2);
-    hasUpdate = pm.hasUpdate();
-    REQUIRE(hasUpdate);
+    auto result2 = pm.setProfiles(profiles2);
+    REQUIRE(result2.has_value());
 
     p2 = pm.profile(2);
     REQUIRE(p2.has_value());
@@ -174,9 +172,8 @@ TEST_CASE("Player profile with null profile_picture")
 
     PlayerProfilesManager pm;
 
-    pm.setProfiles(profiles);
-    bool hasUpdate = pm.hasUpdate();
-    REQUIRE(hasUpdate);
+    auto result = pm.setProfiles(profiles);
+    REQUIRE(result.has_value());
 
     auto p1 = pm.profile(1);
     REQUIRE(p1.has_value());
@@ -204,9 +201,8 @@ TEST_CASE("Player profile without profile_picture")
 
     PlayerProfilesManager pm;
 
-    pm.setProfiles(profiles);
-    bool hasUpdate = pm.hasUpdate();
-    REQUIRE(hasUpdate);
+    auto result = pm.setProfiles(profiles);
+    REQUIRE(result.has_value());
 
     auto p1 = pm.profile(1);
     REQUIRE(p1.has_value());

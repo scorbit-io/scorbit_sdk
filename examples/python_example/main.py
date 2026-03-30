@@ -123,6 +123,22 @@ def events_callback(gs, event):
         print("Credits status requested")
         gs.set_credits_status(False, 10, 20, "")
     
+    elif event.type() == scorbit.EventType.PlayersUpdated:
+        # IMPORTANT:
+        # Unclaimed players are NOT included in this dictionary.
+        # Therefore, the client must first clear its existing player list/dictionary,
+        # then repopulate it only with players provided in this event.
+        success, players_dict = event.get_players_updated()
+        if success:
+            print(f"Players updated, count: {len(players_dict)}")
+            for num, info in players_dict.items():
+                print(f"  Player {num}: {info.preferred_name} (id: {info.id})")
+
+    elif event.type() == scorbit.EventType.PlayerPictureReady:
+        success, player_num, picture = event.get_player_picture_ready()
+        if success:
+            print(f"Player {player_num} picture ready: {len(picture)} bytes")
+
     elif event.type() == scorbit.EventType.ConfigReceived:
         success, config_json = event.event_config_received()
         if success:
@@ -155,19 +171,8 @@ def setup_game_state():
 
     return scorbit.create_game_state(config)
 
-def check_players_info(gs, players, players_num):
-    if gs.is_players_info_updated():
-        for j in range(1, players_num + 1):
-            if gs.has_player_info(j):
-                players[j] = gs.get_player_info(j)
-            else:
-                players.pop(j, None)  # Erase player info if it was removed or not found
-    return players
-
 def main():
     global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
-
-    players = {} # Dictionary to hold player information
 
     print(f"Simple example of Scorbit SDK {scorbit.__version__} usage")
 
@@ -223,19 +228,6 @@ def main():
 
 
         if is_game_active(i):
-            # Let's pretend that this players_num is current number of players in the game
-            players_num = 1
-
-            check_players_info(gs, players, players_num)
-
-            # Display players names / pictures
-            for player_num, player_info in players.items():
-                print(f"Player {player_num}: id: {player_info.id}, name: {player_info.name}, initials: {player_info.initials}, preferred_name: {player_info.preferred_name}")
-                print(f"Picture size: {len(player_info.picture)} bytes, url: {player_info.picture_url}")
-                # Print first 32 bytes of picture in hex format
-                if (len(player_info.picture) > 0):
-                    print(f"Player {player_num} picture (first 32 bytes): {player_info.picture[:32].hex()}")
-
             gs.set_score(1, player1_score(i), 2) # 2 is the score feature index for "right spinner"
             if has_player2(): gs.set_score(2, player2_score(), 1)
             if has_player3(): gs.set_score(3, player3_score(), 1)

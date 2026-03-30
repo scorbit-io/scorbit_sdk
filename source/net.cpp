@@ -2016,18 +2016,20 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 
     // Process players profiles
-    m_playersManager.setProfiles(val);
+    if (const auto changedProfiles = m_playersManager.setProfiles(val)) {
+        m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
+    }
 
     if (m_deviceInfo.autoDownloadPlayerPics) {
         const auto toDownload = m_playersManager.picturesToDownload();
         for (const auto &[playerNum, pictureUrl] : toDownload) {
-            // Queue picture to download
-            // Set picture to empty, to avoid another download
             m_playersManager.setPicture(playerNum, Picture {});
             downloadBuffer(
                     [this, playerNum = playerNum](Error error, std::vector<uint8_t> data) {
                         if (error == Error::Success) {
-                            m_playersManager.setPicture(playerNum, std::move(data));
+                            m_playersManager.setPicture(playerNum, data);
+                            m_eventManager->push(std::make_shared<PlayerPictureReadyEvent>(
+                                    playerNum, std::move(data)));
                         } else {
                             ERR("Picture download failed: {}", static_cast<int>(error));
                             m_playersManager.removePicture(playerNum);

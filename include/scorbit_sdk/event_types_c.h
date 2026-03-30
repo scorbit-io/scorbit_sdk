@@ -56,6 +56,18 @@ typedef enum {
      */
     SB_EVT_CONFIG_RECEIVED,
 
+    /**
+     * @brief Player profiles have been updated.
+     * Use @ref sb_event_players_updated and index-based getters to retrieve player data.
+     */
+    SB_EVT_PLAYERS_UPDATED,
+
+    /**
+     * @brief A player's profile picture has been downloaded and is ready.
+     * Use @ref sb_event_player_picture_ready to get the player number and picture data.
+     */
+    SB_EVT_PLAYER_PICTURE_READY,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

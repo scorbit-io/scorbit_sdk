@@ -28,8 +28,9 @@ namespace detail {
 
 bool operator==(const PlayerProfile &lhs, const PlayerProfile &rhs)
 {
-    return lhs.id == rhs.id && lhs.preferInitials == rhs.preferInitials && lhs.name == rhs.name
-        && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl && lhs.url == rhs.url;
+    return lhs.player == rhs.player && lhs.id == rhs.id && lhs.preferInitials == rhs.preferInitials
+        && lhs.name == rhs.name && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl
+        && lhs.url == rhs.url;
 }
 
 bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
@@ -39,11 +40,12 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
 
 // -----------------------------------------------------------------------
 
-void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
+std::optional<std::vector<PlayerProfile>>
+PlayerProfilesManager::setProfiles(const nlohmann::json &val)
 {
     if (!val.is_array()) {
         WRN("Invalid player profiles data");
-        return;
+        return std::nullopt;
     }
 
     decltype(m_profiles) profiles;
@@ -61,6 +63,7 @@ void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
                 const auto &player = *it;
 
                 PlayerProfile profile;
+                profile.player = playerNum;
                 player[JKEY_PLAYER_ID].get_to(profile.id);
                 profile.preferInitials = player.value(JKEY_PLAYER_PREFER_INITIALS, false);
                 player[JKEY_PLAYER_USERNAME].get_to(profile.username);
@@ -82,37 +85,31 @@ void PlayerProfilesManager::setProfiles(const nlohmann::json &val)
         }
     }
 
-    // Check if profiles have changed
     {
         std::lock_guard<std::mutex> lock(m_profilesMutex);
         if (profiles != m_profiles) {
             m_profiles = std::move(profiles);
-            m_updated = true;
+
+            std::vector<PlayerProfile> profilesVector;
+            for (const auto &profile : m_profiles) {
+                profilesVector.push_back(profile.second);
+            }
+            return profilesVector;
         }
     }
+    return std::nullopt;
 }
 
-void PlayerProfilesManager::setPicture(sb_player_t player, std::vector<uint8_t> &&picture)
+void PlayerProfilesManager::setPicture(sb_player_t player, std::vector<uint8_t> picture)
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
     m_picturesCache.put(player, std::move(picture));
-    m_updated = true;
 }
 
 void PlayerProfilesManager::removePicture(sb_player_t player)
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
     m_picturesCache.erase(player);
-    m_updated = true;
-}
-
-/**
- * @brief Once called, it clears update status and prepares data for retrieval
- * @return true if there was any update in profiles
- */
-bool PlayerProfilesManager::hasUpdate()
-{
-    return m_updated.exchange(false); // return result and clear update flag
 }
 
 std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) const

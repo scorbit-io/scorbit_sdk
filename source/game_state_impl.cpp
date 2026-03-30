@@ -177,21 +177,6 @@ const std::string &GameStateImpl::getPairDeeplink() const
     return m_net->getPairDeeplink();
 }
 
-bool GameStateImpl::isPlayersInfoUpdated()
-{
-    return m_net->playersManager().hasUpdate();
-}
-
-std::optional<PlayerProfile> GameStateImpl::getPlayerProfile(sb_player_t player) const
-{
-    return m_net->playersManager().profile(player);
-}
-
-const Picture &GameStateImpl::getPlayerPicture(sb_player_t player) const
-{
-    return m_net->playersManager().picture(player);
-}
-
 void GameStateImpl::setCapabilities(Capabilities capabilities)
 {
     m_net->setCapabilities(capabilities);

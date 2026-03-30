@@ -29,7 +29,6 @@
 #include <vector>
 #include <map>
 #include <mutex>
-#include <atomic>
 #include <optional>
 
 namespace scorbit {
@@ -42,6 +41,7 @@ constexpr auto MAX_PICTURES_CACHED = 8; // Maximum number of pictures to cache
  * It is used to display player information in the UI.
  */
 struct PlayerProfile {
+    sb_player_t player;
     bool preferInitials;    // Reference to either display_name or initials
     std::string id;         // The player's ID
     std::string username;   // The player's username
@@ -68,11 +68,12 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs);
 class PlayerProfilesManager
 {
 public:
-    void setProfiles(const nlohmann::json &val);
-    void setPicture(sb_player_t player, std::vector<uint8_t> &&picture);
+    /// Returns the new profiles map if data changed, std::nullopt if unchanged.
+    std::optional<std::vector<PlayerProfile>> setProfiles(const nlohmann::json &val);
+
+    void setPicture(sb_player_t player, std::vector<uint8_t> picture);
     void removePicture(sb_player_t player);
 
-    bool hasUpdate();
     std::optional<PlayerProfile> profile(sb_player_t player) const;
 
     bool hasPicture(sb_player_t player) const;
@@ -81,12 +82,11 @@ public:
     std::map<sb_player_t, std::string> picturesToDownload() const;
 
 private:
-    std::atomic_bool m_updated {false}; // Flag to indicate if any profile has been changed
     std::map<sb_player_t, PlayerProfile> m_profiles;
     mutable Picture m_storedPicture;
     mutable LRUCache<sb_player_t, Picture> m_picturesCache {MAX_PICTURES_CACHED};
-    mutable std::mutex m_profilesMutex; // Mutex to protect access to profiles
-    mutable std::mutex m_picturesMutex; // Mutex to protect access to cached pictures
+    mutable std::mutex m_profilesMutex;
+    mutable std::mutex m_picturesMutex;
 };
 
 } // namespace detail
