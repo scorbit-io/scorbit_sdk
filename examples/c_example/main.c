@@ -275,22 +275,23 @@ void eventsCallback(const sb_event_t *event, void *user_data)
     } break;
 
     case SB_EVT_PLAYERS_UPDATED: {
+        // The client should copy player data to its own buffer if needed, since the event data
+        // becomes invalid after this callback returns.
         int count = 0;
         if (sb_event_players_updated(event, &count)) {
             printf("Players updated, count: %d\n", count);
-            // The client should copy player data to its own buffer if needed,
-            // since the event data becomes invalid after this callback returns.
-            //
-            // IMPORTANT:
-            // Unclaimed players are NOT included in this list.
-            // Therefore, the client must first clear its existing player list,
-            // then repopulate it only with players provided in this event.
-            for (int idx = 0; idx < count; ++idx) {
-                sb_player_t player_num = 0;
-                const char *preferred_name = NULL;
-                if (sb_event_player_number(event, idx, &player_num)
-                    && sb_event_player_preferred_name(event, idx, &preferred_name)) {
-                    printf("  Player %d: %s\n", player_num, preferred_name);
+            for (sb_player_t p = 1; p <= (sb_player_t)count; ++p) {
+                bool has_info = false;
+                if (sb_event_player_has_info(event, p, &has_info) && has_info) {
+                    const char *preferred_name = NULL;
+                    if (sb_event_player_preferred_name(event, p, &preferred_name)) {
+                        printf("  Player %d: %s\n", p, preferred_name);
+                    }
+                } else {
+                    const char *claim_url = NULL;
+                    if (sb_event_player_claim_deeplink(event, p, &claim_url)) {
+                        printf("  Player %d: unclaimed, claim at %s\n", p, claim_url);
+                    }
                 }
             }
         }

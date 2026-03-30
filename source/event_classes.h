@@ -231,15 +231,13 @@ public:
 
     auto playersCount() const -> int { return static_cast<int>(m_players.size()); }
 
-    auto playerAt(int index) const -> const PlayerProfile &
+    auto playerByNumber(sb_player_t player) const -> const PlayerProfile *
     {
-        if (index < 0 || index >= static_cast<int>(m_players.size())) {
-            ERR("Player index out of range: {}, players count: {}", index, playersCount());
-            static PlayerProfile emptyProfile;
-            return emptyProfile;
+        if (player == 0 || player > m_players.size()) {
+            ERR("Player number out of range: {}, players count: {}", player, playersCount());
+            return nullptr;
         }
-
-        return m_players[index];
+        return &m_players[player - 1];
     }
 
 private:

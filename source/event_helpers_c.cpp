@@ -145,17 +145,17 @@ bool sb_event_firmwares_list_received(const sb_event_t *event, const char **firm
 
 // ----------------------- PlayersUpdated helpers -----------------------
 
-static const scorbit::detail::PlayersUpdatedEvent *toPlayersUpdated(const sb_event_t *event,
-                                                                    int index)
+static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,
+                                                             sb_player_t player)
 {
     if (!event) {
         return nullptr;
     }
     auto derived = dynamic_cast<const scorbit::detail::PlayersUpdatedEvent *>(event);
-    if (!derived || index < 0 || index >= derived->playersCount()) {
+    if (!derived) {
         return nullptr;
     }
-    return derived;
+    return derived->playerByNumber(player);
 }
 
 bool sb_event_players_updated(const sb_event_t *event, int *count)
@@ -171,82 +171,94 @@ bool sb_event_players_updated(const sb_event_t *event, int *count)
     return true;
 }
 
-bool sb_event_player_number(const sb_event_t *event, int index, sb_player_t *player)
+bool sb_event_player_has_info(const sb_event_t *event, sb_player_t player, bool *has_info)
 {
-    if (!player) {
+    if (!has_info) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    *player = derived->playerAt(index).player;
+    *has_info = profile->hasInfo();
     return true;
 }
 
-bool sb_event_player_id(const sb_event_t *event, int index, const char **id)
+bool sb_event_player_id(const sb_event_t *event, sb_player_t player, const char **id)
 {
     if (!id) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    *id = derived->playerAt(index).id.c_str();
+    *id = profile->id.c_str();
     return true;
 }
 
-bool sb_event_player_preferred_name(const sb_event_t *event, int index, const char **name)
+bool sb_event_player_preferred_name(const sb_event_t *event, sb_player_t player, const char **name)
 {
     if (!name) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    const auto &profile = derived->playerAt(index);
-    *name = profile.preferInitials ? profile.initials.c_str() : profile.name.c_str();
+    *name = profile->preferInitials ? profile->initials.c_str() : profile->name.c_str();
     return true;
 }
 
-bool sb_event_player_name(const sb_event_t *event, int index, const char **name)
+bool sb_event_player_name(const sb_event_t *event, sb_player_t player, const char **name)
 {
     if (!name) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    *name = derived->playerAt(index).name.c_str();
+    *name = profile->name.c_str();
     return true;
 }
 
-bool sb_event_player_initials(const sb_event_t *event, int index, const char **initials)
+bool sb_event_player_initials(const sb_event_t *event, sb_player_t player, const char **initials)
 {
     if (!initials) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    *initials = derived->playerAt(index).initials.c_str();
+    *initials = profile->initials.c_str();
     return true;
 }
 
-bool sb_event_player_picture_url(const sb_event_t *event, int index, const char **url)
+bool sb_event_player_picture_url(const sb_event_t *event, sb_player_t player, const char **url)
 {
     if (!url) {
         return false;
     }
-    auto derived = toPlayersUpdated(event, index);
-    if (!derived) {
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
         return false;
     }
-    *url = derived->playerAt(index).pictureUrl.c_str();
+    *url = profile->pictureUrl.c_str();
+    return true;
+}
+
+bool sb_event_player_claim_deeplink(const sb_event_t *event, sb_player_t player, const char **url)
+{
+    if (!url) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *url = profile->claimDeeplink.c_str();
     return true;
 }
 

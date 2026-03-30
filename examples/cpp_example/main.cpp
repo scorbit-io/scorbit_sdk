@@ -239,16 +239,17 @@ void eventsCallback(const scorbit::Event &event)
     } break;
 
     case scorbit::EventType::PlayersUpdated: {
-        // IMPORTANT:
-        // Unclaimed players are NOT included in this map.
-        // Therefore, the client must first clear its existing player list/map,
-        // then repopulate it only with players provided in this event.
         std::map<sb_player_t, scorbit::PlayerInfo> players;
         if (event.getPlayersUpdated(players)) {
             cout << "Players updated, count: " << players.size() << endl;
             for (const auto &item : players) {
-                cout << "  Player " << item.first << ": " << item.second.preferredName
-                     << " (id: " << item.second.id << ")" << endl;
+                if (item.second.hasInfo()) {
+                    cout << "  Player " << item.first << ": " << item.second.preferredName
+                         << " (id: " << item.second.id << ")" << endl;
+                } else {
+                    cout << "  Player " << item.first << ": unclaimed, claim at "
+                         << item.second.claimDeeplink << endl;
+                }
             }
         }
     } break;

@@ -28,11 +28,14 @@ namespace scorbit {
 using Picture = std::vector<uint8_t>; // The profile picture binary (jpg)
 
 struct PlayerInfo {
+    bool hasInfo() const { return !id.empty(); }
+
     std::string id;            /// The player's ID
     std::string preferredName; /// Either name or initials
     std::string name;          /// The player's name to display
     std::string initials;      /// The player's initials, e.g. "DTM"
     std::string pictureUrl;    /// The URL of the profile picture
+    std::string claimDeeplink; /// Claim URL for unclaimed player slots (empty if claimed)
 };
 
 }

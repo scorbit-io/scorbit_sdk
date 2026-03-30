@@ -110,6 +110,7 @@ class TestPlayerInfo(unittest.TestCase):
         self.assertTrue(hasattr(pi, 'name'))
         self.assertTrue(hasattr(pi, 'initials'))
         self.assertTrue(hasattr(pi, 'picture_url'))
+        self.assertTrue(hasattr(pi, 'claim_deeplink'))
 
 
 class TestLoggerFunctionality(unittest.TestCase):

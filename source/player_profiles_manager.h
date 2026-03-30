@@ -41,14 +41,17 @@ constexpr auto MAX_PICTURES_CACHED = 8; // Maximum number of pictures to cache
  * It is used to display player information in the UI.
  */
 struct PlayerProfile {
-    sb_player_t player;
-    bool preferInitials;    // Reference to either display_name or initials
-    std::string id;         // The player's ID
-    std::string username;   // The player's username
-    std::string name;       // The player's name to display
-    std::string initials;   // The player's initials, e.g. "DTM"
-    std::string pictureUrl; // The URL to the player's profile picture
-    std::string url;        // The URL to the player's profile page
+    sb_player_t player {0};
+    bool preferInitials {false};
+    std::string id;
+    std::string username;
+    std::string name;
+    std::string initials;
+    std::string pictureUrl;
+    std::string url;
+    std::string claimDeeplink;
+
+    bool hasInfo() const { return !id.empty(); }
 };
 
 using Picture = std::vector<uint8_t>; // The profile picture binary (jpg)
@@ -68,8 +71,9 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs);
 class PlayerProfilesManager
 {
 public:
-    /// Returns the new profiles map if data changed, std::nullopt if unchanged.
-    std::optional<std::vector<PlayerProfile>> setProfiles(const nlohmann::json &val);
+    /// Returns the new profiles vector if data changed, std::nullopt if unchanged.
+    std::optional<std::vector<PlayerProfile>> setProfiles(const nlohmann::json &val,
+                                                          const std::string &machineUuid);
 
     void setPicture(sb_player_t player, std::vector<uint8_t> picture);
     void removePicture(sb_player_t player);
@@ -82,7 +86,7 @@ public:
     std::map<sb_player_t, std::string> picturesToDownload() const;
 
 private:
-    std::map<sb_player_t, PlayerProfile> m_profiles;
+    std::vector<PlayerProfile> m_profiles;
     mutable Picture m_storedPicture;
     mutable LRUCache<sb_player_t, Picture> m_picturesCache {MAX_PICTURES_CACHED};
     mutable std::mutex m_profilesMutex;

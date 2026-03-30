@@ -91,6 +91,9 @@ public:
      * @brief Helper function to process a players updated event.
      *
      * Populates a map of player numbers to @ref PlayerInfo structs from the event data.
+     * Each player slot is either claimed (profile info populated) or unclaimed
+     * (claimDeeplink populated).
+     *
      * The event type must be @ref scorbit::EventType::PlayersUpdated, otherwise the function
      * returns false.
      *
@@ -104,29 +107,28 @@ public:
             return false;
         }
         players.clear();
-        for (int i = 0; i < count; ++i) {
-            sb_player_t playerNum = 0;
-            if (!::sb_event_player_number(m_event, i, &playerNum)) {
-                continue;
-            }
+        for (sb_player_t p = 1; p <= static_cast<sb_player_t>(count); ++p) {
             PlayerInfo info;
             const char *str = nullptr;
-            if (::sb_event_player_id(m_event, i, &str) && str) {
+            if (::sb_event_player_id(m_event, p, &str) && str) {
                 info.id = str;
             }
-            if (::sb_event_player_preferred_name(m_event, i, &str) && str) {
+            if (::sb_event_player_preferred_name(m_event, p, &str) && str) {
                 info.preferredName = str;
             }
-            if (::sb_event_player_name(m_event, i, &str) && str) {
+            if (::sb_event_player_name(m_event, p, &str) && str) {
                 info.name = str;
             }
-            if (::sb_event_player_initials(m_event, i, &str) && str) {
+            if (::sb_event_player_initials(m_event, p, &str) && str) {
                 info.initials = str;
             }
-            if (::sb_event_player_picture_url(m_event, i, &str) && str) {
+            if (::sb_event_player_picture_url(m_event, p, &str) && str) {
                 info.pictureUrl = str;
             }
-            players.emplace(playerNum, std::move(info));
+            if (::sb_event_player_claim_deeplink(m_event, p, &str) && str) {
+                info.claimDeeplink = str;
+            }
+            players.emplace(p, std::move(info));
         }
         return true;
     }

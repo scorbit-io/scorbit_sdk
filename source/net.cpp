@@ -1365,7 +1365,8 @@ void Net::sendLatestGameData(int sessionId)
             json::array_t scores;
             for (const auto &[playerNum, playerState] : gameData.players) {
                 json playerProfileJson = nullptr;
-                if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                if (const auto playerProfile = m_playersManager.profile(playerNum);
+                    playerProfile.has_value() && playerProfile->hasInfo()) {
                     playerProfileJson = {
                             {JKEY_PLAYER_ID, playerProfile->id},
                             {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
@@ -2016,7 +2017,7 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 
     // Process players profiles
-    if (const auto changedProfiles = m_playersManager.setProfiles(val)) {
+    if (auto changedProfiles = m_playersManager.setProfiles(val, m_machineInfo.machineUuid)) {
         m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
     }
 

@@ -124,15 +124,14 @@ def events_callback(gs, event):
         gs.set_credits_status(False, 10, 20, "")
     
     elif event.type() == scorbit.EventType.PlayersUpdated:
-        # IMPORTANT:
-        # Unclaimed players are NOT included in this dictionary.
-        # Therefore, the client must first clear its existing player list/dictionary,
-        # then repopulate it only with players provided in this event.
         success, players_dict = event.get_players_updated()
         if success:
             print(f"Players updated, count: {len(players_dict)}")
             for num, info in players_dict.items():
-                print(f"  Player {num}: {info.preferred_name} (id: {info.id})")
+                if info.has_info():
+                    print(f"  Player {num}: {info.preferred_name} (id: {info.id})")
+                else:
+                    print(f"  Player {num}: unclaimed, claim at {info.claim_deeplink}")
 
     elif event.type() == scorbit.EventType.PlayerPictureReady:
         success, player_num, picture = event.get_player_picture_ready()

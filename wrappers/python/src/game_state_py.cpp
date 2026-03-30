@@ -611,6 +611,11 @@ PYBIND11_MODULE(scorbit, m)
 
             .def(py::init<>(), "Creates PlayerInfo instance with default values.")
 
+            .def(
+                    "has_info", [](const PlayerInfo &self) -> bool { return self.hasInfo(); },
+                    "Returns True if any player information is available. If it's False, then "
+                    "claim_deeplink is available.")
+
             .def_readonly("id", &PlayerInfo::id, "The player's id in Scorbit system.")
 
             .def_readonly("preferred_name", &PlayerInfo::preferredName,
@@ -621,7 +626,10 @@ PYBIND11_MODULE(scorbit, m)
             .def_readonly("initials", &PlayerInfo::initials, "The player's initials.")
 
             .def_readonly("picture_url", &PlayerInfo::pictureUrl,
-                          "The player's profile picture url.");
+                          "The player's profile picture url.")
+
+            .def_readonly("claim_deeplink", &PlayerInfo::claimDeeplink,
+                          "Claim URL for unclaimed player slots (empty if claimed).");
 
     // GameState
     // By default, pybind11 holds the GIL while destructing objects. However, this can cause a

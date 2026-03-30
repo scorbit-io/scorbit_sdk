@@ -22,6 +22,7 @@
 #include "identifiers.h"
 
 #include <nlohmann/json.hpp>
+#include <fmt/format.h>
 
 namespace scorbit {
 namespace detail {
@@ -29,8 +30,9 @@ namespace detail {
 bool operator==(const PlayerProfile &lhs, const PlayerProfile &rhs)
 {
     return lhs.player == rhs.player && lhs.id == rhs.id && lhs.preferInitials == rhs.preferInitials
-        && lhs.name == rhs.name && lhs.initials == rhs.initials && lhs.pictureUrl == rhs.pictureUrl
-        && lhs.url == rhs.url;
+        && lhs.username == rhs.username && lhs.name == rhs.name && lhs.initials == rhs.initials
+        && lhs.pictureUrl == rhs.pictureUrl && lhs.url == rhs.url
+        && lhs.claimDeeplink == rhs.claimDeeplink;
 }
 
 bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
@@ -41,14 +43,14 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs)
 // -----------------------------------------------------------------------
 
 std::optional<std::vector<PlayerProfile>>
-PlayerProfilesManager::setProfiles(const nlohmann::json &val)
+PlayerProfilesManager::setProfiles(const nlohmann::json &val, const std::string &machineUuid)
 {
     if (!val.is_array()) {
         WRN("Invalid player profiles data");
         return std::nullopt;
     }
 
-    decltype(m_profiles) profiles;
+    std::vector<PlayerProfile> profiles;
 
     for (const auto &obj : val) {
         if (!obj.is_object()) {
@@ -58,12 +60,19 @@ PlayerProfilesManager::setProfiles(const nlohmann::json &val)
 
         try {
             sb_player_t playerNum = obj[JKEY_SCR_POSITION].get<sb_player_t>();
+            if (playerNum == 0)
+                continue;
+
+            if (playerNum > profiles.size()) {
+                profiles.resize(playerNum);
+            }
+
+            auto &profile = profiles[playerNum - 1];
+            profile.player = playerNum;
 
             if (const auto it = obj.find(JKEY_SCR_PLAYER); it != obj.end() && it->is_object()) {
                 const auto &player = *it;
 
-                PlayerProfile profile;
-                profile.player = playerNum;
                 player[JKEY_PLAYER_ID].get_to(profile.id);
                 profile.preferInitials = player.value(JKEY_PLAYER_PREFER_INITIALS, false);
                 player[JKEY_PLAYER_USERNAME].get_to(profile.username);
@@ -71,14 +80,15 @@ PlayerProfilesManager::setProfiles(const nlohmann::json &val)
                 player[JKEY_PLAYER_INITIALS].get_to(profile.initials);
                 player[JKEY_PLAYER_URL].get_to(profile.url);
 
-                if (const auto it = player.find(JKEY_PLAYER_AVATAR);
-                    it != player.end() && it->is_string()) {
-                    it->get_to(profile.pictureUrl);
-                } else {
-                    profile.pictureUrl.clear();
+                if (const auto avatarIt = player.find(JKEY_PLAYER_AVATAR);
+                    avatarIt != player.end() && avatarIt->is_string()) {
+                    avatarIt->get_to(profile.pictureUrl);
                 }
-
-                profiles.emplace(playerNum, std::move(profile));
+            } else {
+                auto scoreId = obj[JKEY_SCR_ID].get<uint64_t>();
+                profile.claimDeeplink =
+                        fmt::format(URL_CLAIM_DEEPLINK, fmt::arg(ARG_MACHINE_UUID, machineUuid),
+                                    fmt::arg(ARG_SCORE_ID, scoreId));
             }
         } catch (const std::exception &e) {
             ERR("Failed to parse player profile: {}, item: {}", e.what(), obj.dump());
@@ -89,12 +99,7 @@ PlayerProfilesManager::setProfiles(const nlohmann::json &val)
         std::lock_guard<std::mutex> lock(m_profilesMutex);
         if (profiles != m_profiles) {
             m_profiles = std::move(profiles);
-
-            std::vector<PlayerProfile> profilesVector;
-            for (const auto &profile : m_profiles) {
-                profilesVector.push_back(profile.second);
-            }
-            return profilesVector;
+            return m_profiles;
         }
     }
     return std::nullopt;
@@ -115,11 +120,10 @@ void PlayerProfilesManager::removePicture(sb_player_t player)
 std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) const
 {
     std::lock_guard<std::mutex> lock(m_profilesMutex);
-    if (m_profiles.count(player) == 0) {
+    if (player == 0 || player > m_profiles.size()) {
         return std::nullopt;
     }
-
-    return m_profiles.at(player);
+    return m_profiles[player - 1];
 }
 
 bool PlayerProfilesManager::hasPicture(sb_player_t player) const
@@ -138,19 +142,19 @@ const Picture &PlayerProfilesManager::picture(sb_player_t player) const
 
 std::map<sb_player_t, std::string> PlayerProfilesManager::picturesToDownload() const
 {
-    std::map<sb_player_t, std::string> picturesToDownload;
+    std::map<sb_player_t, std::string> result;
 
     std::scoped_lock lock(m_profilesMutex, m_picturesMutex);
 
-    for (const auto &[playerNum, profile] : m_profiles) {
+    for (const auto &profile : m_profiles) {
         if (profile.pictureUrl.empty())
             continue;
 
-        if (!m_picturesCache.has(playerNum)) {
-            picturesToDownload.emplace(playerNum, profile.pictureUrl);
+        if (!m_picturesCache.has(profile.player)) {
+            result.emplace(profile.player, profile.pictureUrl);
         }
     }
-    return picturesToDownload;
+    return result;
 }
 
 } // namespace detail
