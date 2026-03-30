@@ -75,20 +75,20 @@ public:
     std::optional<std::vector<PlayerProfile>> setProfiles(const nlohmann::json &val,
                                                           const std::string &machineUuid);
 
-    void setPicture(sb_player_t player, std::vector<uint8_t> picture);
-    void removePicture(sb_player_t player);
+    void setPicture(const std::string &avatarUrl, std::vector<uint8_t> picture);
+    void removePicture(const std::string &avatarUrl);
 
     std::optional<PlayerProfile> profile(sb_player_t player) const;
 
-    bool hasPicture(sb_player_t player) const;
-    const Picture &picture(sb_player_t player) const;
+    bool hasPicture(const std::string &avatarUrl) const;
+    const Picture &picture(const std::string &avatarUrl) const;
 
     std::map<sb_player_t, std::string> picturesToDownload() const;
 
 private:
     std::vector<PlayerProfile> m_profiles;
     mutable Picture m_storedPicture;
-    mutable LRUCache<sb_player_t, Picture> m_picturesCache {MAX_PICTURES_CACHED};
+    mutable LRUCache<std::string, Picture> m_picturesCache {MAX_PICTURES_CACHED};
     mutable std::mutex m_profilesMutex;
     mutable std::mutex m_picturesMutex;
 };

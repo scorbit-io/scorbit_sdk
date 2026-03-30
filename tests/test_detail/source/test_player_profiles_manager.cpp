@@ -65,12 +65,13 @@ TEST_CASE("PlayerProfile 1 player")
     CHECK(p1->pictureUrl == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg");
     CHECK(p1->claimDeeplink.empty());
 
-    // Check picture
+    // Check picture (keyed by avatar URL)
+    const auto &avatarUrl = p1->pictureUrl;
     Picture picture {1, 2, 3};
-    pm.setPicture(1, Picture(picture));
-    REQUIRE(pm.hasPicture(1));
+    pm.setPicture(avatarUrl, Picture(picture));
+    REQUIRE(pm.hasPicture(avatarUrl));
 
-    auto p1Picture = pm.picture(1);
+    auto p1Picture = pm.picture(avatarUrl);
     CHECK(p1Picture == picture);
 }
 
@@ -158,12 +159,13 @@ TEST_CASE("PlayerProfile 2 players with unclaimed slot")
     auto p3 = pm.profile(3);
     CHECK_FALSE(p3.has_value());
 
-    // Check pictures to download. We will set p1 picture, so only p2 has to be downloaded
+    // Cache is keyed by avatar URL: after caching p2's avatar, only p1's URL still needs download
     Picture picture {1, 2, 3};
-    pm.setPicture(1, Picture(picture));
+    const std::string p2Avatar {"https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg"};
+    pm.setPicture(p2Avatar, Picture(picture));
     const auto toDownload = pm.picturesToDownload();
     REQUIRE(toDownload.size() == 1);
-    CHECK(toDownload.at(2) == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm2.jpg");
+    CHECK(toDownload.at(1) == "https://cdn-staging.scorbit.io/profile_pictures/dilshodm_TDrhEu1.jpg");
 }
 
 TEST_CASE("Player profile with null profile_picture")

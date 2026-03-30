@@ -105,16 +105,16 @@ PlayerProfilesManager::setProfiles(const nlohmann::json &val, const std::string 
     return std::nullopt;
 }
 
-void PlayerProfilesManager::setPicture(sb_player_t player, std::vector<uint8_t> picture)
+void PlayerProfilesManager::setPicture(const std::string &avatarUrl, std::vector<uint8_t> picture)
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
-    m_picturesCache.put(player, std::move(picture));
+    m_picturesCache.put(avatarUrl, std::move(picture));
 }
 
-void PlayerProfilesManager::removePicture(sb_player_t player)
+void PlayerProfilesManager::removePicture(const std::string &avatarUrl)
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
-    m_picturesCache.erase(player);
+    m_picturesCache.erase(avatarUrl);
 }
 
 std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) const
@@ -126,17 +126,17 @@ std::optional<PlayerProfile> PlayerProfilesManager::profile(sb_player_t player) 
     return m_profiles[player - 1];
 }
 
-bool PlayerProfilesManager::hasPicture(sb_player_t player) const
+bool PlayerProfilesManager::hasPicture(const std::string &avatarUrl) const
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
-    return m_picturesCache.has(player);
+    return m_picturesCache.has(avatarUrl);
 }
 
-const Picture &PlayerProfilesManager::picture(sb_player_t player) const
+const Picture &PlayerProfilesManager::picture(const std::string &avatarUrl) const
 {
     std::lock_guard<std::mutex> lock(m_picturesMutex);
     m_storedPicture.clear();
-    m_picturesCache.get(player, m_storedPicture);
+    m_picturesCache.get(avatarUrl, m_storedPicture);
     return m_storedPicture;
 }
 
@@ -150,7 +150,7 @@ std::map<sb_player_t, std::string> PlayerProfilesManager::picturesToDownload() c
         if (profile.pictureUrl.empty())
             continue;
 
-        if (!m_picturesCache.has(profile.player)) {
+        if (!m_picturesCache.has(profile.pictureUrl)) {
             result.emplace(profile.player, profile.pictureUrl);
         }
     }
