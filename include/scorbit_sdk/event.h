@@ -8,8 +8,11 @@
 #pragma once
 
 #include "event_types.h"
+#include "player_info.h"
 #include <scorbit_sdk/event_helpers_c.h>
 #include <string>
+#include <map>
+#include <vector>
 
 namespace scorbit {
 
@@ -82,6 +85,74 @@ public:
     bool getConfigPaymentsEnabled(bool &paymentsEnabled) const
     {
         return ::sb_event_config_payments_enabled(m_event, &paymentsEnabled);
+    }
+
+    /**
+     * @brief Helper function to process a players updated event.
+     *
+     * Populates a map of player numbers to @ref PlayerInfo structs from the event data.
+     * Each player slot is either claimed (profile info populated) or unclaimed
+     * (claimDeeplink populated).
+     *
+     * The event type must be @ref scorbit::EventType::PlayersUpdated, otherwise the function
+     * returns false.
+     *
+     * @param players [OUT] A reference to a map that will receive the player data.
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
+     */
+    bool getPlayersUpdated(std::map<sb_player_t, PlayerInfo> &players) const
+    {
+        int count = 0;
+        if (!::sb_event_players_updated(m_event, &count)) {
+            return false;
+        }
+        players.clear();
+        for (sb_player_t p = 1; p <= static_cast<sb_player_t>(count); ++p) {
+            PlayerInfo info;
+            const char *str = nullptr;
+            if (::sb_event_player_id(m_event, p, &str) && str) {
+                info.id = str;
+            }
+            if (::sb_event_player_preferred_name(m_event, p, &str) && str) {
+                info.preferredName = str;
+            }
+            if (::sb_event_player_name(m_event, p, &str) && str) {
+                info.name = str;
+            }
+            if (::sb_event_player_initials(m_event, p, &str) && str) {
+                info.initials = str;
+            }
+            if (::sb_event_player_picture_url(m_event, p, &str) && str) {
+                info.pictureUrl = str;
+            }
+            if (::sb_event_player_claim_deeplink(m_event, p, &str) && str) {
+                info.claimDeeplink = str;
+            }
+            players.emplace(p, std::move(info));
+        }
+        return true;
+    }
+
+    /**
+     * @brief Helper function to process a player picture ready event.
+     *
+     * Retrieves the player number and picture binary data from the event.
+     * The event type must be @ref scorbit::EventType::PlayerPictureReady, otherwise the function
+     * returns false.
+     *
+     * @param player [OUT] A reference to receive the player number.
+     * @param picture [OUT] A reference to a vector that will receive the picture bytes (JPEG).
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
+     */
+    bool getPlayerPictureReady(sb_player_t &player, std::vector<uint8_t> &picture) const
+    {
+        const uint8_t *data = nullptr;
+        size_t size = 0;
+        if (!::sb_event_player_picture_ready(m_event, &player, &data, &size)) {
+            return false;
+        }
+        picture.assign(data, data + size);
+        return true;
     }
 
     // ---------------- OEM providers can ignore the events below ----------------

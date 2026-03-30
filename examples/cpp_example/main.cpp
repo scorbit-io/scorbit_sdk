@@ -238,8 +238,31 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
-        // -------- OEM providers can ignore the events below, they are mostly for scorbitron
-        // ----------
+    case scorbit::EventType::PlayersUpdated: {
+        std::map<sb_player_t, scorbit::PlayerInfo> players;
+        if (event.getPlayersUpdated(players)) {
+            cout << "Players updated, count: " << players.size() << endl;
+            for (const auto &item : players) {
+                if (item.second.hasInfo()) {
+                    cout << "  Player " << item.first << ": " << item.second.preferredName
+                         << " (id: " << item.second.id << ")" << endl;
+                } else {
+                    cout << "  Player " << item.first << ": unclaimed, claim at "
+                         << item.second.claimDeeplink << endl;
+                }
+            }
+        }
+    } break;
+
+    case scorbit::EventType::PlayerPictureReady: {
+        sb_player_t player = 0;
+        std::vector<uint8_t> picture;
+        if (event.getPlayerPictureReady(player, picture)) {
+            cout << "Player " << player << " picture ready: " << picture.size() << " bytes" << endl;
+        }
+    } break;
+
+        // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {
         std::string configJson;
@@ -291,8 +314,6 @@ using namespace std::placeholders;
 
 int main()
 {
-    std::map<sb_player_t, scorbit::PlayerInfo> players;
-
     int playersCount = 1;
 
     cout << "Simple example of Scorbit SDK usage" << endl;
@@ -350,10 +371,6 @@ int main()
             gs.setGameFinished();
         }
 
-        if (i == 50) {
-            cout << "Deeplink for claiming " << gs.getClaimDeeplink(1) << endl;
-        }
-
         if (isUnpairTriggeredByUser()) {
             // Request unpairing
             gs.requestUnpair([](scorbit::Error error, std::string reply) {
@@ -394,42 +411,6 @@ int main()
         }
 
         if (isGameActive(i)) {
-            // Let's pretend that this playersNum is current number of players in the game
-            int playersNum = 1;
-
-            // Check if players info was updated and if yes, they will be prepared for retrieval
-            if (gs.isPlayersInfoUpdated()) {
-                // Get players infos
-                for (int j = 1; j <= playersNum; ++j) {
-                    if (gs.hasPlayerInfo(j)) {
-                        players[j] = gs.getPlayerInfo(j);
-                    } else {
-                        players.erase(j);
-                    }
-                }
-            }
-
-            // Display players names / pictures
-            for (const auto &item : players) {
-                const auto &info = item.second;
-                cout << "Player " << item.first << ": " << info.preferredName
-                     << ", id: " << item.second.id << endl;
-                if (!info.picture.empty()) {
-                    // Display picture
-                    cout << "Picture size: " << info.picture.size()
-                         << ", url: " << item.second.pictureUrl << endl;
-                    // display first 32 bytes of the picture
-                    cout << "Picture (first 32 bytes): ";
-                    const auto pictureEnd = info.picture.begin()
-                                          + std::min(info.picture.size(), static_cast<size_t>(32));
-                    for (auto it = info.picture.begin(); it != pictureEnd; ++it) {
-                        std::cout << std::hex << std::setw(2) << std::setfill('0')
-                                  << static_cast<int>(*it) << ' ';
-                    }
-                    cout << std::dec << endl;
-                }
-            }
-
             // Set player1 score, no problem, if it was not changed in the current cycle
             gs.setScore(1, player1Score(i), 2); // 2 is a feature, e.g., right spinner
 

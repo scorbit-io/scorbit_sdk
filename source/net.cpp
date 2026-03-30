@@ -61,8 +61,6 @@ constexpr auto SESSION_CSV_URL {"session_log/"};
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
-// constexpr auto CLAIM_DEEPLINK {"https://scorbit.link/qrcode?$deeplink_path={venuemachine_id}"
-//                                "&opdb={opdb_id}&position={player_number}"};
 
 constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
@@ -507,23 +505,6 @@ const string &Net::getPairDeeplink() const
                         fmt::arg("scorbit_machine_id", m_deviceInfo.machineId),
                         fmt::arg("scorbitron_uuid", m_deviceInfo.uuid));
     return m_cachedPairDeeplink;
-}
-
-const string &Net::getClaimDeeplink(int /*player*/) const
-{
-    // FIXME: disable claim deeplink for now, find out what will be claim deeplink format
-
-    // if (m_machineInfo.venuemachineId == 0) {
-    //     DBG("Venue machine ID is not set, make sure that the device is authenticated "
-    //         "and paired");
-    //     m_cachedCclaimDeeplink.clear();
-    // } else {
-    //     m_cachedCclaimDeeplink = fmt::format(
-    //             CLAIM_DEEPLINK, fmt::arg("venuemachine_id", m_machineInfo.venuemachineId),
-    //             fmt::arg("opdb_id", m_machineInfo.opdbId), fmt::arg("player_number", player));
-    // }
-
-    return m_cachedCclaimDeeplink;
 }
 
 const DeviceInfo &Net::deviceInfo() const
@@ -1384,7 +1365,8 @@ void Net::sendLatestGameData(int sessionId)
             json::array_t scores;
             for (const auto &[playerNum, playerState] : gameData.players) {
                 json playerProfileJson = nullptr;
-                if (const auto playerProfile = m_playersManager.profile(playerNum)) {
+                if (const auto playerProfile = m_playersManager.profile(playerNum);
+                    playerProfile.has_value() && playerProfile->hasInfo()) {
                     playerProfileJson = {
                             {JKEY_PLAYER_ID, playerProfile->id},
                             {JKEY_PLAYER_PREFER_INITIALS, playerProfile->preferInitials},
@@ -2035,21 +2017,24 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 
     // Process players profiles
-    m_playersManager.setProfiles(val);
+    if (auto changedProfiles = m_playersManager.setProfiles(val, m_machineInfo.machineUuid)) {
+        m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
+    }
 
     if (m_deviceInfo.autoDownloadPlayerPics) {
         const auto toDownload = m_playersManager.picturesToDownload();
         for (const auto &[playerNum, pictureUrl] : toDownload) {
-            // Queue picture to download
-            // Set picture to empty, to avoid another download
-            m_playersManager.setPicture(playerNum, Picture {});
+            m_playersManager.setPicture(pictureUrl, Picture {});
             downloadBuffer(
-                    [this, playerNum = playerNum](Error error, std::vector<uint8_t> data) {
+                    [this, playerNum = playerNum,
+                     pictureUrl = pictureUrl](Error error, std::vector<uint8_t> data) {
                         if (error == Error::Success) {
-                            m_playersManager.setPicture(playerNum, std::move(data));
+                            m_playersManager.setPicture(pictureUrl, data);
+                            m_eventManager->push(std::make_shared<PlayerPictureReadyEvent>(
+                                    playerNum, std::move(data)));
                         } else {
                             ERR("Picture download failed: {}", static_cast<int>(error));
-                            m_playersManager.removePicture(playerNum);
+                            m_playersManager.removePicture(pictureUrl);
                         }
                     },
                     pictureUrl, PICTURE_BUFFER_RESERVE);

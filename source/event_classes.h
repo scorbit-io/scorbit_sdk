@@ -20,12 +20,14 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
+#include "player_profiles_manager.h"
 #include "identifiers.h"
+#include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <functional>
 #include <optional>
-
+#include <iterator>
 
 struct sb_event_t {
     virtual ~sb_event_t() = default;
@@ -199,7 +201,6 @@ private:
     std::string m_executable;
 };
 
-
 // ---------------- FirmwaresListReceived implementation ----------------
 
 class FirmwaresListReceivedEvent : public EventBase
@@ -217,6 +218,52 @@ private:
     std::string m_firmwaresList;
 };
 
+// ---------------- PlayersUpdated implementation ----------------
+
+class PlayersUpdatedEvent : public EventBase
+{
+public:
+    explicit PlayersUpdatedEvent(std::vector<PlayerProfile> players)
+        : EventBase(EventType::PlayersUpdated, EventPriority::Normal)
+        , m_players {std::move(players)}
+    {
+    }
+
+    auto playersCount() const -> int { return static_cast<int>(m_players.size()); }
+
+    auto playerByNumber(sb_player_t player) const -> const PlayerProfile *
+    {
+        if (player == 0 || player > m_players.size()) {
+            ERR("Player number out of range: {}, players count: {}", player, playersCount());
+            return nullptr;
+        }
+        return &m_players[player - 1];
+    }
+
+private:
+    std::vector<PlayerProfile> m_players;
+};
+
+// ---------------- PlayerPictureReady implementation ----------------
+
+class PlayerPictureReadyEvent : public EventBase
+{
+public:
+    explicit PlayerPictureReadyEvent(sb_player_t player, std::vector<uint8_t> picture)
+        : EventBase(EventType::PlayerPictureReady, EventPriority::Normal)
+        , m_player {player}
+        , m_picture {std::move(picture)}
+    {
+    }
+
+    auto player() const -> sb_player_t { return m_player; }
+    auto pictureData() const -> const uint8_t * { return m_picture.data(); }
+    auto pictureSize() const -> size_t { return m_picture.size(); }
+
+private:
+    sb_player_t m_player;
+    std::vector<uint8_t> m_picture;
+};
+
 } // namespace detail
 } // namespace scorbit
-

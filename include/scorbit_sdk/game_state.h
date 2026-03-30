@@ -24,7 +24,6 @@
 
 #include "net_types.h"
 #include "game_state_c.h"
-#include "player_info.h"
 #include "event.h"
 #include "config.h"
 
@@ -226,21 +225,6 @@ public:
     }
 
     /**
-     * @brief Retrieve the claim and navigation deeplink.
-     *
-     * This link has to be encoded and displayed as QR code, so that the user can scan it with
-     * mobile app to claim the player's slot.
-     *
-     * @param player The player number (starting from 1).
-     * @return The claim deeplink string. If the machine is not paired or the SDK is not yet
-     * authenticated, an empty string is returned.
-     */
-    std::string getClaimDeeplink(int player) const
-    {
-        return std::string {sb_get_claim_deeplink(m_handle.get(), player)};
-    }
-
-    /**
      * @brief Retrieves the top scores from the leaderboard.
      *
      * @note The callback function is invoked asynchronously when the operation completes, running
@@ -304,58 +288,6 @@ public:
     {
         auto cbPair = prepareStringCallback(std::move(callback));
         sb_request_unpair(m_handle.get(), cbPair.first, cbPair.second);
-    }
-
-    // -------------------------- PLAYER PROFILE INFO --------------------------------------
-
-    /**
-     * @brief Checks whether any player profiles have been updated.
-     *
-     * Calling this function clears the internal update status and prepares updated player data
-     * for retrieval. If no changes are made to any player's information before the next call,
-     * this function will return false.
-     *
-     * If the function returns true, use @getPlayerInfo function to retrieve the updated data.
-     *
-     * @return true if there are updates to any player profiles; false otherwise.
-     */
-    bool isPlayersInfoUpdated() { return sb_is_players_info_updated(m_handle.get()); }
-
-    /**
-     * @brief Checks if player information is available.
-     *
-     * @param player The player number (starting from 1).
-     * @return true if player information is available; false otherwise.
-     */
-    bool hasPlayerInfo(sb_player_t player) { return sb_has_player_info(m_handle.get(), player); }
-
-    /**
-     * @brief Retrieves the player's profile info (@ref PlayerInfo)
-     *
-     * Returns the player's profile info. If the player does not exist, or player not yet claimed
-     * his/her slot it will return @ref PlayerInfo::isValid == false.
-     *
-     * @param player The player number (starting from 1).
-     * @return @ref PlayerInfo object with the player's profile info. If @ref PlayerInfo::isValid is
-     * false, all fields will be empty.
-     */
-    PlayerInfo getPlayerInfo(sb_player_t player)
-    {
-        PlayerInfo info;
-        if (hasPlayerInfo(player)) {
-            info.id = sb_get_player_id(m_handle.get(), player);
-            info.preferredName = sb_get_player_preferred_name(m_handle.get(), player);
-            info.name = sb_get_player_name(m_handle.get(), player);
-            info.initials = sb_get_player_initials(m_handle.get(), player);
-            info.pictureUrl = sb_get_player_picture_url(m_handle.get(), player);
-
-            size_t pictureSize;
-            const auto picture = sb_get_player_picture(m_handle.get(), player, &pictureSize);
-            if (picture && pictureSize > 0) {
-                info.picture = Picture(picture, picture + pictureSize);
-            }
-        }
-        return info;
     }
 
     /**

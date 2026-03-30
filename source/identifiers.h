@@ -13,6 +13,7 @@ namespace detail {
 constexpr auto ARG_SCORBITRON_UUID {"scorbitron_uuid"};
 constexpr auto ARG_MACHINE_UUID {"machine_uuid"};
 constexpr auto ARG_SESSION_UUID {"session_uuid"};
+constexpr auto ARG_SCORE_ID {"score_id"};
 
 // URLs
 constexpr auto NOOP_URL {"http://api.scorbit.io/api/noop/"};
@@ -34,6 +35,7 @@ constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
 constexpr auto URL_V2_PROVISION {"v2/provision/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
+constexpr auto URL_CLAIM_DEEPLINK {"https://scorbit.link/machines/{machine_uuid}/?score_id={score_id}"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
 

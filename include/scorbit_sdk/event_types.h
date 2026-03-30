@@ -29,6 +29,8 @@ enum class EventType {
     CreditsAddRequested = SB_EVT_CREDITS_ADD_REQUESTED,
     CreditsStatusRequested = SB_EVT_CREDITS_STATUS_REQUESTED,
     ConfigReceived = SB_EVT_CONFIG_RECEIVED,
+    PlayersUpdated = SB_EVT_PLAYERS_UPDATED,
+    PlayerPictureReady = SB_EVT_PLAYER_PICTURE_READY,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

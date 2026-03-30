@@ -126,6 +126,10 @@ PYBIND11_MODULE(scorbit, m)
                    "Credits add requested from mobile app.")
             .value("CreditsStatusRequested", EventType::CreditsStatusRequested,
                    "Credits status requested.")
+            .value("PlayersUpdated", EventType::PlayersUpdated,
+                   "Player profiles have been updated.")
+            .value("PlayerPictureReady", EventType::PlayerPictureReady,
+                   "A player's profile picture has been downloaded.")
             .value("None", EventType::None, "No event (should not be used).")
             .value("ConfigReceived", EventType::ConfigReceived,
                    "Configuration received from server.");
@@ -245,6 +249,70 @@ PYBIND11_MODULE(scorbit, m)
                                 success, payments_enabled = event.get_config_payments_enabled()
                                 if success:
                                     print(f"Payments enabled: {payments_enabled}")
+                    )doc")
+            .def(
+                    "get_players_updated",
+                    [](const Event &self) {
+                        std::map<sb_player_t, PlayerInfo> players;
+                        bool success = self.getPlayersUpdated(players);
+                        py::dict result;
+                        if (success) {
+                            for (auto &[num, info] : players) {
+                                result[py::int_(num)] = std::move(info);
+                            }
+                        }
+                        return std::make_tuple(success, result);
+                    },
+                    R"doc(
+                        Process a players updated event.
+
+                        Returns player profiles included in the event.
+                        The event type must be EventType.PlayersUpdated, otherwise the function
+                        returns (False, {}).
+
+                        Returns:
+                            tuple: (success, players)
+                                - success (bool): True on success, or False if an error occurs.
+                                - players (dict[int, PlayerInfo]): A dict mapping player numbers to PlayerInfo objects.
+
+                        Example:
+                            if event.type() == scorbit.EventType.PlayersUpdated:
+                                success, players = event.get_players_updated()
+                                if success:
+                                    for num, info in players.items():
+                                        print(f"Player {num}: {info.preferred_name}")
+                    )doc")
+            .def(
+                    "get_player_picture_ready",
+                    [](const Event &self) {
+                        sb_player_t player = 0;
+                        std::vector<uint8_t> picture;
+                        bool success = self.getPlayerPictureReady(player, picture);
+                        py::bytes pic_bytes;
+                        if (success) {
+                            pic_bytes = py::bytes(reinterpret_cast<const char *>(picture.data()),
+                                                  picture.size());
+                        }
+                        return std::make_tuple(success, player, pic_bytes);
+                    },
+                    R"doc(
+                        Process a player picture ready event.
+
+                        Returns the player number and the downloaded picture binary data.
+                        The event type must be EventType.PlayerPictureReady, otherwise the function
+                        returns (False, 0, b"").
+
+                        Returns:
+                            tuple: (success, player, picture)
+                                - success (bool): True on success, or False if an error occurs.
+                                - player (int): The player number.
+                                - picture (bytes): The profile picture in binary format (jpg).
+
+                        Example:
+                            if event.type() == scorbit.EventType.PlayerPictureReady:
+                                success, player, picture = event.get_player_picture_ready()
+                                if success:
+                                    print(f"Player {player} picture: {len(picture)} bytes")
                     )doc");
 
 #ifdef SCORBIT_LOGGER_CALLBACK
@@ -533,15 +601,20 @@ PYBIND11_MODULE(scorbit, m)
             Player's profile information class.
 
             This class provides an interface to access the player's profile information, including
-            their preferred name, full name, initials, and profile picture. The profile picture is
-            represented as bytearray (jpg format).
+            their preferred name, full name, initials, and profile picture URL.
 
             Note:
-                The profile picture is automatically downloaded if `auto_download_player_pics` is
-                set to true in the `DeviceInfo` class.
+                Player information is delivered via EventType.PlayersUpdated events.
+                Profile pictures are delivered separately via EventType.PlayerPictureReady events
+                if `auto_download_player_pics` is enabled.
         )doc")
 
             .def(py::init<>(), "Creates PlayerInfo instance with default values.")
+
+            .def(
+                    "has_info", [](const PlayerInfo &self) -> bool { return self.hasInfo(); },
+                    "Returns True if any player information is available. If it's False, then "
+                    "claim_deeplink is available.")
 
             .def_readonly("id", &PlayerInfo::id, "The player's id in Scorbit system.")
 
@@ -555,13 +628,8 @@ PYBIND11_MODULE(scorbit, m)
             .def_readonly("picture_url", &PlayerInfo::pictureUrl,
                           "The player's profile picture url.")
 
-            .def_property_readonly(
-                    "picture",
-                    [](const PlayerInfo &self) {
-                        return py::bytes(reinterpret_cast<const char *>(self.picture.data()),
-                                         self.picture.size());
-                    },
-                    "The player's profile picture in binary format (jpg).");
+            .def_readonly("claim_deeplink", &PlayerInfo::claimDeeplink,
+                          "Claim URL for unclaimed player slots (empty if claimed).");
 
     // GameState
     // By default, pybind11 holds the GIL while destructing objects. However, this can cause a
@@ -729,20 +797,6 @@ PYBIND11_MODULE(scorbit, m)
 
                 Returns:
                     str: The pairing deeplink. If the machine is not paired or the SDK is not yet
-                        authenticated, an empty string is returned.
-            )doc")
-
-            .def("get_claim_deeplink", &GameState::getClaimDeeplink, py::arg("player"), R"doc(
-                Retrieve the claim and navigation deeplink.
-
-                This link must be encoded and displayed as a QR code, allowing the user to scan it with
-                a mobile app to claim the player's slot.
-
-                Args:
-                    player (int): The player number (starting from 1).
-
-                Returns:
-                    str: The claim deeplink string. If the machine is not paired or the SDK is not yet
                         authenticated, an empty string is returned.
             )doc")
 
@@ -938,41 +992,6 @@ PYBIND11_MODULE(scorbit, m)
 
                             game_state.download_buffer("https://example.com/data", 4096,
                                                        "application/json", on_buffer_received)
-                    )doc")
-
-            // -------------------------- PLAYER PROFILE INFO --------------------------------------
-
-            .def("is_players_info_updated", &GameState::isPlayersInfoUpdated,
-                 R"doc(
-                        Check if player profiles have been updated.
-
-                        This function checks if any player profiles have been updated since the last call.
-                        If there are updates, use `get_player_info()` to retrieve the updated data.
-
-                        Returns:
-                            bool: True if there are updates to any player profiles; False otherwise.
-                    )doc")
-
-            .def("has_player_info", &GameState::hasPlayerInfo, py::arg("player"),
-                 R"doc(
-                        Check if player information is available.
-
-                        Args:
-                            player (int): The player number (starting from 1).
-
-                        Returns:
-                            bool: True if player information is available; False otherwise.
-                    )doc")
-
-            .def("get_player_info", &GameState::getPlayerInfo, py::arg("player"),
-                 R"doc(
-                        Retrieve player information.
-
-                        Args:
-                            player (int): The player number (starting from 1).
-
-                        Returns:
-                            PlayerInfo: The player's profile information.
                     )doc")
 
             .def("set_capabilities", &GameState::setCapabilities, py::arg("capabilities"),

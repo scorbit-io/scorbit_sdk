@@ -20,8 +20,10 @@
 #pragma once
 
 #include "scorbit_sdk/event_types_c.h"
+#include "scorbit_sdk/common_types_c.h"
 #include <scorbit_sdk/export.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,6 +86,115 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits,
  */
 SCORBIT_SDK_EXPORT
 bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_enabled);
+
+/**
+ * @brief Helper function to process a players updated event.
+ *
+ * Retrieves the total number of player slots in the event. Each slot corresponds to a player
+ * number from 1 to count (inclusive). Use @ref sb_event_player_has_info to determine whether
+ * a slot has been claimed (profile info available) or is unclaimed (claim deeplink available).
+ *
+ * The event type must be @ref SB_EVT_PLAYERS_UPDATED, otherwise the function returns false.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] count A pointer to an integer that will receive the number of player slots.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_players_updated(const sb_event_t *event, int *count);
+
+/**
+ * @brief Checks whether a player slot has profile info (i.e., the slot has been claimed).
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] has_info A pointer to a bool that will receive true if claimed, false if unclaimed.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_has_info(const sb_event_t *event, sb_player_t player, bool *has_info);
+
+/**
+ * @brief Retrieves the player's ID for the given player number from a players updated event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] id A pointer to a string pointer that will receive the player's ID.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_id(const sb_event_t *event, sb_player_t player, const char **id);
+
+/**
+ * @brief Retrieves the player's preferred display name for the given player number.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] name A pointer to a string pointer that will receive the preferred name.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_preferred_name(const sb_event_t *event, sb_player_t player, const char **name);
+
+/**
+ * @brief Retrieves the player's name for the given player number.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] name A pointer to a string pointer that will receive the player's name.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_name(const sb_event_t *event, sb_player_t player, const char **name);
+
+/**
+ * @brief Retrieves the player's initials for the given player number.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] initials A pointer to a string pointer that will receive the initials.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_initials(const sb_event_t *event, sb_player_t player, const char **initials);
+
+/**
+ * @brief Retrieves the player's profile picture URL for the given player number.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] url A pointer to a string pointer that will receive the picture URL.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_picture_url(const sb_event_t *event, sb_player_t player, const char **url);
+
+/**
+ * @brief Retrieves the claim deeplink URL for an unclaimed player slot.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] player The player number (1-based).
+ * @param [OUT] url A pointer to a string pointer that will receive the claim deeplink URL.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_claim_deeplink(const sb_event_t *event, sb_player_t player, const char **url);
+
+/**
+ * @brief Helper function to process a player picture ready event.
+ *
+ * Retrieves the player number and the downloaded picture data from the event.
+ * The event type must be @ref SB_EVT_PLAYER_PICTURE_READY, otherwise the function returns false.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] player A pointer that will receive the player number.
+ * @param [OUT] data A pointer to a uint8_t pointer that will receive the picture data.
+ * @param [OUT] size A pointer to a size_t that will receive the picture data size.
+ * @return Returns true on success, or false if an error occurs.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_player_picture_ready(const sb_event_t *event, sb_player_t *player,
+                                   const uint8_t **data, size_t *size);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

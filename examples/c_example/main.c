@@ -274,6 +274,38 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_PLAYERS_UPDATED: {
+        // The client should copy player data to its own buffer if needed, since the event data
+        // becomes invalid after this callback returns.
+        int count = 0;
+        if (sb_event_players_updated(event, &count)) {
+            printf("Players updated, count: %d\n", count);
+            for (sb_player_t p = 1; p <= (sb_player_t)count; ++p) {
+                bool has_info = false;
+                if (sb_event_player_has_info(event, p, &has_info) && has_info) {
+                    const char *preferred_name = NULL;
+                    if (sb_event_player_preferred_name(event, p, &preferred_name)) {
+                        printf("  Player %d: %s\n", p, preferred_name);
+                    }
+                } else {
+                    const char *claim_url = NULL;
+                    if (sb_event_player_claim_deeplink(event, p, &claim_url)) {
+                        printf("  Player %d: unclaimed, claim at %s\n", p, claim_url);
+                    }
+                }
+            }
+        }
+    } break;
+
+    case SB_EVT_PLAYER_PICTURE_READY: {
+        sb_player_t player_num = 0;
+        const uint8_t *pic_data = NULL;
+        size_t pic_size = 0;
+        if (sb_event_player_picture_ready(event, &player_num, &pic_data, &pic_size)) {
+            printf("Player %d picture ready: %zu bytes\n", player_num, pic_size);
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;
@@ -447,40 +479,7 @@ int main(void)
         }
 
         if (isGameActive(i)) {
-            // Let's pretend that this players_num is current number of players in the game
-            int players_num = 1;
-
-            // Check if players info was updated
-            if (sb_is_players_info_updated(gs)) {
-                // Get player info for each player
-                for (int j = 1; j <= players_num; ++j) {
-                    // First check if player's info is available
-                    if (sb_has_player_info(gs, j)) {
-                        // Get player's name
-                        const char *name = sb_get_player_preferred_name(gs, j);
-                        // we use it as preferred name, also there are functions
-                        // for initials and name. Preferred name is either initials or name chosen
-                        // by the player.
-                        snprintf(player_names[j], sizeof(player_names[j]), "%s", name);
-
-                        // Get player's picture if available
-                        size_t pic_size;
-                        const uint8_t *picture_data = sb_get_player_picture(gs, j, &pic_size);
-                        // Here using pic_size and picture pointer, copy it to the allocated memory.
-                        // This is jpg image, can be displayed on the screen or saved to file.
-                        (void)picture_data;
-
-                    } else {
-                        // Name is not available, let's clear the name
-                        player_names[j][0] = 0;
-
-                        // And clear allocated picture ...
-                    }
-                }
-            }
-
-            for (int j = 1; j <= players_num; ++j) {
-                // Print player's name
+            for (int j = 1; j <= players_count; ++j) {
                 printf("Player %d: %s\n", j, player_names[j]);
             }
 

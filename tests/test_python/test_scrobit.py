@@ -104,17 +104,13 @@ class TestPlayerInfo(unittest.TestCase):
         
     def test_player_info_readonly_attributes(self):
         """Test that PlayerInfo attributes are read-only."""
-        # This test would need actual PlayerInfo instances from the C++ side
-        # Since they're read-only, we can't easily create test instances
-        # In a real scenario, you'd get PlayerInfo from GameState.get_player_info()
-
         pi = scorbit.PlayerInfo()
         self.assertTrue(hasattr(pi, 'id'))
         self.assertTrue(hasattr(pi, 'preferred_name'))
         self.assertTrue(hasattr(pi, 'name'))
         self.assertTrue(hasattr(pi, 'initials'))
         self.assertTrue(hasattr(pi, 'picture_url'))
-        self.assertTrue(hasattr(pi, 'picture'))
+        self.assertTrue(hasattr(pi, 'claim_deeplink'))
 
 
 class TestLoggerFunctionality(unittest.TestCase):
@@ -192,9 +188,6 @@ class TestGameStateCreation(unittest.TestCase):
         
         pair_link = game_state.get_pair_deeplink()
         self.assertIsInstance(pair_link, str)
-        
-        claim_link = game_state.get_claim_deeplink(1)
-        self.assertIsInstance(claim_link, str)
 
 
 class TestGameStateGameLogic(unittest.TestCase):
@@ -344,32 +337,6 @@ class TestGameStateAsyncMethods(unittest.TestCase):
         callback_called.wait(timeout=0.1)
 
 
-class TestGameStatePlayerInfo(unittest.TestCase):
-    """Test GameState player info functionality."""
-    
-    def setUp(self):
-        self.device_info = scorbit.DeviceInfo()
-        self.device_info.provider = "test_provider"
-        self.device_info.machine_id = 12345
-        self.device_info.game_code_version = "1.0.0"
-        self.encrypted_key = "test_encrypted_key"
-        self.game_state = scorbit.create_game_state(self.encrypted_key, self.device_info)
-        
-    def test_player_info_methods(self):
-        """Test player info related methods."""
-        # These should not raise exceptions
-        is_updated = self.game_state.is_players_info_updated()
-        self.assertIsInstance(is_updated, bool)
-        
-        has_info = self.game_state.has_player_info(1)
-        self.assertIsInstance(has_info, bool)
-        
-        # get_player_info might raise if no info available, so we test conditionally
-        if has_info:
-            player_info = self.game_state.get_player_info(1)
-            self.assertIsInstance(player_info, scorbit.PlayerInfo)
-
-
 class TestModuleAttributes(unittest.TestCase):
     """Test module-level attributes and functions."""
     
@@ -439,7 +406,6 @@ if __name__ == '__main__':
         TestGameStateCreation,
         TestGameStateGameLogic,
         TestGameStateAsyncMethods,
-        TestGameStatePlayerInfo,
         TestModuleAttributes,
         TestErrorHandling
     ]

@@ -29,7 +29,6 @@
 #include <vector>
 #include <map>
 #include <mutex>
-#include <atomic>
 #include <optional>
 
 namespace scorbit {
@@ -42,13 +41,17 @@ constexpr auto MAX_PICTURES_CACHED = 8; // Maximum number of pictures to cache
  * It is used to display player information in the UI.
  */
 struct PlayerProfile {
-    bool preferInitials;    // Reference to either display_name or initials
-    std::string id;         // The player's ID
-    std::string username;   // The player's username
-    std::string name;       // The player's name to display
-    std::string initials;   // The player's initials, e.g. "DTM"
-    std::string pictureUrl; // The URL to the player's profile picture
-    std::string url;        // The URL to the player's profile page
+    sb_player_t player {0};
+    bool preferInitials {false};
+    std::string id;
+    std::string username;
+    std::string name;
+    std::string initials;
+    std::string pictureUrl;
+    std::string url;
+    std::string claimDeeplink;
+
+    bool hasInfo() const { return !id.empty(); }
 };
 
 using Picture = std::vector<uint8_t>; // The profile picture binary (jpg)
@@ -68,25 +71,26 @@ bool operator!=(const PlayerProfile &lhs, const PlayerProfile &rhs);
 class PlayerProfilesManager
 {
 public:
-    void setProfiles(const nlohmann::json &val);
-    void setPicture(sb_player_t player, std::vector<uint8_t> &&picture);
-    void removePicture(sb_player_t player);
+    /// Returns the new profiles vector if data changed, std::nullopt if unchanged.
+    std::optional<std::vector<PlayerProfile>> setProfiles(const nlohmann::json &val,
+                                                          const std::string &machineUuid);
 
-    bool hasUpdate();
+    void setPicture(const std::string &avatarUrl, std::vector<uint8_t> picture);
+    void removePicture(const std::string &avatarUrl);
+
     std::optional<PlayerProfile> profile(sb_player_t player) const;
 
-    bool hasPicture(sb_player_t player) const;
-    const Picture &picture(sb_player_t player) const;
+    bool hasPicture(const std::string &avatarUrl) const;
+    const Picture &picture(const std::string &avatarUrl) const;
 
     std::map<sb_player_t, std::string> picturesToDownload() const;
 
 private:
-    std::atomic_bool m_updated {false}; // Flag to indicate if any profile has been changed
-    std::map<sb_player_t, PlayerProfile> m_profiles;
+    std::vector<PlayerProfile> m_profiles;
     mutable Picture m_storedPicture;
-    mutable LRUCache<sb_player_t, Picture> m_picturesCache {MAX_PICTURES_CACHED};
-    mutable std::mutex m_profilesMutex; // Mutex to protect access to profiles
-    mutable std::mutex m_picturesMutex; // Mutex to protect access to cached pictures
+    mutable LRUCache<std::string, Picture> m_picturesCache {MAX_PICTURES_CACHED};
+    mutable std::mutex m_profilesMutex;
+    mutable std::mutex m_picturesMutex;
 };
 
 } // namespace detail

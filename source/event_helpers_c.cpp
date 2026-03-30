@@ -142,3 +142,140 @@ bool sb_event_firmwares_list_received(const sb_event_t *event, const char **firm
     *firmwares_list = derived->firmwaresList().c_str();
     return true;
 }
+
+// ----------------------- PlayersUpdated helpers -----------------------
+
+static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,
+                                                             sb_player_t player)
+{
+    if (!event) {
+        return nullptr;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::PlayersUpdatedEvent *>(event);
+    if (!derived) {
+        return nullptr;
+    }
+    return derived->playerByNumber(player);
+}
+
+bool sb_event_players_updated(const sb_event_t *event, int *count)
+{
+    if (!event || !count) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::PlayersUpdatedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    *count = derived->playersCount();
+    return true;
+}
+
+bool sb_event_player_has_info(const sb_event_t *event, sb_player_t player, bool *has_info)
+{
+    if (!has_info) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *has_info = profile->hasInfo();
+    return true;
+}
+
+bool sb_event_player_id(const sb_event_t *event, sb_player_t player, const char **id)
+{
+    if (!id) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *id = profile->id.c_str();
+    return true;
+}
+
+bool sb_event_player_preferred_name(const sb_event_t *event, sb_player_t player, const char **name)
+{
+    if (!name) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *name = profile->preferInitials ? profile->initials.c_str() : profile->name.c_str();
+    return true;
+}
+
+bool sb_event_player_name(const sb_event_t *event, sb_player_t player, const char **name)
+{
+    if (!name) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *name = profile->name.c_str();
+    return true;
+}
+
+bool sb_event_player_initials(const sb_event_t *event, sb_player_t player, const char **initials)
+{
+    if (!initials) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *initials = profile->initials.c_str();
+    return true;
+}
+
+bool sb_event_player_picture_url(const sb_event_t *event, sb_player_t player, const char **url)
+{
+    if (!url) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *url = profile->pictureUrl.c_str();
+    return true;
+}
+
+bool sb_event_player_claim_deeplink(const sb_event_t *event, sb_player_t player, const char **url)
+{
+    if (!url) {
+        return false;
+    }
+    auto profile = toPlayerProfile(event, player);
+    if (!profile) {
+        return false;
+    }
+    *url = profile->claimDeeplink.c_str();
+    return true;
+}
+
+// ----------------------- PlayerPictureReady helper -----------------------
+
+bool sb_event_player_picture_ready(const sb_event_t *event, sb_player_t *player,
+                                   const uint8_t **data, size_t *size)
+{
+    if (!event || !player || !data || !size) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::PlayerPictureReadyEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    *player = derived->player();
+    *data = derived->pictureData();
+    *size = derived->pictureSize();
+    return true;
+}
