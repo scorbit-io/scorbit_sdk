@@ -740,6 +740,17 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
     });
 }
 
+void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay, std::function<void()> fn)
+{
+    m_worker.stopTimer(Worker::Timer::ModeExpiry);
+    m_worker.startTimer(Worker::Timer::ModeExpiry, delay, std::move(fn));
+}
+
+void Net::cancelModeExpiryTimer()
+{
+    m_worker.stopTimer(Worker::Timer::ModeExpiry);
+}
+
 task_t Net::createAuthenticateTask()
 {
     return [this]() {

@@ -19,6 +19,8 @@
 
 #include <../source/modes.h>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <thread>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -52,6 +54,17 @@ TEST_CASE("Add mode", "[Modes]")
         modes.addMode("NA:Multiball");
         CHECK(modes.str() == "NA:Ball;NA:Multiball");
     }
+}
+
+TEST_CASE("addOrPromoteToFront", "[Modes]")
+{
+    Modes modes;
+    modes.addMode("A");
+    modes.addMode("B");
+    CHECK(modes.str() == "A;B");
+
+    modes.addOrPromoteToFront("B");
+    CHECK(modes.str() == "B;A");
 }
 
 TEST_CASE("Remove mode", "[Modes]")
@@ -160,4 +173,116 @@ TEST_CASE("Modes to string", "[Modes]")
         modes.clear();
         CHECK(modes.str().empty());
     }
+}
+
+TEST_CASE("addModeExpiring — duration normalization", "[Modes]")
+{
+    auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+        const auto want = static_cast<long long>(expectedSec) * 1000;
+        const auto diff = ms - want;
+        return diff <= 15 && diff >= -15;
+    };
+
+    SECTION("0 seconds normalizes to 3 seconds")
+    {
+        Modes modes;
+        modes.addModeExpiring("MB:Multiball", 0);
+        REQUIRE(modes.hasExpiryDeadlines());
+        auto delay = modes.nextExpiryDelay();
+        REQUIRE(delay.has_value());
+        REQUIRE(approxEqMs(*delay, 3));
+    }
+
+    SECTION("Values above 10 clamp to 10 seconds")
+    {
+        Modes modes;
+        modes.addModeExpiring("MB:Multiball", 100);
+        auto delay = modes.nextExpiryDelay();
+        REQUIRE(delay.has_value());
+        REQUIRE(approxEqMs(*delay, 10));
+    }
+
+    SECTION("1-10 seconds pass through unchanged")
+    {
+        Modes modes;
+        modes.addModeExpiring("MB:Multiball", 7);
+        auto delay = modes.nextExpiryDelay();
+        REQUIRE(delay.has_value());
+        REQUIRE(approxEqMs(*delay, 7));
+    }
+}
+
+TEST_CASE("addModeExpiring — promotes to front", "[Modes]")
+{
+    Modes modes;
+    modes.addMode("A");
+    modes.addMode("B");
+    CHECK(modes.str() == "A;B");
+
+    modes.addModeExpiring("B", 2);
+    CHECK(modes.str() == "B;A");
+    CHECK(modes.hasExpiryDeadlines());
+}
+
+TEST_CASE("tickExpiries — removes expired modes", "[Modes]")
+{
+    using namespace std::chrono_literals;
+
+    Modes modes;
+    modes.addModeExpiring("MB:Multiball", 1);
+    REQUIRE(modes.contains("MB:Multiball"));
+    REQUIRE(modes.hasExpiryDeadlines());
+
+    std::this_thread::sleep_for(1100ms);
+
+    modes.tickExpiries();
+    CHECK_FALSE(modes.contains("MB:Multiball"));
+    CHECK(modes.isEmpty());
+    CHECK_FALSE(modes.hasExpiryDeadlines());
+}
+
+TEST_CASE("removeMode — clears deadline", "[Modes]")
+{
+    Modes modes;
+    modes.addModeExpiring("MB:Multiball", 3);
+    REQUIRE(modes.hasExpiryDeadlines());
+
+    modes.removeMode("MB:Multiball");
+    CHECK_FALSE(modes.hasExpiryDeadlines());
+    CHECK(modes.isEmpty());
+}
+
+TEST_CASE("clear — clears deadlines", "[Modes]")
+{
+    Modes modes;
+    modes.addModeExpiring("A", 2);
+    modes.addModeExpiring("B", 3);
+    REQUIRE(modes.hasExpiryDeadlines());
+
+    modes.clear();
+    CHECK_FALSE(modes.hasExpiryDeadlines());
+    CHECK(modes.isEmpty());
+}
+
+TEST_CASE("clearExpiries — clears deadlines but keeps modes", "[Modes]")
+{
+    Modes modes;
+    modes.addModeExpiring("A", 2);
+    modes.addMode("B");
+    REQUIRE(modes.hasExpiryDeadlines());
+    REQUIRE(modes.str() == "A;B");
+
+    modes.clearExpiries();
+    CHECK_FALSE(modes.hasExpiryDeadlines());
+    CHECK(modes.str() == "A;B");
+}
+
+TEST_CASE("nextExpiryDelay — returns nullopt when no expiring modes", "[Modes]")
+{
+    Modes modes;
+    CHECK_FALSE(modes.nextExpiryDelay().has_value());
+
+    modes.addMode("A");
+    CHECK_FALSE(modes.nextExpiryDelay().has_value());
 }

@@ -240,6 +240,10 @@ def main():
             else:
                 gs.remove_mode("MB:Multiball")
 
+            # Expiring modes (recommended duration: 3 seconds, max 10 seconds).
+            # No need to call remove_mode() for this expiring mode.
+            gs.add_mode_expiring("MB:Multiball", 3)
+
             if time_to_clear_modes():
                 gs.clear_modes()
 

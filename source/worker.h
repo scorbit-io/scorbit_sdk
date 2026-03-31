@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
 
 namespace scorbit {
 namespace detail {
@@ -43,6 +44,7 @@ public:
         SessionUpdate,
         CentrifugoReconnect,
         NfcBootReason,
+        ModeExpiry,
 
         // IMPORTANT! This must be last entry!
         Count,

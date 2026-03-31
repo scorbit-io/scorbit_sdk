@@ -513,7 +513,10 @@ int main(void)
             } else {
                 sb_remove_mode(gs, "MB:Multiball");
             }
-            sb_add_mode(gs, "MB:Multiball");
+
+            // Expiring modes (recommended duration: 3 seconds, max 10 seconds).
+            // No need to call sb_remove_mode() for this expiring mode.
+            sb_add_mode_expiring(gs, "MB:Multiball", 3);
             sb_add_mode(gs, "NA:SomeMode");
             sb_remove_mode(gs, "NA:AnotherMode");
 

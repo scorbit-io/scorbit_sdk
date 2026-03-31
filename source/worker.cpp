@@ -53,6 +53,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::NfcBootReason:
             name = "NfcBootReason";
             break;
+        case Worker::Timer::ModeExpiry:
+            name = "ModeExpiry";
+            break;
         case Worker::Timer::Count:
             break;
         }
@@ -65,6 +68,7 @@ namespace detail {
 
 Worker::Worker()
     : m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},

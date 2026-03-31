@@ -22,6 +22,25 @@
 #include <algorithm>
 #include <numeric>
 
+namespace {
+
+constexpr uint32_t MODE_EXPIRY_DEFAULT_SEC = 3;
+constexpr uint32_t MODE_EXPIRY_MAX_SEC = 10;
+
+/** API contract: 0 -> 3s (recommended default), >10 -> 10s cap, 1-10 unchanged. */
+uint32_t normalizeModeExpirySeconds(uint32_t s)
+{
+    if (s == 0) {
+        return MODE_EXPIRY_DEFAULT_SEC;
+    }
+    if (s > MODE_EXPIRY_MAX_SEC) {
+        return MODE_EXPIRY_MAX_SEC;
+    }
+    return s;
+}
+
+} // namespace
+
 namespace scorbit {
 namespace detail {
 
@@ -39,10 +58,17 @@ void Modes::addMode(std::string mode)
     m_modes.emplace_back(std::move(mode));
 }
 
-void Modes::removeMode(std::string_view mode)
+void Modes::addOrPromoteToFront(std::string mode)
+{
+    m_modes.erase(std::remove(begin(m_modes), end(m_modes), mode), end(m_modes));
+    m_modes.emplace(m_modes.begin(), std::move(mode));
+}
+
+void Modes::removeMode(const std::string &mode)
 {
     const auto oldSize = m_modes.size();
     m_modes.erase(remove(begin(m_modes), end(m_modes), mode), end(m_modes));
+    m_modeExpiryDeadlines.erase(mode);
 
     if (oldSize == m_modes.size()) {
         DBG("Skipping removal of mode '{}': not found.", mode);
@@ -52,6 +78,63 @@ void Modes::removeMode(std::string_view mode)
 void Modes::clear()
 {
     m_modes.clear();
+    m_modeExpiryDeadlines.clear();
+}
+
+void Modes::addModeExpiring(std::string mode, uint32_t durationSeconds)
+{
+    const uint32_t norm = normalizeModeExpirySeconds(durationSeconds);
+    const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(static_cast<int64_t>(norm));
+    m_modeExpiryDeadlines[mode] = deadline;
+    addOrPromoteToFront(std::move(mode));
+}
+
+void Modes::tickExpiries()
+{
+    const auto now = std::chrono::steady_clock::now();
+    std::vector<std::string> due;
+    due.reserve(m_modeExpiryDeadlines.size());
+    for (const auto &kv : m_modeExpiryDeadlines) {
+        if (kv.second <= now) {
+            due.push_back(kv.first);
+        }
+    }
+    for (const auto &m : due) {
+        m_modeExpiryDeadlines.erase(m);
+        m_modes.erase(std::remove(begin(m_modes), end(m_modes), m), end(m_modes));
+    }
+}
+
+std::optional<std::chrono::steady_clock::duration> Modes::nextExpiryDelay() const
+{
+    if (m_modeExpiryDeadlines.empty()) {
+        return std::nullopt;
+    }
+
+    auto minTime = m_modeExpiryDeadlines.begin()->second;
+    for (const auto &kv : m_modeExpiryDeadlines) {
+        if (kv.second < minTime) {
+            minTime = kv.second;
+        }
+    }
+
+    using clock = std::chrono::steady_clock;
+    auto delay = minTime - clock::now();
+    if (delay < clock::duration::zero()) {
+        delay = clock::duration::zero();
+    }
+    return delay;
+}
+
+bool Modes::hasExpiryDeadlines() const
+{
+    return !m_modeExpiryDeadlines.empty();
+}
+
+void Modes::clearExpiries()
+{
+    m_modeExpiryDeadlines.clear();
 }
 
 bool Modes::isEmpty() const
@@ -59,7 +142,7 @@ bool Modes::isEmpty() const
     return m_modes.empty();
 }
 
-bool Modes::contains(std::string_view mode) const
+bool Modes::contains(const string &mode) const
 {
     return find(begin(m_modes), end(m_modes), mode) != end(m_modes);
 }
@@ -69,7 +152,7 @@ string Modes::str() const
     if (m_modes.empty())
         return string {};
 
-    return accumulate(next(begin(m_modes)), end(m_modes), m_modes.front(),
+    return accumulate(next(begin(m_modes)), end(m_modes), string(m_modes.front()),
                       [](std::string a, const std::string &b) { return std::move(a) + ';' + b; });
 }
 
@@ -79,7 +162,7 @@ string Modes::jsonStr() const
         return "[]";
 
     string json = "[\"";
-    json += accumulate(next(begin(m_modes)), end(m_modes), m_modes.front(),
+    json += accumulate(next(begin(m_modes)), end(m_modes), string(m_modes.front()),
                       [](std::string a, const std::string &b) {
                           return std::move(a) + "\",\"" + b;
                       });

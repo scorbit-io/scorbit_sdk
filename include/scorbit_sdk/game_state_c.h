@@ -173,6 +173,30 @@ SCORBIT_SDK_EXPORT
 void sb_add_mode(sb_game_handle_t handle, const char *mode);
 
 /**
+ * @brief Add a mode that expires automatically after a duration.
+ *
+ * Adds a mode to the game's active mode list. The SDK removes it when the duration elapses; you do
+ * not need to call @ref sb_remove_mode for that (though you may still call it to remove the mode
+ * early). If the same mode is added again before it expires, it is moved to the front of the mode
+ * list and the expiration time is reset using the new duration.
+ *
+ * @param duration_seconds Unsigned duration in whole seconds. **0** is normalized to **3** seconds
+ * (recommended default for transient UI modes). Values **greater than 10** are clamped to **10**
+ * seconds (maximum). Values **1–10** are used as-is. **3** seconds is the recommended duration.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param mode The mode to add (e.g., "MB:Multiball").
+ * @param duration_seconds See normalization rules above.
+ *
+ * Example (recommended 3 second duration):
+ * @code
+ * sb_add_mode_expiring(handle, "MB:Multiball", 3);
+ * @endcode
+ */
+SCORBIT_SDK_EXPORT
+void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t duration_seconds);
+
+/**
  * @brief Remove a mode from the game.
  *
  * Removes a mode from the game's active mode list. If the mode does not exist, the function skips
@@ -200,7 +224,7 @@ void sb_clear_modes(sb_game_handle_t handle);
  *
  * Applies all changes made to the game state. This function should be called after
  * any modifications to the game state, such as @ref sb_set_active_player, @ref sb_set_score, @ref
- * sb_add_mode, @ref sb_remove_mode, or @ref sb_clear_modes.
+ * sb_add_mode, @ref sb_add_mode_expiring, @ref sb_remove_mode, or @ref sb_clear_modes.
  *
  * If nothing was changed, this function does nothing.
  *

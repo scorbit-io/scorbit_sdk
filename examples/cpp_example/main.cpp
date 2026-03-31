@@ -441,7 +441,10 @@ int main()
             } else {
                 gs.removeMode("MB:Multiball");
             }
-            gs.addMode("MB:Multiball");
+
+            // Expiring modes (recommended duration: 3 seconds, max 10 seconds).
+            // No need to call removeMode() for this expiring mode.
+            gs.addModeExpiring("MB:Multiball", 3);
             gs.addMode("NA:SomeMode");
             gs.removeMode("NA:AnotherMode");
 
