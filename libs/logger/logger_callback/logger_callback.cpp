@@ -20,12 +20,11 @@
 #include "detail/cut_long_string.h"
 #include <logger/logger_callback.h>
 
-#include <atomic>
+#include <blockingconcurrentqueue.h>
 #include <chrono>
-#include <condition_variable>
 #include <mutex>
-#include <queue>
 #include <thread>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -53,6 +52,10 @@ class CallbackLogger
         int64_t timestamp;   // Timestamp in milliseconds since epoch
     };
 
+    struct LogDispatcherStop {};
+
+    using LogQueueItem = std::variant<LogData, LogDispatcherStop>;
+
     struct CallbackAndData {
         LoggerCallback callback;
         size_t maxLength {512};
@@ -67,8 +70,7 @@ public:
 
     ~CallbackLogger()
     {
-        m_stop = true;
-        m_queueCV.notify_all();
+        m_queue.enqueue(LogQueueItem {LogDispatcherStop {}});
 
         if (m_thread.joinable()) {
             m_thread.join();
@@ -93,9 +95,7 @@ public:
         const auto timestamp =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-        std::lock_guard<std::mutex> lock {m_queueMutex};
-        m_queue.push(LogData {message, level, file, line, timestamp});
-        m_queueCV.notify_one();
+        m_queue.enqueue(LogQueueItem {LogData {message, level, file, line, timestamp}});
     }
 
 private:
@@ -106,48 +106,42 @@ private:
 
     void processLogs()
     {
-        while (!m_stop) {
-            std::unique_lock<std::mutex> queueLock {m_queueMutex};
-            m_queueCV.wait(queueLock, [this] { return !m_queue.empty() || m_stop; });
+        for (;;) {
+            LogQueueItem item;
+            m_queue.wait_dequeue(item);
+            if (std::holds_alternative<LogDispatcherStop>(item)) {
+                break;
+            }
 
-            while (!m_queue.empty()) {
-                const auto logData = std::move(m_queue.front());
-                m_queue.pop();
-                queueLock.unlock(); // Unlock before calling callbacks to avoid deadlock
+            auto logData = std::move(std::get<LogData>(item));
 
-                std::unique_lock<std::mutex> cbLock {m_cbMutex};
-                for (auto item : m_callbacks) {
-                    cbLock.unlock();
+            std::unique_lock<std::mutex> cbLock {m_cbMutex};
+            for (auto cbItem : m_callbacks) {
+                cbLock.unlock();
 
-                    if (LIKELY(item.callback)) {
-                        if (LIKELY(logData.message.length() < item.maxLength)) {
-                            item.callback(logData.message, logData.level, logData.file,
-                                          logData.line, logData.timestamp);
-                        } else {
-                            // C strings must be null-terminated, so we cut the message at
-                            // maxLength - 1
-                            item.callback(cutLongString(logData.message, item.maxLength - 1),
-                                          logData.level, logData.file, logData.line,
-                                          logData.timestamp);
-                        }
+                if (LIKELY(cbItem.callback)) {
+                    if (LIKELY(logData.message.length() < cbItem.maxLength)) {
+                        cbItem.callback(logData.message, logData.level, logData.file, logData.line,
+                                        logData.timestamp);
+                    } else {
+                        // C strings must be null-terminated, so we cut the message at
+                        // maxLength - 1
+                        cbItem.callback(cutLongString(logData.message, cbItem.maxLength - 1),
+                                        logData.level, logData.file, logData.line,
+                                        logData.timestamp);
                     }
-
-                    cbLock.lock(); // Lock again for the next callback
                 }
 
-                queueLock.lock(); // Lock again for the next iteration of m_queue
+                cbLock.lock(); // Lock again for the next callback
             }
         }
     }
 
 private:
-    std::atomic_bool m_stop {false};
-    std::queue<LogData> m_queue;
+    moodycamel::BlockingConcurrentQueue<LogQueueItem> m_queue;
     std::vector<CallbackAndData> m_callbacks;
 
     std::mutex m_cbMutex;
-    std::mutex m_queueMutex;
-    std::condition_variable m_queueCV;
 
     std::thread m_thread; // This should be last, other members must be valid when it is destroyed
 };

@@ -48,6 +48,7 @@ if(SCORBIT_LOGGER STREQUAL "callback")
     message(STATUS "Logger backend: callback")
 
     find_package(Threads REQUIRED)
+    include(${MY_CMAKE_DIR}/lib_concurrentqueue.cmake)
 
     target_sources(${PROJECT_NAME}
         PRIVATE
@@ -63,7 +64,7 @@ if(SCORBIT_LOGGER STREQUAL "callback")
             ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
-    target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads)
+    target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads PRIVATE concurrentqueue)
 
     target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_CALLBACK)
 
