@@ -741,6 +741,27 @@ PYBIND11_MODULE(scorbit, m)
                     mode (str): The mode to add (e.g., "MB:Multiball").
             )doc")
 
+            .def("add_mode_expiring", &GameState::addModeExpiring, py::arg("mode"),
+                 py::arg("duration_seconds"), R"doc(
+                Add a mode that is removed automatically after a duration.
+
+                The SDK removes the mode when the duration elapses; `remove_mode()` is not required
+                (but you may call it to drop the mode early). If you add the same mode again before it
+                expires, it moves to the front of the list and the timer resets.
+
+                Duration is in whole seconds (non-negative int). **0** is treated as **3** seconds
+                (recommended default). Values **greater than 10** are clamped to **10** seconds.
+                **3** seconds is the recommended duration for typical transient modes.
+
+                Example::
+
+                    game.add_mode_expiring("MB:Multiball", 3)
+
+                Args:
+                    mode (str): The mode to add (e.g., "MB:Multiball").
+                    duration_seconds (int): Seconds until expiry; see normalization rules above.
+            )doc")
+
             .def("remove_mode", &GameState::removeMode, py::arg("mode"), R"doc(
                 Remove a mode from the game.
 

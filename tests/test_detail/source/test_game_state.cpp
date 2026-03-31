@@ -26,7 +26,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
 #include <boost/uuid.hpp>
+#include <chrono>
+#include <functional>
 #include <optional>
+#include <thread>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -81,6 +84,31 @@ public:
     void setCapabilities(Capabilities) override {};
     void setCreditsDropped(int, const std::string &, bool) override { };
     void setCreditsStatus(bool, int, int, const char *) override { };
+
+    void scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
+                                 std::function<void()> fn) override
+    {
+        lastModeExpiryScheduleDuration = delay;
+        modeExpiryScheduledCallback = std::move(fn);
+    }
+
+    void cancelModeExpiryTimer() override
+    {
+        ++modeExpiryCancelCount;
+        modeExpiryScheduledCallback = {};
+    }
+
+    /** Invokes the last callback passed to scheduleDelayedOnWorker (for mode expiry tests). */
+    void fireModeExpiryTimer()
+    {
+        if (modeExpiryScheduledCallback) {
+            modeExpiryScheduledCallback();
+        }
+    }
+
+    std::chrono::steady_clock::duration lastModeExpiryScheduleDuration {};
+    std::function<void()> modeExpiryScheduledCallback;
+    int modeExpiryCancelCount {0};
 
 private:
     PlayerProfilesManager m_playersManager;
@@ -766,4 +794,130 @@ TEST_CASE("Sending version of sdk and game_code")
     // Note: Version information is now sent via sendScorbitronObject (patchScorbitron)
     // rather than updateConfig, so we don't need to verify updateConfig calls here
     GameStateImpl gameState(std::move(mockNet));
+}
+
+TEST_CASE("addModeExpiring — duration normalization and scheduling")
+{
+    using namespace std::chrono_literals;
+
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+
+    GameStateImpl gameState(std::move(mockNet));
+    gameState.setModeExpiryPoster([&gameState]() { gameState.tickModeExpiries(); });
+    gameState.setGameStarted(GameStartOrigin::StartButton);
+    gameState.commit();
+
+    auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+        const auto want = static_cast<long long>(expectedSec) * 1000;
+        const auto diff = ms - want;
+        return diff <= 15 && diff >= -15;
+    };
+
+    SECTION("0 seconds is normalized to 3 seconds delay")
+    {
+        gameState.addModeExpiring("MB:Multiball", 0);
+        REQUIRE(approxEqMs(mockNetRef.lastModeExpiryScheduleDuration, 3));
+    }
+
+    SECTION("Values above 10 clamp to 10 seconds delay")
+    {
+        gameState.addModeExpiring("MB:Multiball", 100);
+        REQUIRE(approxEqMs(mockNetRef.lastModeExpiryScheduleDuration, 10));
+    }
+
+    SECTION("1–10 seconds pass through unchanged")
+    {
+        gameState.addModeExpiring("MB:Multiball", 7);
+        REQUIRE(approxEqMs(mockNetRef.lastModeExpiryScheduleDuration, 7));
+    }
+}
+
+TEST_CASE("addModeExpiring — promote to front on repeat add")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+
+    GameStateImpl gameState(std::move(mockNet));
+    gameState.setModeExpiryPoster([&gameState]() { gameState.tickModeExpiries(); });
+    gameState.setGameStarted(GameStartOrigin::StartButton);
+    gameState.commit();
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.str() == "MB:First;SP:Second")
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+    gameState.addMode("MB:First");
+    gameState.addMode("SP:Second");
+    gameState.commit();
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.str() == "SP:Second;MB:First")
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+    gameState.addModeExpiring("SP:Second", 7);
+    gameState.commit();
+}
+
+TEST_CASE("addModeExpiring — tick removes mode after delay; clearModes cancels timer")
+{
+    using namespace std::chrono_literals;
+
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+
+    GameStateImpl gameState(std::move(mockNet));
+    gameState.setModeExpiryPoster([&gameState]() { gameState.tickModeExpiries(); });
+    gameState.setGameStarted(GameStartOrigin::StartButton);
+    gameState.commit();
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.contains("MB:Multiball"))
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+    gameState.addModeExpiring("MB:Multiball", 3);
+    const auto ms2 =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                    mockNetRef.lastModeExpiryScheduleDuration)
+                    .count();
+    const auto d2 = ms2 - 3000;
+    REQUIRE((d2 <= 15 && d2 >= -15));
+    gameState.commit();
+
+    std::this_thread::sleep_for(3100ms);
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.modes.isEmpty()).IN_SEQUENCE(seq).TIMES(1);
+    mockNetRef.fireModeExpiryTimer();
+    gameState.commit();
+
+    const int cancelsAfterClear = mockNetRef.modeExpiryCancelCount;
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.contains("X:Temp"))
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
+    gameState.addModeExpiring("X:Temp", 3);
+    REQUIRE(mockNetRef.modeExpiryScheduledCallback);
+    gameState.commit();
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.modes.isEmpty()).IN_SEQUENCE(seq).TIMES(1);
+    gameState.clearModes();
+    gameState.commit();
+
+    REQUIRE(mockNetRef.modeExpiryCancelCount > cancelsAfterClear);
 }

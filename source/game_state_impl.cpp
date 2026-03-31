@@ -69,6 +69,8 @@ void GameStateImpl::setGameFinished()
         return;
     }
 
+    clearModeExpirySchedule();
+
     m_probesManager->setNfcLeds(nfc::NfcLedMode::Idle);
 
     m_data.isGameActive = false;
@@ -137,13 +139,68 @@ void GameStateImpl::addMode(std::string mode)
     m_data.modes.addMode(std::move(mode));
 }
 
+void GameStateImpl::setModeExpiryPoster(std::function<void()> postTickToCApiThread)
+{
+    m_postModeExpiryToCApi = std::move(postTickToCApiThread);
+}
+
+void GameStateImpl::addModeExpiring(std::string mode, uint32_t duration_seconds)
+{
+    if (!m_data.isGameActive) {
+        return;
+    }
+
+    m_data.modes.addModeExpiring(std::move(mode), duration_seconds);
+    rescheduleModeExpiryTimer();
+}
+
+void GameStateImpl::tickModeExpiries()
+{
+    if (!m_data.isGameActive) {
+        clearModeExpirySchedule();
+        return;
+    }
+
+    m_data.modes.tickExpiries();
+    rescheduleModeExpiryTimer();
+}
+
+void GameStateImpl::rescheduleModeExpiryTimer()
+{
+    if (!m_postModeExpiryToCApi) {
+        return;
+    }
+
+    auto delay = m_data.modes.nextExpiryDelay();
+    if (!delay) {
+        m_net->cancelModeExpiryTimer();
+        return;
+    }
+
+    m_net->scheduleDelayedOnWorker(*delay, [this]() {
+        if (m_postModeExpiryToCApi) {
+            m_postModeExpiryToCApi();
+        }
+    });
+}
+
+void GameStateImpl::clearModeExpirySchedule()
+{
+    m_data.modes.clearExpiries();
+    m_net->cancelModeExpiryTimer();
+}
+
 void GameStateImpl::removeMode(const std::string &mode)
 {
     if (!m_data.isGameActive) {
         return;
     }
 
+    const bool hadExpiry = m_data.modes.hasExpiryDeadlines();
     m_data.modes.removeMode(mode);
+    if (hadExpiry) {
+        rescheduleModeExpiryTimer();
+    }
 }
 
 void GameStateImpl::clearModes()
@@ -153,6 +210,7 @@ void GameStateImpl::clearModes()
     }
 
     m_data.modes.clear();
+    m_net->cancelModeExpiryTimer();
 }
 
 void GameStateImpl::commit()
@@ -337,6 +395,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     }
 
     m_probesManager->setNfcLeds(nfc::NfcLedMode::GameSession);
+
+    clearModeExpirySchedule();
 
     // Reset game data
     m_prevData = m_data = GameData {};

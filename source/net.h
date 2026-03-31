@@ -133,6 +133,10 @@ public:
     void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
 
+    void scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
+                                 std::function<void()> fn) override;
+    void cancelModeExpiryTimer() override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,

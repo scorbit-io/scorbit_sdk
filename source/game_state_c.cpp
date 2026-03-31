@@ -39,6 +39,7 @@
 #include <thread>
 #include <utility>
 #include <variant>
+#include <cstdint>
 
 using namespace scorbit;
 using namespace detail;
@@ -84,6 +85,16 @@ struct JobSetScore {
 struct JobAddMode {
     sb_game_state_struct *h;
     std::string mode;
+};
+
+struct JobAddModeExpiring {
+    sb_game_state_struct *h;
+    std::string mode;
+    uint32_t duration_seconds;
+};
+
+struct JobTickModeExpiries {
+    sb_game_state_struct *h;
 };
 
 struct JobRemoveMode {
@@ -164,12 +175,12 @@ struct JobDownloadBuffer {
     void *user_data;
 };
 
-using ApiQueueItem =
-        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
-                     JobSetActivePlayer, JobSetScore, JobAddMode, JobRemoveMode, JobClearModes,
-                     JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
-                     JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
-                     JobDownload, JobDownloadBuffer>;
+using ApiQueueItem = std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
+                                  JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
+                                  JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
+                                  JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
+                                  JobSetCapabilities, JobPairMachine, JobCreditsDropped,
+                                  JobCreditsStatus, JobDownload, JobDownloadBuffer>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -232,6 +243,10 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobSetActivePlayer &&j) { j.h->gameState.setActivePlayer(j.player); },
                     [](JobSetScore &&j) { j.h->gameState.setScore(j.player, j.score, j.feature); },
                     [](JobAddMode &&j) { j.h->gameState.addMode(std::move(j.mode)); },
+                    [](JobAddModeExpiring &&j) {
+                        j.h->gameState.addModeExpiring(std::move(j.mode), j.duration_seconds);
+                    },
+                    [](JobTickModeExpiries &&j) { j.h->gameState.tickModeExpiries(); },
                     [](JobRemoveMode &&j) { j.h->gameState.removeMode(j.mode); },
                     [](JobClearModes &&j) { j.h->gameState.clearModes(); },
                     [](JobCommit &&j) { j.h->gameState.commit(); },
@@ -282,6 +297,12 @@ sb_game_state_struct::sb_game_state_struct(std::unique_ptr<NetBase> net)
     : gameState(std::move(net))
     , cApiDispatcher([this] { cApiDispatcherLoop(); })
 {
+    gameState.setModeExpiryPoster([this]() {
+        if (!cApiAccepting.load(std::memory_order_relaxed)) {
+            return;
+        }
+        cApiQueue.enqueue(ApiQueueItem {JobTickModeExpiries {this}});
+    });
 }
 
 sb_game_state_struct::~sb_game_state_struct()
@@ -394,6 +415,11 @@ void sb_set_score(sb_game_handle_t handle, sb_player_t player, sb_score_t score,
 void sb_add_mode(sb_game_handle_t handle, const char *mode)
 {
     handle->postApiJob(JobAddMode {handle, copyCStr(mode)});
+}
+
+void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t duration_seconds)
+{
+    handle->postApiJob(JobAddModeExpiring {handle, copyCStr(mode), duration_seconds});
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)

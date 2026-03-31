@@ -23,6 +23,8 @@
 #include <nfc/probes_manager.h>
 #include "net_base.h"
 #include "game_data.h"
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -45,6 +47,18 @@ public:
     void addMode(std::string mode);
     void removeMode(const std::string &mode);
     void clearModes();
+
+    /** Queue poster from C API layer; required for expiring modes scheduling. */
+    void setModeExpiryPoster(std::function<void()> postTickToCApiThread);
+
+    /**
+     * Add a mode that is removed automatically after a duration.
+     * @param duration_seconds unsigned seconds; 0 is normalized to 2, values above 5 clamp to 5.
+     */
+    void addModeExpiring(std::string mode, uint32_t duration_seconds);
+
+    /** Called from C API thread when the worker timer fires. */
+    void tickModeExpiries();
 
     void commit();
 
@@ -79,7 +93,9 @@ private:
     bool isBallValid(sb_ball_t ball) const;
     bool startGame(int playersCount, GameStartOrigin origin);
 
-private:
+    void rescheduleModeExpiryTimer();
+    void clearModeExpirySchedule();
+
     // Members destroy in reverse declaration order. m_net must be destroyed FIRST so ~Net()
     // stops timers/worker and sets m_stop before GameData is destroyed; otherwise late
     // session-create replies can call submitGameData() on torn-down m_data.
@@ -88,6 +104,9 @@ private:
     int m_sessionId {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
+
+    std::function<void()> m_postModeExpiryToCApi;
+
     std::unique_ptr<NetBase> m_net;
 };
 

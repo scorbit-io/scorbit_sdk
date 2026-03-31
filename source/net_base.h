@@ -30,6 +30,8 @@
 #include <string>
 #include <optional>
 #include <atomic>
+#include <chrono>
+#include <functional>
 
 namespace spb {
 class ProbesManager;
@@ -87,6 +89,16 @@ public:
     virtual void setCreditsDropped(int credits, const std::string &transaction, bool success) = 0;
     virtual void setCreditsStatus(bool freePlay, int credits, int maxCredits,
                                   const char *pricing) = 0;
+
+    /** Runs @p fn on the network worker thread after @p delay (used for expiring game modes). */
+    virtual void scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
+                                         std::function<void()> fn)
+    {
+        (void)delay;
+        (void)fn;
+    }
+
+    virtual void cancelModeExpiryTimer() {}
 
     // ---------------------------------------------------------------------------------
 

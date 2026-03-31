@@ -20,9 +20,13 @@
 #pragma once
 
 #include <boost/flyweight.hpp>
-#include <vector>
+#include <chrono>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
@@ -33,18 +37,37 @@ public:
     Modes() = default;
 
     void addMode(std::string mode);
-    void removeMode(std::string_view mode);
+    /** Remove if present, then insert at front (most prominent in str()/JSON). */
+    void addOrPromoteToFront(std::string mode);
+    void removeMode(const std::string &mode);
     void clear();
     bool isEmpty() const;
-    bool contains(std::string_view mode) const;
+    bool contains(const std::string &mode) const;
+
+    /**
+     * Add a mode that is removed automatically after a duration.
+     * @param durationSeconds unsigned seconds; 0 -> 3s default, >10 -> 10s cap, 1-10 unchanged.
+     */
+    void addModeExpiring(std::string mode, uint32_t durationSeconds);
+
+    /** Remove modes whose expiry deadline has passed. */
+    void tickExpiries();
+
+    /** Delay until the soonest deadline, or nullopt if no expiring modes. */
+    std::optional<std::chrono::steady_clock::duration> nextExpiryDelay() const;
+
+    bool hasExpiryDeadlines() const;
+
+    /** Clear the deadline map only (leaves the mode list untouched). */
+    void clearExpiries();
 
     std::string str() const;
     std::string jsonStr() const;
 
 private:
     std::vector<boost::flyweight<std::string>> m_modes;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_modeExpiryDeadlines;
 
-    // Declare friend for operator==
     friend bool operator==(const Modes &, const Modes &);
 };
 

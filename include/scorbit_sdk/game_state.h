@@ -27,6 +27,7 @@
 #include "event.h"
 #include "config.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <memory>
@@ -157,6 +158,23 @@ public:
     void addMode(const std::string &mode) { sb_add_mode(m_handle.get(), mode.c_str()); }
 
     /**
+     * @brief Add a mode that expires automatically after a duration (seconds).
+     *
+     * Duration rules: **0** becomes **3** seconds (recommended default); values **> 10** clamp to
+     * **10**; **1–10** unchanged. **3** seconds is recommended. No need to call @ref removeMode when
+     * the timer elapses; calling again with the same mode before expiry promotes it to the front
+     * and resets the timer.
+     *
+     * @code
+     * game.addModeExpiring("MB:Multiball", 3); // recommended duration
+     * @endcode
+     */
+    void addModeExpiring(const std::string &mode, uint32_t durationSeconds)
+    {
+        sb_add_mode_expiring(m_handle.get(), mode.c_str(), durationSeconds);
+    }
+
+    /**
      * @brief Remove a mode from the game.
      *
      * Removes a mode from the game's active mode list. If the mode does not exist, it is skipped.
@@ -179,7 +197,7 @@ public:
      *
      * Applies all changes made to the game state. This function should be called after
      * any modifications to the game state, such as @ref setActivePlayer, @ref setScore, @ref
-     * addMode, @ref removeMode, or @ref clearModes.
+     * addMode, @ref addModeExpiring, @ref removeMode, or @ref clearModes.
      *
      * If nothing was changed, this function does nothing.
      */
