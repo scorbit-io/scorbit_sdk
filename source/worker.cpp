@@ -105,6 +105,8 @@ void Worker::stop()
     m_workGuard.reset();
     m_threads.join_all();
 
+    m_running = false;
+
     INF("Worker: stopped");
 }
 
