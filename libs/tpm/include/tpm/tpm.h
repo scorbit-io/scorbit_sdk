@@ -39,7 +39,7 @@ class Tpm
     struct Impl;
 
 public:
-    Tpm(TpmBusFlags busFlags = TpmBus::All);
+    Tpm(TpmBusFlags busFlags = TpmBus::All, const std::string &usbDevicePath = {});
     ~Tpm();
 
     bool ok() const;
@@ -72,7 +72,7 @@ public:
 
 private:
     bool tryI2cBus(Impl *p, uint8_t i2cBus);
-    bool tryUsbBus(Impl *p);
+    bool tryUsbBus(Impl *p, const std::string &devicePath);
 
 private:
     std::unique_ptr<Impl> p;

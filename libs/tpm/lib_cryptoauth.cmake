@@ -1,9 +1,10 @@
 cpmaddpackage(
     NAME cryptoauth
-    URL https://github.com/MicrochipTech/cryptoauthlib/archive/refs/tags/v3.7.8.tar.gz
+    URL https://github.com/MicrochipTech/cryptoauthlib/archive/refs/tags/v3.7.9.tar.gz
     OPTIONS
         "ATCA_HAL_I2C ON"
         "ATCA_HAL_KIT_HID ON"
+        "ATCA_HAL_KIT_UART ON"
         "ATCA_BUILD_SHARED_LIBS OFF"
         "ATCA_ATECC508A_SUPPORT ON"
         "ATCA_ATSHA204A_SUPPORT OFF"
@@ -27,4 +28,16 @@ if(cryptoauth_ADDED)
         ${cryptoauth_SOURCE_DIR}/lib
     )
     target_include_directories(cryptoauth PUBLIC ${_cryptoauth_includes})
+
+    # Patch UART HAL: uart_file[20] is too small for macOS CDC paths
+    # (e.g. /dev/cu.usbmodem14101 = 23 chars, buffer only holds 19)
+    set(_uart_hal_file "${cryptoauth_SOURCE_DIR}/lib/hal/hal_linux_uart_userspace.c")
+    if(EXISTS "${_uart_hal_file}")
+        file(READ "${_uart_hal_file}" _uart_hal_content)
+        string(FIND "${_uart_hal_content}" "char uart_file[20]" _uart_hal_pos)
+        if(NOT _uart_hal_pos EQUAL -1)
+            string(REPLACE "char uart_file[20]" "char uart_file[64]" _uart_hal_content "${_uart_hal_content}")
+            file(WRITE "${_uart_hal_file}" "${_uart_hal_content}")
+        endif()
+    endif()
 endif()

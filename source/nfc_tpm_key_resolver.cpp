@@ -23,13 +23,24 @@
 #include <utils/bytearray.h>
 #include <tpm/hardwaretpm.h>
 #include <tpm/tpm.h>
+#include <nfc/CdcTpm.h>
 
 namespace scorbit {
 namespace detail {
 
 bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
 {
-    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB);
+    std::string tpmDevicePath;
+    {
+        CdcTpm cdcTpm;
+        tpmDevicePath = cdcTpm.DiscoverTpmDevice();
+    }
+
+    if (!tpmDevicePath.empty()) {
+        INF("TPM CDC device found at {}", tpmDevicePath);
+    }
+
+    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB, tpmDevicePath);
     if (!tpm->hasTpm() || !tpm->isValid()) {
         INF("NFC TPM not found or not valid");
         tpm.reset();

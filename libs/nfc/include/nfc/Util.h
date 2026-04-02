@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <iterator>
 #include <cstdarg>
+#include <cstring>
+#include <limits>
 #ifdef __linux__
 #include <unistd.h>
 #include <dirent.h>
@@ -58,7 +60,31 @@ class Util
     {
         try
         {
-            value = (s.substr(0, 2) == "0x") ? std::stoul(s, nullptr, 16) : std::stoul(s);
+            std::string parse = s;
+            // Process sign
+            bool negative = false;
+            if (!parse.empty() && (parse[0] == '+' || parse[0] == '-')) { negative = (parse[0] == '-'); parse.erase(parse.begin()); }
+			// Reject anothers sign after the first one
+            if (!parse.empty() && (parse[0] == '+' || parse[0] == '-')) { value = 0; return false; }
+			// Process hexadecimal prefix
+            int base = 10;
+            if (parse.size() > 2 && parse[0] == '0' && (parse[1] == 'x' || parse[1] == 'X')) { base = 16; parse = parse.substr(2); }
+			// Reject empty string
+            if (parse.empty()) { value = 0; return false; }
+			// Convert the number
+            size_t idx = 0;
+            long long raw = std::stoll(parse, &idx, base);
+            if (idx != parse.size()) { value = 0; return false; }
+			// Apply sign
+            if (negative) raw = -raw;
+			// Check range
+            if (raw < std::numeric_limits<int32_t>::min() || raw > std::numeric_limits<int32_t>::max())
+            {
+                value = 0;
+                return false;
+            }
+			// Store the result
+            value = static_cast<int32_t>(raw);
             return true;
         }
         catch (...)
@@ -72,7 +98,27 @@ class Util
     {
         try
         {
-            value = (s.substr(0, 2) == "0x") ? std::stoul(s, nullptr, 16) : std::stoul(s);
+
+            std::string parse = s;
+			// Reject negative numbers
+            if (!parse.empty() && s[0] == '-') { value = 0; return false; }
+			// Process sign
+            if (!parse.empty() && parse[0] == '+') parse.erase(parse.begin());
+            // Reject anothers sign after the first one
+            if (!parse.empty() && (parse[0] == '+' || parse[0] == '-')) { value = 0; return false; }
+            // Process hexadecimal prefix
+            int base = 10;
+            if (parse.size() > 2 && parse[0] == '0' && (parse[1] == 'x' || parse[1] == 'X')) { base = 16; parse = parse.substr(2); }
+            // Reject empty string
+            if (parse.empty()) { value = 0; return false; }
+			// Convert the number
+            size_t idx = 0;
+            unsigned long long raw = std::stoull(parse, &idx, base);
+            if (idx != parse.size()) { value = 0; return false; }
+			// Check range
+            if (raw > std::numeric_limits<uint32_t>::max()) { value = 0; return false; }
+			// Store the result
+            value = static_cast<uint32_t>(raw);
             return true;
         }
         catch (...)
@@ -133,6 +179,21 @@ class Util
         WriteLE(data, dataLen, Pos + 4, static_cast<uint32_t>(value >> 32));
         return true;
     }
+    static std::string ToHexString(const std::uint8_t* Data, std::size_t Size)
+    {
+        if (Data == nullptr || Size == 0) return std::string();
+
+        static const char kHex[] = "0123456789abcdef";
+        std::string out;
+        out.resize(Size * 2);
+        for (std::size_t i = 0; i < Size; i++)
+        {
+            const std::uint8_t b = Data[i];
+            out[2 * i + 0] = kHex[(b >> 4) & 0x0F];
+            out[2 * i + 1] = kHex[b & 0x0F];
+        }
+        return out;
+    }
     static std::vector<uint8_t> ReadAllBytes(const std::string& Filename)
     {
         // Allocate a vector
@@ -181,58 +242,6 @@ class Util
         return std::filesystem::exists(fn);
         #endif
     }
-    static int GetPid(const char* pName)
-    {
-        int pid = -1;
-
-        #ifdef __linux__
-        DIR* dir = opendir("/proc");
-        if (dir)
-        {
-            struct dirent* de = 0;
-            while ((de = readdir(dir)) != 0)
-            {
-                if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) continue;
-                if (sscanf(de->d_name, "%d", &pid) == 1)
-                {
-                    // Open the /proc/pid/comm file to determine what's the name of the process
-                    char comm_fn[256]; sprintf(comm_fn, "/proc/%d/comm", pid);
-                    FILE* hComm = fopen(comm_fn, "r");
-                    if (hComm == NULL) continue;
-                    char* ProcessName = NULL;
-                    size_t ProcessNameSize = 0;
-                    bool bOk = (getline(&ProcessName, &ProcessNameSize, hComm) > 0);
-                    fclose(hComm);
-                    // Remove the ending \n
-                    char* p = strchr(ProcessName, '\n'); if (p) *p = 0;
-                    // Process has been found ?
-                    //printf("%d: -%s- -%s- -%s-\n", pid, pName, comm_fn, ProcessName);
-                    if (bOk && !strcmp(ProcessName, pName)) break;
-                }
-                pid = -1;
-            }
-            closedir(dir);
-        }
-        #endif // __linux__
-
-        return pid;
-    }
-
-    static uint16_t Crc16(const uint8_t* Data, int Len)
-    {
-        const uint16_t polynom = 0x8005; // Polynome used
-        uint16_t crc = 0;
-        for (int i = 0; i < Len; i++)
-            for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
-            {
-                uint8_t data_bit = (Data[i] & shift_register) ? 1 : 0;
-                uint8_t crc_bit = crc >> 15;
-                crc <<= 1;
-                if (data_bit != crc_bit)
-                    crc ^= polynom;
-            }
-        return crc;
-    }
 
     static inline const std::string Format(const char *sFormat, ...)
     {
@@ -256,11 +265,12 @@ class Util
 
         // Dimension the output string
         std::string out;
-        out.resize(needed); 
+        out.resize(static_cast<size_t>(needed) + 1); 
 
         // Format the string
-        std::vsnprintf(out.data(), needed + 1, sFormat, ap);
+        std::vsnprintf(out.data(), out.size(), sFormat, ap);
         va_end(ap);
+        out.resize(static_cast<size_t>(needed));
 
         return out;
     }
@@ -313,7 +323,12 @@ class InterprocessLock
 
         #else
         
+        #ifdef __linux__
         std::string path = "/var/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
+        #else
+        std::string path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
+        #endif // __linux__
+
         // Try to create the lock file
         m_fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
         // 2nd try as Read Only (if root has already created the file with a restrictive umask)

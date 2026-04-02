@@ -18,6 +18,7 @@
 #include <memory>
 #include "Util.h"
 #include "Cable.h"
+#include "ListUsbDevices.h"
 
 #ifdef USE_FMT_LIBRARY
 #include <fmt/format.h>
@@ -38,18 +39,7 @@ namespace date = std::chrono;
 #include <direct.h>
 #else
 #include <unistd.h>
-#ifdef __APPLE__
-    #include <sys/mount.h>
-    // MacOS mount flags equivalents
-    #define MS_NOEXEC MNT_NOEXEC
-    #define MS_SYNCHRONOUS MNT_SYNCHRONOUS
-    // MacOS uses unmount instead of umount
-    #define umount(dir) unmount(dir, 0)
-    // MacOS mount function has different signature
-    #define mount(dev, dir, type, flags, data) mount(type, dir, flags, data)
-#else
-    #include <sys/mount.h>
-#endif
+#include <sys/mount.h>
 #endif
 
 typedef enum
@@ -57,9 +47,11 @@ typedef enum
     ReadProbeInfos = 0x02,
     ReadProbeStatus = 0x06,
 
+    #ifdef USE_PROBE_NFC
     WriteNfcLedsAnimation = 0x43,
     ReadNfcInfos = 0x46,
     WriteNfcInfos = 0x4b,
+    #endif // USE_PROBE_NFC
 
 
     Reboot = 0xf3,
@@ -142,14 +134,14 @@ class ProbeBase
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
     {
         std::vector<ProbeBase::ProbeInformations_t> ProbeInfos;
+        const auto devices = listUsbDevices();
 
         // Browse the devices
-        // (we should find a better alternative that works on all platform)
-        for (int iDevice = SerialCable::iFirstDevice; iDevice <= SerialCable::iLastDevice; iDevice++)
+        for (const auto& device : devices)
         {
             ProbeBase probe;
             // Try to open the cable
-            if (!probe.Initialize(iDevice, "")) continue;
+            if (!probe.Initialize(-1, device)) continue;
             // Is it a probe ?
             ProbeBase::ProbeInformations_t pbi;
             if (!probe.GetInformations(&pbi)) continue;
@@ -163,12 +155,12 @@ class ProbeBase
 
     bool FindProbe(const std::string &sType, uint32_t UID = 0)
     {
+        const auto devices = listUsbDevices();
         // Browse the devices
-        // (we should find a better alternative that works on all platform)
-        for (int iDevice = SerialCable::iFirstDevice; iDevice <= SerialCable::iLastDevice; iDevice++)
+        for (const auto& device : devices)
         {
             // Try to open the cable
-            if (!Initialize(iDevice, "")) continue;
+            if (!Initialize(-1, device)) continue;
             // Is it a probe ?
             ProbeBase::ProbeInformations_t pbi;
             if (!this->GetInformations(&pbi)) continue;
@@ -277,6 +269,53 @@ class ProbeBase
         return Cable.CommandWrite(ProbeCommand_t::TriggerWatchdog, 0, { 0x05, 0xC0, 0x4B, 0x17 });
     }
 
+    static bool CopyFirmwareToBootloader(const std::string& FirmwareFilename, const std::string& BootloaderDir, bool bVerbose)
+    {
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Checking existence of INFO_UF2.TXT\n");
+        if (!Util::FileExists((BootloaderDir + "/INFO_UF2.TXT").c_str())) return false;
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("INFO_UF2.TXT OK !\n");
+        std::ifstream  src(FirmwareFilename, std::ios::binary);
+        std::ofstream  dst(BootloaderDir + "/firmware.uf2", std::ios::binary);
+        dst << src.rdbuf();
+        if (bVerbose) INF("Firmware copy DONE !\n");
+        return true;
+    }
+
+    #ifdef __linux__
+    static bool UnmountWithRetry(const char* dir)
+    {
+        for (int j = 0; j < 100; j++)
+        {
+            if (umount(dir) == 0)
+            {
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Device unmounted !\n");
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) ERR("Can't unmount device !\n");
+        return false;
+    }
+
+    static bool LinuxFstabAllowsUserMount(const char* mountPoint)
+    {
+        std::string findmnt = std::string("findmnt --fstab -n ") + mountPoint + " >/dev/null 2>&1";
+        if (system(findmnt.c_str()) == 0) return true;
+        std::string fake = std::string("mount -f ") + mountPoint + " >/dev/null 2>&1";
+        return system(fake.c_str()) == 0;
+    }
+
+    static void LinuxSystemUmountWithRetry(const char* mountPoint)
+    {
+        std::string umountCmd = std::string("umount ") + mountPoint + " 2>/dev/null";
+        for (int j = 0; j < 10; j++)
+        {
+            if (system(umountCmd.c_str()) == 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
+    #endif
+
     virtual bool UploadFirmware(const std::string &FirmwareFilename, bool bForceUpgrade, bool bVerbose)
     {
         bool bPbiValid = false;
@@ -286,10 +325,6 @@ class ProbeBase
         bool bUploadFile = !FirmwareFilename.empty();
         if (bUploadFile)
         {
-            #ifndef _WIN32
-            if (!Util::IsRoot()) { ERR("Need to be root !\n"); return false; }
-            #endif
-
             // Does the firmware file exists ?
             if (!Util::FileExists(FirmwareFilename.c_str()))
                 { ERR("Firmware file \"%s\" not found !\n", FirmwareFilename.c_str()); return false; }
@@ -334,6 +369,21 @@ class ProbeBase
                     { if (bVerbose) INF("Probe does not need to be upgraded !\n"); return true; }
             }
         }
+
+        #ifndef _WIN32
+        #ifdef __linux__
+        constexpr auto FSTAB_MOUNT_POINT = "/mnt/RPI-RP2";
+        bool fsTabAllowsUserMount = LinuxFstabAllowsUserMount(FSTAB_MOUNT_POINT);
+        #else
+        bool fsTabAllowsUserMount = false;
+        #endif // __linux__
+
+        if (bUploadFile && !Util::IsRoot() && !fsTabAllowsUserMount)
+        {
+                ERR("Need to be root !\n");
+                return false;
+        }
+        #endif // _WIN32
 
         // Switch to bootloader mode
         if (Cable.IsOpen()) // Only when a cable is open
@@ -389,99 +439,96 @@ class ProbeBase
             // Check the volume label and the presence of INFO_UF2.TXT
             std::string BootloaderDir; BootloaderDir.reserve(rootForInfo.size());
             for (wchar_t wc : rootForInfo) BootloaderDir.push_back(static_cast<char>(wc));
-            if (std::wstring(Label) == L"RPI-RP2" && Util::FileExists((BootloaderDir + "INFO_UF2.TXT").c_str()))
+            if (std::wstring(Label) == L"RPI-RP2" && CopyFirmwareToBootloader(FirmwareFilename, BootloaderDir, bVerbose))
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("INFO_UF2.TXT OK !\n");
-                // Copy the new firmware to the bootloader
-                std::ifstream  src(FirmwareFilename, std::ios::binary);
-                std::ofstream  dst(BootloaderDir + "/firmware.uf2", std::ios::binary);
-                dst << src.rdbuf();
-                if (bVerbose) INF("Firmware copy DONE !\n");
-                // Done !
                 bOk = true;
                 break;
             }
         }
         FindVolumeClose(hFind);
 
-        #else // _WIN32
+        #elif defined(__APPLE__) // see above _WIN32
 
-        #define RP2040_BOOTLOADER_DIR "./bootloader"
-
-        // Create a bootloader mount point
-        if (mkdir(RP2040_BOOTLOADER_DIR, 0755) == -1 && errno != EEXIST)
-            { ERR("Can't create %s !\n", RP2040_BOOTLOADER_DIR); return false; }
-
-        // Wait so that the RP2040 has time to start the bootloader
-        // Find the corresponding device
-        #ifdef __APPLE__
-        const char* sDevices[] = { "/dev/disk0s1", "/dev/disk1s1", "/dev/disk2s1", "/dev/disk3s1", "/dev/disk4s1", "/dev/disk5s1", "/dev/disk6s1", "/dev/disk7s1", "/dev/disk8s1", "/dev/disk9s1" };
-        const char* mountfs = "msdos";
-        #endif
         bool bOk = false;
-        for (int iTry = 0; !bOk && iTry < 10; iTry++)
-        {
-            #ifdef __APPLE__
-            // On Mac, we browser all possible devices
-            const char* sDevices[] = { "/dev/disk0s1", "/dev/disk1s1", "/dev/disk2s1", "/dev/disk3s1", "/dev/disk4s1", "/dev/disk5s1", "/dev/disk6s1", "/dev/disk7s1", "/dev/disk8s1", "/dev/disk9s1" };
-            const char* mountfs = "msdos";
-            for (int iDevice = 0; !bOk && iDevice < sizeof(sDevices) / sizeof(sDevices[0]); iDevice++)
-            {
-                std::string sDevice = sDevices[iDevice];
-            #else
-            // On Linux, we immediately identify the device with /dev/disk/by-label
-            const char* mountfs = "vfat";
-            for (int i = 0; i<1; i++)
-            {
-                std::string sDevice;
-                try { sDevice = "/dev/" + std::filesystem::read_symlink("/dev/disk/by-label/RPI-RP2").filename().string(); } catch (...) { break; }
-            #endif
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying %s...", sDevice.c_str());
-                // Does the device exists ?
-                if (access(sDevice.c_str(), F_OK) != 0) { std::this_thread::sleep_for(std::chrono::milliseconds(100)); continue; }
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Access OK !\n");
-                // Mount this device in bootloader directory (ignore errors in case it's already automounted)
-                mount(sDevice.c_str(), RP2040_BOOTLOADER_DIR, mountfs, MS_NOEXEC | MS_SYNCHRONOUS, nullptr);
+        for (int iTry = 0; !bOk && iTry < 10; iTry++) {
+            const auto bootloaderDir = "/Volumes/RPI-RP2";
 
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("mount OK !\n");
-                // Verify that this directory is correct
-                if (access(RP2040_BOOTLOADER_DIR "/INFO_UF2.TXT", F_OK) == 0)
-                {
-                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("INFO_UF2.TXT OK !\n");
-                    // Copy the new firmware to the bootloader
-                    std::ifstream  src(FirmwareFilename, std::ios::binary);
-                    std::ofstream  dst(RP2040_BOOTLOADER_DIR "/firmware.uf2", std::ios::binary);
-                    dst << src.rdbuf();
-                    if (bVerbose) INF("Firmware copy DONE !\n");
-                    // Done !
-                    bOk = true;
-                }
-
-                // Unount the device
-                bool bOk = false;
-                for (int j = 0; j < 100; j++)
-                {
-                    if (umount(RP2040_BOOTLOADER_DIR) == 0) { bOk = true; break; }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe))
-                {
-                    if (bOk) INF("Device unmounted !\n");
-                    else ERR("Can't unmount device !\n");
-                }
+            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Access OK !\n");
+            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("mount OK !\n");
+            if (CopyFirmwareToBootloader(FirmwareFilename, bootloaderDir, bVerbose))
+            {
+                bOk = true;
+                break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));
         }
         if (!bOk)
             ERR("Couldn't find the RP2040 bootloader device !\n");
         else
-            // Give time for the upgrade
             std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-        // Delete bootloader directory
-        remove(RP2040_BOOTLOADER_DIR);
-        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Mountpoint deleted !\n");
-        #endif
+        #else // __linux__
+
+        bool bOk = false;
+        if (Util::IsRoot())
+        {
+            std::error_code ec;
+            const auto RP2040_BOOTLOADER_DIR = std::filesystem::temp_directory_path(ec) / "bootloader";
+            if (ec) { ERR("Can't get temporary directory path !\n"); return false; }
+            if (mkdir(RP2040_BOOTLOADER_DIR.c_str(), 0755) == -1 && errno != EEXIST)
+                { ERR("Can't create %s !\n", RP2040_BOOTLOADER_DIR.c_str()); return false; }
+
+            for (int iTry = 0; !bOk && iTry < 10; iTry++)
+            {
+                constexpr auto mountfs = "vfat";
+                constexpr auto sDevice = "/dev/disk/by-label/RPI-RP2";
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying %s...\n", sDevice);
+                if (access(sDevice, F_OK) == 0)
+                {
+                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Access OK !\n");
+                    if (mount(sDevice, RP2040_BOOTLOADER_DIR.c_str(), mountfs, MS_NOEXEC | MS_SYNCHRONOUS, nullptr) == 0)
+                    {
+                        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("mount OK !\n");
+                        if (CopyFirmwareToBootloader(FirmwareFilename, RP2040_BOOTLOADER_DIR.string(), bVerbose))
+                        {
+                            bOk = true;
+                            break;
+                        }
+                    }
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(600));
+            }
+            UnmountWithRetry(RP2040_BOOTLOADER_DIR.c_str());
+            if (!bOk)
+                ERR("Couldn't find the RP2040 bootloader device !\n");
+            else
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            remove(RP2040_BOOTLOADER_DIR);
+            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Mountpoint deleted !\n");
+        }
+        else
+        {
+            // Non-root path, here fstab should have specific record
+            if (HardwareDebug::IsFlagSet(HardwareDebug::DebugProbe)) INF("Trying fstab mount at %s...\n", FSTAB_MOUNT_POINT);
+            for (int iTry = 0; !bOk && iTry < 10; iTry++)
+            {
+                std::string mountCmd = std::string("mount ") + FSTAB_MOUNT_POINT + " 2>/dev/null";
+                if (system(mountCmd.c_str()) == 0)
+                {
+                    if (CopyFirmwareToBootloader(FirmwareFilename, FSTAB_MOUNT_POINT, bVerbose)) {
+                        bOk = true;
+                        LinuxSystemUmountWithRetry(FSTAB_MOUNT_POINT);
+                        break;
+                    }
+                }
+                if (!bOk) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+            if (!bOk)
+                ERR("Couldn't find the RP2040 bootloader device !\n");
+        }
+        #endif // _WIN32
+
         // Re-initialze the cable (that has been disconnect during the upgrade process)
         if (bUploadFile && bPbiValid)
         {
@@ -502,6 +549,7 @@ class ProbeBase
 
 
 
+#ifdef USE_PROBE_NFC
 class ProbeNFC : public ProbeBase
 {
     public:
@@ -558,3 +606,4 @@ class ProbeNFC : public ProbeBase
         return Cable.CommandWrite(ProbeCommand_t::WriteNfcInfos, 0, data);
     }
 };
+#endif // USE_PROBE_NFC

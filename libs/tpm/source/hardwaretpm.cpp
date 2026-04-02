@@ -9,8 +9,8 @@
 
 using ByteArray = utils::ByteArray;
 
-HardwareTpm::HardwareTpm(TpmBusFlags busFlags)
-    : m_tpm {std::make_unique<Tpm>(busFlags)}
+HardwareTpm::HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
+    : m_tpm {std::make_unique<Tpm>(busFlags, usbDevicePath)}
 {
 }
 

@@ -47,6 +47,7 @@ class NetworkDiscovery
 {
     private:
     static constexpr uint16_t kDiscoveryPort = 37020;
+    static constexpr uint16_t kMaxPayloadSize = 1024;
 
     static constexpr uint32_t kMagic = 0x4E445343; // NDSC - Network Discovery
     static constexpr uint16_t kVersion = 1;
@@ -79,13 +80,13 @@ class NetworkDiscovery
     };
 
     // Response packet to a discovery broadcast
-    struct DiscoveryResponsePacket
+    struct DiscoveryResponseHeader
     {
         uint32_t Magic;
         uint16_t Version;
         uint16_t Type;
         uint32_t RequestId;
-        uint8_t Data[1024];
+		// uint8_t Payload[up to kMaxPayloadSize bytes];
     };
     #pragma pack(pop)
 
@@ -208,7 +209,7 @@ class NetworkDiscovery
                 continue;
 
             // Read packet
-            uint8_t buffer[sizeof(DiscoveryResponsePacket)];
+            uint8_t buffer[sizeof(DiscoveryResponseHeader) + kMaxPayloadSize];
             sockaddr_in fromAddr;
             SocketLength fromLen = static_cast<SocketLength>(sizeof(fromAddr));
             std::memset(&fromAddr, 0, sizeof(fromAddr));
@@ -227,17 +228,17 @@ class NetworkDiscovery
                 break;
             }
 
-            // Packet has the correct length ?
-            if (static_cast<size_t>(received) < sizeof(DiscoveryResponsePacket)) 
+            // Packet has at least the response header ?
+            if (static_cast<size_t>(received) < sizeof(DiscoveryResponseHeader)) 
                 continue;
 
             // Packet is correct ?
-            DiscoveryResponsePacket response;
-            std::memcpy(&response, buffer, sizeof(response));
-            if ((ntohl(response.Magic) != kMagic) ||
-                (ntohs(response.Version) != kVersion) ||
-                (ntohs(response.Type) != kPacketTypeResponse) ||
-                (response.RequestId != request.RequestId))
+            DiscoveryResponseHeader responseHeader;
+            std::memcpy(&responseHeader, buffer, sizeof(responseHeader));
+            if ((ntohl(responseHeader.Magic) != kMagic) ||
+                (ntohs(responseHeader.Version) != kVersion) ||
+                (ntohs(responseHeader.Type) != kPacketTypeResponse) ||
+                (responseHeader.RequestId != request.RequestId))
                     continue;
 
             // Extract device IP
@@ -265,14 +266,16 @@ class NetworkDiscovery
                     return std::string(reinterpret_cast<const char*>(start), len);
                 };
             DeviceInfo_t info;
-			// Insert the IP address in the device info (as a string)
+            const uint8_t* payload = buffer + sizeof(DiscoveryResponseHeader);
+            size_t payloadSize = static_cast<size_t>(received) - sizeof(DiscoveryResponseHeader);
+            // Insert the IP address in the device info (as a string)
             info.IpAddress = ipBuffer;
             // Read GameName, ProviderInfo, ProviderSerial and ExtraInfo in the response data
             size_t Pos = 0;
-			info.GameName = ReadNextZ(response.Data, sizeof(response.Data), Pos);
-			info.ProviderInfo = ReadNextZ(response.Data, sizeof(response.Data), Pos);
-			info.ProviderSerial = Util::ReadUInt64LE(response.Data, sizeof(response.Data), Pos); Pos += 8;
-			info.ExtraInfo = ReadNextZ(response.Data, sizeof(response.Data), Pos);
+            info.GameName = ReadNextZ(payload, payloadSize, Pos);
+            info.ProviderInfo = ReadNextZ(payload, payloadSize, Pos);
+            info.ProviderSerial = ((Pos + 8) <= payloadSize) ? Util::ReadUInt64LE(payload, payloadSize, Pos) : 0; Pos += 8;
+            info.ExtraInfo = ReadNextZ(payload, payloadSize, Pos);
 
             // Store this device info in the list
             if (seenKeys.insert(info.IpAddress).second)
@@ -358,12 +361,14 @@ class NetworkDiscovery
                     continue;
 
             // Prepare response info
-            DiscoveryResponsePacket response;
-            std::memset(&response, 0, sizeof(response));
-            response.Magic = htonl(kMagic);
-            response.Version = htons(kVersion);
-            response.Type = htons(kPacketTypeResponse);
-            response.RequestId = request.RequestId;
+            DiscoveryResponseHeader responseHeader;
+            std::memset(&responseHeader, 0, sizeof(responseHeader));
+            responseHeader.Magic = htonl(kMagic);
+            responseHeader.Version = htons(kVersion);
+            responseHeader.Type = htons(kPacketTypeResponse);
+            responseHeader.RequestId = request.RequestId;
+            uint8_t responsePayload[kMaxPayloadSize];
+            std::memset(responsePayload, 0, sizeof(responsePayload));
             auto AppendZ = [](uint8_t* buffer, size_t bufferSize, size_t& pos, std::string_view s) -> size_t
                 {
                     // Only take first part of the string if it contains a \0, and ignore the rest
@@ -380,12 +385,20 @@ class NetworkDiscovery
                     pos += toCopy + 1;
                     return toCopy;
                 };
-			// Write GameName, ProviderInfo, ProviderSerial and ExtraInfo in the response data
+            // Write GameName, ProviderInfo, ProviderSerial and ExtraInfo in the response data
             size_t Pos = 0;
-            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.GameName);
-            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.ProviderInfo);
-			Util::WriteLE(reinterpret_cast<uint8_t*>(response.Data), sizeof(response.Data), Pos, m_DeviceInfo.ProviderSerial); Pos += 8;
-            AppendZ(response.Data, sizeof(response.Data), Pos, m_DeviceInfo.ExtraInfo);
+            AppendZ(responsePayload, sizeof(responsePayload), Pos, m_DeviceInfo.GameName);
+            AppendZ(responsePayload, sizeof(responsePayload), Pos, m_DeviceInfo.ProviderInfo);
+            if (Util::WriteLE(responsePayload, sizeof(responsePayload), Pos, m_DeviceInfo.ProviderSerial))
+                Pos += 8;
+            else
+                Pos = sizeof(responsePayload);
+            AppendZ(responsePayload, sizeof(responsePayload), Pos, m_DeviceInfo.ExtraInfo);
+            size_t payloadLen = Pos;
+            std::vector<uint8_t> response(sizeof(responseHeader) + payloadLen);
+            std::memcpy(response.data(), &responseHeader, sizeof(responseHeader));
+            if (payloadLen > 0)
+                std::memcpy(response.data() + sizeof(responseHeader), responsePayload, payloadLen);
 
             // Wait for a random delay to prevent collisions when all devices answer at the same time
             if (kMaxResponseDelayMs > 0)
@@ -409,8 +422,8 @@ class NetworkDiscovery
             INF("Received a valid discovery request from %s\n", ipBuffer);
             ::sendto(
                 sock,
-                reinterpret_cast<const char*>(&response),
-                static_cast<int>(sizeof(response)),
+                reinterpret_cast<const char*>(response.data()),
+                static_cast<int>(response.size()),
                 0,
                 reinterpret_cast<sockaddr*>(&fromAddr),
                 sizeof(fromAddr));
@@ -660,3 +673,4 @@ class NetworkDiscovery
     std::atomic<bool> m_Running;
     std::atomic<SocketHandle> m_ListenSocket;
 };
+
