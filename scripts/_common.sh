@@ -2,7 +2,7 @@
 
 # Scorbit SDK
 #
-# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
 #
 # MIT License
 #
@@ -13,15 +13,14 @@ cleanup_build_files() {
     BUILD_DIR=$1
 
     # Remove the build directory
-    rm $BUILD_DIR/CMakeCache.txt
-    rm -rf $BUILD_DIR/_deps/*-build
-    rm -rf $BUILD_DIR/encrypt_tool
+    # rm $BUILD_DIR/CMakeCache.txt
+    # rm -rf $BUILD_DIR/_deps/*-build
+    # rm -rf $BUILD_DIR/encrypt_tool
 }
 
 docker_build() {
     CMD=$1
     DOCKER_IMAGE=$2
-    PLATFORM=$3
 
     echo "Build dir is: $BUILD_DIR"
 
@@ -31,7 +30,6 @@ docker_build() {
         -v $(pwd)/build/_cache:/cache \
         --workdir /src \
         --user $(id -u):$(id -g) \
-        --platform $PLATFORM \
         -e SCORBIT_SDK_ENCRYPT_SECRET \
         -e CPM_SOURCE_CACHE="/cache" \
         $DOCKER_IMAGE bash -c "$CMD"
@@ -62,43 +60,18 @@ get_version() {
 
 build_using_docker() {
     ARCH=$1
-    PLATFORM=$2
-    VERSION=$3
-    ABI=$4
-    DOCKER_IMAGE=$5
-    echo "!!! Building arch: $ARCH, platform: $PLATFORM, ABI: $ABI, version: $VERSION !!!"
+    VERSION=$2
+    ABI=$3
+    DOCKER_IMAGE=$4
+    echo "!!! Building arch: $ARCH, ABI: $ABI, version: $VERSION !!!"
 
     BUILD_DIR="build/${ARCH}_${ABI}"
     DIST_DIR=build/dist/$VERSION
 
-    CMD="
-        cmake \
-            -D SCORBIT_SDK_PRODUCTION=ON \
-            -D SCORBIT_SDK_ABI='$SCORBIT_SDK_ABI' \
-            -D CMAKE_BUILD_TYPE=Release \
-            -G Ninja  \
-            -B '$BUILD_DIR' \
-            -S . \
-        && cmake --build '$BUILD_DIR' \
-        && pushd '$BUILD_DIR' \
-        && cpack -G DEB \
-        && cpack -G TGZ \
-        && popd \
-        \
-        && cmake \
-            -D SCORBIT_SDK_PRODUCTION=ON \
-            -D CMAKE_BUILD_TYPE=Release \
-            -G Ninja \
-            -B '$BUILD_DIR/encrypt_tool' \
-            -S encrypt_tool \
-        && cmake --build '$BUILD_DIR/encrypt_tool' \
-        && pushd '$BUILD_DIR/encrypt_tool' \
-        && cpack -G TGZ \
-        && popd
-    "
+    CMD="./scripts/build-core.sh '$BUILD_DIR' '$ABI'"
 
     cleanup_build_files "$BUILD_DIR" || true
-    docker_build "$CMD" "$DOCKER_IMAGE" "$PLATFORM"
+    docker_build "$CMD" "$DOCKER_IMAGE"
 
     # Move artifacts to dist directory
     mkdir -p "$DIST_DIR"

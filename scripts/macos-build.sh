@@ -27,19 +27,6 @@ run_build() {
     BUILD_DIR="build/${ARCH}_${SCORBIT_SDK_ABI}"
     DIST_DIR=build/dist/$VERSION
 
-    CMD_TGZ="
-        cmake \
-            -D SCORBIT_SDK_PRODUCTION=ON \
-            -D SCORBIT_SDK_ABI='$SCORBIT_SDK_ABI' \
-            -G Ninja  \
-            -B '$BUILD_DIR' \
-            -S . \
-        && cmake --build '$BUILD_DIR' --config Release \
-        && pushd '$BUILD_DIR' \
-        && cpack -G TGZ \
-        && popd
-    "
-
     CMD_WHL="
         eval "$(conda "shell.$(basename "${SHELL}")" hook)" \
         && conda activate \
@@ -51,13 +38,21 @@ run_build() {
         && conda deactivate \
     "
 
-    #cleanup_build_files "$BUILD_DIR" || true
-    #bash -c "$CMD_TGZ"
-    bash -c "$CMD_WHL"
+    CMD="$SCRIPT_DIR/build-core.sh '$BUILD_DIR' '$SCORBIT_SDK_ABI'"
 
-    # Move artifacts to dist directory
+    #cleanup_build_files "$BUILD_DIR" || true
+    # bash -c "$CMD_TGZ"
+    # bash -c "$CMD_WHL"
+    bash -c "$CMD"
+
+    # Move artifacts to dist directory (no .deb on macOS when DEB cpack is skipped)
     mkdir -p "$DIST_DIR"
-    mv $BUILD_DIR/*.deb $BUILD_DIR/*.tar.gz $BUILD_DIR/encrypt_tool/*.tar.gz $DIST_DIR
+    shopt -s nullglob
+    artifacts=("$BUILD_DIR"/*.deb "$BUILD_DIR"/*.tar.gz "$BUILD_DIR"/encrypt_tool/*.tar.gz)
+    shopt -u nullglob
+    if ((${#artifacts[@]})); then
+        mv "${artifacts[@]}" "$DIST_DIR"
+    fi
 }
 
 run_build arm64

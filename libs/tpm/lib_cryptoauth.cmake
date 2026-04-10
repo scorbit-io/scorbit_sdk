@@ -40,4 +40,22 @@ if(cryptoauth_ADDED)
             file(WRITE "${_uart_hal_file}" "${_uart_hal_content}")
         endif()
     endif()
+
+    # UNUSED_VAR is a no-op unless ATCA_UNUSED_VAR_CHECK; fix -Wunused-parameter for strict builds
+    set(_atcacert_def "${cryptoauth_SOURCE_DIR}/lib/atcacert/atcacert_def.c")
+    if(EXISTS "${_atcacert_def}")
+        file(READ "${_atcacert_def}" _atcacert_def_content)
+        set(_atcacert_def_orig "${_atcacert_def_content}")
+        string(REPLACE
+            "    ((void)cert);\n    ((void)cert_size);\n\n    if (NULL != cert_def)"
+            "    ((void)cert);\n    ((void)cert_size);\n    ((void)cert_subj_buf);\n\n    if (NULL != cert_def)"
+            _atcacert_def_content "${_atcacert_def_content}")
+        string(REPLACE
+            "    UNUSED_VAR(cert);\n    UNUSED_VAR(cert_size);\n\n    if (NULL != cert_def && NULL != cert_issuer)"
+            "    ((void)cert);\n    ((void)cert_size);\n\n    if (NULL != cert_def && NULL != cert_issuer)"
+            _atcacert_def_content "${_atcacert_def_content}")
+        if(NOT _atcacert_def_content STREQUAL _atcacert_def_orig)
+            file(WRITE "${_atcacert_def}" "${_atcacert_def_content}")
+        endif()
+    endif()
 endif()
