@@ -59,6 +59,8 @@ struct Tpm::Impl {
     ATCAIfaceCfg atcaConfig;
     ATCADevice atcaDevice {nullptr};
 
+    std::string usbDevicePath;
+
     ByteArray infoResult;
     ByteArray uuid;
     uint64_t serialNumber {0};
@@ -68,7 +70,7 @@ struct Tpm::Impl {
  * Tpm class
  ********************************************************************/
 
-Tpm::Tpm(TpmBusFlags busFlags)
+Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     : p {std::make_unique<Impl>()}
 {
     bool found = false;
@@ -81,9 +83,9 @@ Tpm::Tpm(TpmBusFlags busFlags)
         }
     }
 
-    // 2- Try to use the TPM on the Scorbit probe (USB HID)
+    // 2- Try to use the TPM on the Scorbit probe (USB CDC or HID)
     if (!found && busFlags.hasFlag(TpmBus::USB)) {
-        found = tryUsbBus(p.get());
+        found = tryUsbBus(p.get(), usbDevicePath);
     }
 
     if (found) {
@@ -356,10 +358,8 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus)
     return ok();
 }
 
-bool Tpm::tryUsbBus(Impl *p)
+bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath)
 {
-    INF("Trying USB TPM");
-
     // Re-initialize the atcaDevice and atcaConfig
     if (p->atcaDevice) {
         atcab_release_ext(&p->atcaDevice);
@@ -367,22 +367,39 @@ bool Tpm::tryUsbBus(Impl *p)
     p->atcaDevice = nullptr;
     p->atcaConfig = ATCAIfaceCfg();
 
-// Requires "ATCA_HAL_KIT_HID ON" in lib_cryptoauth.cmake
-#ifdef DM320118 // TPM on Microchip dev board
-    p->atcaConfig.iface_type = ATCA_HID_IFACE;
-    p->atcaConfig.devtype = ATECC608A;
-    p->atcaConfig.atcahid.idx = 0;
-    p->atcaConfig.atcahid.vid = 0x3eb;
-    p->atcaConfig.atcahid.pid = 0x2312;
-    p->atcaConfig.atcahid.packetsize = 64;
-#else  // TPM on Scorbit Probe
-    p->atcaConfig.iface_type = ATCA_HID_IFACE;
-    p->atcaConfig.devtype = ATECC508A;
-    p->atcaConfig.atcahid.idx = 0;
-    p->atcaConfig.atcahid.vid = 0xCAFE;
-    p->atcaConfig.atcahid.pid = 0x4005;
-    p->atcaConfig.atcahid.packetsize = 64;
-#endif // DM320118
+    if (!devicePath.empty()) {
+        // USB CDC path: use ATCA_UART_IFACE with the discovered serial device
+        INF("Trying USB CDC TPM at {}", devicePath);
+        p->usbDevicePath = devicePath;
+        p->atcaConfig.iface_type = ATCA_UART_IFACE;
+        p->atcaConfig.devtype = ATECC508A;
+        p->atcaConfig.atcauart.dev_interface = ATCA_KIT_AUTO_IFACE;
+        p->atcaConfig.atcauart.dev_identity = I2C_ADDRESS;
+        p->atcaConfig.atcauart.baud = 115200;
+        p->atcaConfig.atcauart.wordsize = 8;
+        p->atcaConfig.atcauart.parity = 2;   // none
+        p->atcaConfig.atcauart.stopbits = 1;
+        p->atcaConfig.cfg_data = const_cast<char *>(p->usbDevicePath.c_str());
+    } else {
+        // Legacy HID path (fallback when no CDC device path is provided)
+        INF("Trying USB HID TPM");
+#ifdef DM320118
+        p->atcaConfig.iface_type = ATCA_HID_IFACE;
+        p->atcaConfig.devtype = ATECC608A;
+        p->atcaConfig.atcahid.idx = 0;
+        p->atcaConfig.atcahid.vid = 0x3eb;
+        p->atcaConfig.atcahid.pid = 0x2312;
+        p->atcaConfig.atcahid.packetsize = 64;
+#else
+        p->atcaConfig.iface_type = ATCA_HID_IFACE;
+        p->atcaConfig.devtype = ATECC508A;
+        p->atcaConfig.atcahid.idx = 0;
+        p->atcaConfig.atcahid.vid = 0xCAFE;
+        p->atcaConfig.atcahid.pid = 0x4005;
+        p->atcaConfig.atcahid.packetsize = 64;
+#endif
+    }
+
     p->atcaConfig.wake_delay = 1500;
     p->atcaConfig.rx_retries = 20;
 

@@ -5,6 +5,9 @@
  *
  ****************************************************************************/
 
+// This define necessary for NFC probe (before include Probe.h)
+#define USE_PROBE_NFC
+
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
 #include "list_usb_devices.h"

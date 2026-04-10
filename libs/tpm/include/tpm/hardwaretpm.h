@@ -14,7 +14,7 @@
 class HardwareTpm : public ITpm
 {
 public:
-    HardwareTpm(TpmBusFlags busFlags);
+    HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath = {});
     ~HardwareTpm() override;
 
     bool hasTpm() const;
