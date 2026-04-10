@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-.PHONY: all clean armhf arm64 amd64 macos python
+.PHONY: all clean armhf arm64 amd64 macos python python27
 
 ARCHS := armhf arm64 amd64
 
@@ -23,6 +23,9 @@ macos:
 
 python:
 	./scripts/python-build.sh
+
+python27:
+	./scripts/python27-build.sh
 
 clean:
 	rm -rf build/armhf_u12 build/arm64_u20 build/amd64_u20

@@ -1,0 +1,413 @@
+# Scorbit SDK
+#
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
+#
+# MIT License
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+"""Game state wrapper -- the main entry point for interacting with the SDK.
+
+Use :func:`create_game_state` to obtain a :class:`GameState` instance.
+The object supports the context-manager protocol for automatic cleanup::
+
+    with scorbit.create_game_state(config) as gs:
+        gs.set_game_started(scorbit.GameStartOrigin.StartButton)
+        gs.set_score(1, 42000)
+        gs.commit()
+"""
+
+from __future__ import absolute_import
+
+import traceback
+from ctypes import POINTER, c_char_p, c_size_t, c_uint8
+
+from ._bindings import (
+    _lib,
+    sb_buffer_callback_t,
+    sb_string_callback_t,
+)
+from ._enums import AuthStatus, Error, GameStartOrigin
+from . import config as _config_mod
+from .config import Config, _encode
+
+
+class GameState(object):
+    """Wraps the native ``sb_game_handle_t`` opaque handle.
+
+    Modification methods (``set_score``, ``add_mode``, etc.) stage changes
+    locally.  Call :meth:`commit` to push them to the cloud.
+
+    Warning:
+        If the game is not active, all modification calls and ``commit()``
+        are silently ignored by the C SDK.
+    """
+
+    def __init__(self, handle, config):
+        # type: (int, Config) -> None
+        self._handle = handle
+        self._config = config
+        self._async_callbacks = []  # type: list
+
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.destroy()
+        return False
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def destroy(self):
+        # type: () -> None
+        """Destroy the game state and release all resources.
+
+        Safe to call multiple times.  Also called automatically when used
+        as a context manager or when garbage collected.
+        """
+        if self._handle:
+            _lib.sb_destroy_game_state(self._handle)
+            self._handle = None
+
+    def __del__(self):
+        self.destroy()
+
+    # ------------------------------------------------------------------
+    # Game flow
+    # ------------------------------------------------------------------
+
+    def set_game_started(self, origin):
+        # type: (int) -> None
+        """Mark the game as started.
+
+        Resets the game state: active player becomes Player 1 with score 0,
+        current ball is set to 1.  Has no effect if a game is already active.
+
+        After calling this, you must call :meth:`commit` to notify the cloud.
+
+        Args:
+            origin: How the game was started.  See :class:`GameStartOrigin`.
+        """
+        _lib.sb_set_game_started(self._handle, int(origin))
+
+    def set_game_finished(self):
+        # type: () -> None
+        """Mark the game as finished.
+
+        This automatically commits.  No further score/mode changes are
+        accepted after this call.
+        """
+        _lib.sb_set_game_finished(self._handle)
+
+    def set_current_ball(self, ball):
+        # type: (int) -> None
+        """Set the current ball number (1--9)."""
+        _lib.sb_set_current_ball(self._handle, ball)
+
+    def set_active_player(self, player):
+        # type: (int) -> None
+        """Set the active player (1--9).
+
+        If the player does not yet exist, it is created with score 0.
+        """
+        _lib.sb_set_active_player(self._handle, player)
+
+    def set_score(self, player, score, feature=0):
+        # type: (int, int, int) -> None
+        """Set a player's score.
+
+        Args:
+            player: Player number (1--9).
+            score: The new score.
+            feature: Optional score-feature index (0 = none).
+        """
+        _lib.sb_set_score(self._handle, player, score, feature)
+
+    # ------------------------------------------------------------------
+    # Modes
+    # ------------------------------------------------------------------
+
+    def add_mode(self, mode):
+        # type: (str) -> None
+        """Add a mode to the active mode list.
+
+        Args:
+            mode: e.g. ``"MB:Multiball"``.  Duplicates are ignored.
+        """
+        _lib.sb_add_mode(self._handle, _encode(mode))
+
+    def add_mode_expiring(self, mode, duration_seconds=3):
+        # type: (str, int) -> None
+        """Add a mode that auto-expires after *duration_seconds*.
+
+        Duration rules: ``0`` is normalised to ``3``; values above ``10``
+        are clamped to ``10``.  The recommended default is ``3``.
+        """
+        _lib.sb_add_mode_expiring(self._handle, _encode(mode), duration_seconds)
+
+    def remove_mode(self, mode):
+        # type: (str) -> None
+        """Remove a mode from the active list (no-op if absent)."""
+        _lib.sb_remove_mode(self._handle, _encode(mode))
+
+    def clear_modes(self):
+        # type: () -> None
+        """Remove all modes."""
+        _lib.sb_clear_modes(self._handle)
+
+    # ------------------------------------------------------------------
+    # Commit
+    # ------------------------------------------------------------------
+
+    def commit(self):
+        # type: () -> None
+        """Push all staged changes to the cloud.
+
+        Call this at the end of each game-loop cycle.  If nothing has
+        changed since the last commit, this is a no-op.
+        """
+        _lib.sb_commit(self._handle)
+
+    # ------------------------------------------------------------------
+    # Status (properties)
+    # ------------------------------------------------------------------
+
+    @property
+    def status(self):
+        # type: () -> AuthStatus
+        """Current authentication / pairing status."""
+        return AuthStatus(_lib.sb_get_status(self._handle))
+
+    @property
+    def machine_uuid(self):
+        # type: () -> str
+        """The machine UUID (derived from MAC if not set explicitly)."""
+        raw = _lib.sb_get_machine_uuid(self._handle)
+        if raw and isinstance(raw, bytes):
+            return raw.decode("utf-8", "replace")
+        return raw or ""
+
+    @property
+    def pair_deeplink(self):
+        # type: () -> str
+        """Pairing deeplink URL (empty if not yet authenticated/paired)."""
+        raw = _lib.sb_get_pair_deeplink(self._handle)
+        if raw and isinstance(raw, bytes):
+            return raw.decode("utf-8", "replace")
+        return raw or ""
+
+    # ------------------------------------------------------------------
+    # Async requests with callbacks
+    # ------------------------------------------------------------------
+
+    def _make_string_cb(self, callback):
+        """Wrap a Python ``(error, reply)`` callback in a C trampoline."""
+
+        @sb_string_callback_t
+        def _trampoline(error_code, reply, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                reply_str = reply
+                if isinstance(reply_str, bytes):
+                    reply_str = reply_str.decode("utf-8", "replace")
+                callback(Error(error_code), reply_str or "")
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        return _trampoline
+
+    def _make_buffer_cb(self, callback):
+        """Wrap a Python ``(error, data_bytes)`` callback in a C trampoline."""
+
+        @sb_buffer_callback_t
+        def _trampoline(error_code, data, size, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                buf = bytes(bytearray(data[:size])) if size else b""
+                callback(Error(error_code), buf)
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        return _trampoline
+
+    def request_top_scores(self, score_filter, callback):
+        # type: (int, ...) -> None
+        """Fetch leaderboard scores asynchronously.
+
+        If *score_filter* is non-zero, the result contains ten scores above
+        and below that value.
+
+        Args:
+            score_filter: Filter value, or ``0`` for unfiltered.
+            callback: ``(error, json) -> None``.
+        """
+        cb = self._make_string_cb(callback)
+        _lib.sb_request_top_scores(self._handle, score_filter, cb, None)
+
+    def request_pair_code(self, callback):
+        # type: (...) -> None
+        """Request a 6-character pairing short code.
+
+        Args:
+            callback: ``(error, code) -> None``.
+        """
+        cb = self._make_string_cb(callback)
+        _lib.sb_request_pair_code(self._handle, cb, None)
+
+    def request_unpair(self, callback):
+        # type: (...) -> None
+        """Request to unpair the device.
+
+        Args:
+            callback: ``(error, reply) -> None``.
+        """
+        cb = self._make_string_cb(callback)
+        _lib.sb_request_unpair(self._handle, cb, None)
+
+    # ------------------------------------------------------------------
+    # Capabilities / Credits
+    # ------------------------------------------------------------------
+
+    def set_capabilities(self, capabilities):
+        # type: (int) -> None
+        """Set device capabilities (bitwise OR of :class:`Capability` flags)."""
+        _lib.sb_set_capabilities(self._handle, capabilities)
+
+    def set_credits_dropped(self, credits, transaction, success):
+        # type: (int, str, bool) -> None
+        """Notify the cloud that credits were dropped.
+
+        Call this after handling a ``CreditsAddRequested`` event.
+
+        Args:
+            credits: Number of credits dropped.
+            transaction: Transaction ID from the event.
+            success: Whether the drop succeeded.
+        """
+        _lib.sb_set_credits_dropped(
+            self._handle, credits, _encode(transaction), success
+        )
+
+    def set_credits_status(self, free_play, credits, max_credits, pricing=""):
+        # type: (bool, int, int, str) -> None
+        """Report current credits status.
+
+        Call when ``CreditsStatusRequested`` is received or whenever the
+        credit count changes.
+
+        Args:
+            free_play: True if the machine is in free-play mode.
+            credits: Current credit count.
+            max_credits: Maximum credits the machine accepts.
+            pricing: Reserved for future use (pass ``""``).
+        """
+        _lib.sb_set_credits_status(
+            self._handle, free_play, credits, max_credits, _encode(pricing)
+        )
+
+    # ------------------------------------------------------------------
+    # Downloads
+    # ------------------------------------------------------------------
+
+    def download(self, url, filename, content_type, callback):
+        # type: (str, str, str, ...) -> None
+        """Download a file to local storage asynchronously.
+
+        Args:
+            url: Source URL.
+            filename: Local path to save to.
+            content_type: HTTP ``Accept`` content type (empty for default).
+            callback: ``(error, result) -> None``.
+        """
+        cb = self._make_string_cb(callback)
+        _lib.sb_download(
+            self._handle,
+            _encode(url),
+            _encode(filename),
+            _encode(content_type),
+            cb,
+            None,
+        )
+
+    def download_buffer(self, url, reserve_buffer_size, content_type, callback):
+        # type: (str, int, str, ...) -> None
+        """Download data into memory asynchronously.
+
+        Args:
+            url: Source URL.
+            reserve_buffer_size: Initial buffer size hint.
+            content_type: HTTP ``Accept`` content type (empty for default).
+            callback: ``(error, data) -> None``.
+        """
+        cb = self._make_buffer_cb(callback)
+        _lib.sb_download_buffer(
+            self._handle,
+            _encode(url),
+            reserve_buffer_size,
+            _encode(content_type),
+            cb,
+            None,
+        )
+
+    # ------------------------------------------------------------------
+    # Internal / scorbitd
+    # ------------------------------------------------------------------
+
+    def request_pair_machine(self, machine_uuid, owner_uuid, callback):
+        # type: (str, str, ...) -> None
+        cb = self._make_string_cb(callback)
+        _lib.sb_game_request_pair_machine(
+            self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
+        )
+
+
+def create_game_state(config):
+    # type: (Config) -> GameState
+    """Create a :class:`GameState` from a fully-configured :class:`Config`.
+
+    The config **must** have at least:
+
+    * ``set_provider(...)``
+    * ``set_machine_id(...)``
+    * ``set_game_code_version(...)``
+    * ``set_encrypted_key(...)`` **or** ``set_signer(...)``
+
+    Args:
+        config: A :class:`Config` instance.
+
+    Returns:
+        A new :class:`GameState` instance.
+
+    Raises:
+        RuntimeError: If the C SDK returns a null handle.
+
+    Example::
+
+        config = scorbit.Config()
+        config.set_provider("myprovider")
+        config.set_machine_id(4419)
+        config.set_game_code_version("1.0.0")
+        config.set_encrypted_key(key)
+
+        with scorbit.create_game_state(config) as gs:
+            ...
+    """
+    handle = _lib.sb_create_game_state(config._handle)
+    if not handle:
+        raise RuntimeError(
+            "Failed to create game state. Check that the Config has "
+            "provider, machine_id, game_code_version, and authentication "
+            "(encrypted_key or signer) set."
+        )
+    return GameState(handle, config)
