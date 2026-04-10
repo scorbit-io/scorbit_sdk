@@ -89,17 +89,10 @@ install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # ---- Create an installable target ----
 # this allows users to install and find the library via `find_package()`.
 
-# Detect architecture
-string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCHITECTURE)
-
-# Map architecture identifiers to standardized suffixes used in packaging
-if(ARCHITECTURE STREQUAL "armv7l")
-    set(ARCHITECTURE "armhf")
-elseif(ARCHITECTURE STREQUAL "aarch64")
-    set(ARCHITECTURE "arm64")
-elseif(ARCHITECTURE STREQUAL "x86_64")
-    set(ARCHITECTURE "amd64")
-endif()
+# Package suffix must match main SDK (see cmake/ArchDetect.cmake). CMAKE_SYSTEM_PROCESSOR is
+# often plain "arm" under cross-compilation; the compiler triple (e.g. arm-linux-gnueabihf) maps to armhf.
+include(${MY_CMAKE_DIR}/ArchDetect.cmake)
+set(ARCHITECTURE "${TARGET_ARCH}")
 
 # Set package file name to include architecture
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
