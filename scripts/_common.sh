@@ -25,7 +25,7 @@ docker_build() {
     echo "Build dir is: $BUILD_DIR"
 
     echo $CMD
-    docker container run --rm -it \
+    docker container run --rm \
         -v $(pwd):/src \
         -v $(pwd)/build/_cache:/cache \
         --workdir /src \
