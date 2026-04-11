@@ -158,18 +158,28 @@ def events_callback(event):
 def _pair_code_cb(error, short_code):
     if error == scorbit.Error.Success:
         print("Pairing short code: %s" % short_code)
+    elif error == scorbit.Error.ApiError:
+        print("API error: %s" % short_code)
     else:
         print("Error: %s" % error)
 
 def _top_scores_cb(error, reply):
     if error == scorbit.Error.Success:
         print("Top scores: %s" % reply)
+    elif error == scorbit.Error.NotPaired:
+        print("Device is not paired")
+    elif error == scorbit.Error.ApiError:
+        print("API error: %s" % reply)
     else:
         print("Error: %s" % error)
 
 def _unpair_cb(error, reply):
     if error == scorbit.Error.Success:
         print("Unpairing successful")
+    elif error == scorbit.Error.NotPaired:
+        print("Device is not paired")
+    elif error == scorbit.Error.ApiError:
+        print("API error: %s" % reply)
     else:
         print("Error: %s" % error)
 
@@ -212,6 +222,7 @@ def main():
     gs.request_top_scores(0, _top_scores_cb)
 
     print("Deeplink for pairing: %s" % gs.pair_deeplink)
+    print("Machine UUID: %s" % gs.machine_uuid)
 
     for i in range(100):
         if i % 10 == 0:
@@ -249,6 +260,8 @@ def main():
                 gs.remove_mode("MB:Multiball")
 
             gs.add_mode_expiring("MB:Multiball", 3)
+            gs.add_mode("NA:SomeMode")
+            gs.remove_mode("NA:AnotherMode")
 
             if time_to_clear_modes():
                 gs.clear_modes()
@@ -258,6 +271,8 @@ def main():
 
         time.sleep(0.5)
 
+    if hasattr(scorbit, "reset_logger"):
+        scorbit.reset_logger()
     gs.destroy()
     print("Example finished")
 

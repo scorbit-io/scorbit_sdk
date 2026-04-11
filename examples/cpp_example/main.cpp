@@ -175,7 +175,7 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
 // These callbacks are used to save and load a key to/from persistent storage.
 // The SDK will call these when it needs to persist or retrieve the key.
 
-const std::string KEY_FILE_PATH = "scorbit_device_key.json";
+const std::string KEY_FILE_PATH = "scorbit_key.txt";
 
 void saveKeyCallback(const std::string &key)
 {
@@ -296,9 +296,7 @@ scorbit::GameState setupGameState()
             .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
             // Provider's encrypted private key (generated using encrypt_tool).
             // Used for V2 provisioning authentication to prove provider identity.
-            .setEncryptedKey("8qWNpMPeO1AbgcoPSsdeUORGmO/"
-                             "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1t"
-                             "YaHLGkW4p/yWmA==")
+            .setEncryptedKey("8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==")
             .setEventCallback(eventsCallback)
             // Key persistence callbacks - required for software key provisioning.
             // On first run, the SDK provisions a new device key and saves it.
@@ -314,8 +312,6 @@ using namespace std::placeholders;
 
 int main()
 {
-    int playersCount = 1;
-
     cout << "Simple example of Scorbit SDK usage" << endl;
 
     // Setup logger with max 512 chars message length
@@ -355,8 +351,9 @@ int main()
     });
 
     cout << "Deeplink for pairing " << gs.getPairDeeplink() << endl;
+    cout << "Machine UUID: " << gs.getMachineUuid() << endl;
 
-    // Main loop which is typically an infinite loop, but this example runs for 10 cycles
+    // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
         // Check the auth (networking) status. It's not necessary, just for demo
         if (i % 10 == 0) {
@@ -407,7 +404,8 @@ int main()
 
             // It's not necessary to call setGameStarted, as it's automaticlly called when
             // request arrived and will be be ignored here
-            cout << "Started from mobile app with " << playersCount << " player(s)!" << endl;
+            cout << "Started from mobile app with " << gNumberOfPlayersRequested.load()
+                 << " player(s)!" << endl;
         }
 
         if (isGameActive(i)) {
@@ -463,6 +461,7 @@ int main()
         std::this_thread::sleep_for(500ms);
     }
 
+    scorbit::resetLogger();
     cout << "Example finished" << endl;
     return 0;
 }

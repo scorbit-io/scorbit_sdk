@@ -17,6 +17,9 @@
  * SOFTWARE.
  */
 
+// For nanosleep() we have to define _POSIX_C_SOURCE to avoid compilation warnings
+#define _POSIX_C_SOURCE 200809L // for older compilers
+
 #include <scorbit_sdk/scorbit_sdk_c.h>
 
 #include <stdio.h>
@@ -85,7 +88,7 @@ int player1Score(int i)
 {
     if (i == 5)
         return 0;
-    return 1010 + i * 500;
+    return 1000 + i * 500;
 }
 
 int hasPlayer2(void)
@@ -188,7 +191,7 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
 // These callbacks are used to save and load a key to/from persistent storage.
 // The SDK will call these when it needs to persist or retrieve the key.
 
-static const char *KEY_FILE_PATH = "scorbit_device_key.json";
+static const char *KEY_FILE_PATH = "scorbit_key.txt";
 
 void saveKeyCallback(const char *key, void *user_data)
 {
@@ -331,19 +334,19 @@ sb_game_handle_t setup_game_state(void)
     sb_config_t config = sb_config_create();
 
     // Set required parameters
-    sb_config_set_provider(config, "pedretti");
-    sb_config_set_machine_id(config, 4365);
+    sb_config_set_provider(config, "dilshodpinball");
+    sb_config_set_machine_id(config, 4379);
     sb_config_set_game_code_version(config, "0.1.0");
 
     // Set optional parameters
     sb_config_set_hostname(config, "staging"); // Optional, default is "production"
-    sb_config_set_auto_download_player_pics(config, false);
+    sb_config_set_auto_download_player_pics(config, true);
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);
 
     // Provider's encrypted private key (generated using encrypt_tool).
     // Used for V2 provisioning authentication to prove provider identity.
-    sb_config_set_encrypted_key(config, "C3DgX1/NpOG8qf8giUG0c0ZrvFe4wobdso02KRsobW2FWIgElq3cZRVt3wAH1zZQOvXF3KsHmOZU7wYeHl+7564Bcimgs3KurvJr8w==");
+    sb_config_set_encrypted_key(config, "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==");
 
     // Setup events callback - this must be done before creating the game state
     sb_config_set_event_callback(config, &eventsCallback, NULL);
@@ -434,14 +437,13 @@ int main(void)
     // Set capabilities. Here we set both start game and credit drop capabilities
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
-    // Request top scores
+    // Short code for pairing (6 alphanumeric chars); alternative to QR deeplink
+    sb_request_pair_code(gs, &shortcode_callback, NULL);
+
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
-    // Request deep link for pairing. This is useful if machine can display QR code.
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
-
-    // Alternatively, request short code for pairing which is alphanumeric 6 chars and display it
-    sb_request_pair_code(gs, &shortcode_callback, NULL);
+    printf("Machine UUID: %s\n", sb_get_machine_uuid(gs));
 
     // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
@@ -458,6 +460,10 @@ int main(void)
             sb_set_game_finished(gs);
         }
 
+        if (isUnpairTriggeredByUser()) {
+            sb_request_unpair(gs, &unpair_callback, NULL);
+        }
+
         if (isGameJustStartedByStartButton(i)) {
             // Game was just started by player pressing start button
 
@@ -467,12 +473,12 @@ int main(void)
             sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
         } else if (is_game_start_requested()) {
             // Game was started from the app and requested to start the game on the machine
-            // call function to start the game on the machine with players_count players ...
+            // Start on-cab with the player count from the lobby request (gNumberOfPlayersRequested).
             sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
             for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
                 sb_set_score(gs, i, 0, 0);
             }
-            printf("Started from mobile app with %d players!\n", players_count);
+            printf("Started from mobile app with %d players!\n", gNumberOfPlayersRequested);
         }
 
         if (isGameActive(i)) {
@@ -528,7 +534,7 @@ int main(void)
         // the commit will be ignored, avoiding unnecessary uploads.
         sb_commit(gs);
 
-        const int sleep_ms = 300;
+        const int sleep_ms = 500;
 #ifdef _WIN32
         Sleep(sleep_ms);
 #else
@@ -539,11 +545,8 @@ int main(void)
 #endif
     }
 
-    if (isUnpairTriggeredByUser()) {
-        sb_request_unpair(gs, &unpair_callback, NULL);
-    }
-
     // Cleanup
+    sb_reset_logger();
     sb_destroy_game_state(gs);
 
     struct timespec ts;
