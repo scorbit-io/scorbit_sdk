@@ -17,7 +17,7 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
-set(TRY_BOOST_VERSION 1.89.0) # Set the desired Boost version here for fetching by CPM
+set(TRY_BOOST_VERSION 1.90.0) # Set the desired Boost version here for fetching by CPM
 
 # Don't use find_package if boost was added by CPM, otherwise can't find include files
 if(NOT BOOST_ADDED_BY_CPM)
