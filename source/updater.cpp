@@ -62,6 +62,12 @@ fs::path findFile(const fs::path &dir, const std::regex &pattern)
     return {};
 }
 
+bool endsWith(const std::string &str, const std::string &suffix)
+{
+    return str.size() >= suffix.size()
+        && str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 } // namespace
 
 namespace scorbit {
@@ -187,8 +193,19 @@ Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
                 if (url_version != info.version) {
                     continue;
                 }
+
                 const auto platformId = match[3].str();
-                if (platformId == m_scorbitdPlatformId) {
+                // To transition from u20 to u18
+                const auto u18Equivalent = std::invoke([this]() {
+                    if (endsWith(m_scorbitdPlatformId, "u20")) {
+                        // If our platform ends with u20, accept u18 as a fallback
+                        return m_scorbitdPlatformId.substr(0, m_scorbitdPlatformId.size() - 3)
+                             + "u18";
+                    }
+                    return std::string {};
+                });
+                if (platformId == m_scorbitdPlatformId
+                    || (!u18Equivalent.empty() && platformId == u18Equivalent)) {
                     asset["download_url"].get_to(info.url);
                     asset["content_type"].get_to(info.contentType);
                     asset["size"].get_to(info.size);
