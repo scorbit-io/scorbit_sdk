@@ -82,6 +82,19 @@ fi
 echo "Using: $($PYTHON -c "import sys; print(sys.executable)")"
 echo "Staging directory: $STAGE"
 
+# Debian/Ubuntu Docker images often ship pip 22.x that runs PEP 517 in-process hooks
+# against the *system* setuptools (e.g. 59.x), which ignores PEP 621 [project] and
+# produces UNKNOWN-0.0.0 wheels. Use pip >=24 so wheel builds use a proper isolated toolchain.
+if ! "$PYTHON" -c "import sys
+import pip
+parts = pip.__version__.split(\".\")
+maj = int(parts[0])
+minr = int(parts[1]) if len(parts) > 1 else 0
+sys.exit(0 if maj > 24 or (maj == 24 and minr >= 0) else 1)" 2>/dev/null; then
+    echo "Upgrading pip (need >=24 for correct PEP 621 / pyproject wheel builds)..."
+    "$PYTHON" -m pip install -q --upgrade "pip>=24.2"
+fi
+
 $PYTHON -m pip wheel "$STAGE" --no-deps -w "$DIST_DIR"
 
 # Drop the staging tree unless debugging layout.
