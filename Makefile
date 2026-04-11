@@ -28,7 +28,7 @@ help:
 all: armhf arm64 amd64 python python27
 
 armhf arm64 amd64:
-	./scripts/l-build.sh $@
+	./scripts/linux-build.sh $@
 
 macos:
 	./scripts/macos-build.sh
@@ -40,4 +40,4 @@ python27:
 	./scripts/python27-build.sh
 
 clean:
-	rm -rf build/armhf_u12 build/arm64_u20 build/amd64_u20
+	rm -rf build/armhf_* build/arm64_* build/amd64_*

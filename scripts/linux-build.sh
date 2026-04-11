@@ -29,9 +29,9 @@ run_build() {
     if [ "$ARCH" == "armhf" ]; then
         SCORBIT_SDK_ABI="u12"
     elif [ "$ARCH" == "arm64" ]; then
-        SCORBIT_SDK_ABI="u20"
+        SCORBIT_SDK_ABI="u18"
     elif [ "$ARCH" == "amd64" ]; then
-        SCORBIT_SDK_ABI="u20"
+        SCORBIT_SDK_ABI="u18"
     fi
 
     DOCKER_IMAGE=dilshodm/gcc-builder:${REL}
