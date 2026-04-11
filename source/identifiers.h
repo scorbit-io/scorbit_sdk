@@ -31,6 +31,7 @@ constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid
 constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
 constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
 constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
+constexpr auto URL_SCORBITRON_DIAGNOSTICS {"v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
 
 constexpr auto URL_V2_PROVISION {"v2/provision/"};
 
@@ -198,10 +199,12 @@ constexpr auto JVAL_TYPE_ACTION {"action"};
 constexpr auto JKEY_METHOD {"method"};
 constexpr auto JVAL_METHOD_GET {"GET"};
 constexpr auto JVAL_METHOD_MSG {"MSG"};
+constexpr auto JVAL_METHOD_SIGNAL {"SIGNAL"};
 constexpr auto JKEY_URL {"url"};
 
 constexpr auto JKEY_ACTION_NAME {"name"};
 constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
+constexpr auto JVAL_ACTION_UPLOAD_DIAGNOSTICS {"scorbitronUploadDiagnostics"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

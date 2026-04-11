@@ -69,6 +69,8 @@ class EventType(IntEnum):
     ConfigReceived = 3
     PlayersUpdated = 4
     PlayerPictureReady = 5
+    DiagnosticsUploadRequested = 6
+    DiagnosticsUploaded = 7
 
     # Internal / scorbitd events
     _None = 1000

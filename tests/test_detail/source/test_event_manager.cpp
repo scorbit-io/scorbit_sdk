@@ -58,6 +58,16 @@ createConfigEvent(const nlohmann::json &config = nlohmann::json::object())
     return std::make_shared<ConfigReceivedEvent>(config);
 }
 
+std::shared_ptr<EventBase> createDiagnosticsUploadRequestedEvent(bool includeRecordings = false)
+{
+    return std::make_shared<DiagnosticsUploadRequestedEvent>(includeRecordings);
+}
+
+std::shared_ptr<EventBase> createDiagnosticsUploadedEvent(bool success = true)
+{
+    return std::make_shared<DiagnosticsUploadedEvent>(success);
+}
+
 } // namespace
 
 TEST_CASE("EventManager basic operations")
@@ -494,6 +504,73 @@ TEST_CASE("EventManager stress test")
         CHECK(highPriorityCount.load() + normalPriorityCount.load() == numEvents);
         CHECK(highPriorityCount.load() > 0);
         CHECK(normalPriorityCount.load() > 0);
+    }
+}
+
+TEST_CASE("EventManager diagnostics events")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    std::vector<EventType> receivedEvents;
+    auto callback = [&receivedEvents](const EventBase &event) {
+        receivedEvents.push_back(event.type());
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("Diagnostics events are delivered")
+    {
+        eventManager->push(createDiagnosticsUploadRequestedEvent(false));
+        eventManager->push(createDiagnosticsUploadedEvent(true));
+
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        CHECK(receivedEvents.size() == 2);
+        CHECK(receivedEvents[0] == EventType::DiagnosticsUploadRequested);
+        CHECK(receivedEvents[1] == EventType::DiagnosticsUploaded);
+    }
+
+    SECTION("Diagnostics events among other events (ordering)")
+    {
+        eventManager->push(createDiagnosticsUploadRequestedEvent(false)); // Normal priority
+        eventManager->push(createGameStartEvent(2));                      // Highest priority
+        eventManager->push(createDiagnosticsUploadedEvent(true));         // Normal priority
+        eventManager->push(createCreditsAddEvent(5));                     // High priority
+
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(receivedEvents.size() == 4);
+        CHECK(receivedEvents[0] == EventType::GameStartRequested);
+        CHECK(receivedEvents[1] == EventType::CreditsAddRequested);
+        // Normal priority events maintain FIFO
+        CHECK(receivedEvents[2] == EventType::DiagnosticsUploadRequested);
+        CHECK(receivedEvents[3] == EventType::DiagnosticsUploaded);
+    }
+
+    SECTION("Diagnostics event data extraction")
+    {
+        bool receivedIncludeRecordings = true;
+        bool receivedSuccess = false;
+
+        auto dataCallback = [&](const EventBase &event) {
+            if (event.type() == EventType::DiagnosticsUploadRequested) {
+                auto &e = static_cast<const DiagnosticsUploadRequestedEvent &>(event);
+                receivedIncludeRecordings = e.includeRecordings();
+            } else if (event.type() == EventType::DiagnosticsUploaded) {
+                auto &e = static_cast<const DiagnosticsUploadedEvent &>(event);
+                receivedSuccess = e.success();
+            }
+        };
+
+        auto mgr = std::make_shared<EventManager>(strand, dataCallback);
+        mgr->push(createDiagnosticsUploadRequestedEvent(false));
+        mgr->push(createDiagnosticsUploadedEvent(true));
+
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        CHECK(receivedIncludeRecordings == false);
+        CHECK(receivedSuccess == true);
     }
 }
 

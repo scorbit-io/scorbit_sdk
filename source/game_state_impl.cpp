@@ -284,6 +284,13 @@ void GameStateImpl::downloadBuffer(VectorCallback callback, const std::string &u
     m_net->downloadBuffer(std::move(callback), url, reserveBufferSize, contentType);
 }
 
+void GameStateImpl::uploadDiagnostics(std::vector<std::string> logPaths,
+                                      std::vector<std::string> recordingPaths,
+                                      std::string logString)
+{
+    m_net->uploadDiagnostics(std::move(logPaths), std::move(recordingPaths), std::move(logString));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

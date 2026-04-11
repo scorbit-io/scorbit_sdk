@@ -155,6 +155,32 @@ public:
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Diagnostics
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process a diagnostics upload requested event.
+     *
+     * @param includeRecordings [OUT] Whether recordings should be included.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getDiagnosticsUploadRequested(bool &includeRecordings) const
+    {
+        return ::sb_event_diagnostics_upload_requested(m_event, &includeRecordings);
+    }
+
+    /**
+     * @brief Helper function to process a diagnostics uploaded event.
+     *
+     * @param success [OUT] Whether the upload succeeded.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getDiagnosticsUploaded(bool &success) const
+    {
+        return ::sb_event_diagnostics_uploaded(m_event, &success);
+    }
+
     // ---------------- OEM providers can ignore the events below ----------------
 
     const sb_event_t *event() const { return m_event; }

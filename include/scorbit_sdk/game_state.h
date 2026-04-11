@@ -31,6 +31,7 @@
 #include <functional>
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace scorbit {
 
@@ -161,9 +162,9 @@ public:
      * @brief Add a mode that expires automatically after a duration (seconds).
      *
      * Duration rules: **0** becomes **3** seconds (recommended default); values **> 10** clamp to
-     * **10**; **1–10** unchanged. **3** seconds is recommended. No need to call @ref removeMode when
-     * the timer elapses; calling again with the same mode before expiry promotes it to the front
-     * and resets the timer.
+     * **10**; **1–10** unchanged. **3** seconds is recommended. No need to call @ref removeMode
+     * when the timer elapses; calling again with the same mode before expiry promotes it to the
+     * front and resets the timer.
      *
      * @code
      * game.addModeExpiring("MB:Multiball", 3); // recommended duration
@@ -359,6 +360,41 @@ public:
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing = nullptr)
     {
         sb_set_credits_status(m_handle.get(), freePlay, credits, maxCredits, pricing);
+    }
+
+    /**
+     * @brief Upload diagnostics (logs, recordings, and arbitrary text) to the Scorbit API.
+     *
+     * Creates a tar.gz archive from the provided files and text, then uploads it.
+     * The SDK enforces limits: max 5 log files (each <= 10 MB), max 2 recordings
+     * (each <= 20 MB), and log string truncated to 10 MB. Files exceeding limits are skipped.
+     *
+     * When the upload completes, a @ref EventType::DiagnosticsUploaded event is fired.
+     *
+     * @param logPaths List of file paths to log files.
+     * @param recordingPaths List of file paths to recording files.
+     * @param logString Arbitrary log text to include.
+     */
+    void uploadDiagnostics(const std::vector<std::string> &logPaths,
+                           const std::vector<std::string> &recordingPaths = {},
+                           const std::string &logString = {})
+    {
+        std::vector<const char *> logArr;
+        logArr.reserve(logPaths.size());
+        for (const auto &p : logPaths) {
+            logArr.push_back(p.c_str());
+        }
+
+        std::vector<const char *> recArr;
+        recArr.reserve(recordingPaths.size());
+        for (const auto &p : recordingPaths) {
+            recArr.push_back(p.c_str());
+        }
+
+        sb_upload_diagnostics(
+                m_handle.get(), logArr.empty() ? nullptr : const_cast<const char **>(logArr.data()),
+                logArr.size(), recArr.empty() ? nullptr : const_cast<const char **>(recArr.data()),
+                recArr.size(), logString.c_str());
     }
 
     // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------

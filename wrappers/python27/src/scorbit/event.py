@@ -211,3 +211,33 @@ class Event(object):
                 val = val.decode("utf-8", "replace")
             return val or ""
         return None
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
+    def get_diagnostics_upload_requested(self):
+        """Parse a ``DiagnosticsUploadRequested`` event.
+
+        Returns:
+            ``True`` if recordings should be included, ``False`` otherwise,
+            or ``None`` if the event type does not match.
+        """
+        include_recordings = c_bool(False)
+        if _lib.sb_event_diagnostics_upload_requested(
+            self._ptr, byref(include_recordings)
+        ):
+            return bool(include_recordings.value)
+        return None
+
+    def get_diagnostics_uploaded(self):
+        """Parse a ``DiagnosticsUploaded`` event.
+
+        Returns:
+            ``True`` if the upload succeeded, ``False`` otherwise,
+            or ``None`` if the event type does not match.
+        """
+        success = c_bool(False)
+        if _lib.sb_event_diagnostics_uploaded(self._ptr, byref(success)):
+            return bool(success.value)
+        return None

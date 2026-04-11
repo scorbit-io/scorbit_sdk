@@ -85,6 +85,9 @@ public:
     void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
                         const std::string &contentType = {});
 
+    void uploadDiagnostics(std::vector<std::string> logPaths,
+                           std::vector<std::string> recordingPaths, std::string logString);
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);

@@ -27,6 +27,7 @@
 #include "utils/machine_fingerprint.h"
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
+#include "utils/archiver.h"
 #include <utils/bytearray.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
@@ -40,6 +41,8 @@
 #include <boost/filesystem.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
+#include <algorithm>
+#include <fstream>
 #include <optional>
 #include <future>
 
@@ -65,7 +68,14 @@ constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
 constexpr auto NET_TIMEOUT = 14s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
+
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
+
+constexpr size_t DIAG_MAX_LOGS = 5;
+constexpr size_t DIAG_MAX_RECORDINGS = 2;
+constexpr uintmax_t DIAG_MAX_LOG_SIZE = 10 * 1024 * 1024 + 100;       // 10 MB
+constexpr uintmax_t DIAG_MAX_RECORDING_SIZE = 20 * 1024 * 1024 + 100; // 20 MB
+constexpr size_t DIAG_MAX_LOG_STRING_SIZE = 10 * 1024 * 1024 + 100;   // 10 MB
 
 constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
@@ -740,7 +750,8 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
     });
 }
 
-void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay, std::function<void()> fn)
+void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
+                                  std::function<void()> fn)
 {
     m_worker.stopTimer(Worker::Timer::ModeExpiry);
     m_worker.startTimer(Worker::Timer::ModeExpiry, delay, std::move(fn));
@@ -749,6 +760,141 @@ void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay, std
 void Net::cancelModeExpiryTimer()
 {
     m_worker.stopTimer(Worker::Timer::ModeExpiry);
+}
+
+void Net::uploadDiagnostics(std::vector<std::string> logPaths,
+                            std::vector<std::string> recordingPaths, std::string logString)
+{
+    m_worker.post([this, logPaths = std::move(logPaths), recordingPaths = std::move(recordingPaths),
+                   logString = std::move(logString)]() mutable {
+        INF("API diagnostics upload: starting");
+
+        std::vector<ArchiveFileEntry> archiveFiles;
+        std::vector<ArchiveMemoryEntry> archiveMemory;
+
+        auto filterPaths = [](std::vector<std::string> &paths, size_t maxCount, uintmax_t maxSize,
+                              const char *label) {
+            if (paths.size() > maxCount) {
+                WRN("Diagnostics: truncating {} from {} to {}", label, paths.size(), maxCount);
+                paths.resize(maxCount);
+            }
+            paths.erase(std::remove_if(paths.begin(), paths.end(),
+                                       [maxSize, label](const std::string &path) {
+                                           try {
+                                               if (!fs::exists(path)) {
+                                                   WRN("Diagnostics: {} file does not exist, "
+                                                       "skipping: {}",
+                                                       label, path);
+                                                   return true;
+                                               }
+                                               const auto size = fs::file_size(path);
+                                               if (size > maxSize) {
+                                                   WRN("Diagnostics: {} file too large ({} bytes), "
+                                                       "skipping: {}",
+                                                       label, size, path);
+                                                   return true;
+                                               }
+                                           } catch (const fs::filesystem_error &e) {
+                                               WRN("Diagnostics: error checking {} file, "
+                                                   "skipping: {}: {}",
+                                                   label, path, e.what());
+                                               return true;
+                                           }
+                                           return false;
+                                       }),
+                        paths.end());
+        };
+
+        filterPaths(logPaths, DIAG_MAX_LOGS, DIAG_MAX_LOG_SIZE, "log");
+        filterPaths(recordingPaths, DIAG_MAX_RECORDINGS, DIAG_MAX_RECORDING_SIZE, "recording");
+
+        for (const auto &path : logPaths) {
+            const auto filename = fs::path(path).filename().string();
+            archiveFiles.push_back({"logs/" + filename, path});
+        }
+
+        for (const auto &path : recordingPaths) {
+            const auto filename = fs::path(path).filename().string();
+            archiveFiles.push_back({"recordings/" + filename, path});
+        }
+
+        if (!logString.empty()) {
+            if (logString.size() > DIAG_MAX_LOG_STRING_SIZE) {
+                WRN("Diagnostics: log string too large ({} bytes), truncating to {} bytes",
+                    logString.size(), DIAG_MAX_LOG_STRING_SIZE);
+                logString.resize(DIAG_MAX_LOG_STRING_SIZE);
+            }
+            archiveMemory.push_back({"logs/extra.log", std::move(logString)});
+        }
+
+        if (archiveFiles.empty() && archiveMemory.empty()) {
+            WRN("Diagnostics: no files to upload");
+            m_eventManager->push(std::make_shared<DiagnosticsUploadedEvent>(false));
+            return;
+        }
+
+        {
+            std::string listing;
+            for (const auto &f : archiveFiles) {
+                if (!listing.empty()) {
+                    listing += ", ";
+                }
+                listing += fmt::format("{} <- {}", f.archivePath, f.sourcePath);
+            }
+            for (const auto &m : archiveMemory) {
+                if (!listing.empty()) {
+                    listing += ", ";
+                }
+                listing += fmt::format("{} (in-memory, {} bytes)", m.archivePath, m.data.size());
+            }
+            INF("Diagnostics: archive will include: {}", listing);
+        }
+
+        const auto tempDir = fs::temp_directory_path();
+        const auto unixTimeStamp = std::chrono::duration_cast<std::chrono::seconds>(
+                                           std::chrono::system_clock::now().time_since_epoch())
+                                           .count();
+        const auto archivePath =
+                (tempDir / fmt::format("diagnostics_{}.tar.gz", unixTimeStamp)).string();
+
+        if (!createTarGz(archivePath, archiveFiles, archiveMemory)) {
+            ERR("Diagnostics: failed to create archive");
+            m_eventManager->push(std::make_shared<DiagnosticsUploadedEvent>(false));
+            return;
+        }
+
+        INF("API diagnostics archive created: {}", archivePath);
+
+        if (!fs::exists(archivePath)) {
+            ERR("Diagnostics: archive missing after creation: {}", archivePath);
+            m_eventManager->push(std::make_shared<DiagnosticsUploadedEvent>(false));
+            return;
+        }
+
+        // Stream from disk via CPR (do not load the whole archive into memory).
+        SafeMultipart multipart {cpr::Multipart {
+                {"file", cpr::Files {cpr::File {archivePath, "diagnostics.tar.gz"}}},
+        }};
+
+        auto callback = [this, archivePath](Error error, std::string reply) {
+            fs::remove(archivePath);
+            if (error == Error::Success) {
+                INF("API diagnostics upload: success");
+                m_eventManager->push(std::make_shared<DiagnosticsUploadedEvent>(true));
+            } else {
+                ERR("API diagnostics upload: failed, error code: {}, reply: {}",
+                    static_cast<int>(error), reply);
+                m_eventManager->push(std::make_shared<DiagnosticsUploadedEvent>(false));
+            }
+        };
+
+        auto deferredSetup = [this, multipart = std::move(multipart)]() {
+            return std::make_tuple(url(URL_SCORBITRON_DIAGNOSTICS), std::move(multipart));
+        };
+
+        auto task = createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
+        task();
+    });
 }
 
 task_t Net::createAuthenticateTask()
@@ -960,10 +1106,9 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
         auto &gameSession = m_gameSessions[sessionId];
         sessionCounter = ++gameSession.sessionCounter;
         playerCount = gameSession.gameData.players.size();
-        elapsedMilliseconds =
-                chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
-                                                            - gameSession.startedTime)
-                        .count();
+        elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
+                                      chrono::steady_clock::now() - gameSession.startedTime)
+                                      .count();
     }
     const auto currentDateTime = to_iso8601(chrono::system_clock::now());
 
@@ -1061,10 +1206,9 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         const auto &gameSession = m_gameSessions[sessionId];
         sessionUuid = gameSession.sessionUuid;
         playerCount = gameSession.gameData.players.size();
-        elapsedMilliseconds =
-                chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()
-                                                            - gameSession.startedTime)
-                        .count();
+        elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
+                                      chrono::steady_clock::now() - gameSession.startedTime)
+                                      .count();
         isActive = gameSession.gameData.isGameActive;
         sessionCounterForForm = gameSession.sessionCounter;
         if (flags.has(SessionFlag::UploadHistoryLogs)) {
@@ -1102,8 +1246,8 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         formData.parts.push_back({JKEY_SESS_SUCCESSFULLY_COMPLETED, "True"});
     }
 
-    // History CSV logs — built under m_gameSessionsMutex from session.history (no GameHistory copy).
-    // csv must outlive formData for cpr::Buffer; SafeMultipart copies buffers later.
+    // History CSV logs — built under m_gameSessionsMutex from session.history (no GameHistory
+    // copy). csv must outlive formData for cpr::Buffer; SafeMultipart copies buffers later.
     if (flags.has(SessionFlag::UploadHistoryLogs)) {
         formData.parts.push_back(
                 {JKEY_SESS_LOG_FILE, cpr::Buffer(csv.cbegin(), csv.cend(), filename)});
@@ -2201,6 +2345,22 @@ void Net::centrifugoSetup()
                                 std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
+                    }
+                }
+            } else if (channel.find(CF_CHN_CONTROL_SCORBITRON) == 0) {
+                const auto &j = pub.data;
+                if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+                    payloadIt != j.end() && payloadIt->is_object()) {
+                    const auto type = j.value(JKEY_CHN_TYPE, "");
+                    if (type == JVAL_TYPE_ACTION) {
+                        const auto method = payloadIt->value(JKEY_METHOD, "");
+                        const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
+                        if (method == JVAL_METHOD_SIGNAL
+                            && name == JVAL_ACTION_UPLOAD_DIAGNOSTICS) {
+                            INF("API-CF Diagnostics upload requested via control channel");
+                            m_eventManager->push(
+                                    std::make_shared<DiagnosticsUploadRequestedEvent>(false));
+                        }
                     }
                 }
             }

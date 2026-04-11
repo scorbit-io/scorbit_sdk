@@ -196,6 +196,32 @@ SCORBIT_SDK_EXPORT
 bool sb_event_player_picture_ready(const sb_event_t *event, sb_player_t *player,
                                    const uint8_t **data, size_t *size);
 
+/**
+ * @brief Helper function to process a diagnostics upload requested event.
+ *
+ * The event type must be @ref SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED, otherwise the function
+ * returns false.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] include_recordings A pointer to a bool that will receive whether recordings
+ * should be included.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_diagnostics_upload_requested(const sb_event_t *event, bool *include_recordings);
+
+/**
+ * @brief Helper function to process a diagnostics uploaded event.
+ *
+ * The event type must be @ref SB_EVT_DIAGNOSTICS_UPLOADED, otherwise the function returns false.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] success A pointer to a bool that will receive whether the upload succeeded.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_diagnostics_uploaded(const sb_event_t *event, bool *success);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT

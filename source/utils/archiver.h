@@ -20,11 +20,25 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
 
 bool extract(const std::string &archivePath, const std::string &outputDir);
+
+struct ArchiveFileEntry {
+    std::string archivePath; // path inside archive (e.g. "logs/scorbitd.log")
+    std::string sourcePath;  // filesystem path
+};
+
+struct ArchiveMemoryEntry {
+    std::string archivePath; // path inside archive (e.g. "logs/extra.log")
+    std::string data;        // in-memory content
+};
+
+bool createTarGz(const std::string &outputPath, const std::vector<ArchiveFileEntry> &files,
+                 const std::vector<ArchiveMemoryEntry> &memoryEntries = {});
 
 } // namespace detail
 } // namespace scorbit

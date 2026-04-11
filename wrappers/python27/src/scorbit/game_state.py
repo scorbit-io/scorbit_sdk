@@ -361,6 +361,41 @@ class GameState(object):
         )
 
     # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
+    def upload_diagnostics(self, log_paths=None, recording_paths=None, log_string=""):
+        # type: (list, list, str) -> None
+        """Upload diagnostics (logs, recordings, arbitrary text) to the API.
+
+        The SDK enforces limits: max 5 log files (each <= 10 MB), max 2
+        recordings (each <= 20 MB), log string truncated to 10 MB.
+
+        When the upload completes, a ``DiagnosticsUploaded`` event is fired.
+
+        Args:
+            log_paths: List of file paths to log files.
+            recording_paths: List of file paths to recording files.
+            log_string: Arbitrary log text to include.
+        """
+        log_list = log_paths or []
+        rec_list = recording_paths or []
+
+        log_arr = (c_char_p * len(log_list))(
+            *[_encode(p) for p in log_list]
+        ) if log_list else None
+        rec_arr = (c_char_p * len(rec_list))(
+            *[_encode(p) for p in rec_list]
+        ) if rec_list else None
+
+        _lib.sb_upload_diagnostics(
+            self._handle,
+            log_arr, len(log_list),
+            rec_arr, len(rec_list),
+            _encode(log_string or ""),
+        )
+
+    # ------------------------------------------------------------------
     # Internal / scorbitd
     # ------------------------------------------------------------------
 

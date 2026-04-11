@@ -144,6 +144,20 @@ def events_callback(event):
             player_num, picture = result
             print(f"Player {player_num} picture ready: {len(picture)} bytes")
 
+    elif event.type == scorbit.EventType.DiagnosticsUploadRequested:
+        include_recordings = event.get_diagnostics_upload_requested()
+        if include_recordings is not None:
+            print(f"Diagnostics upload requested, include_recordings: {include_recordings}")
+            if gs:
+                gs.upload_diagnostics(log_string="example diagnostics log")
+                # In a real implementation, you may send log files:
+                # gs.upload_diagnostics(log_paths=["path/to/log1.txt", "path/to/log2.txt"], log_string="extra string log message")
+
+    elif event.type == scorbit.EventType.DiagnosticsUploaded:
+        success = event.get_diagnostics_uploaded()
+        if success is not None:
+            print(f"Diagnostics upload {'succeeded' if success else 'failed'}")
+
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:

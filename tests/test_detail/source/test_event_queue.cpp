@@ -56,6 +56,16 @@ createConfigEvent(const nlohmann::json &config = nlohmann::json::object())
     return std::make_shared<ConfigReceivedEvent>(config);
 }
 
+std::shared_ptr<EventBase> createDiagnosticsUploadRequestedEvent(bool includeRecordings = false)
+{
+    return std::make_shared<DiagnosticsUploadRequestedEvent>(includeRecordings);
+}
+
+std::shared_ptr<EventBase> createDiagnosticsUploadedEvent(bool success = true)
+{
+    return std::make_shared<DiagnosticsUploadedEvent>(success);
+}
+
 } // namespace
 
 TEST_CASE("EventQueue basic operations")
@@ -386,6 +396,59 @@ TEST_CASE("EventQueue event type verification")
         auto configEvent = std::dynamic_pointer_cast<ConfigReceivedEvent>(dequeuedEvent);
         REQUIRE(configEvent != nullptr);
         CHECK(configEvent->configJson() == configJson);
+    }
+
+    SECTION("DiagnosticsUploadRequestedEvent properties")
+    {
+        auto event = createDiagnosticsUploadRequestedEvent(true);
+        events.enqueue(std::move(event));
+
+        auto dequeuedEvent = events.dequeue();
+        REQUIRE(dequeuedEvent != nullptr);
+        CHECK(dequeuedEvent->type() == EventType::DiagnosticsUploadRequested);
+
+        auto diagEvent = std::dynamic_pointer_cast<DiagnosticsUploadRequestedEvent>(dequeuedEvent);
+        REQUIRE(diagEvent != nullptr);
+        CHECK(diagEvent->includeRecordings() == true);
+    }
+
+    SECTION("DiagnosticsUploadRequestedEvent default (no recordings)")
+    {
+        auto event = createDiagnosticsUploadRequestedEvent(false);
+        events.enqueue(std::move(event));
+
+        auto dequeuedEvent = events.dequeue();
+        REQUIRE(dequeuedEvent != nullptr);
+        auto diagEvent = std::dynamic_pointer_cast<DiagnosticsUploadRequestedEvent>(dequeuedEvent);
+        REQUIRE(diagEvent != nullptr);
+        CHECK(diagEvent->includeRecordings() == false);
+    }
+
+    SECTION("DiagnosticsUploadedEvent success")
+    {
+        auto event = createDiagnosticsUploadedEvent(true);
+        events.enqueue(std::move(event));
+
+        auto dequeuedEvent = events.dequeue();
+        REQUIRE(dequeuedEvent != nullptr);
+        CHECK(dequeuedEvent->type() == EventType::DiagnosticsUploaded);
+
+        auto diagEvent = std::dynamic_pointer_cast<DiagnosticsUploadedEvent>(dequeuedEvent);
+        REQUIRE(diagEvent != nullptr);
+        CHECK(diagEvent->success() == true);
+    }
+
+    SECTION("DiagnosticsUploadedEvent failure")
+    {
+        auto event = createDiagnosticsUploadedEvent(false);
+        events.enqueue(std::move(event));
+
+        auto dequeuedEvent = events.dequeue();
+        REQUIRE(dequeuedEvent != nullptr);
+
+        auto diagEvent = std::dynamic_pointer_cast<DiagnosticsUploadedEvent>(dequeuedEvent);
+        REQUIRE(diagEvent != nullptr);
+        CHECK(diagEvent->success() == false);
     }
 }
 

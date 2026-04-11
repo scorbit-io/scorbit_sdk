@@ -262,6 +262,27 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::DiagnosticsUploadRequested: {
+        bool includeRecordings = false;
+        if (event.getDiagnosticsUploadRequested(includeRecordings)) {
+            cout << "Diagnostics upload requested, includeRecordings: " << includeRecordings
+                 << endl;
+            if (gGameStatePtr) {
+                gGameStatePtr->uploadDiagnostics({}, {}, "example diagnostics log");
+                // In a real implementation, you may send log files:
+                // gGameStatePtr->uploadDiagnostics({"path/to/log1.txt", "path/to/log2.txt"}, {},
+                //                                  "extra string log message");
+            }
+        }
+    } break;
+
+    case scorbit::EventType::DiagnosticsUploaded: {
+        bool success = false;
+        if (event.getDiagnosticsUploaded(success)) {
+            cout << "Diagnostics upload " << (success ? "succeeded" : "failed") << endl;
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {
@@ -296,7 +317,9 @@ scorbit::GameState setupGameState()
             .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
             // Provider's encrypted private key (generated using encrypt_tool).
             // Used for V2 provisioning authentication to prove provider identity.
-            .setEncryptedKey("8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==")
+            .setEncryptedKey(
+                    "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+                    "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==")
             .setEventCallback(eventsCallback)
             // Key persistence callbacks - required for software key provisioning.
             // On first run, the SDK provisions a new device key and saves it.
