@@ -15,7 +15,7 @@ endif()
 
 CPMAddPackage(
     NAME cpr
-    GIT_TAG 1.12.0
+    GIT_TAG 1.14.1
     GITHUB_REPOSITORY libcpr/cpr
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
