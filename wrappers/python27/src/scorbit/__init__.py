@@ -53,7 +53,7 @@ from .config import Config
 from .event import Event
 from .game_state import GameState, create_game_state
 
-# -- logger API (C symbols always exported; spdlog SDK builds use no-op stubs) --
+# -- logger API (only when the native library wires callbacks; spdlog builds omit it) --
 from ._bindings import _has_logger as _has_logger, _lib as _lib
 
 if _has_logger:

@@ -19,6 +19,11 @@
 
 #include <scorbit_sdk/log_c.h>
 
+bool sb_logger_callbacks_supported(void)
+{
+    return false;
+}
+
 void sb_add_logger_callback(sb_log_callback_t callback, void *user_data, size_t max_length)
 {
     (void)callback;
