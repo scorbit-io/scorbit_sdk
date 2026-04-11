@@ -7,6 +7,8 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
+from __future__ import absolute_import, print_function
+
 import time
 from datetime import datetime
 import scorbit
@@ -75,7 +77,7 @@ def logger_callback(message, level, file, line, timestamp):
     level_str = {scorbit.LogLevel.Debug: "DBG", scorbit.LogLevel.Info: "INF",
                  scorbit.LogLevel.Warn: "WRN", scorbit.LogLevel.Error: "ERR"}.get(level, "UNK")
     dt = datetime.fromtimestamp(timestamp / 1000)
-    print(f"[{dt.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] [{level_str}] {message}")
+    print("[%s] [%s] %s" % (dt.strftime('%Y-%m-%d %H:%M:%S'), level_str, message))
 
 # -------- Key persistence callbacks --------
 # These callbacks are used to save and load a key to/from persistent storage.
@@ -84,22 +86,22 @@ def logger_callback(message, level, file, line, timestamp):
 KEY_FILE_PATH = "scorbit_key.txt"
 
 def save_key_callback(key):
-    print(f"Saving key to file: {KEY_FILE_PATH}")
+    print("Saving key to file: %s" % KEY_FILE_PATH)
     try:
         with open(KEY_FILE_PATH, 'w') as f:
             f.write(key)
     except Exception as e:
-        print(f"Failed to save key: {e}")
+        print("Failed to save key: %s" % e)
 
 def load_key_callback():
-    print(f"Loading key from file: {KEY_FILE_PATH}")
+    print("Loading key from file: %s" % KEY_FILE_PATH)
     try:
         with open(KEY_FILE_PATH, 'r') as f:
             return f.read()
-    except FileNotFoundError:
+    except IOError:
         return ""
     except Exception as e:
-        print(f"Failed to load key: {e}")
+        print("Failed to load key: %s" % e)
         return ""
 
 # -------- Event callback --------
@@ -107,19 +109,19 @@ def events_callback(event):
     global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
 
     gs = gs_holder[0]
-    print(f"Event received: {event.type}")
+    print("Event received: %s" % event.type)
 
     if event.type == scorbit.EventType.GameStartRequested:
         players_count = event.get_game_start_requested()
         if players_count is not None:
-            print(f"Game start requested with {players_count} player(s)")
+            print("Game start requested with %d player(s)" % players_count)
             G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM = players_count
 
     elif event.type == scorbit.EventType.CreditsAddRequested:
         result = event.get_credits_add_requested()
         if result is not None:
             credits_to_add, transaction = result
-            print(f"Credits add requested: {credits_to_add} credit(s)")
+            print("Credits add requested: %d credit(s)" % credits_to_add)
             if gs:
                 gs.set_credits_dropped(credits_to_add, transaction, True)
 
@@ -131,27 +133,45 @@ def events_callback(event):
     elif event.type == scorbit.EventType.PlayersUpdated:
         players_dict = event.get_players_updated()
         if players_dict is not None:
-            print(f"Players updated, count: {len(players_dict)}")
+            print("Players updated, count: %d" % len(players_dict))
             for num, info in players_dict.items():
                 if info.has_info():
-                    print(f"  Player {num}: {info.preferred_name} (id: {info.id})")
+                    print("  Player %d: %s (id: %s)" % (num, info.preferred_name, info.id))
                 else:
-                    print(f"  Player {num}: unclaimed, claim at {info.claim_deeplink}")
+                    print("  Player %d: unclaimed, claim at %s" % (num, info.claim_deeplink))
 
     elif event.type == scorbit.EventType.PlayerPictureReady:
         result = event.get_player_picture_ready()
         if result is not None:
             player_num, picture = result
-            print(f"Player {player_num} picture ready: {len(picture)} bytes")
+            print("Player %d picture ready: %d bytes" % (player_num, len(picture)))
 
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:
-            print(f"Config received: {config_json}")
+            print("Config received: %s" % config_json)
 
         payments_enabled = event.get_config_payments_enabled()
         if payments_enabled is not None:
-            print(f"Payments enabled: {payments_enabled}")
+            print("Payments enabled: %s" % payments_enabled)
+
+def _pair_code_cb(error, short_code):
+    if error == scorbit.Error.Success:
+        print("Pairing short code: %s" % short_code)
+    else:
+        print("Error: %s" % error)
+
+def _top_scores_cb(error, reply):
+    if error == scorbit.Error.Success:
+        print("Top scores: %s" % reply)
+    else:
+        print("Error: %s" % error)
+
+def _unpair_cb(error, reply):
+    if error == scorbit.Error.Success:
+        print("Unpairing successful")
+    else:
+        print("Error: %s" % error)
 
 def setup_game_state():
     config = scorbit.Config()
@@ -178,7 +198,7 @@ def setup_game_state():
 def main():
     global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
 
-    print(f"Simple example of Scorbit SDK {scorbit.__version__} usage")
+    print("Simple example of Scorbit SDK %s usage" % scorbit.__version__)
 
     # Setup logger
     scorbit.add_logger_callback(logger_callback, 512)
@@ -188,27 +208,20 @@ def main():
     # Set capabilities
     gs.set_capabilities(scorbit.Capability.StartGame | scorbit.Capability.CreditDrop)
 
-    gs.request_pair_code(lambda error, short_code: print(
-        f"Pairing short code: {short_code}" if error == scorbit.Error.Success else f"Error: {error}"
-    ))
+    gs.request_pair_code(_pair_code_cb)
+    gs.request_top_scores(0, _top_scores_cb)
 
-    gs.request_top_scores(0, lambda error, reply: print(
-        f"Top scores: {reply}" if error == scorbit.Error.Success else f"Error: {error}"
-    ))
-
-    print(f"Deeplink for pairing: {gs.pair_deeplink}")
+    print("Deeplink for pairing: %s" % gs.pair_deeplink)
 
     for i in range(100):
         if i % 10 == 0:
-            print(f"Networking status: {gs.status}")
+            print("Networking status: %s" % gs.status)
 
         if is_game_finished(i):
             gs.set_game_finished()
 
         if is_unpair_triggered_by_user():
-            gs.request_unpair(lambda error, reply: print(
-                "Unpairing successful" if error == scorbit.Error.Success else f"Error: {error}"
-            ))
+            gs.request_unpair(_unpair_cb)
 
         if is_game_just_started(i):
             gs.set_game_started(scorbit.GameStartOrigin.StartButton)
@@ -219,7 +232,7 @@ def main():
                 for j in range(players_count):
                     gs.set_score(j + 1, 0)
                 gs.set_game_started(scorbit.GameStartOrigin.FromLobby)
-                print(f"Game start requested with {players_count} players!")
+                print("Game start requested with %d players!" % players_count)
 
         if is_game_active(i):
             gs.set_score(1, player1_score(i), 2)
@@ -240,7 +253,7 @@ def main():
             if time_to_clear_modes():
                 gs.clear_modes()
 
-        print(f"Commit cycle {i}")
+        print("Commit cycle %d" % i)
         gs.commit()
 
         time.sleep(0.5)

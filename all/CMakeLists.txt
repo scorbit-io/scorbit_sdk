@@ -25,4 +25,4 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../tests ${CMAKE_BINARY_DIR}/tests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/documentation)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../examples ${CMAKE_BINARY_DIR}/examples)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../encrypt_tool/ ${CMAKE_BINARY_DIR}/encrypt_tool)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../wrappers/python ${CMAKE_BINARY_DIR}/python)
+# Python wrapper is now pure-Python (ctypes), built via pip/setuptools, not CMake.

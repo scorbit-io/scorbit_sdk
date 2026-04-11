@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-"""Scorbit SDK — Python wrapper (pure-Python / ctypes).
+"""Scorbit SDK -- Python 2.7 wrapper (pure-Python / ctypes).
 
 This package provides a Pythonic interface to the Scorbit SDK C library.
 The SDK shared library (``libscorbit_sdk.so`` / ``.dylib`` / ``.dll``) must
@@ -70,8 +70,7 @@ if _has_logger:
 
         The callback signature is::
 
-            def my_logger(message: str, level: LogLevel, file: str,
-                          line: int, timestamp: int) -> None:
+            def my_logger(message, level, file, line, timestamp):
                 ...
 
         Args:
@@ -89,10 +88,10 @@ if _has_logger:
             try:
                 msg = message
                 if isinstance(msg, bytes):
-                    msg = msg.decode("utf-8", errors="replace")
+                    msg = msg.decode("utf-8", "replace")
                 f = file
                 if isinstance(f, bytes):
-                    f = f.decode("utf-8", errors="replace")
+                    f = f.decode("utf-8", "replace")
                 callback(msg, LogLevel(level), f or "", line, timestamp)
             except Exception:
                 _traceback.print_exc()
@@ -104,7 +103,7 @@ if _has_logger:
         # type: () -> None
         """Remove all previously registered logger callbacks."""
         _lib.sb_reset_logger()
-        _logger_prevent_gc.clear()
+        del _logger_prevent_gc[:]
 
 
 __all__ = [
@@ -128,4 +127,4 @@ __all__ = [
 ]
 
 if _has_logger:
-    __all__ += ["add_logger_callback", "reset_logger"]
+    __all__ = __all__ + ["add_logger_callback", "reset_logger"]
