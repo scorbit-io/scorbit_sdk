@@ -265,5 +265,39 @@ private:
     std::vector<uint8_t> m_picture;
 };
 
+// ---------------- DiagnosticsUploadRequested implementation ----------------
+
+class DiagnosticsUploadRequestedEvent : public EventBase
+{
+public:
+    explicit DiagnosticsUploadRequestedEvent(bool includeRecordings)
+        : EventBase(EventType::DiagnosticsUploadRequested, EventPriority::Normal)
+        , m_includeRecordings {includeRecordings}
+    {
+    }
+
+    auto includeRecordings() const -> bool { return m_includeRecordings; }
+
+private:
+    bool m_includeRecordings;
+};
+
+// ---------------- DiagnosticsUploaded implementation ----------------
+
+class DiagnosticsUploadedEvent : public EventBase
+{
+public:
+    explicit DiagnosticsUploadedEvent(bool success)
+        : EventBase(EventType::DiagnosticsUploaded, EventPriority::Normal)
+        , m_success {success}
+    {
+    }
+
+    auto success() const -> bool { return m_success; }
+
+private:
+    bool m_success;
+};
+
 } // namespace detail
 } // namespace scorbit

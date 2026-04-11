@@ -28,6 +28,7 @@
 #include "session_flags.h"
 #include <boost/signals2.hpp>
 #include <string>
+#include <vector>
 #include <optional>
 #include <atomic>
 #include <chrono>
@@ -98,7 +99,15 @@ public:
         (void)fn;
     }
 
-    virtual void cancelModeExpiryTimer() {}
+    virtual void cancelModeExpiryTimer() { }
+
+    virtual void uploadDiagnostics(std::vector<std::string> logPaths,
+                                   std::vector<std::string> recordingPaths, std::string logString)
+    {
+        (void)logPaths;
+        (void)recordingPaths;
+        (void)logString;
+    }
 
     // ---------------------------------------------------------------------------------
 

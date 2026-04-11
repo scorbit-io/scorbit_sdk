@@ -175,12 +175,20 @@ struct JobDownloadBuffer {
     void *user_data;
 };
 
+struct JobUploadDiagnostics {
+    sb_game_state_struct *h;
+    std::vector<std::string> logPaths;
+    std::vector<std::string> recordingPaths;
+    std::string logString;
+};
+
 using ApiQueueItem = std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                                   JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
                                   JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
                                   JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                                   JobSetCapabilities, JobPairMachine, JobCreditsDropped,
-                                  JobCreditsStatus, JobDownload, JobDownloadBuffer>;
+                                  JobCreditsStatus, JobDownload, JobDownloadBuffer,
+                                  JobUploadDiagnostics>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -284,6 +292,11 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.downloadBuffer(
                                 makeBufferReplyBridge(j.callback, j.user_data), std::move(j.url),
                                 j.reserve_buffer_size, std::move(j.content_type));
+                    },
+                    [](JobUploadDiagnostics &&j) {
+                        j.h->gameState.uploadDiagnostics(std::move(j.logPaths),
+                                                         std::move(j.recordingPaths),
+                                                         std::move(j.logString));
                     },
             },
             std::move(item));
@@ -506,4 +519,28 @@ void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve
 {
     handle->postApiJob(JobDownloadBuffer {handle, copyCStr(url), reserve_buffer_size,
                                           copyCStr(content_type), callback, user_data});
+}
+
+void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+                           const char **recording_paths, size_t recording_count,
+                           const char *log_string)
+{
+    std::vector<std::string> logs;
+    logs.reserve(log_count);
+    for (size_t i = 0; i < log_count; ++i) {
+        if (log_paths && log_paths[i]) {
+            logs.emplace_back(log_paths[i]);
+        }
+    }
+
+    std::vector<std::string> recordings;
+    recordings.reserve(recording_count);
+    for (size_t i = 0; i < recording_count; ++i) {
+        if (recording_paths && recording_paths[i]) {
+            recordings.emplace_back(recording_paths[i]);
+        }
+    }
+
+    handle->postApiJob(
+            JobUploadDiagnostics {handle, std::move(logs), std::move(recordings), copyCStr(log_string)});
 }

@@ -81,6 +81,36 @@ bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_en
     return false;
 }
 
+bool sb_event_diagnostics_upload_requested(const sb_event_t *event, bool *include_recordings)
+{
+    if (!event || !include_recordings) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::DiagnosticsUploadRequestedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *include_recordings = derived->includeRecordings();
+    return true;
+}
+
+bool sb_event_diagnostics_uploaded(const sb_event_t *event, bool *success)
+{
+    if (!event || !success) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::DiagnosticsUploadedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *success = derived->success();
+    return true;
+}
+
 bool sb_event_config_received(const sb_event_t *event, const char **config_json)
 {
     if (!event || !config_json) {

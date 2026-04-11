@@ -365,6 +365,22 @@ _lib.sb_event_scorbitd_updated.argtypes = [c_void_p, POINTER(c_char_p), POINTER(
 _lib.sb_event_firmwares_list_received.restype = c_bool
 _lib.sb_event_firmwares_list_received.argtypes = [c_void_p, POINTER(c_char_p)]
 
+# bool sb_event_diagnostics_upload_requested(const sb_event_t*, bool*)
+_lib.sb_event_diagnostics_upload_requested.restype = c_bool
+_lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)]
+
+# bool sb_event_diagnostics_uploaded(const sb_event_t*, bool*)
+_lib.sb_event_diagnostics_uploaded.restype = c_bool
+_lib.sb_event_diagnostics_uploaded.argtypes = [c_void_p, POINTER(c_bool)]
+
+# void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
+#                             const char**, size_t, const char*)
+_lib.sb_upload_diagnostics.restype = None
+_lib.sb_upload_diagnostics.argtypes = [
+    sb_game_handle_t, POINTER(c_char_p), c_size_t,
+    POINTER(c_char_p), c_size_t, c_char_p
+]
+
 # ---------------------------------------------------------------------------
 # log_c.h (sb_add_logger_callback / sb_reset_logger; no-ops when SDK uses spdlog)
 # ---------------------------------------------------------------------------

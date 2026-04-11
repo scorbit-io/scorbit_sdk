@@ -68,6 +68,18 @@ typedef enum {
      */
     SB_EVT_PLAYER_PICTURE_READY,
 
+    /**
+     * @brief A request to upload diagnostics has been received.
+     * Use @ref sb_event_diagnostics_upload_requested to check if recordings should be included.
+     */
+    SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED,
+
+    /**
+     * @brief Diagnostics upload has completed.
+     * Use @ref sb_event_diagnostics_uploaded to check whether the upload succeeded.
+     */
+    SB_EVT_DIAGNOSTICS_UPLOADED,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

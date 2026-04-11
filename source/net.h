@@ -137,6 +137,9 @@ public:
                                  std::function<void()> fn) override;
     void cancelModeExpiryTimer() override;
 
+    void uploadDiagnostics(std::vector<std::string> logPaths,
+                           std::vector<std::string> recordingPaths, std::string logString) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,

@@ -23,6 +23,7 @@
 #include <boost/filesystem.hpp>
 #include <archive.h>
 #include <archive_entry.h>
+#include <fstream>
 #include <memory>
 
 namespace {
@@ -154,5 +155,94 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
     return r == ARCHIVE_EOF;
 }
 
+bool createTarGz(const std::string &outputPath, const std::vector<ArchiveFileEntry> &files,
+                 const std::vector<ArchiveMemoryEntry> &memoryEntries)
+{
+    if (files.empty() && memoryEntries.empty()) {
+        WRN("No entries to archive");
+        return false;
+    }
+
+    ArchiveWriterPtr writer(archive_write_new());
+    if (!writer) {
+        ERR("Failed to allocate libarchive writer");
+        return false;
+    }
+
+    archive_write_add_filter_gzip(writer.get());
+    archive_write_set_format_pax_restricted(writer.get());
+
+    if (archive_write_open_filename(writer.get(), outputPath.c_str()) != ARCHIVE_OK) {
+        ERR("Failed to open archive '{}': {}", outputPath, archiveErrorString(writer.get()));
+        return false;
+    }
+
+    auto writeEntry = [&](const std::string &archivePath, const char *data, size_t size) -> bool {
+        auto *entry = archive_entry_new();
+        if (!entry) {
+            ERR("Failed to allocate archive entry");
+            return false;
+        }
+
+        archive_entry_set_pathname(entry, archivePath.c_str());
+        archive_entry_set_size(entry, static_cast<la_int64_t>(size));
+        archive_entry_set_filetype(entry, AE_IFREG);
+        archive_entry_set_perm(entry, 0644);
+
+        if (archive_write_header(writer.get(), entry) != ARCHIVE_OK) {
+            ERR("Failed to write header for '{}': {}", archivePath,
+                archiveErrorString(writer.get()));
+            archive_entry_free(entry);
+            return false;
+        }
+
+        if (size > 0) {
+            if (archive_write_data(writer.get(), data, size) < static_cast<la_ssize_t>(size)) {
+                ERR("Failed to write data for '{}': {}", archivePath,
+                    archiveErrorString(writer.get()));
+                archive_entry_free(entry);
+                return false;
+            }
+        }
+
+        archive_entry_free(entry);
+        return true;
+    };
+
+    for (const auto &file : files) {
+        try {
+            if (!fs::exists(file.sourcePath)) {
+                WRN("Source file does not exist, skipping: {}", file.sourcePath);
+                continue;
+            }
+
+            const auto fileSize = fs::file_size(file.sourcePath);
+            std::ifstream ifs(file.sourcePath, std::ios::binary);
+            if (!ifs.is_open()) {
+                ERR("Failed to open source file: {}", file.sourcePath);
+                continue;
+            }
+
+            std::vector<char> buffer(fileSize);
+            ifs.read(buffer.data(), static_cast<std::streamsize>(fileSize));
+
+            if (!writeEntry(file.archivePath, buffer.data(), buffer.size())) {
+                return false;
+            }
+        } catch (const fs::filesystem_error &e) {
+            ERR("Filesystem error for '{}': {}", file.sourcePath, e.what());
+            continue;
+        }
+    }
+
+    for (const auto &mem : memoryEntries) {
+        if (!writeEntry(mem.archivePath, mem.data.data(), mem.data.size())) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 } // namespace detail
-} // namespace scorbits
+} // namespace scorbit

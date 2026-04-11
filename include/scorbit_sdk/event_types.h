@@ -31,6 +31,8 @@ enum class EventType {
     ConfigReceived = SB_EVT_CONFIG_RECEIVED,
     PlayersUpdated = SB_EVT_PLAYERS_UPDATED,
     PlayerPictureReady = SB_EVT_PLAYER_PICTURE_READY,
+    DiagnosticsUploadRequested = SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED,
+    DiagnosticsUploaded = SB_EVT_DIAGNOSTICS_UPLOADED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

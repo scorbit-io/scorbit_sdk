@@ -309,6 +309,27 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED: {
+        bool include_recordings = false;
+        if (sb_event_diagnostics_upload_requested(event, &include_recordings)) {
+            printf("Diagnostics upload requested, include_recordings: %d\n", include_recordings);
+            if (gGameStatePtr) {
+                sb_upload_diagnostics(gGameStatePtr, NULL, 0, NULL, 0, "extra diagnostics log");
+                // In a real implementation, you may send log files:
+                // const char *logs[] = {"path/to/log1.txt", "path/to/log2.txt"};
+                // sb_upload_diagnostics(gGameStatePtr, logs, sizeof(logs) / sizeof(logs[0]),
+                //                       NULL, 0, "extra string log message");
+            }
+        }
+    } break;
+
+    case SB_EVT_DIAGNOSTICS_UPLOADED: {
+        bool success = false;
+        if (sb_event_diagnostics_uploaded(event, &success)) {
+            printf("Diagnostics upload %s\n", success ? "succeeded" : "failed");
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;
@@ -346,7 +367,10 @@ sb_game_handle_t setup_game_state(void)
 
     // Provider's encrypted private key (generated using encrypt_tool).
     // Used for V2 provisioning authentication to prove provider identity.
-    sb_config_set_encrypted_key(config, "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==");
+    sb_config_set_encrypted_key(
+            config,
+            "8qWNpMPeO1AbgcoPSsdeUORGmO/"
+            "hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==");
 
     // Setup events callback - this must be done before creating the game state
     sb_config_set_event_callback(config, &eventsCallback, NULL);
@@ -473,7 +497,8 @@ int main(void)
             sb_set_game_started(gs, SB_GAME_STARTED_BY_BUTTON);
         } else if (is_game_start_requested()) {
             // Game was started from the app and requested to start the game on the machine
-            // Start on-cab with the player count from the lobby request (gNumberOfPlayersRequested).
+            // Start on-cab with the player count from the lobby request
+            // (gNumberOfPlayersRequested).
             sb_set_game_started(gs, SB_GAME_STARTED_FROM_LOBBY);
             for (int i = 1; i <= gNumberOfPlayersRequested; ++i) {
                 sb_set_score(gs, i, 0, 0);

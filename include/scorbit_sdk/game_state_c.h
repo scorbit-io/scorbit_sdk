@@ -391,6 +391,27 @@ SCORBIT_SDK_EXPORT
 void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits, int max_credits,
                            const char *pricing);
 
+/**
+ * @brief Upload diagnostics (logs, recordings, and arbitrary text) to the Scorbit API.
+ *
+ * Gathers the provided files and text, creates a tar.gz archive, and uploads it.
+ * The SDK enforces size limits: max 5 log files (each <= 10 MB), max 2 recording files
+ * (each <= 20 MB), and log string truncated to 10 MB. Files exceeding limits are skipped.
+ *
+ * When the upload completes, a @ref SB_EVT_DIAGNOSTICS_UPLOADED event is fired.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param log_paths Array of file paths to log files. Pass NULL if no log files.
+ * @param log_count Number of entries in log_paths.
+ * @param recording_paths Array of file paths to recording files. Pass NULL if no recordings.
+ * @param recording_count Number of entries in recording_paths.
+ * @param log_string Arbitrary log text to include. Pass NULL or empty if not needed.
+ */
+SCORBIT_SDK_EXPORT
+void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+                           const char **recording_paths, size_t recording_count,
+                           const char *log_string);
+
 // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 
 SCORBIT_SDK_EXPORT
