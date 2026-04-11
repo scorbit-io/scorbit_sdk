@@ -53,7 +53,7 @@ from .config import Config
 from .event import Event
 from .game_state import GameState, create_game_state
 
-# -- optional logger API (only available if the SDK was built with SCORBIT_LOGGER_CALLBACK) --
+# -- logger API (C symbols always exported; spdlog SDK builds use no-op stubs) --
 from ._bindings import _has_logger as _has_logger, _lib as _lib
 
 if _has_logger:
@@ -77,9 +77,6 @@ if _has_logger:
         Args:
             callback: The logger function.
             max_length: Maximum log message length passed to the callback.
-
-        Note:
-            Only available when the SDK is built with ``SCORBIT_LOGGER_CALLBACK``.
         """
 
         @_sb_log_callback_t

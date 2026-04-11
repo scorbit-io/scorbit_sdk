@@ -22,9 +22,9 @@
 #include "log_c.h"
 #include "log_types.h"
 
-namespace scorbit {
+#include <vector>
 
-#ifdef SCORBIT_LOGGER_CALLBACK
+namespace scorbit {
 
 namespace detail {
 
@@ -94,7 +94,5 @@ inline void resetLogger()
     }
     detail::g_callbacks().clear();
 }
-
-#endif // SCORBIT_LOGGER_CALLBACK
 
 } // namespace scorbit

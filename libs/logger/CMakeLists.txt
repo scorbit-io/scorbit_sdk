@@ -66,8 +66,6 @@ if(SCORBIT_LOGGER STREQUAL "callback")
 
     target_link_libraries(${PROJECT_NAME} PUBLIC Threads::Threads PRIVATE concurrentqueue)
 
-    target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_CALLBACK)
-
 elseif(SCORBIT_LOGGER STREQUAL "spdlog")
     message(STATUS "Logger backend: spdlog")
 
