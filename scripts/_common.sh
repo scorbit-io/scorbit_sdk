@@ -32,7 +32,28 @@ docker_build() {
         --user $(id -u):$(id -g) \
         -e SCORBIT_SDK_ENCRYPT_SECRET \
         -e CPM_SOURCE_CACHE="/cache" \
+        -e ARCH=$ARCH \
         $DOCKER_IMAGE bash -c "$CMD"
+}
+
+# Same image and volume layout as docker_build, but without a TTY (works under CI / scripts)
+# and without ARCH (not needed for pure-Python wheels). Used by python-build.sh / python27-build.sh.
+#
+# Runs as root (no --user): gcc-builder images often lack python3-venv; upgrading pip
+# inside the container for the wheel step requires write access to site-packages.
+docker_build_wheel() {
+    CMD=$1
+    DOCKER_IMAGE=$2
+
+    echo "Wheel build (Docker image: $DOCKER_IMAGE)"
+    echo "$CMD"
+    docker container run --rm \
+        -v "$(pwd):/src" \
+        -v "$(pwd)/build/_cache:/cache" \
+        --workdir /src \
+        -e SCORBIT_SDK_ENCRYPT_SECRET \
+        -e CPM_SOURCE_CACHE="/cache" \
+        "$DOCKER_IMAGE" bash -lc "$CMD"
 }
 
 # Print a message in green

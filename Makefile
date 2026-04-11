@@ -19,9 +19,11 @@ help:
 	@echo "  make arm64      - Build for ARM 64-bit (Linux)"
 	@echo "  make amd64      - Build for x86_64 (Linux)"
 	@echo "  make macos      - Build for macOS"
-	@echo "  make python     - Build Python 3.6+ wheel"
-	@echo "  make python27   - Build Python 2.7 wheel"
+	@echo "  make python     - Build Python 3.6+ wheel (Docker: dilshodm/gcc-builder, see DOCKER_RELEASE)"
+	@echo "  make python27   - Build Python 2.7 wheel (same Docker image)"
 	@echo "  make clean      - Remove build artifacts"
+	@echo ""
+	@echo "  SCORBIT_PYTHON_NO_DOCKER=1 make python   - Build Python wheel on host Python (no Docker)"
 
 all: armhf arm64 amd64 python python27
 

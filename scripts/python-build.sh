@@ -2,7 +2,7 @@
 
 # Scorbit SDK
 #
-# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
 #
 # MIT License
 #
@@ -22,6 +22,18 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/_common.sh"
 VER_STR=$(get_version "$REPO_ROOT/VERSION")
 
+# Same gcc-builder image as scripts/l-build.sh (see DOCKER_RELEASE), unless we are
+# already inside a container or SCORBIT_PYTHON_NO_DOCKER is set or Docker is unavailable.
+if [[ ! -f /.dockerenv ]] && [[ -z "${SCORBIT_PYTHON_NO_DOCKER:-}" ]] && docker info >/dev/null 2>&1; then
+    REL="$(cat "$REPO_ROOT/DOCKER_RELEASE")"
+    REL="${REL//[$'\t\r\n ']}"
+    BUILD_DIR="$REPO_ROOT/build/build_python"
+    DOCKER_IMAGE="dilshodm/gcc-builder:${REL}"
+    echo "!!! Building pure-Python wheel (scorbit $VER_STR) via Docker: $DOCKER_IMAGE !!!"
+    docker_build_wheel "./scripts/python-build.sh" "$DOCKER_IMAGE"
+    exit 0
+fi
+
 DIST_DIR="$REPO_ROOT/build/dist/$VER_STR"
 WRAPPER_DIR="$REPO_ROOT/wrappers/python"
 STAGE_ROOT="$REPO_ROOT/build/build_python"
@@ -39,7 +51,9 @@ rm -rf "$STAGE/build" "$STAGE/.eggs" 2>/dev/null || true
 find "$STAGE" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
 find "$STAGE" -type d -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
 
-# --- inject version from repo root (setuptools dynamic attr reads scorbit._version) ---
+# --- inject version from repo root ---
+printf '%s\n' "$VER_STR" > "$STAGE/PKG_VERSION"
+
 cat > "$STAGE/src/scorbit/_version.py" <<EOF
 # Scorbit SDK
 #
@@ -52,7 +66,7 @@ cat > "$STAGE/src/scorbit/_version.py" <<EOF
 __version__ = "${VER_STR}"
 EOF
 
-# Python 3.6+ with pip. Python 2.7 cannot build this project.
+# Python 3.6+ with pip. Inside Docker (gcc-builder) we upgrade pip once; the image has no python3-venv.
 _pick_wheel_python() {
     local candidates=()
     if [[ -n "${PYTHON:-}" ]]; then
@@ -74,7 +88,10 @@ _pick_wheel_python() {
     return 1
 }
 
-if ! PYTHON="$(_pick_wheel_python)"; then
+if [[ -f /.dockerenv ]]; then
+    python3 -m pip install -q -U "pip>=24.2" setuptools wheel
+    PYTHON="python3"
+elif ! PYTHON="$(_pick_wheel_python)"; then
     echo "Could not find Python 3.6+ with pip (python -m pip --version must work)."
     exit 1
 fi
@@ -82,17 +99,17 @@ fi
 echo "Using: $($PYTHON -c "import sys; print(sys.executable)")"
 echo "Staging directory: $STAGE"
 
-# Debian/Ubuntu Docker images often ship pip 22.x that runs PEP 517 in-process hooks
-# against the *system* setuptools (e.g. 59.x), which ignores PEP 621 [project] and
-# produces UNKNOWN-0.0.0 wheels. Use pip >=24 so wheel builds use a proper isolated toolchain.
-if ! "$PYTHON" -c "import sys
+# Host only: Debian/Ubuntu system pip <24 can produce UNKNOWN wheels (see wrappers/python/README).
+if [[ ! -f /.dockerenv ]]; then
+    if ! "$PYTHON" -c "import sys
 import pip
 parts = pip.__version__.split(\".\")
 maj = int(parts[0])
 minr = int(parts[1]) if len(parts) > 1 else 0
 sys.exit(0 if maj > 24 or (maj == 24 and minr >= 0) else 1)" 2>/dev/null; then
-    echo "Upgrading pip (need >=24 for correct PEP 621 / pyproject wheel builds)..."
-    "$PYTHON" -m pip install -q --upgrade "pip>=24.2"
+        echo "Upgrading pip (need >=24 for correct PEP 621 / pyproject wheel builds)..."
+        "$PYTHON" -m pip install -q --upgrade "pip>=24.2"
+    fi
 fi
 
 $PYTHON -m pip wheel "$STAGE" --no-deps -w "$DIST_DIR"

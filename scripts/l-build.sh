@@ -34,7 +34,7 @@ run_build() {
         SCORBIT_SDK_ABI="u20"
     fi
 
-    DOCKER_IMAGE=dilshodm/gcc-builder-$ARCH:${REL}
+    DOCKER_IMAGE=dilshodm/gcc-builder:${REL}
     build_using_docker "$ARCH" "$VERSION" "$SCORBIT_SDK_ABI" "$DOCKER_IMAGE"
 }
 

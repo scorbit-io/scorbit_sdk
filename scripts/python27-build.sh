@@ -23,6 +23,17 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/_common.sh"
 VER_STR=$(get_version "$REPO_ROOT/VERSION")
 
+# Same gcc-builder image as scripts/l-build.sh (see DOCKER_RELEASE).
+if [[ ! -f /.dockerenv ]] && [[ -z "${SCORBIT_PYTHON_NO_DOCKER:-}" ]] && docker info >/dev/null 2>&1; then
+    REL="$(cat "$REPO_ROOT/DOCKER_RELEASE")"
+    REL="${REL//[$'\t\r\n ']}"
+    BUILD_DIR="$REPO_ROOT/build/build_python27"
+    DOCKER_IMAGE="dilshodm/gcc-builder:${REL}"
+    echo "!!! Building pure-Python 2.7 wheel (scorbit $VER_STR) via Docker: $DOCKER_IMAGE !!!"
+    docker_build_wheel "./scripts/python27-build.sh" "$DOCKER_IMAGE"
+    exit 0
+fi
+
 DIST_DIR="$REPO_ROOT/build/dist/$VER_STR"
 WRAPPER_DIR="$REPO_ROOT/wrappers/python27"
 STAGE_ROOT="$REPO_ROOT/build/build_python27"

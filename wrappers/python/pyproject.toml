@@ -8,7 +8,7 @@
 # all copies or substantial portions of the Software.
 
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -46,8 +46,9 @@ Homepage = "https://scorbit.io"
 Repository = "https://github.com/scorbit/scorbit_sdk"
 
 [tool.setuptools.dynamic]
-# Value is overwritten in build/build_python/stage/ from repo root VERSION at wheel time.
-version = { attr = "scorbit._version.__version__" }
+# Single-line version for setuptools (no ``import scorbit`` during metadata; see README).
+# Stubs 0.0.0+dev in PKG_VERSION; scripts/python-build.sh overwrites PKG_VERSION in the stage.
+version = { file = "PKG_VERSION" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
