@@ -237,11 +237,11 @@ target_sources(
         source/soft_key_resolver.cpp
 )
 
-# Conditionally include callback logger API implementation
+# Callback logger: full C bridge; spdlog: no-op stubs so public headers always link
 if(SCORBIT_LOGGER STREQUAL "callback")
     target_sources(${PROJECT_NAME} PRIVATE source/log_c.cpp)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_CALLBACK)
 elseif(SCORBIT_LOGGER STREQUAL "spdlog")
+    target_sources(${PROJECT_NAME} PRIVATE source/log_c_stub.cpp)
     target_compile_definitions(${PROJECT_NAME} PUBLIC SCORBIT_LOGGER_SPDLOG)
 endif()
 

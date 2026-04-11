@@ -18,25 +18,17 @@
  */
 
 #include <scorbit_sdk/log_c.h>
-#include <logger/logger_callback.h>
 
 bool sb_logger_callbacks_supported(void)
 {
-    return true;
+    return false;
 }
 
 void sb_add_logger_callback(sb_log_callback_t callback, void *user_data, size_t max_length)
 {
-    logger::addCallback(
-            [callback, user_data](const std::string &message, logger::LogLevel level,
-                                  const char *file, int line, int64_t timestamp) {
-                callback(message.c_str(), static_cast<sb_log_level_t>(level), file, line, timestamp,
-                         user_data);
-            },
-            max_length);
+    (void)callback;
+    (void)user_data;
+    (void)max_length;
 }
 
-void sb_reset_logger(void)
-{
-    logger::resetCallbacks();
-}
+void sb_reset_logger(void) {}

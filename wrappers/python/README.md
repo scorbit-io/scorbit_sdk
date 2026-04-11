@@ -175,9 +175,9 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 | `claim_deeplink` | Claim URL (empty slots) |
 | `has_info()` | Whether the slot is claimed |
 
-### Logger (optional)
+### Logger
 
-Only if the SDK was built with `SCORBIT_LOGGER_CALLBACK`.
+If logger callback is registered it will receive log lines from SDK.
 
 ```python
 def my_logger(message, level, file, line, timestamp):

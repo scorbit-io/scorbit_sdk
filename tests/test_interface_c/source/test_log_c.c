@@ -22,8 +22,6 @@
 #include <munit.h>
 #include <stdio.h>
 
-#ifdef SCORBIT_LOGGER_CALLBACK
-
 typedef struct {
     sb_log_level_t level;
     int line;
@@ -54,17 +52,27 @@ static MunitResult test_sb_add_logger_callback(const MunitParameter params[], vo
     return MUNIT_OK;
 }
 
+static MunitResult test_sb_logger_callbacks_supported(const MunitParameter params[], void *user_data)
+{
+    (void)params;
+    (void)user_data;
+
+#ifdef SCORBIT_LOGGER_SPDLOG
+    munit_assert(!sb_logger_callbacks_supported());
+#else
+    munit_assert(sb_logger_callbacks_supported());
+#endif
+    return MUNIT_OK;
+}
+
 // Test suite setup
-static MunitTest tests[] = {{"/sb_add_logger_callback/add_callback",
-                             test_sb_add_logger_callback, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
-                            {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
-
-#else // !SCORBIT_LOGGER_CALLBACK
-
-// No callback tests when using spdlog backend
-static MunitTest tests[] = {{NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
-
-#endif // SCORBIT_LOGGER_CALLBACK
+static MunitTest tests[] = {
+    {"/sb_add_logger_callback/add_callback", test_sb_add_logger_callback, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {"/sb_logger_callbacks_supported/matches_build", test_sb_logger_callbacks_supported, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+};
 
 // =======================================================================================
 

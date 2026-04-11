@@ -21,13 +21,23 @@
 
 #include "log_types_c.h"
 #include <scorbit_sdk/export.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#ifdef SCORBIT_LOGGER_CALLBACK
+/**
+ * @brief Reports whether @ref sb_add_logger_callback installs a live callback path.
+ *
+ * When the SDK is built with the spdlog backend, @ref sb_add_logger_callback is a no-op stub
+ * (log output uses spdlog instead) and this function returns `false`. Callback-logger builds
+ * return `true`.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_logger_callbacks_supported(void);
+
 /**
  * @brief Add a logger callback function to be invoked for log messages.
  *
@@ -61,7 +71,6 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *user_data, size_t 
  */
 SCORBIT_SDK_EXPORT
 void sb_reset_logger(void);
-#endif // SCORBIT_LOGGER_CALLBACK
 
 #ifdef __cplusplus
 }

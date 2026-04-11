@@ -187,9 +187,9 @@ Helpers return parsed data or `None` if the type does not match.
 | `claim_deeplink` | Claim URL (empty slots) |
 | `has_info()` | Whether the slot is claimed |
 
-### Logger (optional)
+### Logger
 
-Only if the SDK was built with `SCORBIT_LOGGER_CALLBACK`. The `level` argument is a `LogLevel` member (compare to `scorbit.LogLevel.Info`, etc.).
+If logger callback is registered it will receive log lines from SDK. The `level` argument is a `LogLevel` member (compare to `scorbit.LogLevel.Info`, etc.).
 
 ```python
 def my_logger(message, level, file, line, timestamp):

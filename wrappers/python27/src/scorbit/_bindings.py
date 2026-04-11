@@ -366,10 +366,18 @@ _lib.sb_event_firmwares_list_received.restype = c_bool
 _lib.sb_event_firmwares_list_received.argtypes = [c_void_p, POINTER(c_char_p)]
 
 # ---------------------------------------------------------------------------
-# log_c.h  (may or may not be present depending on SCORBIT_LOGGER_CALLBACK)
+# log_c.h (sb_add_logger_callback / sb_reset_logger; no-ops when SDK uses spdlog)
 # ---------------------------------------------------------------------------
 
-_has_logger = hasattr(_lib, "sb_add_logger_callback")
+_has_logger = False
+if hasattr(_lib, "sb_add_logger_callback"):
+    if hasattr(_lib, "sb_logger_callbacks_supported"):
+        _lib.sb_logger_callbacks_supported.restype = c_bool
+        _lib.sb_logger_callbacks_supported.argtypes = []
+        _has_logger = bool(_lib.sb_logger_callbacks_supported())
+    else:
+        # Older SDKs: symbol exists but we cannot tell spdlog stub vs callback at runtime.
+        _has_logger = True
 
 if _has_logger:
     # void sb_add_logger_callback(sb_log_callback_t, void*, size_t)

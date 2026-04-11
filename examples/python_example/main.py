@@ -175,6 +175,34 @@ def setup_game_state():
     gs_holder[0] = gs
     return gs
 
+def _pair_code_cb(error, short_code):
+    if error == scorbit.Error.Success:
+        print(f"Pairing short code: {short_code}")
+    elif error == scorbit.Error.ApiError:
+        print(f"API error: {short_code}")
+    else:
+        print(f"Error: {error}")
+
+def _top_scores_cb(error, reply):
+    if error == scorbit.Error.Success:
+        print(f"Top scores: {reply}")
+    elif error == scorbit.Error.NotPaired:
+        print("Device is not paired")
+    elif error == scorbit.Error.ApiError:
+        print(f"API error: {reply}")
+    else:
+        print(f"Error: {error}")
+
+def _unpair_cb(error, reply):
+    if error == scorbit.Error.Success:
+        print("Unpairing successful")
+    elif error == scorbit.Error.NotPaired:
+        print("Device is not paired")
+    elif error == scorbit.Error.ApiError:
+        print(f"API error: {reply}")
+    else:
+        print(f"Error: {error}")
+
 def main():
     global G_GAME_START_REQUESTED_FROM_LOBBY_PLAYERS_NUM
 
@@ -188,15 +216,11 @@ def main():
     # Set capabilities
     gs.set_capabilities(scorbit.Capability.StartGame | scorbit.Capability.CreditDrop)
 
-    gs.request_pair_code(lambda error, short_code: print(
-        f"Pairing short code: {short_code}" if error == scorbit.Error.Success else f"Error: {error}"
-    ))
-
-    gs.request_top_scores(0, lambda error, reply: print(
-        f"Top scores: {reply}" if error == scorbit.Error.Success else f"Error: {error}"
-    ))
+    gs.request_pair_code(_pair_code_cb)
+    gs.request_top_scores(0, _top_scores_cb)
 
     print(f"Deeplink for pairing: {gs.pair_deeplink}")
+    print(f"Machine UUID: {gs.machine_uuid}")
 
     for i in range(100):
         if i % 10 == 0:
@@ -206,9 +230,7 @@ def main():
             gs.set_game_finished()
 
         if is_unpair_triggered_by_user():
-            gs.request_unpair(lambda error, reply: print(
-                "Unpairing successful" if error == scorbit.Error.Success else f"Error: {error}"
-            ))
+            gs.request_unpair(_unpair_cb)
 
         if is_game_just_started(i):
             gs.set_game_started(scorbit.GameStartOrigin.StartButton)
@@ -236,6 +258,8 @@ def main():
                 gs.remove_mode("MB:Multiball")
 
             gs.add_mode_expiring("MB:Multiball", 3)
+            gs.add_mode("NA:SomeMode")
+            gs.remove_mode("NA:AnotherMode")
 
             if time_to_clear_modes():
                 gs.clear_modes()
@@ -245,6 +269,8 @@ def main():
 
         time.sleep(0.5)
 
+    if hasattr(scorbit, "reset_logger"):
+        scorbit.reset_logger()
     gs.destroy()
     print("Example finished")
 
