@@ -150,6 +150,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `commit()` | Push updates to the cloud. |
 | `status` | `AuthStatus`. |
 | `machine_uuid` | Machine UUID string. |
+| `machine_serial` | Machine serial number (`int`, unsigned 64-bit; same as TPM / device info). |
 | `pair_deeplink` | Pairing URL. |
 | `request_top_scores(filter, cb)` | Async leaderboard. |
 | `request_pair_code(cb)` | Async pairing code. |

@@ -230,6 +230,11 @@ const std::string &GameStateImpl::getMachineUuid() const
     return m_net->getMachineUuid();
 }
 
+std::uint64_t GameStateImpl::getMachineSerial() const
+{
+    return m_net->getMachineSerial();
+}
+
 const std::string &GameStateImpl::getPairDeeplink() const
 {
     return m_net->getPairDeeplink();

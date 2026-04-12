@@ -508,6 +508,11 @@ const string &Net::getMachineUuid() const
     return m_deviceInfo.uuid;
 }
 
+std::uint64_t Net::getMachineSerial() const
+{
+    return m_deviceInfo.serialNumber;
+}
+
 const string &Net::getPairDeeplink() const
 {
     m_cachedPairDeeplink =

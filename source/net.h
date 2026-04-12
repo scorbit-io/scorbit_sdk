@@ -32,6 +32,7 @@
 #include <fmt/format.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <chrono>
@@ -104,6 +105,7 @@ public:
     void requestPairCode(StringCallback callback) override;
 
     const std::string &getMachineUuid() const override;
+    std::uint64_t getMachineSerial() const override;
     const std::string &getPairDeeplink() const override;
 
     const DeviceInfo &deviceInfo() const override;

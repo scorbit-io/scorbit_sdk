@@ -264,6 +264,19 @@ SCORBIT_SDK_EXPORT
 const char *sb_get_machine_uuid(sb_game_handle_t handle);
 
 /**
+ * @brief Retrieve the machine serial number.
+ *
+ * The value matches @ref sb_device_info_t::serial_number (TPM / provisioning): a 64-bit unsigned
+ * integer. It comes from the device configuration (@ref sb_config_set_serial_number) and may be
+ * updated after key resolution / provisioning when applicable.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @return The serial number, or ``0`` if unset.
+ */
+SCORBIT_SDK_EXPORT
+uint64_t sb_get_machine_serial(sb_game_handle_t handle);
+
+/**
  * @brief Retrieve the pairing deeplink.
  *
  * @note The pointer to the string remains valid until this function is called again or the handle

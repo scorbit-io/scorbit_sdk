@@ -23,6 +23,8 @@
 #include <scorbit_sdk/scorbit_sdk_c.h>
 
 #include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <time.h>
 #include <string.h>
 #include <pthread.h>
@@ -467,7 +469,10 @@ int main(void)
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
-    printf("Machine UUID: %s\n", sb_get_machine_uuid(gs));
+
+    // Log machine UUID / serial at most once each, after sb_commit(), when the SDK has populated
+    // them (often asynchronously). Empty UUID or serial 0 means "not ready yet" for this demo.
+    bool is_logged_machine_serial = false;
 
     // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
@@ -558,6 +563,19 @@ int main(void)
         // in the game state are captured and sent to the cloud. If no changes occurred,
         // the commit will be ignored, avoiding unnecessary uploads.
         sb_commit(gs);
+
+        // Log machine serial and UUID at most once, when they become available (non 0 serial)
+        if (!is_logged_machine_serial) {
+            uint64_t serial = sb_get_machine_serial(gs);
+            if (serial != 0) {
+                printf("Machine serial: %" PRIu64 "\n", serial);
+                const char *uuid = sb_get_machine_uuid(gs);
+                if (uuid != NULL && uuid[0] != '\0') {
+                    printf("Machine UUID: %s\n", uuid);
+                }
+                is_logged_machine_serial = true;
+            }
+        }
 
         const int sleep_ms = 500;
 #ifdef _WIN32

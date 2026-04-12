@@ -43,6 +43,7 @@ public:
         static std::string rv;
         return rv;
     };
+    std::uint64_t getMachineSerial() const override { return 0; };
     const std::string &getPairDeeplink() const override
     {
         static std::string rv;
