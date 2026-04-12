@@ -455,6 +455,11 @@ const char *sb_get_machine_uuid(sb_game_handle_t handle)
     return handle->gameState.getMachineUuid().c_str();
 }
 
+uint64_t sb_get_machine_serial(sb_game_handle_t handle)
+{
+    return handle->gameState.getMachineSerial();
+}
+
 const char *sb_get_pair_deeplink(sb_game_handle_t handle)
 {
     return handle->gameState.getPairDeeplink().c_str();

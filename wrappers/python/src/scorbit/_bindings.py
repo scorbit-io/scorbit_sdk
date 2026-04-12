@@ -238,6 +238,10 @@ _lib.sb_get_status.argtypes = [sb_game_handle_t]
 _lib.sb_get_machine_uuid.restype = c_char_p
 _lib.sb_get_machine_uuid.argtypes = [sb_game_handle_t]
 
+# uint64_t sb_get_machine_serial(sb_game_handle_t)
+_lib.sb_get_machine_serial.restype = c_uint64
+_lib.sb_get_machine_serial.argtypes = [sb_game_handle_t]
+
 # const char* sb_get_pair_deeplink(sb_game_handle_t)
 _lib.sb_get_pair_deeplink.restype = c_char_p
 _lib.sb_get_pair_deeplink.argtypes = [sb_game_handle_t]

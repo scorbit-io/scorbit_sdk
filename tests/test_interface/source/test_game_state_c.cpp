@@ -83,9 +83,12 @@ TEST_CASE("Create and destroy game state with signer callback", "[GameState]")
     sb_config_set_machine_id(cfg, 4419);
     sb_config_set_game_code_version(cfg, "0.1.0");
     sb_config_set_signer(cfg, dummySigner, nullptr);
+    sb_config_set_serial_number(cfg, 9876543210ULL);
 
     sb_game_handle_t h = sb_create_game_state(cfg);
     REQUIRE(h != nullptr);
+
+    CHECK(sb_get_machine_serial(h) == 9876543210ULL);
 
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);

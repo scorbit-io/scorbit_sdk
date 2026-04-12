@@ -65,6 +65,7 @@ public:
     AuthStatus getStatus() const;
 
     const std::string &getMachineUuid() const;
+    std::uint64_t getMachineSerial() const;
     const std::string &getPairDeeplink() const;
 
     void setCapabilities(Capabilities capabilities);

@@ -374,7 +374,9 @@ int main()
     });
 
     cout << "Deeplink for pairing " << gs.getPairDeeplink() << endl;
-    cout << "Machine UUID: " << gs.getMachineUuid() << endl;
+
+    // UUID / serial often fill in after networking; poll after each commit, log once when set.
+    bool isLoggedMachineSerial = false;
 
     // Main loop which is typically an infinite loop, but this example runs for 100 cycles
     for (int i = 0; i < 100; ++i) {
@@ -480,6 +482,19 @@ int main()
         // the commit will be ignored, avoiding unnecessary uploads.
         std::cout << "Commit cycle " << i << std::endl;
         gs.commit();
+
+        // Log machine serial and UUID at most once, when they become available (non 0 serial)
+        if (!isLoggedMachineSerial) {
+            const auto serial = gs.getMachineSerial();
+            if (serial != 0) {
+                cout << "Machine serial: " << serial << endl;
+                const auto uuid = gs.getMachineUuid();
+                if (!uuid.empty()) {
+                    cout << "Machine UUID: " << uuid << endl;
+                }
+                isLoggedMachineSerial = true;
+            }
+        }
 
         std::this_thread::sleep_for(500ms);
     }

@@ -195,6 +195,12 @@ class GameState(object):
         return raw or ""
 
     @property
+    def machine_serial(self):
+        # type: () -> int
+        """The machine serial number (uint64, same as TPM / device info)."""
+        return _lib.sb_get_machine_serial(self._handle)
+
+    @property
     def pair_deeplink(self):
         # type: () -> str
         """Pairing deeplink URL (empty if not yet authenticated/paired)."""

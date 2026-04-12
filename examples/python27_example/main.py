@@ -236,7 +236,9 @@ def main():
     gs.request_top_scores(0, _top_scores_cb)
 
     print("Deeplink for pairing: %s" % gs.pair_deeplink)
-    print("Machine UUID: %s" % gs.machine_uuid)
+
+    # UUID / serial often fill in after networking; poll after each commit, log once when set.
+    is_logged_machine_serial = False
 
     for i in range(100):
         if i % 10 == 0:
@@ -282,6 +284,16 @@ def main():
 
         print("Commit cycle %d" % i)
         gs.commit()
+
+        # Log machine serial and UUID at most once, when they become available (non 0 serial)
+        if not is_logged_machine_serial:
+            sn = gs.machine_serial
+            if sn:
+                print("Machine serial: %d" % sn)
+                u = gs.machine_uuid
+                if u:
+                    print("Machine UUID: %s" % u)
+                is_logged_machine_serial = True
 
         time.sleep(0.5)
 

@@ -7,6 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
+import numbers
 import unittest
 import threading
 import time
@@ -185,7 +186,11 @@ class TestGameStateCreation(unittest.TestCase):
         
         uuid = game_state.get_machine_uuid()
         self.assertIsInstance(uuid, str)
-        
+
+        if hasattr(game_state, "machine_serial"):
+            serial = game_state.machine_serial
+            self.assertIsInstance(serial, numbers.Integral)
+
         pair_link = game_state.get_pair_deeplink()
         self.assertIsInstance(pair_link, str)
 

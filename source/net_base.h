@@ -27,6 +27,7 @@
 #include "event_classes.h"
 #include "session_flags.h"
 #include <boost/signals2.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <optional>
@@ -63,6 +64,7 @@ public:
     virtual void requestPairCode(StringCallback cb) = 0;
 
     virtual const std::string &getMachineUuid() const = 0;
+    virtual std::uint64_t getMachineSerial() const = 0;
     virtual const std::string &getPairDeeplink() const = 0;
 
     virtual const DeviceInfo &deviceInfo() const = 0;

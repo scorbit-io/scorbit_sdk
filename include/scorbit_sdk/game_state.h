@@ -230,6 +230,13 @@ public:
     std::string getMachineUuid() const { return std::string {sb_get_machine_uuid(m_handle.get())}; }
 
     /**
+     * @brief Retrieve the machine serial number.
+     *
+     * @return The serial number (see @ref sb_get_machine_serial).
+     */
+    std::uint64_t getMachineSerial() const { return sb_get_machine_serial(m_handle.get()); }
+
+    /**
      * @brief Retrieve the pairing deeplink.
      *
      * This link has to be encoded and displayed as QR code, so that the user can scan it with
