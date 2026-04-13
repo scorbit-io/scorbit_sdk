@@ -27,16 +27,15 @@
 namespace scorbit {
 namespace detail {
 
-std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const std::string& jwtToken)
+std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const std::string &jwtToken)
 {
     try {
         // JWT tokens have three parts separated by dots: header.payload.signature
         std::istringstream tokenStream(jwtToken);
         std::string header, payload, signature;
-        
-        if (!std::getline(tokenStream, header, '.') ||
-            !std::getline(tokenStream, payload, '.') ||
-            !std::getline(tokenStream, signature, '.')) {
+
+        if (!std::getline(tokenStream, header, '.') || !std::getline(tokenStream, payload, '.')
+            || !std::getline(tokenStream, signature, '.')) {
             ERR("JWT token parsing failed: invalid format");
             return std::nullopt;
         }
@@ -46,28 +45,28 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
         while (payload.length() % 4) {
             payload += '=';
         }
-        
+
         // Replace base64url characters with base64 characters
         std::replace(payload.begin(), payload.end(), '-', '+');
         std::replace(payload.begin(), payload.end(), '_', '/');
 
         // Decode base64 using OpenSSL
         std::string decodedPayload;
-        const auto base64Decode = [](const std::string& input) -> std::string {
+        const auto base64Decode = [](const std::string &input) -> std::string {
             BIO *bio, *b64;
             std::string result;
-            
+
             bio = BIO_new_mem_buf(input.data(), input.size());
             b64 = BIO_new(BIO_f_base64());
             bio = BIO_push(b64, bio);
             BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); // No newline handling
-            
+
             char buffer[1024];
             int length = BIO_read(bio, buffer, sizeof(buffer));
             if (length > 0) {
                 result.assign(buffer, length);
             }
-            
+
             BIO_free_all(bio);
             return result;
         };
@@ -89,39 +88,39 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
         // Convert Unix timestamp to system_clock time_point
         const auto expTimestamp = json["exp"].get<int64_t>();
         const auto expTime = std::chrono::system_clock::from_time_t(expTimestamp);
-        
+
         INF("JWT token expires at: {}", expTimestamp);
         return expTime;
 
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         ERR("JWT token parsing failed: {}", e.what());
         return std::nullopt;
     }
 }
 
-bool isJwtTokenExpired(const std::string& jwtToken)
+bool isJwtTokenExpired(const std::string &jwtToken)
 {
     const auto expiration = parseJwtExpiration(jwtToken);
     if (!expiration) {
         return true; // Consider invalid tokens as expired
     }
-    
+
     const auto now = std::chrono::system_clock::now();
     return now >= *expiration;
 }
 
-std::optional<std::chrono::seconds> getJwtTokenTimeUntilExpiration(const std::string& jwtToken)
+std::optional<std::chrono::seconds> getJwtTokenTimeUntilExpiration(const std::string &jwtToken)
 {
     const auto expiration = parseJwtExpiration(jwtToken);
     if (!expiration) {
         return std::nullopt;
     }
-    
+
     const auto now = std::chrono::system_clock::now();
     if (now >= *expiration) {
         return std::chrono::seconds(0); // Already expired
     }
-    
+
     return std::chrono::duration_cast<std::chrono::seconds>(*expiration - now);
 }
 
