@@ -270,13 +270,13 @@ target_link_libraries(
     ${PROJECT_NAME}
     PRIVATE
         $<BUILD_INTERFACE:scorbit::rc>
-        ${BOOST_LIBS}
+        $<BUILD_INTERFACE:${BOOST_LIBS}>
         fmt::fmt
         cpr::cpr
         OpenSSL::Crypto
         LibArchive::LibArchive
         centrifugo-cpp
-        nfc
+        $<BUILD_INTERFACE:nfc>
         $<BUILD_INTERFACE:tpm>
         $<BUILD_INTERFACE:logger>
         concurrentqueue
