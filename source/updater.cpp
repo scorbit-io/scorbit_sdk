@@ -500,7 +500,7 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
 
                     // Cleanup downloaded archive
                     boost::system::error_code ec;
-                    fs::remove(filename, ec);
+                    // fs::remove(filename, ec);
                     if (ec) {
                         WRN("Updater: failed to remove temp file: {}, {}", filename, ec.message());
                     }
