@@ -63,17 +63,22 @@ void log(const std::string &message, LogLevel level, const char *file, int line)
  * @param level The log level.
  * @param file The source file path.
  * @param line The line number.
- * @param args Format string and arguments.
+ * @param fmt Format string (must be first argument after file/line).
+ * @param args Format arguments.
  */
-template<typename... Args>
-constexpr inline void logMessage(LogLevel level, const char *file, int line, Args &&...args)
+template<typename Fmt, typename... Args>
+inline void logMessage(LogLevel level, const char *file, int line, Fmt &&fmt, Args &&...args)
 {
     // Extract just the filename from the full path
     std::string_view filePath(file);
     auto pos = filePath.find_last_of("/\\");
     const char *fileName = (pos != std::string_view::npos) ? file + pos + 1 : file;
 
-    log(fmt::format(std::forward<Args>(args)...), level, fileName, line);
+    // fmt::format with a single string pack uses compile-time format checking (consteval on
+    // libfmt 10+), which breaks when called from non-constexpr contexts under C++20. Use a
+    // runtime format string for this logging path.
+    log(fmt::format(fmt::runtime(std::forward<Fmt>(fmt)), std::forward<Args>(args)...), level,
+        fileName, line);
 }
 
 } // namespace logger

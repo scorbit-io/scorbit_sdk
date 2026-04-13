@@ -15,7 +15,7 @@ endif()
 
 project(scorbit_sdk VERSION ${SCORBIT_SDK_VERSION} LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---- CMake directory for libs ----
@@ -154,7 +154,7 @@ add_library(scorbit_sdk ${BUILD_TYPE})
 set_target_properties(
     ${PROJECT_NAME}
     PROPERTIES
-        CXX_STANDARD 17
+        CXX_STANDARD 20
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN 1
         VERSION ${PROJECT_VERSION}

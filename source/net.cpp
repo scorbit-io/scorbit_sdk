@@ -42,6 +42,7 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <algorithm>
+#include <ranges>
 #include <fstream>
 #include <optional>
 #include <future>
@@ -362,7 +363,7 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
                         std::function<void()> onCreated)
 {
     {
-        std::lock_guard lock(m_gameSessionsMutex);
+        std::scoped_lock lock(m_gameSessionsMutex);
         auto &session = m_gameSessions[data.id];
         session.gameData = data;
         session.history.push_back(data);
@@ -378,7 +379,7 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
     m_worker.post([this, data, flags]() {
         int sessionCounterAfterUpdate = 0;
         {
-            std::lock_guard lock(m_gameSessionsMutex);
+            std::scoped_lock lock(m_gameSessionsMutex);
             auto &session = m_gameSessions[data.id];
             session.gameData = data;
             session.history.push_back(data);
@@ -466,7 +467,7 @@ void Net::requestPairCode(StringCallback callback)
 {
     std::string shortCodeCopy;
     {
-        std::lock_guard lock(m_shortCodeMutex);
+        std::scoped_lock lock(m_shortCodeMutex);
         shortCodeCopy = m_cachedShortCode;
     }
 
@@ -598,7 +599,7 @@ void Net::patchScorbitron(std::string body, StringCallback callback,
 
 std::string Net::consumeNonce()
 {
-    std::lock_guard lock(m_noncesMutex);
+    std::scoped_lock lock(m_noncesMutex);
 
     if (m_nonces.empty()) {
         WRN("No NFC nonces available");
@@ -625,7 +626,7 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
     m_isNfcCapable = (m_probesManager && m_probesManager->nfc());
 
     {
-        std::lock_guard lock(m_scorbitronObjectMutex);
+        std::scoped_lock lock(m_scorbitronObjectMutex);
         m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
     }
 
@@ -664,7 +665,7 @@ void Net::setCapabilities(Capabilities capabilities)
 
     {
         // Update scorbitron object, so it can be sent once authenticated
-        std::lock_guard lock(m_scorbitronObjectMutex);
+        std::scoped_lock lock(m_scorbitronObjectMutex);
         m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = startGame;
         m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = creditDrop;
     }
@@ -784,31 +785,25 @@ void Net::uploadDiagnostics(std::vector<std::string> logPaths,
                 WRN("Diagnostics: truncating {} from {} to {}", label, paths.size(), maxCount);
                 paths.resize(maxCount);
             }
-            paths.erase(std::remove_if(paths.begin(), paths.end(),
-                                       [maxSize, label](const std::string &path) {
-                                           try {
-                                               if (!fs::exists(path)) {
-                                                   WRN("Diagnostics: {} file does not exist, "
-                                                       "skipping: {}",
-                                                       label, path);
-                                                   return true;
-                                               }
-                                               const auto size = fs::file_size(path);
-                                               if (size > maxSize) {
-                                                   WRN("Diagnostics: {} file too large ({} bytes), "
-                                                       "skipping: {}",
-                                                       label, size, path);
-                                                   return true;
-                                               }
-                                           } catch (const fs::filesystem_error &e) {
-                                               WRN("Diagnostics: error checking {} file, "
-                                                   "skipping: {}: {}",
-                                                   label, path, e.what());
-                                               return true;
-                                           }
-                                           return false;
-                                       }),
-                        paths.end());
+            std::erase_if(paths, [maxSize, label](const std::string &path) {
+                try {
+                    if (!fs::exists(path)) {
+                        WRN("Diagnostics: {} file does not exist, skipping: {}", label, path);
+                        return true;
+                    }
+                    const auto size = fs::file_size(path);
+                    if (size > maxSize) {
+                        WRN("Diagnostics: {} file too large ({} bytes), skipping: {}", label, size,
+                            path);
+                        return true;
+                    }
+                } catch (const fs::filesystem_error &e) {
+                    WRN("Diagnostics: error checking {} file, skipping: {}: {}", label, path,
+                        e.what());
+                    return true;
+                }
+                return false;
+            });
         };
 
         filterPaths(logPaths, DIAG_MAX_LOGS, DIAG_MAX_LOG_SIZE, "log");
@@ -907,10 +902,10 @@ task_t Net::createAuthenticateTask()
 {
     return [this]() {
         const auto normalAuthentication = !m_isRefreshingToken;
-        std::optional<std::lock_guard<std::mutex>> lockOpt;
+        std::unique_lock lock(m_authMutex, std::defer_lock);
 
         if (normalAuthentication) {
-            lockOpt.emplace(m_authMutex);
+            lock.lock();
             if (m_status != AuthStatus::NotAuthenticated) {
                 return;
             }
@@ -1101,7 +1096,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
     size_t playerCount = 0;
     int64_t elapsedMilliseconds = 0;
     {
-        std::lock_guard lock(m_gameSessionsMutex);
+        std::scoped_lock lock(m_gameSessionsMutex);
         if (m_gameSessions.count(sessionId) == 0) {
             // Nothing to do, session is already finished and removed
             ERR("API this error should not happen. Can't find session {} in game sessions",
@@ -1148,7 +1143,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
 
                     bool sessionUpdated = false;
                     {
-                        std::lock_guard lock(m_gameSessionsMutex);
+                        std::scoped_lock lock(m_gameSessionsMutex);
                         const auto gsIt = m_gameSessions.find(sessionId);
                         if (gsIt == m_gameSessions.end()) {
                             ERR("API create session: session {} no longer in game sessions",
@@ -1158,7 +1153,8 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                             sessionUpdated = true;
 
                             INF("API created session id: {}, uuid: {}, address: {:x}", sessionId,
-                                gsIt->second.sessionUuid, (uint64_t)&gsIt->second.gameData);
+                                gsIt->second.sessionUuid,
+                                reinterpret_cast<std::uintptr_t>(&gsIt->second.gameData));
 
                             // Scores array will have players' profiles
                             if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
@@ -1201,7 +1197,7 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
     std::string csv;
 
     {
-        std::lock_guard lock(m_gameSessionsMutex);
+        std::scoped_lock lock(m_gameSessionsMutex);
         if (m_gameSessions.count(sessionId) == 0) {
             // Nothing to do, session is already finished and removed
             ERR("API this error should not happen. Can't find session {} in game sessions",
@@ -1272,7 +1268,7 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
             INF("API update session: ok, id: {}, {}", sessionId, reply);
 
             // Erase the session if the game is finished
-            std::lock_guard lock(m_gameSessionsMutex);
+            std::scoped_lock lock(m_gameSessionsMutex);
             if (!m_gameSessions[sessionId].gameData.isGameActive) {
                 m_gameSessions.erase(sessionId);
             } else {
@@ -1331,7 +1327,7 @@ task_t Net::createHeartbeatTask()
 
             bool isActiveSession;
             {
-                std::lock_guard lockGameSession(m_gameSessionsMutex);
+                std::scoped_lock lockGameSession(m_gameSessionsMutex);
                 isActiveSession = !m_gameSessions.empty();
             }
             const auto parameters =
@@ -1487,7 +1483,7 @@ void Net::sendLatestGameData(int sessionId)
         std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadataSnapshot;
 
         {
-            std::lock_guard lock(m_gameSessionsMutex);
+            std::scoped_lock lock(m_gameSessionsMutex);
             const auto it = m_gameSessions.find(sessionId);
             if (it == m_gameSessions.end()) {
                 return;
@@ -1512,7 +1508,7 @@ void Net::sendLatestGameData(int sessionId)
                 m_centrifugo->state() == centrifugo::ConnectionState::Connected);
         } else {
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::scoped_lock lock(m_gameSessionsMutex);
                 const auto it = m_gameSessions.find(sessionId);
                 if (it == m_gameSessions.end()) {
                     return;
@@ -1615,7 +1611,7 @@ void Net::initializeConnectionState()
 
 void Net::initScorbitronObject()
 {
-    std::lock_guard lock(m_scorbitronObjectMutex);
+    std::scoped_lock lock(m_scorbitronObjectMutex);
 
     m_scorbitronObject = nlohmann::json::object();
 
@@ -1647,7 +1643,7 @@ void Net::sendScorbitronObject()
             [this]() {
                 std::string body;
                 {
-                    std::lock_guard lock(m_scorbitronObjectMutex);
+                    std::scoped_lock lock(m_scorbitronObjectMutex);
                     body = m_scorbitronObject.dump();
                 }
                 const auto endpoint = url(URL_SCORBITRON_OBJECT);
@@ -1729,7 +1725,7 @@ void Net::requestSessionData(const std::string &sessionUuid)
             // Find out sessionId
             int sessionId = -1;
             {
-                std::lock_guard lock(m_gameSessionsMutex);
+                std::scoped_lock lock(m_gameSessionsMutex);
                 for (const auto &[id, gameSession] : m_gameSessions) {
                     if (gameSession.sessionUuid == sessionUuid) {
                         sessionId = id;
@@ -1742,7 +1738,7 @@ void Net::requestSessionData(const std::string &sessionUuid)
                 json j = json::parse(reply);
                 if (const auto scoresIt = j.find(JKEY_SCR_SCORES);
                     scoresIt != j.end() && scoresIt->is_array()) {
-                    std::lock_guard lock(m_gameSessionsMutex);
+                    std::scoped_lock lock(m_gameSessionsMutex);
                     const auto gsIt = m_gameSessions.find(sessionId);
                     if (gsIt != m_gameSessions.end()) {
                         processScoresAndPlayersProfiles(*scoresIt, gsIt->second);
@@ -1813,7 +1809,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
         // "shortcode"
         if (const auto it = json.find(JKEY_SOBJ_SHORTCODE); it != json.end() && it->is_string()) {
             {
-                std::lock_guard lock(m_shortCodeMutex);
+                std::scoped_lock lock(m_shortCodeMutex);
                 it->get_to(m_cachedShortCode);
             }
             m_shortCodeCV.notify_all();
@@ -1934,7 +1930,7 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             }
 
             {
-                std::lock_guard lock(m_authMutex);
+                std::scoped_lock lock(m_authMutex);
                 if (m_status == AuthStatus::NotAuthenticated
                     || m_status == AuthStatus::Authenticating
                     || m_status == AuthStatus::AuthenticationFailed) {
@@ -2155,8 +2151,8 @@ cpr::SslOptions Net::sslOptions() const
 
 bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const
 {
-    return std::any_of(begin(allowedStatuses), end(allowedStatuses),
-                       [this](AuthStatus status) { return status == m_status; });
+    return std::ranges::any_of(allowedStatuses,
+                               [this](AuthStatus status) { return status == m_status; });
 }
 
 void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSession)
@@ -2190,21 +2186,20 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
         const auto toDownload = m_playersManager.picturesToDownload();
         for (const auto &[playerNum, pictureUrl] : toDownload) {
             m_playersManager.setPicture(pictureUrl, Picture {});
-            downloadBuffer(
-                    true, // Async download
-                    [this, playerNum = playerNum,
-                     pictureUrl = pictureUrl](Error error, std::vector<uint8_t> data) {
-                        if (error == Error::Success) {
-                            m_playersManager.setPicture(pictureUrl, data);
-                            m_eventManager->push(std::make_shared<PlayerPictureReadyEvent>(
-                                    playerNum, std::move(data)));
-                        } else {
-                            ERR("Picture download failed: {}", static_cast<int>(error));
-                            m_playersManager.removePicture(pictureUrl);
-                        }
-                    },
-                    pictureUrl, PICTURE_BUFFER_RESERVE,
-                    {{HDR_KEY_ACCEPT_CONTENT, HDR_VAL_CONTENT_OCTET}});
+            downloadBuffer(true, // Async download
+                           [this, playerNum = playerNum,
+                            pictureUrl = pictureUrl](Error error, std::vector<uint8_t> data) {
+                               if (error == Error::Success) {
+                                   m_playersManager.setPicture(pictureUrl, data);
+                                   m_eventManager->push(std::make_shared<PlayerPictureReadyEvent>(
+                                           playerNum, std::move(data)));
+                               } else {
+                                   ERR("Picture download failed: {}", static_cast<int>(error));
+                                   m_playersManager.removePicture(pictureUrl);
+                               }
+                           },
+                           pictureUrl, PICTURE_BUFFER_RESERVE,
+                           {{HDR_KEY_ACCEPT_CONTENT, HDR_VAL_CONTENT_OCTET}});
         }
     }
 }
@@ -2326,7 +2321,7 @@ void Net::centrifugoSetup()
                     pub.info->client);
             }
 
-            if (channel.find(CF_CHN_CONTROL_MACHINE) == 0) {
+            if (channel.starts_with(CF_CHN_CONTROL_MACHINE)) {
                 const auto &j = pub.data;
                 if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
                     payloadIt != j.end() && payloadIt->is_object()) {
@@ -2359,7 +2354,7 @@ void Net::centrifugoSetup()
                         WRN("API-CF Unknown publication type: {}", type);
                     }
                 }
-            } else if (channel.find(CF_CHN_CONTROL_SCORBITRON) == 0) {
+            } else if (channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
                 const auto &j = pub.data;
                 if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
                     payloadIt != j.end() && payloadIt->is_object()) {
@@ -2414,7 +2409,7 @@ void Net::createNfcNonces()
                         json j = json::parse(reply);
                         if (const auto it = j.find(JVAL_NONCES); it != j.end() && it->is_array()) {
                             {
-                                std::lock_guard lock(m_noncesMutex);
+                                std::scoped_lock lock(m_noncesMutex);
                                 it->get_to(m_nonces);
                             }
                             setNfcTag();
@@ -2449,7 +2444,7 @@ void Net::startNfcCheckTimer()
 
         if (m_probesManager) {
             const auto isNfcTagRead = std::invoke([this]() {
-                std::lock_guard lock {m_nfcMutex};
+                std::scoped_lock lock {m_nfcMutex};
                 return m_probesManager->isNfcTagRead();
             });
 
@@ -2466,7 +2461,7 @@ void Net::setNfcTag()
                                  fmt::arg("nonce", consumeNonce()));
 
     const auto ok = std::invoke([this, &tag]() {
-        std::lock_guard lock {m_nfcMutex};
+        std::scoped_lock lock {m_nfcMutex};
         return m_probesManager->setNfcTag(tag);
     });
 
@@ -2481,7 +2476,7 @@ void Net::checkNfcBootReason()
         m_worker.stopTimer(Worker::Timer::NfcBootReason);
 
         const auto bootReason = std::invoke([this]() {
-            std::lock_guard lock {m_nfcMutex};
+            std::scoped_lock lock {m_nfcMutex};
             return m_probesManager->probesBootReason(nfc::ProbeType::NFC);
         });
 
@@ -2491,7 +2486,7 @@ void Net::checkNfcBootReason()
         }
 
         m_worker.startTimer(Worker::Timer::NfcBootReason, NFC_BOOT_REASON_DELAY,
-                            std::bind(&Net::checkNfcBootReason, this));
+                            [this]() { checkNfcBootReason(); });
     }
 }
 

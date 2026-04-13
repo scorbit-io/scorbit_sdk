@@ -43,7 +43,7 @@ public:
 
     auto empty() const -> bool
     {
-        std::lock_guard lock(m_queueMutex);
+        std::scoped_lock lock(m_queueMutex);
         return m_queue.empty();
     }
 
@@ -53,13 +53,13 @@ public:
             return; // Ignore null events
         }
 
-        std::lock_guard lock(m_queueMutex);
+        std::scoped_lock lock(m_queueMutex);
         m_queue.push(std::move(event));
     }
 
     auto dequeue() -> EventPtr
     {
-        std::lock_guard lock(m_queueMutex);
+        std::scoped_lock lock(m_queueMutex);
         if (m_queue.empty()) {
             return nullptr;
         }

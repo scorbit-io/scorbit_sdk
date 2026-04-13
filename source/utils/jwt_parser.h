@@ -29,23 +29,25 @@ namespace detail {
 /**
  * @brief Parse JWT token to extract expiration time
  * @param jwtToken The JWT token string
- * @return Optional containing the expiration time as system_clock time_point, or nullopt if parsing fails
+ * @return Optional containing the expiration time as system_clock time_point, or nullopt if parsing
+ * fails
  */
-std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const std::string& jwtToken);
+std::optional<std::chrono::system_clock::time_point>
+parseJwtExpiration(const std::string &jwtToken);
 
 /**
  * @brief Check if JWT token is expired
  * @param jwtToken The JWT token string
  * @return true if token is expired or invalid, false if still valid
  */
-bool isJwtTokenExpired(const std::string& jwtToken);
+bool isJwtTokenExpired(const std::string &jwtToken);
 
 /**
  * @brief Get time until JWT token expires
  * @param jwtToken The JWT token string
  * @return Optional containing the duration until expiration, or nullopt if parsing fails
  */
-std::optional<std::chrono::seconds> getJwtTokenTimeUntilExpiration(const std::string& jwtToken);
+std::optional<std::chrono::seconds> getJwtTokenTimeUntilExpiration(const std::string &jwtToken);
 
 } // namespace detail
 } // namespace scorbit

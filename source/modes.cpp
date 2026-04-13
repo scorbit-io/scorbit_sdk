@@ -21,6 +21,7 @@
 #include <logger/logger.h>
 #include <algorithm>
 #include <numeric>
+#include <ranges>
 
 namespace {
 
@@ -50,7 +51,7 @@ void Modes::addMode(std::string mode)
 {
     // TODO check if mode is valid
 
-    if (find(begin(m_modes), end(m_modes), mode) != end(m_modes)) {
+    if (std::ranges::find(m_modes, mode) != end(m_modes)) {
         DBG("Skipping addition: mode '{}' already exists.", mode);
         return;
     }
@@ -60,14 +61,14 @@ void Modes::addMode(std::string mode)
 
 void Modes::addOrPromoteToFront(std::string mode)
 {
-    m_modes.erase(std::remove(begin(m_modes), end(m_modes), mode), end(m_modes));
+    std::erase(m_modes, mode);
     m_modes.emplace(m_modes.begin(), std::move(mode));
 }
 
 void Modes::removeMode(const std::string &mode)
 {
     const auto oldSize = m_modes.size();
-    m_modes.erase(remove(begin(m_modes), end(m_modes), mode), end(m_modes));
+    std::erase(m_modes, mode);
     m_modeExpiryDeadlines.erase(mode);
 
     if (oldSize == m_modes.size()) {
@@ -102,7 +103,7 @@ void Modes::tickExpiries()
     }
     for (const auto &m : due) {
         m_modeExpiryDeadlines.erase(m);
-        m_modes.erase(std::remove(begin(m_modes), end(m_modes), m), end(m_modes));
+        std::erase(m_modes, m);
     }
 }
 
@@ -112,12 +113,7 @@ std::optional<std::chrono::steady_clock::duration> Modes::nextExpiryDelay() cons
         return std::nullopt;
     }
 
-    auto minTime = m_modeExpiryDeadlines.begin()->second;
-    for (const auto &kv : m_modeExpiryDeadlines) {
-        if (kv.second < minTime) {
-            minTime = kv.second;
-        }
-    }
+    auto minTime = std::ranges::min_element(m_modeExpiryDeadlines, {}, &decltype(m_modeExpiryDeadlines)::value_type::second)->second;
 
     using clock = std::chrono::steady_clock;
     auto delay = minTime - clock::now();
@@ -144,7 +140,7 @@ bool Modes::isEmpty() const
 
 bool Modes::contains(const string &mode) const
 {
-    return find(begin(m_modes), end(m_modes), mode) != end(m_modes);
+    return std::ranges::find(m_modes, mode) != end(m_modes);
 }
 
 string Modes::str() const

@@ -67,7 +67,7 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE pthread)
 endif()
 
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 14)
 
 # enable compiler warnings
 if(NOT TEST_INSTALLED_VERSION)

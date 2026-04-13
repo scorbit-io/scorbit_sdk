@@ -159,7 +159,7 @@ std::string getMacAddress()
             continue;
 
         struct sockaddr_dl *sdl = reinterpret_cast<struct sockaddr_dl *>(ifa->ifa_addr);
-        unsigned char *mac = (unsigned char *)LLADDR(sdl);
+        auto *mac = reinterpret_cast<unsigned char *>(LLADDR(sdl));
         if (sdl->sdl_alen == 6) { // MAC address length
             std::ostringstream macStream;
             for (int i = 0; i < 6; ++i) {
