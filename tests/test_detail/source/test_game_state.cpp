@@ -931,6 +931,8 @@ TEST_CASE("addModeExpiring — tick removes mode after delay; clearModes cancels
 TEST_CASE("GameStateImpl getMachineSerial delegates to Net")
 {
     auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+    ALLOW_CALL(mockNetRef, authenticate());
     GameStateImpl gameState(std::move(mockNet));
     CHECK(gameState.getMachineSerial() == 0);
 }

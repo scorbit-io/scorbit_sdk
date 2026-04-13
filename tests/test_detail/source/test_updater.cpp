@@ -19,6 +19,8 @@
 
 #include <scorbit_sdk/version.h>
 #include <updater.h>
+#include "device_info.h"
+#include "net_util.h"
 #include "trompeloeil_printer.h"
 
 #include <nlohmann/json.hpp>
@@ -247,4 +249,18 @@ TEST_CASE("Updater prod key hash check")
 
         updater.checkNewVersionAndUpdate(json, nullptr);
     }
+}
+
+TEST_CASE("Updater relies on host-based internal download auth (not device provider)")
+{
+    // Real Net attaches auth to same-host downloads for SDK tarball URLs. Non-Scorbitron
+    // clients must still be treated as internal when the asset URL is on the API host;
+    // see isInternalDownloadForAuth in net_util.
+    DeviceInfo nonScorbit;
+    nonScorbit.provider = "not_scorbitron";
+
+    const std::string apiBase = "https://api.scorbit.io:443";
+    CHECK(isInternalDownloadForAuth(
+            "https://api.scorbit.io/v2/releases/scorbit_sdk-1.0.2-testarch_testabi.tgz", apiBase,
+            nonScorbit));
 }
