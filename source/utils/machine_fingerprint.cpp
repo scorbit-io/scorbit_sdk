@@ -84,7 +84,7 @@ std::string getCpuSerial()
 
     std::string line;
     while (std::getline(cpuinfo, line)) {
-        if (line.compare(0, 6, "Serial") == 0) {
+        if (line.starts_with("Serial")) {
             auto pos = line.find(':');
             if (pos != std::string::npos) {
                 auto serial = line.substr(pos + 1);

@@ -67,7 +67,7 @@ std::string removeSymbols(std::string_view str, std::string_view symbols)
 {
     std::string result {str};
     for (const auto &symbol : symbols) {
-        result.erase(std::remove(result.begin(), result.end(), symbol), result.end());
+        std::erase(result, symbol);
     }
 
     return result;

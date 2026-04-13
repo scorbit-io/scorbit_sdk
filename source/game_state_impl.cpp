@@ -34,7 +34,7 @@ namespace {
 void displayProbeInfo(ProbeBase *probe, const std::string &device)
 {
     ProbeBase::ProbeInformations_t probeInfo;
-    if (probe->GetInformations(&probeInfo) && probeInfo.Id.size() != 0) {
+    if (probe->GetInformations(&probeInfo) && !probeInfo.Id.empty()) {
         INF("Found probe: port {} = {} ({}) / v{}.{}.{} ({})", device, probeInfo.Id, probeInfo.Name,
             probeInfo.VersionMajor, probeInfo.VersionMinor, probeInfo.VersionRevision,
             probeInfo.Timestamp);
@@ -429,7 +429,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     // Create session and send initial game data later when session uuid will be available,
     // so it will publish initial state (which maybe 0) to centrifugo channel.
     // This prevents situation when just started game doesn't publish 0 and app stuck waiting
-    m_net->sessionCreate(m_data, origin, std::bind(&GameStateImpl::submitGameData, this, true));
+    m_net->sessionCreate(m_data, origin, [this]() { submitGameData(true); });
 
     return true;
 }

@@ -19,8 +19,9 @@
 
 #include "date_time_parser.h"
 
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/date_time/time_facet.hpp>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 #ifdef _WIN32
 #    include <windows.h>
@@ -31,27 +32,28 @@
 namespace scorbit {
 namespace detail {
 
-// Function to parse HTTP date header and convert it to Unix timestamp
 int64_t parseHttpDateToUnixTimestamp(const std::string &httpDate)
 {
-    using namespace boost::posix_time;
-
-    // Create a time input facet for the HTTP date format
-    time_input_facet *facet = new time_input_facet("%a, %d %b %Y %H:%M:%S GMT");
+    std::tm tm {};
     std::istringstream ss(httpDate);
-    ss.imbue(std::locale {ss.getloc(), facet});
+    ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S");
 
-    ptime pt;
-    ss >> pt;
-
-    if (pt == ptime()) {
+    if (ss.fail()) {
         return -1;
     }
 
-    // Convert ptime to Unix timestamp
-    ptime epoch(boost::gregorian::date(1970, 1, 1));
-    time_duration diff = pt - epoch;
-    return diff.total_seconds();
+    // timegm interprets tm as UTC (unlike mktime which uses local time)
+#ifdef _WIN32
+    const auto epoch = _mkgmtime(&tm);
+#else
+    const auto epoch = timegm(&tm);
+#endif
+
+    if (epoch == static_cast<time_t>(-1)) {
+        return -1;
+    }
+
+    return static_cast<int64_t>(epoch);
 }
 
 bool setSystemTime(int64_t timestamp)

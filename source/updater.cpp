@@ -433,7 +433,7 @@ bool Updater::isSdkVersionCompatible(const std::string &newVersion) const
     // Check if current version is x.y.z then it updates only by x.y.*
     const auto majorMinor =
             fmt::format("{}.{}.", SCORBIT_SDK_VERSION_MAJOR, SCORBIT_SDK_VERSION_MINOR);
-    if (newVersion.substr(0, majorMinor.size()) != majorMinor) {
+    if (!newVersion.starts_with(majorMinor)) {
         const auto msg = fmt::format("Version mismatch: can only update by {}x, found: {}",
                                      majorMinor, newVersion);
         feedback(msg);

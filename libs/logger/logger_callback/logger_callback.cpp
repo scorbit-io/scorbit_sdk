@@ -79,13 +79,13 @@ public:
 
     void addCallback(LoggerCallback &&callback, size_t maxLength)
     {
-        std::lock_guard<std::mutex> lock {m_cbMutex};
+        std::scoped_lock lock {m_cbMutex};
         m_callbacks.emplace_back(CallbackAndData {std::move(callback), maxLength});
     }
 
     void clear()
     {
-        std::lock_guard<std::mutex> lock {m_cbMutex};
+        std::scoped_lock lock {m_cbMutex};
         m_callbacks.clear();
     }
 

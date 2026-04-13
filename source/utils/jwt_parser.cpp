@@ -80,8 +80,8 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
 
         // Parse JSON payload
         const auto json = nlohmann::json::parse(decodedPayload);
-        
-        if (json.find("exp") == json.end() || !json["exp"].is_number()) {
+
+        if (!json.contains("exp") || !json["exp"].is_number()) {
             ERR("JWT token parsing failed: no expiration time found");
             return std::nullopt;
         }

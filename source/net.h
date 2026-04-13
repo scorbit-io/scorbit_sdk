@@ -242,8 +242,8 @@ private:
                             fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
                             std::forward<Args>(args)...); // Pass extra args
 
-        if (formattedEndpoint.rfind("http://", 0) == 0
-            || formattedEndpoint.rfind("https://", 0) == 0) {
+        if (formattedEndpoint.starts_with("http://")
+            || formattedEndpoint.starts_with("https://")) {
             return cpr::Url {formattedEndpoint};
         }
 
