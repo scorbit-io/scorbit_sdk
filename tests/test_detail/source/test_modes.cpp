@@ -286,3 +286,155 @@ TEST_CASE("nextExpiryDelay — returns nullopt when no expiring modes", "[Modes]
     modes.addMode("A");
     CHECK_FALSE(modes.nextExpiryDelay().has_value());
 }
+
+TEST_CASE("contains", "[Modes]")
+{
+    Modes modes;
+    CHECK_FALSE(modes.contains("X"));
+
+    modes.addMode("A");
+    CHECK(modes.contains("A"));
+    CHECK_FALSE(modes.contains("B"));
+
+    modes.addMode("B");
+    CHECK(modes.contains("A"));
+    CHECK(modes.contains("B"));
+    CHECK_FALSE(modes.contains("C"));
+
+    modes.removeMode("A");
+    CHECK_FALSE(modes.contains("A"));
+    CHECK(modes.contains("B"));
+}
+
+TEST_CASE("jsonStr", "[Modes]")
+{
+    Modes modes;
+    CHECK(modes.jsonStr() == "[]");
+
+    modes.addMode("NA:Ball");
+    CHECK(modes.jsonStr() == "[\"NA:Ball\"]");
+
+    modes.addMode("NA:Multiball");
+    CHECK(modes.jsonStr() == "[\"NA:Ball\",\"NA:Multiball\"]");
+
+    modes.clear();
+    CHECK(modes.jsonStr() == "[]");
+}
+
+TEST_CASE("operator==", "[Modes]")
+{
+    Modes a;
+    Modes b;
+    CHECK(a == b);
+
+    a.addMode("X");
+    CHECK_FALSE(a == b);
+    b.addMode("X");
+    CHECK(a == b);
+
+    a.addMode("Y");
+    CHECK_FALSE(a == b);
+    b.addMode("Y");
+    CHECK(a == b);
+
+    a.addOrPromoteToFront("Y");
+    CHECK_FALSE(a == b);
+    b.addOrPromoteToFront("Y");
+    CHECK(a == b);
+}
+
+TEST_CASE("addOrPromoteToFront — mode not in list is inserted at front", "[Modes]")
+{
+    Modes modes;
+    modes.addMode("A");
+    modes.addMode("B");
+    CHECK(modes.str() == "A;B");
+
+    modes.addOrPromoteToFront("C");
+    CHECK(modes.str() == "C;A;B");
+    CHECK(modes.contains("C"));
+}
+
+TEST_CASE("addModeExpiring — duration 10 unchanged, 11 clamps to 10", "[Modes]")
+{
+    auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+        const auto want = static_cast<long long>(expectedSec) * 1000;
+        const auto diff = ms - want;
+        return diff <= 15 && diff >= -15;
+    };
+
+    Modes modes10;
+    modes10.addModeExpiring("M", 10);
+    REQUIRE(modes10.nextExpiryDelay().has_value());
+    CHECK(approxEqMs(*modes10.nextExpiryDelay(), 10));
+
+    Modes modes11;
+    modes11.addModeExpiring("M", 11);
+    REQUIRE(modes11.nextExpiryDelay().has_value());
+    CHECK(approxEqMs(*modes11.nextExpiryDelay(), 10));
+}
+
+TEST_CASE("nextExpiryDelay — minimum of multiple deadlines", "[Modes]")
+{
+    auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
+        const auto want = static_cast<long long>(expectedSec) * 1000;
+        const auto diff = ms - want;
+        return diff <= 50 && diff >= -50;
+    };
+
+    Modes modes;
+    modes.addModeExpiring("Long", 10);
+    modes.addModeExpiring("Short", 2);
+
+    auto delay = modes.nextExpiryDelay();
+    REQUIRE(delay.has_value());
+    CHECK(approxEqMs(*delay, 2));
+}
+
+TEST_CASE("tickExpiries — removes only expired modes", "[Modes]")
+{
+    using namespace std::chrono_literals;
+
+    Modes modes;
+    modes.addModeExpiring("Fast", 1);
+    modes.addModeExpiring("Slow", 10);
+    REQUIRE(modes.contains("Fast"));
+    REQUIRE(modes.contains("Slow"));
+    // Last expiring add is promoted to front
+    REQUIRE(modes.str() == "Slow;Fast");
+
+    std::this_thread::sleep_for(1100ms);
+
+    modes.tickExpiries();
+    CHECK_FALSE(modes.contains("Fast"));
+    CHECK(modes.contains("Slow"));
+    CHECK(modes.str() == "Slow");
+    CHECK(modes.hasExpiryDeadlines());
+}
+
+TEST_CASE("tickExpiries — multiple expired modes in one tick", "[Modes]")
+{
+    using namespace std::chrono_literals;
+
+    Modes modes;
+    modes.addModeExpiring("A", 1);
+    modes.addModeExpiring("B", 1);
+    std::this_thread::sleep_for(1100ms);
+    modes.tickExpiries();
+    CHECK(modes.isEmpty());
+    CHECK_FALSE(modes.hasExpiryDeadlines());
+}
+
+TEST_CASE("removeMode — non-expiring mode unchanged deadlines for others", "[Modes]")
+{
+    Modes modes;
+    modes.addMode("Plain");
+    modes.addModeExpiring("Exp", 5);
+    REQUIRE(modes.hasExpiryDeadlines());
+    modes.removeMode("Plain");
+    CHECK(modes.hasExpiryDeadlines());
+    CHECK(modes.contains("Exp"));
+    CHECK_FALSE(modes.contains("Plain"));
+}
