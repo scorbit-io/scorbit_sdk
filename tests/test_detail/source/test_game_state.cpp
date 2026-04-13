@@ -74,10 +74,10 @@ public:
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
-    void download(StringCallback, const std::string &, const std::string &,
-                  const std::string &) override { };
-    void downloadBuffer(VectorCallback, const std::string &, size_t, const std::string &) override {
-    };
+    void download(bool isAsync, StringCallback, const std::string &, const std::string &,
+                  const HttpHeaders &) override { };
+    void downloadBuffer(bool isAsync, VectorCallback, const std::string &, size_t,
+                        const HttpHeaders &) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
@@ -893,17 +893,19 @@ TEST_CASE("addModeExpiring — tick removes mode after delay; clearModes cancels
             .IN_SEQUENCE(seq)
             .TIMES(1);
     gameState.addModeExpiring("MB:Multiball", 3);
-    const auto ms2 =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                    mockNetRef.lastModeExpiryScheduleDuration)
-                    .count();
+    const auto ms2 = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             mockNetRef.lastModeExpiryScheduleDuration)
+                             .count();
     const auto d2 = ms2 - 3000;
     REQUIRE((d2 <= 15 && d2 >= -15));
     gameState.commit();
 
     std::this_thread::sleep_for(3100ms);
 
-    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.modes.isEmpty()).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.isEmpty())
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
     mockNetRef.fireModeExpiryTimer();
     gameState.commit();
 
@@ -916,7 +918,10 @@ TEST_CASE("addModeExpiring — tick removes mode after delay; clearModes cancels
     REQUIRE(mockNetRef.modeExpiryScheduledCallback);
     gameState.commit();
 
-    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.modes.isEmpty()).IN_SEQUENCE(seq).TIMES(1);
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+            .WITH(_1.modes.isEmpty())
+            .IN_SEQUENCE(seq)
+            .TIMES(1);
     gameState.clearModes();
     gameState.commit();
 

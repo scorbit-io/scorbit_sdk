@@ -82,9 +82,9 @@ public:
                             StringCallback callback);
 
     void download(StringCallback callback, const std::string &url, const std::string &filename,
-                  const std::string &contentType = {});
+                  const HttpHeaders &headers = {});
     void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
-                        const std::string &contentType = {});
+                        const HttpHeaders &headers = {});
 
     void uploadDiagnostics(std::vector<std::string> logPaths,
                            std::vector<std::string> recordingPaths, std::string logString);

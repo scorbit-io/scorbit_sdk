@@ -440,6 +440,27 @@ void shortcode_callback(sb_error_t error, const char *shortcode, void *user_data
     }
 }
 
+void download_callback(sb_error_t error, const char *reply, void *user_data)
+{
+    (void)user_data;
+    if (error == SB_EC_SUCCESS) {
+        printf("Download OK: %s\n", reply);
+    } else {
+        printf("Download failed (%d): %s\n", error, reply);
+    }
+}
+
+void download_buffer_callback(sb_error_t error, const uint8_t *data, size_t size, void *user_data)
+{
+    (void)data;
+    (void)user_data;
+    if (error == SB_EC_SUCCESS) {
+        printf("Download buffer OK: %zu bytes\n", size);
+    } else {
+        printf("Download buffer failed (%d)\n", error);
+    }
+}
+
 int main(void)
 {
     // Allocate memory for player names
@@ -469,6 +490,16 @@ int main(void)
     sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
 
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
+
+    // Download demo: fetch a small payload with custom headers
+    sb_http_header_t demo_headers[] = {{"Accept", "application/json"}};
+    sb_download(gs, "https://httpbin.org/get", "/tmp/demo_download.dat", demo_headers,
+                sizeof(demo_headers) / sizeof(demo_headers[0]), &download_callback, NULL);
+
+    // Setting reseveation to 0 makes it auto reserve, doesn't mean max size, it's just a hint
+    sb_download_buffer(gs, "https://httpbin.org/get", 0, demo_headers,
+                       sizeof(demo_headers) / sizeof(demo_headers[0]), &download_buffer_callback,
+                       NULL);
 
     // Log machine UUID / serial at most once each, after sb_commit(), when the SDK has populated
     // them (often asynchronously). Empty UUID or serial 0 means "not ready yet" for this demo.
