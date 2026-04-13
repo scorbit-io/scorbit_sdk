@@ -22,6 +22,7 @@
 #include "net_types_c.h"
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace scorbit {
@@ -63,6 +64,9 @@ using Capabilities = sb_capabilities_t;
 
 using StringCallback = std::function<void(Error error, const std::string &reply)>;
 using VectorCallback = std::function<void(Error error, const std::vector<uint8_t> &data)>;
+
+/// HTTP header list for download functions.
+using HttpHeaders = std::vector<std::pair<std::string, std::string>>;
 
 // Key persistence callbacks
 using SaveKeyCallback = std::function<void(const std::string &key)>;

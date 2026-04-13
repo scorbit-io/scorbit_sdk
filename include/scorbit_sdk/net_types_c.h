@@ -147,6 +147,14 @@ typedef int (*sb_signer_callback_t)(uint8_t signature[SB_SIGNATURE_MAX_LENGTH],
                                     size_t *signature_len, const uint8_t digest[SB_DIGEST_LENGTH],
                                     void *user_data);
 
+/**
+ * @brief HTTP header key-value pair for use with download functions.
+ */
+typedef struct {
+    const char *name;
+    const char *value;
+} sb_http_header_t;
+
 typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
 typedef void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size,

@@ -484,6 +484,7 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
     bool success = false;
 
     m_net.download(
+            false, // Must be synced download, block until download finished
             [this, &binaryInfo, &urlInfo, &success,
              filename = tempFile.string()](Error error, const std::string &message) {
                 success = false;
