@@ -29,6 +29,7 @@
 #include "signer_key_resolver.h"
 #include "nfc_tpm_key_resolver.h"
 #include "soft_key_resolver.h"
+#include "utils/thread_priority.h"
 #include <logger/logger.h>
 #include <blockingconcurrentqueue.h>
 #include <string>
@@ -337,6 +338,8 @@ sb_game_state_struct::~sb_game_state_struct()
 
 void sb_game_state_struct::cApiDispatcherLoop()
 {
+    scorbit::detail::lowerCurrentThreadPriority();
+
     for (;;) {
         ApiQueueItem item;
         cApiQueue.wait_dequeue(item);
