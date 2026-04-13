@@ -14,7 +14,7 @@ cmake_minimum_required(VERSION 3.28)
 # Note: update this to your new project's name and version
 project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---- CMake directory for libs ----
@@ -53,7 +53,7 @@ add_executable(${PROJECT_NAME})
 
 set_target_properties(
     ${PROJECT_NAME}
-    PROPERTIES CXX_STANDARD 17 CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN 1
+    PROPERTIES CXX_STANDARD 20 CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN 1
 )
 
 target_sources(${PROJECT_NAME} PRIVATE source/main.cpp)

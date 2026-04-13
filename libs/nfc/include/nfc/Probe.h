@@ -14,6 +14,7 @@
 #include <fstream>
 #include <vector>
 #include <thread>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include "Util.h"
@@ -27,13 +28,6 @@
 #    include <format>
 namespace fmt = std;
 #endif
-
-#ifdef USE_DATE_LIBRARY
-#    include <date/date.h>
-#else
-namespace date = std::chrono;
-#endif
-
 
 #ifdef _WIN32
 #include <direct.h>

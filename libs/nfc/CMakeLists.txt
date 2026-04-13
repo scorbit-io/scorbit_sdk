@@ -8,17 +8,16 @@ include(${MY_CMAKE_DIR}/tools.cmake)
 include(${MY_CMAKE_DIR}/package_project.cmake)
 
 include(${MY_CMAKE_DIR}/lib_fmt.cmake)
-include(${MY_CMAKE_DIR}/lib_date.cmake)
 
 # ---- Create library ----
 
 include(sources.cmake)
 add_library(${PROJECT_NAME} STATIC ${headers} ${sources})
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC USE_FMT_LIBRARY USE_DATE_LIBRARY)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt date::date)
+target_compile_definitions(${PROJECT_NAME} PUBLIC USE_FMT_LIBRARY)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 
 target_include_directories(
     ${PROJECT_NAME}

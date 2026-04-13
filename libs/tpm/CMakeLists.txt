@@ -37,7 +37,7 @@ endif()
 include(sources.cmake)
 add_library(${PROJECT_NAME} ${headers} ${sources} ${c_sources})
 
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 
 target_include_directories(
     ${PROJECT_NAME}
