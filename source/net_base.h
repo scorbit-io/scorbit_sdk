@@ -72,10 +72,10 @@ public:
     virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
     virtual void requestUnpair(StringCallback callback) = 0;
 
-    virtual void download(StringCallback callback, const std::string &url,
-                          const std::string &filename, const std::string &contentType = {}) = 0;
-    virtual void downloadBuffer(VectorCallback callback, const std::string &url,
-                                size_t reserveBufferSize, const std::string &contentType = {}) = 0;
+    virtual void download(bool isAsync, StringCallback callback, const std::string &url,
+                          const std::string &filename, const HttpHeaders &headers) = 0;
+    virtual void downloadBuffer(bool isAsync, VectorCallback callback, const std::string &url,
+                                size_t reserveBufferSize, const HttpHeaders &headers) = 0;
 
     virtual PlayerProfilesManager &playersManager() = 0;
 

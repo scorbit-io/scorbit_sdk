@@ -18,6 +18,7 @@
  */
 
 #include "net_util.h"
+#include "device_info.h"
 #include <catch2/catch_test_macros.hpp>
 
 // clazy:excludeall=non-pod-global-static
@@ -187,4 +188,30 @@ TEST_CASE("parseActionGetUrl, with trailing slash")
             "https://staging.scorbit.io/api/v2/sessions/74657788-455e-4dce-a4d4-38e6e5b765ad///",
             "sessions");
     CHECK(sessionUuid == "74657788-455e-4dce-a4d4-38e6e5b765ad");
+}
+
+TEST_CASE("isHostMatching compares hosts only")
+{
+    CHECK(isHostMatching("https://api.example.com:443/path/to.tgz",
+                         "https://api.example.com:8080/other"));
+    CHECK_FALSE(isHostMatching("https://api.example.com/foo", "https://cdn.other.net/bar"));
+}
+
+TEST_CASE("isInternalDownloadForAuth is host-based regardless of DeviceInfo::provider")
+{
+    // Updater and other integrations use non-"scorbitron" providers but still download
+    // authenticated SDK artifacts from the configured API host. Gating internal auth on
+    // provider alone breaks those flows.
+    DeviceInfo nonScorbit;
+    nonScorbit.provider = "integration_client";
+
+    const std::string apiBase = "https://api.scorbit.io:443";
+    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase, nonScorbit));
+
+    DeviceInfo scorbitron;
+    scorbitron.provider = "scorbitron";
+    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase, scorbitron));
+
+    CHECK_FALSE(
+            isInternalDownloadForAuth("https://cdn.example.com/sdk-1.0.0.tgz", apiBase, nonScorbit));
 }

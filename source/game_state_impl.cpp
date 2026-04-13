@@ -278,15 +278,15 @@ void GameStateImpl::requestPairMachine(const std::string &machineUuid, const std
 }
 
 void GameStateImpl::download(StringCallback callback, const std::string &url,
-                             const std::string &filename, const std::string &contentType)
+                             const std::string &filename, const HttpHeaders &headers)
 {
-    m_net->download(std::move(callback), url, filename, contentType);
+    m_net->download(true, std::move(callback), url, filename, headers);
 }
 
 void GameStateImpl::downloadBuffer(VectorCallback callback, const std::string &url,
-                                   size_t reserveBufferSize, const std::string &contentType)
+                                   size_t reserveBufferSize, const HttpHeaders &headers)
 {
-    m_net->downloadBuffer(std::move(callback), url, reserveBufferSize, contentType);
+    m_net->downloadBuffer(true, std::move(callback), url, reserveBufferSize, headers);
 }
 
 void GameStateImpl::uploadDiagnostics(std::vector<std::string> logPaths,

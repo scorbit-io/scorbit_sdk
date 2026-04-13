@@ -18,6 +18,7 @@
  */
 
 #include "net_util.h"
+#include "device_info.h"
 #include "fmt/format.h"
 #include <logger/logger.h>
 #include <boost/uuid.hpp>
@@ -99,7 +100,6 @@ std::string gameHistoryToCsv(const GameHistory &history)
     std::string rv;
     rv.reserve(50 * 1024);
 
-
     // CSV header: "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes\n";
     rv.append("time");
     for (sb_player_t playerNum = 1; playerNum <= ABSOLUTE_MAX_PLAYERS_NUM; ++playerNum) {
@@ -147,7 +147,6 @@ std::string to_iso8601(std::chrono::system_clock::time_point tp)
     return oss.str();
 }
 
-
 auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string
 {
     // Example URL:
@@ -158,7 +157,7 @@ auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::st
 
     std::string uuid;
     if (std::regex_search(url, match, re)) {
-        uuid = match[2];     // UUID
+        uuid = match[2]; // UUID
     }
 
     return uuid;
@@ -172,6 +171,23 @@ cpr::SslOptions makeSslOptions()
     ssl.SetOption(cpr::ssl::CaBuffer {std::string(certFile.begin(), certFile.end())});
     ssl.SetOption(cpr::ssl::VerifyHost {true});
     return ssl;
+}
+
+bool isHostMatching(const std::string &url, const std::string &hostname)
+{
+    const auto urlResult = boost::urls::parse_uri(url);
+    const auto hostResult = boost::urls::parse_uri(hostname);
+    if (!urlResult || !hostResult) {
+        return false;
+    }
+    return urlResult->host() == hostResult->host();
+}
+
+bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string &apiHostname,
+                               const scorbit::DeviceInfo &deviceInfo)
+{
+    (void)deviceInfo;
+    return isHostMatching(resolvedUrl, apiHostname);
 }
 
 } // namespace detail

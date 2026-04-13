@@ -19,6 +19,8 @@
 
 #include <scorbit_sdk/version.h>
 #include <updater.h>
+#include "device_info.h"
+#include "net_util.h"
 #include "trompeloeil_printer.h"
 
 #include <nlohmann/json.hpp>
@@ -66,12 +68,13 @@ public:
     MAKE_MOCK4(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>),
                override);
-    MAKE_MOCK4(download,
-               void(StringCallback, const std::string &, const std::string &, const std::string &),
+    MAKE_MOCK5(download,
+               void(bool isAsync, StringCallback, const std::string &, const std::string &,
+                    const HttpHeaders &),
                override);
 
-    void downloadBuffer(VectorCallback, const std::string &, size_t, const std::string &) override {
-    };
+    void downloadBuffer(bool isAsync, VectorCallback, const std::string &, size_t,
+                        const HttpHeaders &) override { };
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
@@ -126,9 +129,9 @@ TEST_CASE("Updater")
 
     SECTION("happy path")
     {
-        REQUIRE_CALL(
-                mockNetRef,
-                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
+        REQUIRE_CALL(mockNetRef,
+                     download(false, _,
+                              "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -136,10 +139,10 @@ TEST_CASE("Updater")
 
     SECTION("download error")
     {
-        REQUIRE_CALL(
-                mockNetRef,
-                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
-                .LR_SIDE_EFFECT(_1(Error::ApiError, "some_temp_file.tar.gz");)
+        REQUIRE_CALL(mockNetRef,
+                     download(false, _,
+                              "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
+                .LR_SIDE_EFFECT(_2(Error::ApiError, "some_temp_file.tar.gz");)
                 .TIMES(1);
 
         REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq("1.0.1"), eq(false), _))
@@ -239,11 +242,25 @@ TEST_CASE("Updater prod key hash check")
         // Create Updater object with mocked NetBase
         TestableUpdater updater(*mockNet, false, "1.99.30", "test_platform");
 
-        REQUIRE_CALL(
-                mockNetRef,
-                download(_, "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
+        REQUIRE_CALL(mockNetRef,
+                     download(false, _,
+                              "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz", _, _))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
     }
+}
+
+TEST_CASE("Updater relies on host-based internal download auth (not device provider)")
+{
+    // Real Net attaches auth to same-host downloads for SDK tarball URLs. Non-Scorbitron
+    // clients must still be treated as internal when the asset URL is on the API host;
+    // see isInternalDownloadForAuth in net_util.
+    DeviceInfo nonScorbit;
+    nonScorbit.provider = "not_scorbitron";
+
+    const std::string apiBase = "https://api.scorbit.io:443";
+    CHECK(isInternalDownloadForAuth(
+            "https://api.scorbit.io/v2/releases/scorbit_sdk-1.0.2-testarch_testabi.tgz", apiBase,
+            nonScorbit));
 }

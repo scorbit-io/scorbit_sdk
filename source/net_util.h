@@ -25,6 +25,9 @@
 #include <string_view>
 
 namespace scorbit {
+
+struct DeviceInfo;
+
 namespace detail {
 
 struct UrlInfo {
@@ -48,6 +51,18 @@ std::string to_iso8601(std::chrono::system_clock::time_point tp);
 auto parseUrlUuid(const std::string &url, const std::string_view key) -> std::string;
 
 cpr::SslOptions makeSslOptions();
+
+/** True when @p url and @p hostname refer to the same host (scheme/port ignored for host compare).
+ */
+bool isHostMatching(const std::string &url, const std::string &hostname);
+
+/**
+ * Whether SDK auth headers should be attached to a download of @p resolvedUrl.
+ * Uses API host match only. @p deviceInfo is intentionally not used for gating — updater and
+ * non-Scorbitron integrations download authenticated artifacts from the configured API host.
+ */
+bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string &apiHostname,
+                               const ::scorbit::DeviceInfo &deviceInfo);
 
 } // namespace detail
 } // namespace scorbit

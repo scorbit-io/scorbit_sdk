@@ -91,16 +91,6 @@ constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
 
-bool isHostMatching(const std::string &url, const std::string &hostname)
-{
-    auto urlResult = boost::urls::parse_uri(url);
-    auto hostResult = boost::urls::parse_uri(hostname);
-    if (!urlResult || !hostResult) {
-        return false;
-    }
-    return urlResult->host() == hostResult->host();
-}
-
 std::string elideUrl(const std::string &url, size_t keep = 20)
 {
     if (url.size() <= keep * 2 + 3) {
@@ -560,17 +550,28 @@ void Net::requestUnpair(StringCallback callback)
                     });
 }
 
-void Net::download(StringCallback callback, const std::string &url, const std::string &filename,
-                   const std::string &contentType)
+void Net::download(bool isAsync, StringCallback callback, const std::string &url,
+                   const std::string &filename, const HttpHeaders &headers)
 {
-    createDownloadFileTask(std::move(callback), url, filename, contentType)();
+    if (isAsync) {
+        m_worker.postQueue(
+                createDownloadFileTask(std::move(callback), url, filename, HttpHeaders(headers)));
+    } else {
+        std::invoke(
+                createDownloadFileTask(std::move(callback), url, filename, HttpHeaders(headers)));
+    }
 }
 
-void Net::downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
-                         const std::string &contentType)
+void Net::downloadBuffer(bool isAsync, VectorCallback callback, const std::string &url,
+                         size_t reserveBufferSize, const HttpHeaders &headers)
 {
-    m_worker.postQueue(
-            createDownloadBufferTask(std::move(callback), url, reserveBufferSize, contentType));
+    if (isAsync) {
+        m_worker.postQueue(createDownloadBufferTask(std::move(callback), url, reserveBufferSize,
+                                                    HttpHeaders(headers)));
+    } else {
+        std::invoke(createDownloadBufferTask(std::move(callback), url, reserveBufferSize,
+                                             HttpHeaders(headers)));
+    }
 }
 
 PlayerProfilesManager &Net::playersManager()
@@ -2020,10 +2021,10 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                   std::string filename, std::string contentType)
+                                   std::string filename, HttpHeaders extraHeaders)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url),
-            filename = std::move(filename), contentType = std::move(contentType)]() {
+            filename = std::move(filename), extraHeaders = std::move(extraHeaders)]() {
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
@@ -2034,7 +2035,8 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             error = Error::FileError;
         } else {
             const auto fullUrl = this->url(url);
-            const bool isInternal = isHostMatching(fullUrl.str(), m_hostname);
+            const bool isInternal =
+                    isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
 
             const auto elidedUrl = elideUrl(fullUrl.str());
 
@@ -2042,8 +2044,9 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                 INF("API Download file: {}", elidedUrl);
 
                 auto headers = isInternal ? authHeader() : cpr::Header {};
-                headers[HDR_KEY_ACCEPT_CONTENT] =
-                        contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
+                for (const auto &[k, v] : extraHeaders) {
+                    headers[k] = v;
+                }
 
                 auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TIMEOUT}, headers,
                                        sslOptions());
@@ -2075,10 +2078,10 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 }
 
 task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string url,
-                                     size_t reserveBufferSize, std::string contentType)
+                                     size_t reserveBufferSize, HttpHeaders extraHeaders)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url), reserveBufferSize,
-            contentType = std::move(contentType)]() {
+            extraHeaders = std::move(extraHeaders)]() {
         Error error {Error::ApiError};
         std::vector<uint8_t> buffer;
         if (reserveBufferSize > 0) {
@@ -2086,10 +2089,12 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         }
 
         const auto fullUrl = this->url(url);
-        const bool isInternal = isHostMatching(fullUrl.str(), m_hostname);
+        const bool isInternal = isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
 
         auto headers = isInternal ? authHeader() : cpr::Header {};
-        headers[HDR_KEY_ACCEPT_CONTENT] = contentType.empty() ? HDR_VAL_CONTENT_OCTET : contentType;
+        for (const auto &[k, v] : extraHeaders) {
+            headers[k] = v;
+        }
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 
@@ -2186,6 +2191,7 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
         for (const auto &[playerNum, pictureUrl] : toDownload) {
             m_playersManager.setPicture(pictureUrl, Picture {});
             downloadBuffer(
+                    true, // Async download
                     [this, playerNum = playerNum,
                      pictureUrl = pictureUrl](Error error, std::vector<uint8_t> data) {
                         if (error == Error::Success) {
@@ -2197,7 +2203,8 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
                             m_playersManager.removePicture(pictureUrl);
                         }
                     },
-                    pictureUrl, PICTURE_BUFFER_RESERVE);
+                    pictureUrl, PICTURE_BUFFER_RESERVE,
+                    {{HDR_KEY_ACCEPT_CONTENT, HDR_VAL_CONTENT_OCTET}});
         }
     }
 }

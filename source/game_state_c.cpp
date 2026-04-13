@@ -53,6 +53,18 @@ inline std::string copyCStr(const char *p)
     return p ? std::string(p) : std::string {};
 }
 
+inline HttpHeaders copyHeaders(const sb_http_header_t *headers, size_t count)
+{
+    HttpHeaders result;
+    if (headers && count > 0) {
+        result.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result.emplace_back(copyCStr(headers[i].name), copyCStr(headers[i].value));
+        }
+    }
+    return result;
+}
+
 struct Poison {
 };
 
@@ -161,7 +173,7 @@ struct JobDownload {
     sb_game_state_struct *h;
     std::string url;
     std::string filename;
-    std::string content_type;
+    HttpHeaders headers;
     sb_string_callback_t callback;
     void *user_data;
 };
@@ -170,7 +182,7 @@ struct JobDownloadBuffer {
     sb_game_state_struct *h;
     std::string url;
     size_t reserve_buffer_size;
-    std::string content_type;
+    HttpHeaders headers;
     sb_buffer_callback_t callback;
     void *user_data;
 };
@@ -182,13 +194,13 @@ struct JobUploadDiagnostics {
     std::string logString;
 };
 
-using ApiQueueItem = std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
-                                  JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                                  JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
-                                  JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
-                                  JobSetCapabilities, JobPairMachine, JobCreditsDropped,
-                                  JobCreditsStatus, JobDownload, JobDownloadBuffer,
-                                  JobUploadDiagnostics>;
+using ApiQueueItem =
+        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
+                     JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
+                     JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
+                     JobRequestTopScores, JobRequestPairCode, JobRequestUnpair, JobSetCapabilities,
+                     JobPairMachine, JobCreditsDropped, JobCreditsStatus, JobDownload,
+                     JobDownloadBuffer, JobUploadDiagnostics>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -286,12 +298,12 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobDownload &&j) {
                         j.h->gameState.download(makeCStringReplyBridge(j.callback, j.user_data),
                                                 std::move(j.url), std::move(j.filename),
-                                                std::move(j.content_type));
+                                                std::move(j.headers));
                     },
                     [](JobDownloadBuffer &&j) {
                         j.h->gameState.downloadBuffer(
                                 makeBufferReplyBridge(j.callback, j.user_data), std::move(j.url),
-                                j.reserve_buffer_size, std::move(j.content_type));
+                                j.reserve_buffer_size, std::move(j.headers));
                     },
                     [](JobUploadDiagnostics &&j) {
                         j.h->gameState.uploadDiagnostics(std::move(j.logPaths),
@@ -513,17 +525,20 @@ void sb_set_credits_status(sb_game_handle_t handle, bool free_play, int credits,
 }
 
 void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
-                 const char *content_type, sb_string_callback_t callback, void *user_data)
+                 const sb_http_header_t *headers, size_t headers_count,
+                 sb_string_callback_t callback, void *user_data)
 {
     handle->postApiJob(JobDownload {handle, copyCStr(url), copyCStr(filename),
-                                    copyCStr(content_type), callback, user_data});
+                                    copyHeaders(headers, headers_count), callback, user_data});
 }
 
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
-                        const char *content_type, sb_buffer_callback_t callback, void *user_data)
+                        const sb_http_header_t *headers, size_t headers_count,
+                        sb_buffer_callback_t callback, void *user_data)
 {
     handle->postApiJob(JobDownloadBuffer {handle, copyCStr(url), reserve_buffer_size,
-                                          copyCStr(content_type), callback, user_data});
+                                          copyHeaders(headers, headers_count), callback,
+                                          user_data});
 }
 
 void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
@@ -546,6 +561,6 @@ void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size
         }
     }
 
-    handle->postApiJob(
-            JobUploadDiagnostics {handle, std::move(logs), std::move(recordings), copyCStr(log_string)});
+    handle->postApiJob(JobUploadDiagnostics {handle, std::move(logs), std::move(recordings),
+                                             copyCStr(log_string)});
 }

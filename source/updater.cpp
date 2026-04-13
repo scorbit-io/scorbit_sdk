@@ -484,6 +484,7 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
     bool success = false;
 
     m_net.download(
+            false, // Must be synced download, block until download finished
             [this, &binaryInfo, &urlInfo, &success,
              filename = tempFile.string()](Error error, const std::string &message) {
                 success = false;
@@ -510,7 +511,7 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
                     ERR("Updater: download failed: {}", msg);
                 }
             },
-            urlInfo.url, tempFile.string());
+            urlInfo.url, tempFile.string(), {{HDR_KEY_ACCEPT_CONTENT, HDR_VAL_CONTENT_OCTET}});
 
     return success;
 }

@@ -441,8 +441,8 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
  * @param handle The game handle created using @ref sb_create_game_state.
  * @param url The URL to download from.
  * @param filename The local filename to save the downloaded file to.
- * @param content_type The accepted content type to set in the HTTP Accept header
- * (e.g., "application/octet-stream"). Pass NULL or empty string to keep it default (octet-stream).
+ * @param headers Optional array of HTTP headers to include in the request. Pass NULL if not used.
+ * @param headers_count Number of elements in the @p headers array. Pass 0 if not used.
  * @param callback A callback function of @ref sb_string_callback_t that receives the result.
  * Returns @ref SB_EC_SUCCESS if the download was successful. On success, the reply string contains
  * the path to the downloaded file. Otherwise, it returns an error code.
@@ -450,7 +450,8 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
  */
 SCORBIT_SDK_EXPORT
 void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
-                 const char *content_type, sb_string_callback_t callback, void *user_data);
+                 const sb_http_header_t *headers, size_t headers_count,
+                 sb_string_callback_t callback, void *user_data);
 
 /**
  * @brief Download data from a URL into a memory buffer.
@@ -461,9 +462,8 @@ void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
  * @param handle The game handle created using @ref sb_create_game_state.
  * @param url The URL to download from.
  * @param reserve_buffer_size The initial buffer size to reserve for the download.
- * @param content_type The accepted content type to set in the HTTP Accept header
- * (e.g., "application/octet-stream, application/json"). Pass NULL or empty string to keep it
- * default (octet-stream).
+ * @param headers Optional array of HTTP headers to include in the request. Pass NULL if not used.
+ * @param headers_count Number of elements in the @p headers array. Pass 0 if not used.
  * @param callback A callback function of @ref sb_buffer_callback_t that receives the downloaded
  * data. Returns @ref SB_EC_SUCCESS if the download was successful. The data pointer is valid only
  * during the callback execution.
@@ -471,7 +471,8 @@ void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
  */
 SCORBIT_SDK_EXPORT
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,
-                        const char *content_type, sb_buffer_callback_t callback, void *user_data);
+                        const sb_http_header_t *headers, size_t headers_count,
+                        sb_buffer_callback_t callback, void *user_data);
 
 #ifdef __cplusplus
 }
