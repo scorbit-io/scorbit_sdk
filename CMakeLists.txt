@@ -275,7 +275,7 @@ target_link_libraries(
         cpr::cpr
         OpenSSL::Crypto
         LibArchive::LibArchive
-        centrifugo-cpp
+        $<BUILD_INTERFACE:centrifugo-cpp>
         $<BUILD_INTERFACE:nfc>
         $<BUILD_INTERFACE:tpm>
         $<BUILD_INTERFACE:logger>
