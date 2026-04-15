@@ -43,6 +43,31 @@ else()
         "https://github.com/boostorg/boost/releases/download/boost-${TRY_BOOST_VERSION}/boost-${TRY_BOOST_VERSION}-cmake.tar.xz"
     )
 
+    # Apple thin slices: host CMAKE_SYSTEM_PROCESSOR can disagree with CMAKE_OSX_ARCHITECTURES.
+    # Set Boost.Context cache before Boost configures (see boost/libs/context/CMakeLists.txt).
+    if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+        set(_boost_osx_archs "${CMAKE_OSX_ARCHITECTURES}")
+        list(LENGTH _boost_osx_archs _boost_osx_arch_count)
+        if(_boost_osx_arch_count EQUAL 1)
+            list(GET _boost_osx_archs 0 _boost_osx_single)
+            if(_boost_osx_single STREQUAL "x86_64")
+                set(BOOST_CONTEXT_ARCHITECTURE "x86_64" CACHE STRING "Boost.Context architecture" FORCE)
+                set(BOOST_CONTEXT_ABI "sysv" CACHE STRING "Boost.Context ABI" FORCE)
+            elseif(_boost_osx_single STREQUAL "arm64")
+                set(BOOST_CONTEXT_ARCHITECTURE "arm64" CACHE STRING "Boost.Context architecture" FORCE)
+                set(BOOST_CONTEXT_ABI "aapcs" CACHE STRING "Boost.Context ABI" FORCE)
+            endif()
+        elseif(_boost_osx_arch_count GREATER 1)
+            # Multi-arch (universal) build: Boost.Context assembly is arch-specific and can't be
+            # compiled for multiple architectures in one pass. Use the portable ucontext fallback.
+            set(BOOST_CONTEXT_IMPLEMENTATION "ucontext"
+                CACHE STRING "Boost.Context implementation" FORCE)
+        endif()
+        unset(_boost_osx_archs)
+        unset(_boost_osx_arch_count)
+        unset(_boost_osx_single)
+    endif()
+
     CPMAddPackage(
         NAME Boost
         URL ${BOOST_URL}

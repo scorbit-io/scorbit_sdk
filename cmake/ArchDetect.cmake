@@ -56,8 +56,21 @@ function(get_target_arch OUT_VAR)
     set(${OUT_VAR} ${target_arch} PARENT_SCOPE)
 endfunction()
 
-# Normalize it
-get_target_arch(TARGET_ARCH)
+# Prefer explicit macOS slice over compiler -dumpmachine (dumpmachine stays arm64 on
+# Apple Silicon even when CMAKE_OSX_ARCHITECTURES=x86_64).
+if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+    list(LENGTH CMAKE_OSX_ARCHITECTURES _scorbitd_osx_arch_len)
+    if(_scorbitd_osx_arch_len EQUAL 1)
+        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            set(TARGET_ARCH "amd64")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            set(TARGET_ARCH "arm64")
+        endif()
+    endif()
+endif()
+if(NOT DEFINED TARGET_ARCH)
+    get_target_arch(TARGET_ARCH)
+endif()
 message(STATUS "Detected target architecture: ${TARGET_ARCH}")
 
 if(TARGET_ARCH STREQUAL "unknown")
