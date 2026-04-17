@@ -67,6 +67,12 @@ constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
 
 constexpr auto NET_TIMEOUT = 14s;
+/// Connect-phase limit for large uploads/downloads (TLS + TCP); separate from transfer duration.
+constexpr auto NET_CONNECT_TIMEOUT = 60s;
+/// No hard cap on total transfer time; stalled transfers abort via NET_TRANSFER_LOW_SPEED_*.
+constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
+constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
+constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 
@@ -1870,11 +1876,12 @@ template<typename DeferredSetupT, typename HttpMethodT>
 task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
                                   std::vector<AuthStatus> allowedStatuses,
-                                  bool includeFingerprintHash)
+                                  bool includeFingerprintHash, bool resilientTransferTimeouts)
 {
     return [this, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
-            allowedStatuses = std::move(allowedStatuses), includeFingerprintHash]() {
+            allowedStatuses = std::move(allowedStatuses), includeFingerprintHash,
+            resilientTransferTimeouts]() {
         Error error {Error::ApiError};
         std::string reply;
 
@@ -1908,7 +1915,8 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             if (includeFingerprintHash && !m_fingerprintHash.empty()) {
                 hdrs[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
             }
-            auto r = httpMethod(url, std::get<1>(setupResult), hdrs, cpr::Timeout {NET_TIMEOUT});
+            auto r = httpMethod(url, std::get<1>(setupResult), hdrs, cpr::Timeout {NET_TIMEOUT},
+                                resilientTransferTimeouts);
             reply = std::move(r.text);
 
             if (r.status_code >= 200 && r.status_code < 300) {
@@ -1955,7 +1963,14 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
     return createHttpRequestTask(
             REST_GET, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
-                   const cpr::Timeout &timeout) {
+                   const cpr::Timeout &timeout, bool resilient) {
+                if (resilient) {
+                    return cpr::Get(url, params, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                    cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                    cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                   NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                    sslOptions());
+                }
                 return cpr::Get(url, params, header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
@@ -1968,7 +1983,14 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
-                   const cpr::Timeout &timeout) {
+                   const cpr::Timeout &timeout, bool resilient) {
+                if (resilient) {
+                    return cpr::Post(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                     cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                     cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                    NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                     sslOptions());
+                }
                 return cpr::Post(url, body, header, timeout, sslOptions());
             },
             std::move(allowedStatuses), includeFingerprintHash);
@@ -1981,11 +2003,19 @@ task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
     return createHttpRequestTask(
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
-                   const cpr::Timeout &timeout) {
+                   const cpr::Timeout &timeout, bool resilient) {
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
+                if (resilient) {
+                    return cpr::Post(url, multipart.get(), header,
+                                     cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                     cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                     cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                    NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                     sslOptions());
+                }
                 return cpr::Post(url, multipart.get(), header, timeout, sslOptions());
             },
-            std::move(allowedStatuses));
+            std::move(allowedStatuses), false, true);
 }
 
 task_t Net::createPatchRequestTask(StringCallback replyCallback,
@@ -1995,7 +2025,14 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
-                   const cpr::Timeout &timeout) {
+                   const cpr::Timeout &timeout, bool resilient) {
+                if (resilient) {
+                    return cpr::Patch(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                      cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                      cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                     NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                      sslOptions());
+                }
                 return cpr::Patch(url, body, header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
@@ -2009,11 +2046,19 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
     return createHttpRequestTask(
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const SafeMultipart &multipart, cpr::Header header,
-                   const cpr::Timeout &timeout) {
+                   const cpr::Timeout &timeout, bool resilient) {
                 header[HDR_KEY_CONTENT_TYPE] = HDR_VAL_CONTENT_MULTIPART;
+                if (resilient) {
+                    return cpr::Patch(url, multipart.get(), header,
+                                      cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                      cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                      cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                     NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                      sslOptions());
+                }
                 return cpr::Patch(url, multipart.get(), header, timeout, sslOptions());
             },
-            std::move(allowedStatuses), includeFingerprintHash);
+            std::move(allowedStatuses), includeFingerprintHash, true);
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
@@ -2044,8 +2089,11 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                     headers[k] = v;
                 }
 
-                auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TIMEOUT}, headers,
-                                       sslOptions());
+                auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                       cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                       cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                      NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                       headers, sslOptions());
                 reply = std::move(r.text);
                 statusCode = r.status_code;
 
@@ -2097,7 +2145,11 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         for (int i = 0; i < NUM_RETRIES; ++i) {
             INF("API Download buffer: {}", elidedUrl);
 
-            auto r = cpr::Get(fullUrl, headers, cpr::Timeout {NET_TIMEOUT}, sslOptions());
+            auto r = cpr::Get(
+                    fullUrl, headers, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                    cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                    cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS, NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                    sslOptions());
 
             if (r.status_code == 200) {
                 const auto *data = reinterpret_cast<const uint8_t *>(r.text.data());
