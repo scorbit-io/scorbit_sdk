@@ -228,6 +228,10 @@ private:
     void checkNfcBootReason();
 
     void requestCreditsStatusEvent();
+    /// Request credits status from the app only when Centrifugo is connected and
+    /// `m_machineChannel` is set (must match a server-side subscription from the JWT).
+    void requestCreditsStatusIfReady();
+
     void requestFirmwaresList();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;

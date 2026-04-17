@@ -1630,15 +1630,14 @@ void Net::sendScorbitronObject()
 {
     m_worker.post(createPatchRequestTask(
             [this](Error error, std::string reply) {
-                parseScorbitronObject(error, reply);
                 if (error == Error::Success) {
                     INF("API initial Scorbitron object sent: ok, {}", reply);
-                    parseScorbitronObject(error, reply);
                 } else {
                     ERR("API initial Scorbitron object sent: failed, error code: {}, "
                         "reply: {}",
                         static_cast<int>(error), reply);
                 }
+                parseScorbitronObject(error, reply);
             },
             [this]() {
                 std::string body;
@@ -1825,6 +1824,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
                     idIt != it->end() && idIt->is_string()) {
                     idIt->get_to(m_machineInfo.machineUuid);
                     m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
+                    requestCreditsStatusIfReady();
                 }
             }
         }
@@ -2263,7 +2263,7 @@ void Net::centrifugoSetup()
         }
 
         INF("API-CF Connected to Centrifugo!");
-        requestCreditsStatusEvent();
+        requestCreditsStatusIfReady();
     });
 
     m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
@@ -2493,6 +2493,17 @@ void Net::checkNfcBootReason()
 void Net::requestCreditsStatusEvent()
 {
     m_eventManager->push(std::make_shared<CreditsStatusRequestedEvent>());
+}
+
+void Net::requestCreditsStatusIfReady()
+{
+    if (m_stop || !m_centrifugo || m_machineChannel.empty()) {
+        return;
+    }
+    if (m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+        return;
+    }
+    requestCreditsStatusEvent();
 }
 
 void Net::requestFirmwaresList()
