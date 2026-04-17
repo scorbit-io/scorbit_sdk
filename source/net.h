@@ -183,7 +183,7 @@ private:
             const char *requestType, StringCallback replyCallback, DeferredSetupT deferredSetup,
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
-            bool includeFingerprintHash = false);
+            bool includeFingerprintHash = false, bool resilientTransferTimeouts = false);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -241,13 +241,12 @@ private:
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
     {
-        const auto formattedEndpoint =
-                fmt::format(fmt::runtime(endpoint), fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
-                            fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
-                            std::forward<Args>(args)...); // Pass extra args
+        const auto formattedEndpoint = fmt::format(
+                fmt::runtime(endpoint), fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
+                std::forward<Args>(args)...); // Pass extra args
 
-        if (formattedEndpoint.starts_with("http://")
-            || formattedEndpoint.starts_with("https://")) {
+        if (formattedEndpoint.starts_with("http://") || formattedEndpoint.starts_with("https://")) {
             return cpr::Url {formattedEndpoint};
         }
 
