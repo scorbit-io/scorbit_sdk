@@ -27,6 +27,14 @@
 #include <variant>
 #include <vector>
 
+#if defined(__linux__)
+#    include <sys/resource.h>
+#    include <sys/syscall.h>
+#    include <unistd.h>
+#elif defined(__APPLE__)
+#    include <pthread.h>
+#endif
+
 namespace {
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -104,8 +112,20 @@ private:
     {
     }
 
+    static void lowerThreadPriority()
+    {
+#if defined(__linux__)
+        const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
+        setpriority(PRIO_PROCESS, static_cast<id_t>(tid), 10);
+#elif defined(__APPLE__)
+        pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0);
+#endif
+    }
+
     void processLogs()
     {
+        lowerThreadPriority();
+
         for (;;) {
             LogQueueItem item;
             m_queue.wait_dequeue(item);

@@ -18,6 +18,7 @@
  */
 
 #include "worker.h"
+#include "utils/thread_priority.h"
 #include <logger/logger.h>
 
 constexpr auto NUM_OF_THREADS = 4;
@@ -94,7 +95,10 @@ void Worker::start()
 
     m_running = true;
     for (int i = 0; i < NUM_OF_THREADS; ++i) {
-        m_threads.create_thread([this] { m_ioc.run(); });
+        m_threads.create_thread([this] {
+            lowerCurrentThreadPriority();
+            m_ioc.run();
+        });
     }
 }
 

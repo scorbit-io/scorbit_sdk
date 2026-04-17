@@ -207,6 +207,8 @@ target_sources(
         source/utils/machine_fingerprint.cpp
         source/utils/decrypt.h
         source/utils/decrypt.cpp
+        source/utils/thread_priority.h
+        source/utils/thread_priority.cpp
 
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp

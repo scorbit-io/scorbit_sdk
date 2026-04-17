@@ -107,6 +107,8 @@ target_sources(
         source/test_net_util.cpp
         ../../source/worker.cpp
         ../../source/worker.h
+        ../../source/utils/thread_priority.h
+        ../../source/utils/thread_priority.cpp
         source/test_worker.cpp
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
