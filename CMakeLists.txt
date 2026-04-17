@@ -336,7 +336,7 @@ packageProject(
 set(CPACK_GENERATOR DEB)
 
 set(CPACK_PACKAGE_VENDOR "scorbit.io")
-set(CPACK_PACKAGE_CONTACT "Dilshod Mukhtarov <dilshodm@gmail.com>")
+set(CPACK_PACKAGE_CONTACT "Scorbit <support@scorbit.io>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scorbit SDK")
 
 set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
@@ -354,6 +354,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 else()
     set(CPACK_STRIP_FILES FALSE)
 endif()
+
+# Derive Debian architecture from the toolchain target
+set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${TARGET_ARCH}")
 
 set(CPACK_PACKAGING_INSTALL_PREFIX ${SCORBIT_SDK_INSTALL_PREFIX})
 
