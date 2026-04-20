@@ -50,7 +50,8 @@ using EventCallback = std::function<void(const Event &event)>;
  * auto gameState = scorbit::createGameState(encryptedKey, config);
  * @endcode
  */
-class Config {
+class Config
+{
 public:
     /**
      * @brief Construct a new Config object with default values.
@@ -161,6 +162,15 @@ public:
     Config &setAutoDownloadPlayerPics(bool enable)
     {
         sb_config_set_auto_download_player_pics(m_handle.get(), enable);
+        return *this;
+    }
+
+    /**
+     * @brief Set nice / QOS for SDK background threads (see @ref sb_config_set_threads_priority).
+     */
+    Config &setThreadsPriority(int priority)
+    {
+        sb_config_set_threads_priority(m_handle.get(), priority);
         return *this;
     }
 

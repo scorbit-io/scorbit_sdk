@@ -67,8 +67,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
 namespace scorbit {
 namespace detail {
 
-Worker::Worker()
-    : m_timers {{
+Worker::Worker(int threadNiceValue)
+    : m_threadNiceValue(threadNiceValue)
+    , m_timers {{
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
@@ -96,7 +97,7 @@ void Worker::start()
     m_running = true;
     for (int i = 0; i < NUM_OF_THREADS; ++i) {
         m_threads.create_thread([this] {
-            lowerCurrentThreadPriority();
+            applySdkThreadNice(m_threadNiceValue);
             m_ioc.run();
         });
     }
