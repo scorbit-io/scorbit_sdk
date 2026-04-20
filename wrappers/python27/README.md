@@ -171,7 +171,7 @@ Helpers return parsed data or `None` if the type does not match.
 | `type` | `EventType` |
 | `get_game_start_requested()` | `int` or `None` |
 | `get_credits_add_requested()` | `(int, str)` or `None` |
-| `get_config_payments_enabled()` | `bool` or `None` |
+| `get_pricing_received()` | `PricingInfo` or `None` |
 | `get_config_received()` | JSON `str` or `None` |
 | `get_players_updated()` | `dict` (player number → `PlayerInfo`) or `None` |
 | `get_player_picture_ready()` | `(int, bytes)` or `None` |

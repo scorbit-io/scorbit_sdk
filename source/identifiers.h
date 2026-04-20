@@ -36,7 +36,8 @@ constexpr auto URL_SCORBITRON_DIAGNOSTICS {"v2/scorbitrons/{scorbitron_uuid}/dia
 constexpr auto URL_V2_PROVISION {"v2/provision/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
-constexpr auto URL_CLAIM_DEEPLINK {"https://scorbit.link/machines/{machine_uuid}/?score_id={score_id}"};
+constexpr auto URL_CLAIM_DEEPLINK {
+        "https://scorbit.link/machines/{machine_uuid}/?score_id={score_id}"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
 
@@ -143,6 +144,7 @@ constexpr auto JKEY_SCFG_CONFIG {"config"};
 constexpr auto JKEY_SCFG_OPDB_ID {"opdb_id"};
 constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
 constexpr auto JKEY_SCFG_OWNER {"owner"};
+constexpr auto JKEY_SCFG_PRICING {"pricing"};
 
 constexpr auto JKEY_SCFG_VERSION {"version"};
 constexpr auto JKEY_SCFG_TYPE {"type"};
@@ -162,7 +164,6 @@ constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};
-constexpr auto JKEY_SOBJ_PAYMENTS_ENABLED {"payments_enabled"};
 
 // Machine object
 constexpr auto JKEY_MOBJ_NAME {"name"};
@@ -205,6 +206,7 @@ constexpr auto JKEY_URL {"url"};
 constexpr auto JKEY_ACTION_NAME {"name"};
 constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
 constexpr auto JVAL_ACTION_UPLOAD_DIAGNOSTICS {"scorbitronUploadDiagnostics"};
+constexpr auto JVAL_ACTION_CONFIG_REFRESH {"scorbitronConfigRefresh"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

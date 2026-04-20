@@ -21,6 +21,7 @@
 #include <event_queue.h>
 #include <event_classes.h>
 #include <scorbit_sdk/event_types.h>
+#include <scorbit_sdk/event_helpers_c.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_vector.hpp>
@@ -66,6 +67,41 @@ std::shared_ptr<EventBase> createDiagnosticsUploadRequestedEvent(bool includeRec
 std::shared_ptr<EventBase> createDiagnosticsUploadedEvent(bool success = true)
 {
     return std::make_shared<DiagnosticsUploadedEvent>(success);
+}
+
+nlohmann::json fullPricingJson()
+{
+    return {
+        {"free_play", false},
+        {"payments_enabled", true},
+        {"prices", {
+            {"credit", {
+                {"price", "0.75"},
+                {"regular_price", "0.75"},
+                {"sale_price", nullptr}
+            }},
+            {"bundles", {
+                {{"credits", 5}, {"price", "3.00"}, {"regular_price", "3.00"}, {"sale_price", nullptr}},
+                {{"credits", 10}, {"price", "5.75"}, {"regular_price", "5.75"}, {"sale_price", "5.00"}}
+            }}
+        }},
+        {"simulate_free_play", false}
+    };
+}
+
+nlohmann::json freePlayPricingJson()
+{
+    return {
+        {"free_play", true},
+        {"payments_enabled", false},
+        {"prices", nullptr},
+        {"simulate_free_play", false}
+    };
+}
+
+std::shared_ptr<EventBase> createPricingEvent(const nlohmann::json &pricing)
+{
+    return std::make_shared<PricingReceivedEvent>(pricing);
 }
 
 } // namespace
@@ -608,5 +644,198 @@ TEST_CASE("EventManager processing state")
         ioThread.join();
 
         CHECK(callbackCount.load() == 10);
+    }
+}
+
+TEST_CASE("PricingReceivedEvent full pricing")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    const PricingReceivedEvent *captured = nullptr;
+    auto callback = [&captured](const EventBase &event) {
+        if (event.type() == EventType::PricingReceived) {
+            captured = static_cast<const PricingReceivedEvent *>(&event);
+        }
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("Full pricing data extraction")
+    {
+        eventManager->push(createPricingEvent(fullPricingJson()));
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(captured != nullptr);
+        CHECK(captured->freePlay() == false);
+        CHECK(captured->paymentsEnabled() == true);
+        CHECK(captured->hasPrices() == true);
+        CHECK(captured->creditPrice() == "0.75");
+        CHECK(captured->creditRegularPrice() == "0.75");
+        CHECK(captured->creditSalePrice().empty());
+        CHECK(captured->bundlesCount() == 2);
+
+        auto b0 = captured->bundle(0);
+        REQUIRE(b0 != nullptr);
+        CHECK(b0->credits == 5);
+        CHECK(b0->price == "3.00");
+        CHECK(b0->regularPrice == "3.00");
+        CHECK(b0->salePrice.empty());
+
+        auto b1 = captured->bundle(1);
+        REQUIRE(b1 != nullptr);
+        CHECK(b1->credits == 10);
+        CHECK(b1->price == "5.75");
+        CHECK(b1->regularPrice == "5.75");
+        CHECK(b1->salePrice == "5.00");
+
+        CHECK(captured->bundle(-1) == nullptr);
+        CHECK(captured->bundle(2) == nullptr);
+    }
+}
+
+TEST_CASE("PricingReceivedEvent free play")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    const PricingReceivedEvent *captured = nullptr;
+    auto callback = [&captured](const EventBase &event) {
+        if (event.type() == EventType::PricingReceived) {
+            captured = static_cast<const PricingReceivedEvent *>(&event);
+        }
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("Free play: no prices")
+    {
+        eventManager->push(createPricingEvent(freePlayPricingJson()));
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(captured != nullptr);
+        CHECK(captured->freePlay() == true);
+        CHECK(captured->paymentsEnabled() == false);
+        CHECK(captured->hasPrices() == false);
+        CHECK(captured->creditPrice().empty());
+        CHECK(captured->bundlesCount() == 0);
+    }
+}
+
+TEST_CASE("PricingReceivedEvent C helpers")
+{
+    auto pricing = fullPricingJson();
+    PricingReceivedEvent event(pricing);
+    const sb_event_t *ev = &event;
+
+    SECTION("Boolean flags")
+    {
+        bool free_play = true;
+        CHECK(sb_event_pricing_free_play(ev, &free_play));
+        CHECK(free_play == false);
+
+        bool payments = false;
+        CHECK(sb_event_pricing_payments_enabled(ev, &payments));
+        CHECK(payments == true);
+    }
+
+    SECTION("Credit prices")
+    {
+        const char *price = nullptr;
+        CHECK(sb_event_pricing_credit_price(ev, &price));
+        CHECK(std::string(price) == "0.75");
+
+        CHECK(sb_event_pricing_credit_regular_price(ev, &price));
+        CHECK(std::string(price) == "0.75");
+
+        CHECK_FALSE(sb_event_pricing_credit_sale_price(ev, &price));
+    }
+
+    SECTION("Bundles")
+    {
+        int count = 0;
+        CHECK(sb_event_pricing_bundles_count(ev, &count));
+        CHECK(count == 2);
+
+        int credits = 0;
+        CHECK(sb_event_pricing_bundle_credits(ev, 0, &credits));
+        CHECK(credits == 5);
+
+        const char *price = nullptr;
+        CHECK(sb_event_pricing_bundle_price(ev, 0, &price));
+        CHECK(std::string(price) == "3.00");
+
+        CHECK(sb_event_pricing_bundle_credits(ev, 1, &credits));
+        CHECK(credits == 10);
+
+        CHECK(sb_event_pricing_bundle_sale_price(ev, 1, &price));
+        CHECK(std::string(price) == "5.00");
+
+        CHECK_FALSE(sb_event_pricing_bundle_credits(ev, 2, &credits));
+    }
+
+    SECTION("Wrong event type returns false")
+    {
+        GameStartRequestedEvent wrongEvent(2);
+        const sb_event_t *wrong = &wrongEvent;
+
+        bool free_play = false;
+        CHECK_FALSE(sb_event_pricing_free_play(wrong, &free_play));
+
+        const char *price = nullptr;
+        CHECK_FALSE(sb_event_pricing_credit_price(wrong, &price));
+    }
+
+    SECTION("Null pointers return false")
+    {
+        CHECK_FALSE(sb_event_pricing_free_play(nullptr, nullptr));
+        CHECK_FALSE(sb_event_pricing_free_play(ev, nullptr));
+        CHECK_FALSE(sb_event_pricing_credit_price(ev, nullptr));
+        CHECK_FALSE(sb_event_pricing_bundles_count(ev, nullptr));
+    }
+}
+
+TEST_CASE("PricingReceivedEvent free play C helpers")
+{
+    auto pricing = freePlayPricingJson();
+    PricingReceivedEvent event(pricing);
+    const sb_event_t *ev = &event;
+
+    bool free_play = false;
+    CHECK(sb_event_pricing_free_play(ev, &free_play));
+    CHECK(free_play == true);
+
+    const char *price = nullptr;
+    CHECK_FALSE(sb_event_pricing_credit_price(ev, &price));
+
+    int count = 0;
+    CHECK(sb_event_pricing_bundles_count(ev, &count));
+    CHECK(count == 0);
+}
+
+TEST_CASE("PricingReceivedEvent ordering")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    std::vector<EventType> receivedEvents;
+    auto callback = [&receivedEvents](const EventBase &event) {
+        receivedEvents.push_back(event.type());
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("Pricing events among other events")
+    {
+        eventManager->push(createPricingEvent(fullPricingJson()));
+        eventManager->push(createGameStartEvent(2));
+        eventManager->push(createConfigEvent({{"id", "test"}}));
+
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(receivedEvents.size() == 3);
+        CHECK(receivedEvents[0] == EventType::GameStartRequested);
+        CHECK(receivedEvents[1] == EventType::PricingReceived);
+        CHECK(receivedEvents[2] == EventType::ConfigReceived);
     }
 }

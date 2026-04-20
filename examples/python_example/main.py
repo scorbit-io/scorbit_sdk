@@ -144,6 +144,17 @@ def events_callback(event):
             player_num, picture = result
             print(f"Player {player_num} picture ready: {len(picture)} bytes")
 
+    elif event.type == scorbit.EventType.PricingReceived:
+        pricing = event.get_pricing_received()
+        if pricing is not None:
+            print(f"Pricing received: free_play={pricing.free_play}")
+            if pricing.credit_price:
+                print(f"  Credit price: {pricing.credit_price} (regular: {pricing.credit_regular_price})")
+                if pricing.credit_sale_price:
+                    print(f"  Credit sale price: {pricing.credit_sale_price}")
+            for bundle in pricing.bundles:
+                print(f"  Bundle: {bundle.credits} credits for {bundle.price}")
+
     elif event.type == scorbit.EventType.DiagnosticsUploadRequested:
         include_recordings = event.get_diagnostics_upload_requested()
         if include_recordings is not None:
@@ -162,10 +173,6 @@ def events_callback(event):
         config_json = event.get_config_received()
         if config_json is not None:
             print(f"Config received: {config_json}")
-
-        payments_enabled = event.get_config_payments_enabled()
-        if payments_enabled is not None:
-            print(f"Payments enabled: {payments_enabled}")
 
 def setup_game_state():
     config = scorbit.Config()

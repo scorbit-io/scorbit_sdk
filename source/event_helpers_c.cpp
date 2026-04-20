@@ -62,25 +62,6 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits, const
     return true;
 }
 
-bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_enabled)
-{
-    if (!event || !payments_enabled) {
-        return false;
-    }
-
-    auto derived = dynamic_cast<const scorbit::detail::ConfigReceivedEvent *>(event);
-    if (!derived) {
-        return false;
-    }
-
-    if (const auto rv = derived->paymentsEnabled(); rv) {
-        *payments_enabled = *rv;
-        return true;
-    }
-
-    return false;
-}
-
 bool sb_event_diagnostics_upload_requested(const sb_event_t *event, bool *include_recordings)
 {
     if (!event || !include_recordings) {
@@ -307,5 +288,169 @@ bool sb_event_player_picture_ready(const sb_event_t *event, sb_player_t *player,
     *player = derived->player();
     *data = derived->pictureData();
     *size = derived->pictureSize();
+    return true;
+}
+
+// ----------------------- Pricing helpers -----------------------
+
+static const scorbit::detail::PricingReceivedEvent *toPricingEvent(const sb_event_t *event)
+{
+    if (!event) {
+        return nullptr;
+    }
+    return dynamic_cast<const scorbit::detail::PricingReceivedEvent *>(event);
+}
+
+bool sb_event_pricing_free_play(const sb_event_t *event, bool *free_play)
+{
+    if (!free_play) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    *free_play = derived->freePlay();
+    return true;
+}
+
+bool sb_event_pricing_payments_enabled(const sb_event_t *event, bool *payments_enabled)
+{
+    if (!payments_enabled) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    *payments_enabled = derived->paymentsEnabled();
+    return true;
+}
+
+bool sb_event_pricing_credit_price(const sb_event_t *event, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived || !derived->hasPrices()) {
+        return false;
+    }
+    *price = derived->creditPrice().c_str();
+    return true;
+}
+
+bool sb_event_pricing_credit_regular_price(const sb_event_t *event, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived || !derived->hasPrices()) {
+        return false;
+    }
+    *price = derived->creditRegularPrice().c_str();
+    return true;
+}
+
+bool sb_event_pricing_credit_sale_price(const sb_event_t *event, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived || !derived->hasPrices()) {
+        return false;
+    }
+    const auto &salePrice = derived->creditSalePrice();
+    if (salePrice.empty()) {
+        return false;
+    }
+    *price = salePrice.c_str();
+    return true;
+}
+
+bool sb_event_pricing_bundles_count(const sb_event_t *event, int *count)
+{
+    if (!count) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    *count = derived->bundlesCount();
+    return true;
+}
+
+bool sb_event_pricing_bundle_credits(const sb_event_t *event, int index, int *credits)
+{
+    if (!credits) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    auto b = derived->bundle(index);
+    if (!b) {
+        return false;
+    }
+    *credits = b->credits;
+    return true;
+}
+
+bool sb_event_pricing_bundle_price(const sb_event_t *event, int index, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    auto b = derived->bundle(index);
+    if (!b) {
+        return false;
+    }
+    *price = b->price.c_str();
+    return true;
+}
+
+bool sb_event_pricing_bundle_regular_price(const sb_event_t *event, int index, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    auto b = derived->bundle(index);
+    if (!b) {
+        return false;
+    }
+    *price = b->regularPrice.c_str();
+    return true;
+}
+
+bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, const char **price)
+{
+    if (!price) {
+        return false;
+    }
+    auto derived = toPricingEvent(event);
+    if (!derived) {
+        return false;
+    }
+    auto b = derived->bundle(index);
+    if (!b) {
+        return false;
+    }
+    const auto &salePrice = b->salePrice;
+    if (salePrice.empty()) {
+        return false;
+    }
+    *price = salePrice.c_str();
     return true;
 }

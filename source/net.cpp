@@ -455,6 +455,11 @@ void Net::getConfig()
 
                     m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
 
+                    if (const auto pricingIt = json.find(JKEY_SCFG_PRICING);
+                        pricingIt != json.end() && pricingIt->is_object()) {
+                        m_eventManager->push(std::make_shared<PricingReceivedEvent>(*pricingIt));
+                    }
+
                 } catch (const std::exception &e) {
                     ERR("API error parsing config reply: {}", e.what());
                 }
@@ -2420,6 +2425,10 @@ void Net::centrifugoSetup()
                             INF("API-CF Diagnostics upload requested via control channel");
                             m_eventManager->push(
                                     std::make_shared<DiagnosticsUploadRequestedEvent>(false));
+                        } else if (method == JVAL_METHOD_GET
+                                   && name == JVAL_ACTION_CONFIG_REFRESH) {
+                            INF("API-CF Config refresh requested via control channel");
+                            getConfig();
                         }
                     }
                 }

@@ -9,6 +9,7 @@
 
 #include "event_types.h"
 #include "player_info.h"
+#include "pricing_info.h"
 #include <scorbit_sdk/event_helpers_c.h>
 #include <string>
 #include <map>
@@ -70,21 +71,53 @@ public:
     }
 
     /**
-     * @brief Helper function to extract payments enabled status from a
-     * @ref scorbit::Type::ConfigReceived event.
+     * @brief Helper function to process a pricing received event.
      *
-     * This function extracts the payments_enabled field from a config received event.
-     * The event type must be @ref scorbit::EventType::ConfigReceived, otherwise the function
-     * returns an error.
+     * Populates a @ref PricingInfo struct with free_play, payments_enabled, credit prices,
+     * and bundle data from the event.
      *
-     * @param paymentsEnabled [OUT] A reference to a bool that will receive the payments enabled
-     * value.
-     * @return Returns true on success, or false if an error occurs (e.g., wrong event type was
-     * given).
+     * The event type must be @ref scorbit::EventType::PricingReceived, otherwise the function
+     * returns false.
+     *
+     * @param info [OUT] A reference to a PricingInfo that will receive the pricing data.
+     * @return Returns true on success, or false if an error occurs (e.g., wrong event type).
      */
-    bool getConfigPaymentsEnabled(bool &paymentsEnabled) const
+    bool getPricingReceived(PricingInfo &info) const
     {
-        return ::sb_event_config_payments_enabled(m_event, &paymentsEnabled);
+        if (!::sb_event_pricing_free_play(m_event, &info.freePlay)) {
+            return false;
+        }
+        ::sb_event_pricing_payments_enabled(m_event, &info.paymentsEnabled);
+
+        const char *str = nullptr;
+        if (::sb_event_pricing_credit_price(m_event, &str) && str) {
+            info.creditPrice = str;
+        }
+        if (::sb_event_pricing_credit_regular_price(m_event, &str) && str) {
+            info.creditRegularPrice = str;
+        }
+        if (::sb_event_pricing_credit_sale_price(m_event, &str) && str) {
+            info.creditSalePrice = str;
+        }
+
+        int count = 0;
+        ::sb_event_pricing_bundles_count(m_event, &count);
+        info.bundles.clear();
+        for (int i = 0; i < count; ++i) {
+            BundlePrice bundle;
+            ::sb_event_pricing_bundle_credits(m_event, i, &bundle.credits);
+            if (::sb_event_pricing_bundle_price(m_event, i, &str) && str) {
+                bundle.price = str;
+            }
+            if (::sb_event_pricing_bundle_regular_price(m_event, i, &str) && str) {
+                bundle.regularPrice = str;
+            }
+            if (::sb_event_pricing_bundle_sale_price(m_event, i, &str) && str) {
+                bundle.salePrice = str;
+            }
+            info.bundles.push_back(std::move(bundle));
+        }
+        return true;
     }
 
     /**

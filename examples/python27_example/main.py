@@ -160,14 +160,21 @@ def events_callback(event):
         if success is not None:
             print("Diagnostics upload %s" % ("succeeded" if success else "failed"))
 
+    elif event.type == scorbit.EventType.PricingReceived:
+        pricing = event.get_pricing_received()
+        if pricing is not None:
+            print("Pricing received: free_play=%s" % pricing.free_play)
+            if pricing.credit_price:
+                print("  Credit price: %s (regular: %s)" % (pricing.credit_price, pricing.credit_regular_price))
+                if pricing.credit_sale_price:
+                    print("  Credit sale price: %s" % pricing.credit_sale_price)
+            for bundle in pricing.bundles:
+                print("  Bundle: %d credits for %s" % (bundle.credits, bundle.price))
+
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:
             print("Config received: %s" % config_json)
-
-        payments_enabled = event.get_config_payments_enabled()
-        if payments_enabled is not None:
-            print("Payments enabled: %s" % payments_enabled)
 
 def _pair_code_cb(error, short_code):
     if error == scorbit.Error.Success:

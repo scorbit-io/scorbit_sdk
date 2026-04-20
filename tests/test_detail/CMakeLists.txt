@@ -140,6 +140,7 @@ target_sources(
         ../../source/event_classes.h
         source/test_event_queue.cpp
         ../../source/event_manager.h
+        ../../source/event_helpers_c.cpp
         source/test_event_manager.cpp
         ../../source/updater.h
         ../../source/updater.cpp

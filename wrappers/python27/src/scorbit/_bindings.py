@@ -315,10 +315,6 @@ _lib.sb_event_game_start_requested.argtypes = [c_void_p, POINTER(c_int)]
 _lib.sb_event_credits_add_requested.restype = c_bool
 _lib.sb_event_credits_add_requested.argtypes = [c_void_p, POINTER(c_int), POINTER(c_char_p)]
 
-# bool sb_event_config_payments_enabled(const sb_event_t*, bool*)
-_lib.sb_event_config_payments_enabled.restype = c_bool
-_lib.sb_event_config_payments_enabled.argtypes = [c_void_p, POINTER(c_bool)]
-
 # bool sb_event_players_updated(const sb_event_t*, int*)
 _lib.sb_event_players_updated.restype = c_bool
 _lib.sb_event_players_updated.argtypes = [c_void_p, POINTER(c_int)]
@@ -380,6 +376,48 @@ _lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)
 # bool sb_event_diagnostics_uploaded(const sb_event_t*, bool*)
 _lib.sb_event_diagnostics_uploaded.restype = c_bool
 _lib.sb_event_diagnostics_uploaded.argtypes = [c_void_p, POINTER(c_bool)]
+
+# -- Pricing event helpers --
+
+# bool sb_event_pricing_free_play(const sb_event_t*, bool*)
+_lib.sb_event_pricing_free_play.restype = c_bool
+_lib.sb_event_pricing_free_play.argtypes = [c_void_p, POINTER(c_bool)]
+
+# bool sb_event_pricing_payments_enabled(const sb_event_t*, bool*)
+_lib.sb_event_pricing_payments_enabled.restype = c_bool
+_lib.sb_event_pricing_payments_enabled.argtypes = [c_void_p, POINTER(c_bool)]
+
+# bool sb_event_pricing_credit_price(const sb_event_t*, const char**)
+_lib.sb_event_pricing_credit_price.restype = c_bool
+_lib.sb_event_pricing_credit_price.argtypes = [c_void_p, POINTER(c_char_p)]
+
+# bool sb_event_pricing_credit_regular_price(const sb_event_t*, const char**)
+_lib.sb_event_pricing_credit_regular_price.restype = c_bool
+_lib.sb_event_pricing_credit_regular_price.argtypes = [c_void_p, POINTER(c_char_p)]
+
+# bool sb_event_pricing_credit_sale_price(const sb_event_t*, const char**)
+_lib.sb_event_pricing_credit_sale_price.restype = c_bool
+_lib.sb_event_pricing_credit_sale_price.argtypes = [c_void_p, POINTER(c_char_p)]
+
+# bool sb_event_pricing_bundles_count(const sb_event_t*, int*)
+_lib.sb_event_pricing_bundles_count.restype = c_bool
+_lib.sb_event_pricing_bundles_count.argtypes = [c_void_p, POINTER(c_int)]
+
+# bool sb_event_pricing_bundle_credits(const sb_event_t*, int, int*)
+_lib.sb_event_pricing_bundle_credits.restype = c_bool
+_lib.sb_event_pricing_bundle_credits.argtypes = [c_void_p, c_int, POINTER(c_int)]
+
+# bool sb_event_pricing_bundle_price(const sb_event_t*, int, const char**)
+_lib.sb_event_pricing_bundle_price.restype = c_bool
+_lib.sb_event_pricing_bundle_price.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
+
+# bool sb_event_pricing_bundle_regular_price(const sb_event_t*, int, const char**)
+_lib.sb_event_pricing_bundle_regular_price.restype = c_bool
+_lib.sb_event_pricing_bundle_regular_price.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
+
+# bool sb_event_pricing_bundle_sale_price(const sb_event_t*, int, const char**)
+_lib.sb_event_pricing_bundle_sale_price.restype = c_bool
+_lib.sb_event_pricing_bundle_sale_price.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
 
 # void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
 #                             const char**, size_t, const char*)
