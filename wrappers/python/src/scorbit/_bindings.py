@@ -133,6 +133,10 @@ _lib.sb_config_set_serial_number.argtypes = [sb_config_t, c_uint64]
 _lib.sb_config_set_auto_download_player_pics.restype = None
 _lib.sb_config_set_auto_download_player_pics.argtypes = [sb_config_t, c_bool]
 
+# void sb_config_set_threads_priority(sb_config_t, int)
+_lib.sb_config_set_threads_priority.restype = None
+_lib.sb_config_set_threads_priority.argtypes = [sb_config_t, c_int]
+
 # void sb_config_set_score_features(sb_config_t, const char**, size_t, int)
 _lib.sb_config_set_score_features.restype = None
 _lib.sb_config_set_score_features.argtypes = [

@@ -31,27 +31,28 @@
 namespace scorbit {
 namespace detail {
 
-// Nice value applied to every SDK-owned thread.  Higher values = lower priority.
-// 10 is well below interactive/real-time work while still getting reasonable CPU
-// time for network I/O and bookkeeping.
-static constexpr int SDK_THREAD_NICE_VALUE = 10;
-
-void lowerCurrentThreadPriority()
+void applySdkThreadNice(int niceValue)
 {
 #if defined(__linux__)
+    if (niceValue == 0) {
+        return;
+    }
     // setpriority with PRIO_PROCESS and tid==0 would affect the whole process on
     // some glibc versions.  Use the raw syscall with the Linux thread-id instead
     // so only the calling thread is re-niced.
     const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
-    if (setpriority(PRIO_PROCESS, static_cast<id_t>(tid), SDK_THREAD_NICE_VALUE) != 0) {
+    if (setpriority(PRIO_PROCESS, static_cast<id_t>(tid), niceValue) != 0) {
         // Best-effort; ignore EACCES (may lack CAP_SYS_NICE)
     }
 #elif defined(__APPLE__)
-    (void)SDK_THREAD_NICE_VALUE;
+    if (niceValue == 0) {
+        return;
+    }
     // macOS doesn't have per-thread nice values exposed via setpriority.
     // QOS_CLASS_BACKGROUND is the lowest non-maintenance class.
     pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0);
 #else
+    (void)niceValue;
     // No-op on unsupported platforms (Windows, etc.)
 #endif
 }

@@ -176,6 +176,10 @@ def setup_game_state():
     config.set_auto_download_player_pics(True)
     config.set_score_features(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
 
+    # Optional: set_threads_priority(). If omitted or set to 0, the SDK does not change scheduling
+    # for its background threads. Use a positive value (e.g. 10) on Linux to renice those threads.
+    # config.set_threads_priority(10)
+
     config.set_encrypted_key('8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==')
 
     config.set_save_key_callback(save_key_callback)

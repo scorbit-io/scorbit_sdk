@@ -97,6 +97,12 @@ TEST_CASE("sb_config_t setters", "[Config][C]")
         sb_config_set_auto_download_player_pics(config, false);
     }
 
+    SECTION("Set threads_priority")
+    {
+        sb_config_set_threads_priority(config, 0);
+        sb_config_set_threads_priority(config, 10);
+    }
+
     SECTION("Set score_features")
     {
         const char *features[] = {"ramp", "spinner", "target"};
@@ -126,6 +132,7 @@ TEST_CASE("sb_config_t null safety", "[Config][C]")
     sb_config_set_uuid(nullptr, "uuid");
     sb_config_set_serial_number(nullptr, 123);
     sb_config_set_auto_download_player_pics(nullptr, true);
+    sb_config_set_threads_priority(nullptr, 10);
     sb_config_set_score_features(nullptr, nullptr, 0, 0);
     sb_config_set_encrypted_key(nullptr, "key");
 }
@@ -152,6 +159,7 @@ TEST_CASE("Config method chaining", "[Config][C++]")
             .setUuid("f0b188f8-9f2d-4f8d-abe4-c3107516e7ce")
             .setSerialNumber(123456789)
             .setAutoDownloadPlayerPics(true)
+            .setThreadsPriority(10)
             .setScoreFeatures({"ramp", "spinner", "target"}, 1)
             .setEncryptedKey("encrypted_key_data");
 
@@ -214,6 +222,13 @@ TEST_CASE("Config setters", "[Config][C++]")
     {
         config.setAutoDownloadPlayerPics(true);
         config.setAutoDownloadPlayerPics(false);
+        REQUIRE(config.isValid());
+    }
+
+    SECTION("Set threads_priority")
+    {
+        config.setThreadsPriority(0);
+        config.setThreadsPriority(10);
         REQUIRE(config.isValid());
     }
 

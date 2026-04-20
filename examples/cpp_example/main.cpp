@@ -315,6 +315,12 @@ scorbit::GameState setupGameState()
             .setHostname("staging")
             .setAutoDownloadPlayerPics(true)
             .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
+
+            // Optional: .setThreadsPriority(n) - omit or use 0 for no change to SDK background
+            // thread scheduling; use a positive value (e.g. 10) on Linux to lower CPU priority of
+            // those threads
+            // .setThreadsPriority(10)
+
             // Provider's encrypted private key (generated using encrypt_tool).
             // Used for V2 provisioning authentication to prove provider identity.
             .setEncryptedKey(

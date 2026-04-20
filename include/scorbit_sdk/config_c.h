@@ -129,6 +129,24 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
 
 /**
+ * @brief Set scheduling priority for SDK-owned background threads (worker and C API queue).
+ *
+ * On Linux this is the value passed to setpriority(2) for each of those threads (higher means
+ * lower CPU priority relative to the process baseline). The default is 0, which leaves thread
+ * scheduling unchanged (legacy behavior). Set a positive value (for example 10) to deprioritize
+ * SDK work versus latency-sensitive threads such as audio callbacks.
+ *
+ * On macOS, any non-zero value requests QOS_CLASS_BACKGROUND for those threads; 0 leaves them
+ * unchanged.
+ *
+ * @param config The configuration handle.
+ * @param priority Nice value on Linux; 0 disables adjustment. Must be set before @ref
+ * sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_threads_priority(sb_config_t config, int priority);
+
+/**
  * @brief Set score features.
  *
  * Score features help identify what triggered a score increase (e.g., ramp, spinner, target).

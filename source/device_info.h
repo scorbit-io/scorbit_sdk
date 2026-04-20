@@ -51,6 +51,9 @@ struct DeviceInfo {
     std::vector<std::string> scoreFeatures;
     int scoreFeaturesVersion {0};
 
+    /// Per-thread nice for SDK worker threads (Linux setpriority); 0 = do not adjust.
+    int threadsNice {0};
+
     // Authentication - one of these must be set
     std::string encryptedKey;
     sb_signer_callback_t signerCallback {nullptr};

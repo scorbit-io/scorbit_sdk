@@ -64,6 +64,9 @@ public:
 
     AuthStatus getStatus() const;
 
+    /** Nice / thread scheduling value from config (see @ref sb_config_set_threads_priority). */
+    int configuredSdkThreadsNice() const { return m_net->deviceInfo().threadsNice; }
+
     const std::string &getMachineUuid() const;
     std::uint64_t getMachineSerial() const;
     const std::string &getPairDeeplink() const;

@@ -87,6 +87,13 @@ void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable)
     }
 }
 
+void sb_config_set_threads_priority(sb_config_t config, int priority)
+{
+    if (config) {
+        config->threadsNice = priority;
+    }
+}
+
 void sb_config_set_score_features(sb_config_t config, const char **features, size_t count,
                                   int version)
 {

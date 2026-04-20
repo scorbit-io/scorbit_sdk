@@ -338,7 +338,7 @@ sb_game_state_struct::~sb_game_state_struct()
 
 void sb_game_state_struct::cApiDispatcherLoop()
 {
-    scorbit::detail::lowerCurrentThreadPriority();
+    scorbit::detail::applySdkThreadNice(gameState.configuredSdkThreadsNice());
 
     for (;;) {
         ApiQueueItem item;

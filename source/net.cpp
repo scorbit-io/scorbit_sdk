@@ -162,6 +162,7 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
+    , m_worker(m_deviceInfo.threadsNice)
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {

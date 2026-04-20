@@ -176,6 +176,12 @@ class Config(object):
         _lib.sb_config_set_auto_download_player_pics(self._handle, enable)
         return self
 
+    def set_threads_priority(self, priority):
+        # type: (int) -> Config
+        """Nice / QOS for SDK background threads; ``0`` leaves scheduling unchanged (default)."""
+        _lib.sb_config_set_threads_priority(self._handle, priority)
+        return self
+
     def set_score_features(self, features, version=1):
         # type: (list, int) -> Config
         """Set score features that identify what triggered a score increase.

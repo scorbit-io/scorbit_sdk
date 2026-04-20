@@ -367,6 +367,11 @@ sb_game_handle_t setup_game_state(void)
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);
 
+    // Optional: sb_config_set_threads_priority(). If you omit this call or pass 0, the SDK does not
+    // change scheduling for its background threads (default). Use a positive value (e.g. 10) on
+    // Linux to renice those threads lower.
+    // sb_config_set_threads_priority(config, 10);
+
     // Provider's encrypted private key (generated using encrypt_tool).
     // Used for V2 provisioning authentication to prove provider identity.
     sb_config_set_encrypted_key(

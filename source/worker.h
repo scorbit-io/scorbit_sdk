@@ -51,7 +51,8 @@ public:
     };
 
 public:
-    Worker();
+    /// @param threadNiceValue Linux nice passed to setpriority for each worker thread; 0 disables.
+    explicit Worker(int threadNiceValue = 0);
     ~Worker();
 
     void start();
@@ -81,6 +82,7 @@ private:
     using asio_strand = boost::asio::strand<boost::asio::io_context::executor_type>;
 
     std::atomic_bool m_running {false};
+    int m_threadNiceValue {0};
 
     boost::asio::io_context m_ioc;
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_workGuard {
