@@ -26,6 +26,21 @@ static bool has_flag(probe_t probesSet, ProbeType flag)
     return static_cast<probe_t>(probesSet) & static_cast<probe_t>(flag);
 }
 
+// Same numeric rules as HardwareTpm::isValid (Scorbit-assigned device serial)
+static bool isValidScorbitSerial(uint64_t serialNumber)
+{
+    if (serialNumber < 15004) {
+        return false;
+    }
+    auto n = serialNumber;
+    int sum = 0;
+    while (n != 0) {
+        sum += static_cast<int>(n % 10);
+        n /= 10;
+    }
+    return sum % 10 == 0;
+}
+
 void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPath,
                               const ProbeDisplayCallback &callback)
 {
@@ -47,6 +62,11 @@ void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPat
             if (has_flag(probesSet, ProbeType::NFC) && probeInfo.Id == NFC_PROBE_ID) {
                 m_nfc = std::make_shared<ProbeNFC>();
                 m_nfc->Initialize(0, device);
+                if (isValidScorbitSerial(probeInfo.TpmScorbitSerial)) {
+                    // Just in case clear factory mode bit
+                    m_nfc->SetFlags(static_cast<uint8_t>(ProbeNFC::NfcFlags_t::FactoryMode),
+                                    ProbeNFC::NfcFlags_t::None);
+                }
                 if (callback) {
                     callback(m_nfc.get(), device);
                 }
