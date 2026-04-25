@@ -159,7 +159,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 |--------|---------|
 | `get_game_start_requested()` | `int` (player count) or `None` |
 | `get_credits_add_requested()` | `(int, str)` or `None` |
-| `get_config_payments_enabled()` | `bool` or `None` |
+| `get_pricing_received()` | `PricingInfo` or `None` |
 | `get_config_received()` | JSON `str` or `None` |
 | `get_players_updated()` | `dict[int, PlayerInfo]` or `None` |
 | `get_player_picture_ready()` | `(int, bytes)` or `None` |

@@ -17,7 +17,7 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_size_t, c_uint, c_
 
 from ._bindings import _lib
 from ._enums import EventType
-from ._types import PlayerInfo
+from ._types import BundlePrice, PlayerInfo, PricingInfo
 
 
 class Event(object):
@@ -84,20 +84,73 @@ class Event(object):
         return None
 
     # ------------------------------------------------------------------
-    # Config
+    # Pricing
     # ------------------------------------------------------------------
 
-    def get_config_payments_enabled(self):
-        # type: () -> bool | None
-        """Extract the ``payments_enabled`` flag from a ``ConfigReceived`` event.
+    def _get_pricing_str(self, func):
+        # type: (...) -> str
+        out = c_char_p()
+        if func(self._ptr, byref(out)):
+            val = out.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", errors="replace")
+            return val or ""
+        return ""
+
+    def _get_bundle_str(self, func, index):
+        # type: (...) -> str
+        out = c_char_p()
+        if func(self._ptr, c_int(index), byref(out)):
+            val = out.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", errors="replace")
+            return val or ""
+        return ""
+
+    def get_pricing_received(self):
+        # type: () -> PricingInfo | None
+        """Parse a ``PricingReceived`` event.
 
         Returns:
-            ``True`` / ``False``, or ``None`` if the event type does not match.
+            A :class:`PricingInfo` object, or ``None`` if the event type
+            does not match.
         """
-        enabled = c_bool(False)
-        if _lib.sb_event_config_payments_enabled(self._ptr, byref(enabled)):
-            return bool(enabled.value)
-        return None
+        free_play = c_bool(False)
+        if not _lib.sb_event_pricing_free_play(self._ptr, byref(free_play)):
+            return None
+
+        payments_enabled = c_bool(False)
+        _lib.sb_event_pricing_payments_enabled(self._ptr, byref(payments_enabled))
+
+        credit_price = self._get_pricing_str(_lib.sb_event_pricing_credit_price)
+        credit_regular = self._get_pricing_str(_lib.sb_event_pricing_credit_regular_price)
+        credit_sale = self._get_pricing_str(_lib.sb_event_pricing_credit_sale_price)
+
+        count = c_int(0)
+        _lib.sb_event_pricing_bundles_count(self._ptr, byref(count))
+        bundles = []
+        for i in range(count.value):
+            credits = c_int(0)
+            _lib.sb_event_pricing_bundle_credits(self._ptr, c_int(i), byref(credits))
+            bundles.append(BundlePrice(
+                credits=credits.value,
+                price=self._get_bundle_str(_lib.sb_event_pricing_bundle_price, i),
+                regular_price=self._get_bundle_str(_lib.sb_event_pricing_bundle_regular_price, i),
+                sale_price=self._get_bundle_str(_lib.sb_event_pricing_bundle_sale_price, i),
+            ))
+
+        return PricingInfo(
+            free_play=bool(free_play.value),
+            payments_enabled=bool(payments_enabled.value),
+            credit_price=credit_price,
+            credit_regular_price=credit_regular,
+            credit_sale_price=credit_sale,
+            bundles=bundles,
+        )
+
+    # ------------------------------------------------------------------
+    # Config
+    # ------------------------------------------------------------------
 
     def get_config_received(self):
         # type: () -> str | None

@@ -74,20 +74,6 @@ bool sb_event_credits_add_requested(const sb_event_t *event, int *credits,
                                     const char **transaction);
 
 /**
- * @brief Helper function to extract payments enabled status from a @ref SB_EVT_CONFIG_RECEIVED
- * event.
- *
- * This function extracts the payments_enabled field from a config received event.
- * The event type must be @ref SB_EVT_CONFIG_RECEIVED, otherwise the function returns an error.
- *
- * @param [IN] event A pointer to an sb_event_t structure containing the event data.
- * @param [OUT] payments_enabled A pointer to a bool that will receive the payments enabled value.
- * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
- */
-SCORBIT_SDK_EXPORT
-bool sb_event_config_payments_enabled(const sb_event_t *event, bool *payments_enabled);
-
-/**
  * @brief Helper function to process a players updated event.
  *
  * Retrieves the total number of player slots in the event. Each slot corresponds to a player
@@ -221,6 +207,116 @@ bool sb_event_diagnostics_upload_requested(const sb_event_t *event, bool *includ
  */
 SCORBIT_SDK_EXPORT
 bool sb_event_diagnostics_uploaded(const sb_event_t *event, bool *success);
+
+// -------------------------------- Pricing helpers --------------------------------
+
+/**
+ * @brief Extract the free_play flag from a @ref SB_EVT_PRICING_RECEIVED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] free_play A pointer to a bool that will receive the free play value.
+ * @return Returns true on success, or false if the event type does not match.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_free_play(const sb_event_t *event, bool *free_play);
+
+/**
+ * @brief Extract the payments_enabled flag from a @ref SB_EVT_PRICING_RECEIVED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] payments_enabled A pointer to a bool that will receive the payments enabled value.
+ * @return Returns true on success, or false if the event type does not match.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_payments_enabled(const sb_event_t *event, bool *payments_enabled);
+
+/**
+ * @brief Get the effective price per credit as a decimal string (e.g. "0.75").
+ *
+ * Returns false when the event type does not match or the machine is in free play
+ * (prices are null).
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] price A pointer to a string pointer that will receive the price.
+ * @return Returns true on success, or false if unavailable.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_credit_price(const sb_event_t *event, const char **price);
+
+/**
+ * @brief Get the regular (non-discounted) price per credit as a decimal string.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] price A pointer to a string pointer that will receive the regular price.
+ * @return Returns true on success, or false if unavailable.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_credit_regular_price(const sb_event_t *event, const char **price);
+
+/**
+ * @brief Get the sale price per credit as a decimal string, if a discount is active.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] price A pointer to a string pointer that will receive the sale price.
+ * @return Returns true on success, or false if there is no active sale or the event type
+ *         does not match.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_credit_sale_price(const sb_event_t *event, const char **price);
+
+/**
+ * @brief Get the number of credit bundles available.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] count A pointer to an int that will receive the bundle count.
+ * @return Returns true on success, or false if the event type does not match.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_bundles_count(const sb_event_t *event, int *count);
+
+/**
+ * @brief Get the number of credits in a bundle at the given index.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] index The 0-based bundle index.
+ * @param [OUT] credits A pointer to an int that will receive the number of credits.
+ * @return Returns true on success, or false if the index is out of range.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_bundle_credits(const sb_event_t *event, int index, int *credits);
+
+/**
+ * @brief Get the effective price for a bundle as a decimal string (e.g. "3.00").
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] index The 0-based bundle index.
+ * @param [OUT] price A pointer to a string pointer that will receive the price.
+ * @return Returns true on success, or false if the index is out of range.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_bundle_price(const sb_event_t *event, int index, const char **price);
+
+/**
+ * @brief Get the regular (non-discounted) price for a bundle as a decimal string.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] index The 0-based bundle index.
+ * @param [OUT] price A pointer to a string pointer that will receive the regular price.
+ * @return Returns true on success, or false if the index is out of range.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_bundle_regular_price(const sb_event_t *event, int index, const char **price);
+
+/**
+ * @brief Get the sale price for a bundle as a decimal string, if a discount is active.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [IN] index The 0-based bundle index.
+ * @param [OUT] price A pointer to a string pointer that will receive the sale price.
+ * @return Returns true on success, or false if there is no active sale or index is out of range.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, const char **price);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

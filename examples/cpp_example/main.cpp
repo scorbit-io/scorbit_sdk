@@ -283,20 +283,31 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::PricingReceived: {
+        scorbit::PricingInfo pricing;
+        if (event.getPricingReceived(pricing)) {
+            cout << "Pricing received: free_play=" << pricing.freePlay << endl;
+            if (!pricing.creditPrice.empty()) {
+                cout << "  Credit price: " << pricing.creditPrice
+                     << " (regular: " << pricing.creditRegularPrice << ")" << endl;
+                if (!pricing.creditSalePrice.empty()) {
+                    cout << "  Credit sale price: " << pricing.creditSalePrice << endl;
+                }
+            }
+            for (const auto &bundle : pricing.bundles) {
+                cout << "  Bundle: " << bundle.credits << " credits for " << bundle.price << endl;
+            }
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {
         std::string configJson;
         if (event.eventConfigReceived(configJson)) {
             cout << "Config received: " << configJson << endl;
-            // Process config JSON ...
         } else {
             cout << "Error getting config event" << endl;
-        }
-
-        bool paymentsEnabled = false;
-        if (event.getConfigPaymentsEnabled(paymentsEnabled)) {
-            cout << "Payments enabled: " << (paymentsEnabled ? "true" : "false") << endl;
         }
     } break;
 

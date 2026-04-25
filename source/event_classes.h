@@ -149,16 +149,6 @@ public:
         return m_configJsonStr.c_str();
     }
 
-    auto paymentsEnabled() const -> std::optional<bool>
-    {
-        std::optional<bool> rv;
-        if (const auto it = m_configJson.find(JKEY_SOBJ_PAYMENTS_ENABLED);
-            it != m_configJson.end() && it->is_boolean()) {
-            rv = it->get<bool>();
-        }
-        return rv;
-    }
-
 private:
     nlohmann::json m_configJson;
     mutable std::string m_configJsonStr;
@@ -297,6 +287,85 @@ public:
 
 private:
     bool m_success;
+};
+
+// ---------------- PricingReceived implementation ----------------
+
+class PricingReceivedEvent : public EventBase
+{
+public:
+    struct Bundle {
+        int credits {0};
+        std::string price;
+        std::string regularPrice;
+        std::string salePrice;
+    };
+
+    explicit PricingReceivedEvent(const nlohmann::json &pricingJson)
+        : EventBase(EventType::PricingReceived, EventPriority::Normal)
+    {
+        m_freePlay = pricingJson.value("free_play", false);
+        m_paymentsEnabled = pricingJson.value("payments_enabled", false);
+
+        if (const auto pricesIt = pricingJson.find("prices");
+            pricesIt != pricingJson.end() && pricesIt->is_object()) {
+            const auto &prices = *pricesIt;
+
+            if (const auto creditIt = prices.find("credit");
+                creditIt != prices.end() && creditIt->is_object()) {
+                m_creditPrice = creditIt->value("price", "");
+                m_creditRegularPrice = creditIt->value("regular_price", "");
+                if (const auto sp = creditIt->find("sale_price");
+                    sp != creditIt->end() && sp->is_string()) {
+                    m_creditSalePrice = sp->get<std::string>();
+                }
+            }
+
+            if (const auto bundlesIt = prices.find("bundles");
+                bundlesIt != prices.end() && bundlesIt->is_array()) {
+                m_bundles.reserve(bundlesIt->size());
+                for (const auto &b : *bundlesIt) {
+                    if (!b.is_object()) {
+                        continue;
+                    }
+                    Bundle bundle;
+                    bundle.credits = b.value("credits", 0);
+                    bundle.price = b.value("price", "");
+                    bundle.regularPrice = b.value("regular_price", "");
+                    if (const auto sp = b.find("sale_price"); sp != b.end() && sp->is_string()) {
+                        bundle.salePrice = sp->get<std::string>();
+                    }
+                    m_bundles.push_back(std::move(bundle));
+                }
+            }
+        }
+    }
+
+    auto freePlay() const -> bool { return m_freePlay; }
+    auto paymentsEnabled() const -> bool { return m_paymentsEnabled; }
+
+    auto hasPrices() const -> bool { return !m_creditPrice.empty(); }
+
+    auto creditPrice() const -> const std::string & { return m_creditPrice; }
+    auto creditRegularPrice() const -> const std::string & { return m_creditRegularPrice; }
+    auto creditSalePrice() const -> const std::string & { return m_creditSalePrice; }
+
+    auto bundlesCount() const -> int { return static_cast<int>(m_bundles.size()); }
+    auto bundle(int index) const -> const Bundle *
+    {
+        if (index < 0 || index >= static_cast<int>(m_bundles.size())) {
+            return nullptr;
+        }
+        return &m_bundles[index];
+    }
+
+private:
+    bool m_freePlay {false};
+    bool m_paymentsEnabled {false};
+    std::string m_creditPrice;
+    std::string m_creditRegularPrice;
+    std::string m_creditSalePrice;
+    std::vector<Bundle> m_bundles;
 };
 
 } // namespace detail

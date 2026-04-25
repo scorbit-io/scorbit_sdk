@@ -48,7 +48,7 @@ from ._enums import (
     GameStartOrigin,
     LogLevel,
 )
-from ._types import PlayerInfo
+from ._types import BundlePrice, PlayerInfo, PricingInfo
 from .config import Config
 from .event import Event
 from .game_state import GameState, create_game_state
@@ -115,7 +115,9 @@ __all__ = [
     "GameStartOrigin",
     "LogLevel",
     # Types
+    "BundlePrice",
     "PlayerInfo",
+    "PricingInfo",
     # Classes
     "Config",
     "Event",

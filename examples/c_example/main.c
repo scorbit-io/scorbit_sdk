@@ -332,17 +332,32 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_PRICING_RECEIVED: {
+        bool free_play = false;
+        sb_event_pricing_free_play(event, &free_play);
+        printf("Pricing received: free_play=%s\n", free_play ? "true" : "false");
+
+        const char *price = NULL;
+        if (sb_event_pricing_credit_price(event, &price)) {
+            printf("  Credit price: %s\n", price);
+        }
+
+        int count = 0;
+        sb_event_pricing_bundles_count(event, &count);
+        for (int i = 0; i < count; ++i) {
+            int credits = 0;
+            const char *bundle_price = NULL;
+            sb_event_pricing_bundle_credits(event, i, &credits);
+            sb_event_pricing_bundle_price(event, i, &bundle_price);
+            printf("  Bundle: %d credits for %s\n", credits, bundle_price ? bundle_price : "N/A");
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;
         if (sb_event_config_received(event, &config_json)) {
             printf("Config received: %s\n", config_json ? config_json : "NULL");
-            // Process the config JSON string here or copy it for further use
-        }
-
-        bool payments_enabled = false;
-        if (sb_event_config_payments_enabled(event, &payments_enabled)) {
-            printf("Payments enabled: %s\n", payments_enabled ? "true" : "false");
         }
     } break;
 

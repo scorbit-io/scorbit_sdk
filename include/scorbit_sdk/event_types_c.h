@@ -52,7 +52,6 @@ typedef enum {
      * @brief A configuration has been received from the Scorbit system. This event is
      * typically sent after SDK connected to backend and received configuration.
      * Use @ref sb_event_config_received to get config JSON string.
-     * Use @ref sb_event_config_payments_enabled to check if payments are enabled in the config.
      */
     SB_EVT_CONFIG_RECEIVED,
 
@@ -79,6 +78,13 @@ typedef enum {
      * Use @ref sb_event_diagnostics_uploaded to check whether the upload succeeded.
      */
     SB_EVT_DIAGNOSTICS_UPLOADED,
+
+    /**
+     * @brief Pricing information has been received from the Scorbit system.
+     * Use @ref sb_event_pricing_free_play, @ref sb_event_pricing_payments_enabled,
+     * and credit/bundle accessors to retrieve pricing data.
+     */
+    SB_EVT_PRICING_RECEIVED,
 
     // ------------------ OEM providers can ignore the events below ------------------
 
