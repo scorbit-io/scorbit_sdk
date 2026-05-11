@@ -40,7 +40,8 @@ json readJsonFile(const string &jsonFilename)
         try {
             jsonObj = json::parse(ifs, nullptr,
                                   true, // allow exceptions
-                                  true  // allow comments (JWCC mode)
+                                  true, // allow comments (JWCC mode)
+                                  true  // allow trailing commas (JWCC mode)
             );
         } catch (nlohmann::detail::parse_error &e) {
             ERR("Can't parse {} {}", jsonFilename, e.what());
