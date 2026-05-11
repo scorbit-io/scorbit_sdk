@@ -219,6 +219,12 @@ private:
 
     void centrifugoSetup();
     void centrifugoConnect();
+    void restartCentrifugo();
+
+    void clearPairedMachineContext();
+    void emitPairingStatusEventIfChanged(bool isPaired);
+    void onPaired();
+    void onUnpaired();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
@@ -314,6 +320,9 @@ private:
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker
     std::unique_ptr<centrifugo::Client> m_centrifugo;
+    std::atomic_bool m_restartCentrifugoPending {false};
+
+    std::optional<bool> m_lastEmittedPairingState;
 
     std::shared_ptr<EventManager> m_eventManager;
 };

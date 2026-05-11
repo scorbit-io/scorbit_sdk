@@ -300,6 +300,13 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::PairingStatusChanged: {
+        bool isPaired = false;
+        if (event.getPairingStatusChanged(isPaired)) {
+            cout << "Pairing status changed: " << (isPaired ? "paired" : "unpaired") << endl;
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {

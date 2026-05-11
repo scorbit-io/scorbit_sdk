@@ -368,5 +368,22 @@ private:
     std::vector<Bundle> m_bundles;
 };
 
+// ---------------- PairingStatusChanged implementation ----------------
+
+class PairingStatusChangedEvent : public EventBase
+{
+public:
+    explicit PairingStatusChangedEvent(bool isPaired)
+        : EventBase(EventType::PairingStatusChanged, EventPriority::High)
+        , m_isPaired {isPaired}
+    {
+    }
+
+    auto isPaired() const -> bool { return m_isPaired; }
+
+private:
+    bool m_isPaired;
+};
+
 } // namespace detail
 } // namespace scorbit

@@ -86,6 +86,12 @@ typedef enum {
      */
     SB_EVT_PRICING_RECEIVED,
 
+    /**
+     * @brief The pairing status of the device has changed.
+     * Use @ref sb_event_pairing_status_changed to check the new pairing state.
+     */
+    SB_EVT_PAIRING_STATUS_CHANGED,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

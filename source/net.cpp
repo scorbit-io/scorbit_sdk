@@ -922,6 +922,7 @@ task_t Net::createAuthenticateTask()
                 return;
             }
             m_status = AuthStatus::Authenticating;
+            m_lastEmittedPairingState.reset();
         }
 
         m_isRefreshingToken = true;
@@ -1097,7 +1098,11 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
         return std::make_tuple(url(URL_SCORBITRON_CONFIG), cpr::Body {payload});
     };
 
-    return createPatchRequestTask(std::move(callback), std::move(deferredSetup));
+    return createPatchRequestTask(std::move(callback), std::move(deferredSetup),
+                                  {
+                                          AuthStatus::AuthenticatedUnpaired,
+                                          AuthStatus::AuthenticatedPaired,
+                                  });
 }
 
 task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
@@ -1808,6 +1813,49 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
     return createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
+void Net::clearPairedMachineContext()
+{
+    m_machineInfo.opdbId.clear();
+    m_machineInfo.machineUuid.clear();
+    m_machineInfo.variantUuid.reset();
+    m_machineInfo.venueUuid.reset();
+    m_machineInfo.title = fmt::format("not paired");
+    m_machineChannel.clear();
+    updateDiscoveryDescription();
+}
+
+void Net::emitPairingStatusEventIfChanged(bool isPaired)
+{
+    if (m_lastEmittedPairingState.has_value() && *m_lastEmittedPairingState == isPaired) {
+        return;
+    }
+    m_lastEmittedPairingState = isPaired;
+    m_eventManager->push(std::make_shared<PairingStatusChangedEvent>(isPaired));
+}
+
+void Net::onPaired()
+{
+    m_status = AuthStatus::AuthenticatedPaired;
+    sendScorbitronObject();
+    requestReleaseTrackInfo();
+    getConfig();
+    requestFirmwaresList();
+    sendHeartbeat();
+    startHeartbeatTimer();
+    createNfcNonces();
+    restartCentrifugo();
+    emitPairingStatusEventIfChanged(true);
+}
+
+void Net::onUnpaired()
+{
+    m_status = AuthStatus::AuthenticatedUnpaired;
+    clearPairedMachineContext();
+    m_authCV.notify_all();
+    emitPairingStatusEventIfChanged(false);
+    restartCentrifugo();
+}
+
 void Net::parseScorbitronObject(Error error, const std::string &reply)
 {
     if (error != Error::Success) {
@@ -1845,13 +1893,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         if (!isPaired) {
             status = AuthStatus::AuthenticatedUnpaired;
-            m_machineInfo.opdbId.clear();
-            m_machineInfo.machineUuid.clear();
-            m_machineInfo.variantUuid.reset();
-            m_machineInfo.venueUuid.reset();
-            m_machineInfo.title = fmt::format("not paired");
-
-            updateDiscoveryDescription();
+            clearPairedMachineContext();
         } else {
             requestMachineObject();
         }
@@ -1870,6 +1912,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
         if (m_status != status) {
             m_status = status;
             m_authCV.notify_all();
+            emitPairingStatusEventIfChanged(isPaired);
         }
 
     } catch (const std::exception &e) {
@@ -2332,6 +2375,16 @@ void Net::centrifugoSetup()
         }
 
         constexpr auto RECONNECT_DELAY = 10s;
+        constexpr auto RESTART_DELAY = 100ms;
+
+        if (m_restartCentrifugoPending.exchange(false)) {
+            INF("API-CF rebuilding centrifugo client after disconnect");
+            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this]() {
+                centrifugoSetup();
+                centrifugoConnect();
+            });
+            return;
+        }
 
         // Check CF codes here https://centrifugal.dev/docs/server/codes
         switch (error.ec.value()) {
@@ -2425,6 +2478,14 @@ void Net::centrifugoSetup()
                             INF("API-CF Diagnostics upload requested via control channel");
                             m_eventManager->push(
                                     std::make_shared<DiagnosticsUploadRequestedEvent>(false));
+                        } else if (method == JVAL_METHOD_SIGNAL
+                                   && name == JVAL_ACTION_SCORBITRON_PAIRED) {
+                            INF("API-CF Scorbitron paired signal received");
+                            onPaired();
+                        } else if (method == JVAL_METHOD_SIGNAL
+                                   && name == JVAL_ACTION_SCORBITRON_UNPAIRED) {
+                            INF("API-CF Scorbitron unpaired signal received");
+                            onUnpaired();
                         } else if (method == JVAL_METHOD_GET
                                    && name == JVAL_ACTION_CONFIG_REFRESH) {
                             INF("API-CF Config refresh requested via control channel");
@@ -2449,6 +2510,21 @@ void Net::centrifugoConnect()
         ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
             res.error().message);
     }
+}
+
+void Net::restartCentrifugo()
+{
+    m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
+
+    if (!m_centrifugo || m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+        m_restartCentrifugoPending = false;
+        centrifugoSetup();
+        centrifugoConnect();
+        return;
+    }
+
+    m_restartCentrifugoPending = true;
+    m_centrifugo->disconnect();
 }
 
 std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const

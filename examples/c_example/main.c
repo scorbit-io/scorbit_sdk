@@ -353,6 +353,13 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_PAIRING_STATUS_CHANGED: {
+        bool is_paired = false;
+        if (sb_event_pairing_status_changed(event, &is_paired)) {
+            printf("Pairing status changed: %s\n", is_paired ? "paired" : "unpaired");
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;

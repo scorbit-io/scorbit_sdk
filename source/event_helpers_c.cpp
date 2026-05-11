@@ -454,3 +454,18 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
     *price = salePrice.c_str();
     return true;
 }
+
+bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
+{
+    if (!event || !is_paired) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::PairingStatusChangedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *is_paired = derived->isPaired();
+    return true;
+}

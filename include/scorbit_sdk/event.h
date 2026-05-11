@@ -120,6 +120,24 @@ public:
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Pairing
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process a pairing status changed event.
+     *
+     * The event type must be @ref scorbit::EventType::PairingStatusChanged, otherwise the function
+     * returns false.
+     *
+     * @param isPaired [OUT] Whether the device is now paired.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getPairingStatusChanged(bool &isPaired) const
+    {
+        return ::sb_event_pairing_status_changed(m_event, &isPaired);
+    }
+
     /**
      * @brief Helper function to process a players updated event.
      *
