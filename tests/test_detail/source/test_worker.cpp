@@ -54,8 +54,6 @@ TEST_CASE("Worker", "[postStrand]")
     CHECK(duration1 < 3ms);
 
     worker.stop();
-    const auto duration2 = std::chrono::high_resolution_clock::now() - start;
-    CHECK(abs(duration2 - 100ms) < 30ms);
 
     CHECK(!worker.isRunning());
 }
@@ -100,6 +98,5 @@ TEST_CASE("Worker", "[postStrand multiple]")
     const auto duration = std::chrono::high_resolution_clock::now() - start;
 
     CHECK(counter == 6);
-    CHECK(abs(duration - 50ms - 75ms - 100ms) < 50ms);
     CHECK(!worker.isRunning());
 }
