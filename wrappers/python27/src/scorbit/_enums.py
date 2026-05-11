@@ -72,6 +72,7 @@ class EventType(IntEnum):
     DiagnosticsUploadRequested = 6
     DiagnosticsUploaded = 7
     PricingReceived = 8
+    PairingStatusChanged = 9
 
     # Internal / scorbitd events
     _None = 1000

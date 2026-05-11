@@ -21,6 +21,7 @@
 #include <event_queue.h>
 #include <event_classes.h>
 #include <scorbit_sdk/event_types.h>
+#include <scorbit_sdk/event.h>
 #include <scorbit_sdk/event_helpers_c.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -30,7 +31,6 @@
 #include <vector>
 #include <chrono>
 #include <atomic>
-#include <future>
 
 using namespace scorbit;
 using namespace scorbit::detail;
@@ -71,37 +71,38 @@ std::shared_ptr<EventBase> createDiagnosticsUploadedEvent(bool success = true)
 
 nlohmann::json fullPricingJson()
 {
-    return {
-        {"free_play", false},
-        {"payments_enabled", true},
-        {"prices", {
-            {"credit", {
-                {"price", "0.75"},
-                {"regular_price", "0.75"},
-                {"sale_price", nullptr}
-            }},
-            {"bundles", {
-                {{"credits", 5}, {"price", "3.00"}, {"regular_price", "3.00"}, {"sale_price", nullptr}},
-                {{"credits", 10}, {"price", "5.75"}, {"regular_price", "5.75"}, {"sale_price", "5.00"}}
-            }}
-        }},
-        {"simulate_free_play", false}
-    };
+    return {{"free_play", false},
+            {"payments_enabled", true},
+            {"prices",
+             {{"credit", {{"price", "0.75"}, {"regular_price", "0.75"}, {"sale_price", nullptr}}},
+              {"bundles",
+               {{{"credits", 5},
+                 {"price", "3.00"},
+                 {"regular_price", "3.00"},
+                 {"sale_price", nullptr}},
+                {{"credits", 10},
+                 {"price", "5.75"},
+                 {"regular_price", "5.75"},
+                 {"sale_price", "5.00"}}}}}},
+            {"simulate_free_play", false}};
 }
 
 nlohmann::json freePlayPricingJson()
 {
-    return {
-        {"free_play", true},
-        {"payments_enabled", false},
-        {"prices", nullptr},
-        {"simulate_free_play", false}
-    };
+    return {{"free_play", true},
+            {"payments_enabled", false},
+            {"prices", nullptr},
+            {"simulate_free_play", false}};
 }
 
 std::shared_ptr<EventBase> createPricingEvent(const nlohmann::json &pricing)
 {
     return std::make_shared<PricingReceivedEvent>(pricing);
+}
+
+std::shared_ptr<EventBase> createPairingStatusChangedEvent(bool isPaired)
+{
+    return std::make_shared<PairingStatusChangedEvent>(isPaired);
 }
 
 } // namespace
@@ -838,6 +839,109 @@ TEST_CASE("PricingReceivedEvent ordering")
         REQUIRE(receivedEvents.size() == 3);
         CHECK(receivedEvents[0] == EventType::GameStartRequested);
         CHECK(receivedEvents[1] == EventType::PricingReceived);
+        CHECK(receivedEvents[2] == EventType::ConfigReceived);
+    }
+}
+
+TEST_CASE("PairingStatusChangedEvent delivery and data")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    bool received = false;
+    bool capturedIsPaired = false;
+    auto callback = [&received, &capturedIsPaired](const EventBase &event) {
+        if (event.type() == EventType::PairingStatusChanged) {
+            auto &e = static_cast<const PairingStatusChangedEvent &>(event);
+            capturedIsPaired = e.isPaired();
+            received = true;
+        }
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("Paired event")
+    {
+        eventManager->push(createPairingStatusChangedEvent(true));
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(received);
+        CHECK(capturedIsPaired == true);
+    }
+
+    SECTION("Unpaired event")
+    {
+        eventManager->push(createPairingStatusChangedEvent(false));
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(received);
+        CHECK(capturedIsPaired == false);
+    }
+}
+
+TEST_CASE("PairingStatusChangedEvent C++ Event wrapper")
+{
+    SECTION("Paired status")
+    {
+        PairingStatusChangedEvent event(true);
+        Event ev(&event);
+
+        bool is_paired = false;
+        CHECK(ev.getPairingStatusChanged(is_paired));
+        CHECK(is_paired == true);
+    }
+
+    SECTION("Unpaired status")
+    {
+        PairingStatusChangedEvent event(false);
+        Event ev(&event);
+
+        bool is_paired = true;
+        CHECK(ev.getPairingStatusChanged(is_paired));
+        CHECK(is_paired == false);
+    }
+
+    SECTION("Wrong event type returns false")
+    {
+        GameStartRequestedEvent wrongEvent(2);
+        Event ev(&wrongEvent);
+
+        bool is_paired = false;
+        CHECK_FALSE(ev.getPairingStatusChanged(is_paired));
+    }
+
+    SECTION("Null event pointer returns false")
+    {
+        Event ev(nullptr);
+
+        bool is_paired = false;
+        CHECK_FALSE(ev.getPairingStatusChanged(is_paired));
+    }
+}
+
+TEST_CASE("PairingStatusChangedEvent ordering")
+{
+    boost::asio::io_context ioContext;
+    auto strand = boost::asio::make_strand(ioContext);
+
+    std::vector<EventType> receivedEvents;
+    auto callback = [&receivedEvents](const EventBase &event) {
+        receivedEvents.push_back(event.type());
+    };
+
+    auto eventManager = std::make_shared<EventManager>(strand, callback);
+
+    SECTION("PairingStatusChanged has High priority")
+    {
+        eventManager->push(createConfigEvent({{"id", "test"}}));   // Normal priority
+        eventManager->push(createPairingStatusChangedEvent(true)); // High priority
+        eventManager->push(createGameStartEvent(2));               // Highest priority
+
+        ioContext.run_for(std::chrono::milliseconds(50));
+
+        REQUIRE(receivedEvents.size() == 3);
+        CHECK(receivedEvents[0] == EventType::GameStartRequested);
+        CHECK(receivedEvents[1] == EventType::PairingStatusChanged);
         CHECK(receivedEvents[2] == EventType::ConfigReceived);
     }
 }

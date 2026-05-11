@@ -318,6 +318,20 @@ bool sb_event_pricing_bundle_regular_price(const sb_event_t *event, int index, c
 SCORBIT_SDK_EXPORT
 bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, const char **price);
 
+/**
+ * @brief Helper function to process a pairing status changed event.
+ *
+ * The event type must be @ref SB_EVT_PAIRING_STATUS_CHANGED, otherwise the function
+ * returns false.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] is_paired A pointer to a bool that will receive the new pairing state
+ *              (true = paired, false = unpaired).
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT

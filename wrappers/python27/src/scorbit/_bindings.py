@@ -419,6 +419,10 @@ _lib.sb_event_pricing_bundle_regular_price.argtypes = [c_void_p, c_int, POINTER(
 _lib.sb_event_pricing_bundle_sale_price.restype = c_bool
 _lib.sb_event_pricing_bundle_sale_price.argtypes = [c_void_p, c_int, POINTER(c_char_p)]
 
+# bool sb_event_pairing_status_changed(const sb_event_t*, bool*)
+_lib.sb_event_pairing_status_changed.restype = c_bool
+_lib.sb_event_pairing_status_changed.argtypes = [c_void_p, POINTER(c_bool)]
+
 # void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
 #                             const char**, size_t, const char*)
 _lib.sb_upload_diagnostics.restype = None

@@ -171,6 +171,11 @@ def events_callback(event):
             for bundle in pricing.bundles:
                 print("  Bundle: %d credits for %s" % (bundle.credits, bundle.price))
 
+    elif event.type == scorbit.EventType.PairingStatusChanged:
+        is_paired = event.get_pairing_status_changed()
+        if is_paired is not None:
+            print("Pairing status changed: %s" % ("paired" if is_paired else "unpaired"))
+
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:

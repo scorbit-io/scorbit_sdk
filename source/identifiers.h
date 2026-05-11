@@ -207,6 +207,8 @@ constexpr auto JKEY_ACTION_NAME {"name"};
 constexpr auto JVAL_ACITON_GET_SCORBITRON_SESSION {"scorbitronSessionRetreive"};
 constexpr auto JVAL_ACTION_UPLOAD_DIAGNOSTICS {"scorbitronUploadDiagnostics"};
 constexpr auto JVAL_ACTION_CONFIG_REFRESH {"scorbitronConfigRefresh"};
+constexpr auto JVAL_ACTION_SCORBITRON_PAIRED {"scorbitronPaired"};
+constexpr auto JVAL_ACTION_SCORBITRON_UNPAIRED {"scorbitronUnpaired"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

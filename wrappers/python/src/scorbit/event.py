@@ -149,6 +149,23 @@ class Event(object):
         )
 
     # ------------------------------------------------------------------
+    # Pairing
+    # ------------------------------------------------------------------
+
+    def get_pairing_status_changed(self):
+        # type: () -> bool | None
+        """Parse a ``PairingStatusChanged`` event.
+
+        Returns:
+            ``True`` if the device is now paired, ``False`` if unpaired,
+            or ``None`` if the event type does not match.
+        """
+        is_paired = c_bool(False)
+        if _lib.sb_event_pairing_status_changed(self._ptr, byref(is_paired)):
+            return bool(is_paired.value)
+        return None
+
+    # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
 
