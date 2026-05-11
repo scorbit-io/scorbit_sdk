@@ -61,6 +61,8 @@ class Util
         try
         {
             std::string parse = s;
+            // Erase leading and trailing spaces
+            Trim(parse);
             // Process sign
             bool negative = false;
             if (!parse.empty() && (parse[0] == '+' || parse[0] == '-')) { negative = (parse[0] == '-'); parse.erase(parse.begin()); }
@@ -274,7 +276,49 @@ class Util
 
         return out;
     }
+    static void LTrim(std::string& s)
+    {
+        const std::string whitespace = " \t\n\r\f\v";
+        size_t start = s.find_first_not_of(whitespace);
+        if (start == std::string::npos) { s.clear(); return; }
+        s.erase(0, start);
+    }
+    static void RTrim(std::string& s)
+    {
+        const std::string whitespace = " \t\n\r\f\v";
+        size_t end = s.find_last_not_of(whitespace);
+        if (end == std::string::npos) { s.clear(); return; }
+        s.erase(end + 1);
+    }
+    static inline void Trim(std::string& s) { LTrim(s); RTrim(s); }
+
+    static uint16_t Crc16(const uint8_t* Data, size_t Len)
+    { 
+        /*
+        // Could albe be written like this :
+        uint16_t Crc = static_cast<uint16_t>(CrcReflected(CrcPolynomial::Crc16Ibm, 0, Data, 0, Len));
+        // Invert bits
+        Crc = static_cast<uint16_t>(((CrcNew & 0x5555u) << 1) | ((Crc >> 1) & 0x5555u));
+        Crc = static_cast<uint16_t>(((CrcNew & 0x3333u) << 2) | ((Crc >> 2) & 0x3333u));
+        Crc = static_cast<uint16_t>(((CrcNew & 0x0F0Fu) << 4) | ((Crc >> 4) & 0x0F0Fu));
+        Crc = static_cast<uint16_t>((CrcNew << 8) | (CrcNew >> 8));
+        return Crc;
+        */
+        const uint16_t polynom = 0x8005; // Polynome used
+        uint16_t crc = 0;
+        for (int i = 0; i < Len; i++)
+            for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
+            {
+                uint8_t data_bit = (Data[i] & shift_register) ? 1 : 0;
+                uint8_t crc_bit = crc >> 15;
+                crc <<= 1;
+                if (data_bit != crc_bit)
+                    crc ^= polynom;
+            }
+        return crc;
+    }
 };
+
 
 class HardwareDebug
 {
@@ -290,7 +334,19 @@ class HardwareDebug
 
 	static uint32_t DebugFlags;
 	static void SetFlags(uint32_t f) { DebugFlags = f; }
-	static bool IsFlagSet(uint32_t f) { return (DebugFlags & f) != 0; }
+	static bool IsFlagSet(uint32_t f) 
+    { 
+        // Are the flags forced by en environment variable ?
+        const char *s = getenv("HARDWARE_DEBUG");
+        if (s != NULL)
+        {
+            uint32_t v = 0;
+            if (Util::FromString(s, v))
+                DebugFlags = v;
+        }
+        // Read the flag
+        return (DebugFlags & f) != 0; 
+    }
 };
 
 inline uint32_t HardwareDebug::DebugFlags = HardwareDebug::DebugNone;

@@ -469,7 +469,7 @@ class SerialCable : public ProbeCable
         bool bCrcOk = (uint8_t)Sum == Crc[0] && (uint8_t)(Sum >> 8) == Crc[1];
         if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable) && !bCrcOk)
         {
-            ERR("Wrong CRC :\n- Received = 0x%04X\n- Expected = 0x%02X%02X\n", (int)Crc[1], (int)Crc[0], (int)Sum);
+            ERR("Wrong CRC :\n- Received = 0x%02X%02X\n- Expected = 0x%04X\n", (int)Crc[1], (int)Crc[0], (int)Sum);
         }
         return bCrcOk;
     }

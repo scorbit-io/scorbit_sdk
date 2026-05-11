@@ -47,22 +47,6 @@ class CdcTpm
 
     std::string m_devicePath;
 
-    uint16_t Crc16(const uint8_t* Data, size_t Len)
-    {
-        const uint16_t polynom = 0x8005;
-        uint16_t crc = 0;
-        for (size_t i = 0; i < Len; i++)
-            for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
-            {
-                uint8_t data_bit = (Data[i] & shift_register) ? 1 : 0;
-                uint8_t crc_bit = crc >> 15;
-                crc <<= 1;
-                if (data_bit != crc_bit)
-                    crc ^= polynom;
-            }
-        return crc;
-    }
-
     int ParseTpmResponse(const char* rx, uint8_t* outData, size_t outDataCapacity)
     {
         if (!rx || !outData || outDataCapacity == 0) return 0;
@@ -237,7 +221,7 @@ class CdcTpm
 
         uint8_t len = packet[0];
 
-        uint16_t crc = Crc16(packet.data(), len - 2);
+        uint16_t crc = Util::Crc16(packet.data(), len - 2);
         packet.push_back(crc & 0xFF);
         packet.push_back((crc >> 8) & 0xFF);
 
