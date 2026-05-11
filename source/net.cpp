@@ -87,6 +87,7 @@ constexpr size_t DIAG_MAX_LOG_STRING_SIZE = 10 * 1024 * 1024 + 100;   // 10 MB
 constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
 constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
+constexpr auto CF_RETIRED_CLIENT_GRACE_PERIOD = 30s;
 
 constexpr auto NFC_CHECK_TIME = 2000ms;    // Check NFC nonces every 1000 milliseconds
 constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seconds
@@ -2305,16 +2306,61 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 }
 
-void Net::centrifugoSetup()
+bool Net::isActiveCentrifugoClient(const centrifugo::Client *client) const
+{
+    return client != nullptr && client == m_centrifugo.get();
+}
+
+void Net::pruneRetiredCentrifugoClients()
+{
+    const auto cutoff = steady_clock::now() - CF_RETIRED_CLIENT_GRACE_PERIOD;
+    while (!m_retiredCentrifugoClients.empty()
+           && m_retiredCentrifugoClients.front().retiredAt <= cutoff) {
+        m_retiredCentrifugoClients.pop_front();
+    }
+}
+
+void Net::retireCentrifugoClient()
+{
+    if (!m_centrifugo) {
+        return;
+    }
+
+    pruneRetiredCentrifugoClients();
+    m_retiredCentrifugoClients.push_back(
+            {.retiredAt = steady_clock::now(), .client = std::move(m_centrifugo)});
+}
+
+void Net::centrifugoSetup(bool fetchFreshToken)
 {
     // Create centrifugo client
     centrifugo::ClientConfig config;
     config.name = "scorbit_sdk";
     config.version = SCORBIT_SDK_VERSION;
     config.refreshTokenBeforeExpiry = 3min;
-    config.getToken = [this]() -> std::string {
+    auto initialCfToken = std::make_shared<std::string>();
+
+    if (fetchFreshToken) {
+        std::string authToken;
+        {
+            std::shared_lock lock(m_tokenMutex);
+            authToken = m_stoken;
+        }
+        if (!authToken.empty()) {
+            *initialCfToken =
+                    getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), authToken, sslOptions());
+        }
+    }
+
+    config.getToken = [this, initialCfToken]() -> std::string {
         if (m_stop) {
             return {};
+        }
+
+        if (!initialCfToken->empty()) {
+            auto token = std::move(*initialCfToken);
+            initialCfToken->clear();
+            return token;
         }
 
         std::shared_lock lock(m_tokenMutex);
@@ -2335,6 +2381,15 @@ void Net::centrifugoSetup()
     const auto cfUrl = fmt::format("{}/{}", m_cfHostname, URL_CENTRIFUGO);
     INF("API-CF centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+    auto *const client = m_centrifugo.get();
+    const auto withActiveClient = [this, client]<typename Callback>(Callback &&callback) {
+        return [this, client, callback = std::forward<Callback>(callback)](auto &&...args) mutable {
+            if (!isActiveCentrifugoClient(client)) {
+                return;
+            }
+            callback(std::forward<decltype(args)>(args)...);
+        };
+    };
     INF("API-CF centrifugo debug 1");
 
     m_centrifugo->onSslContextConfigure([](boost::asio::ssl::context &ctx) {
@@ -2350,24 +2405,26 @@ void Net::centrifugoSetup()
         }
     });
 
-    m_centrifugo->onError([](const centrifugo::Error &error) {
+    m_centrifugo->onError(withActiveClient([](const centrifugo::Error &error) {
         ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
-    });
+    }));
 
-    m_centrifugo->onConnecting([](centrifugo::Error const &error) {
+    m_centrifugo->onConnecting(withActiveClient([](centrifugo::Error const &error) {
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
-    });
+    }));
 
-    m_centrifugo->onConnected([this] {
+    m_centrifugo->onConnected(withActiveClient([this] {
         if (m_stop) {
             return;
         }
 
         INF("API-CF Connected to Centrifugo!");
+        pruneRetiredCentrifugoClients();
         requestCreditsStatusIfReady();
-    });
+    }));
 
-    m_centrifugo->onDisconnected([this](centrifugo::Error const &error) {
+    m_centrifugo->onDisconnected(withActiveClient([this, withActiveClient](
+                                                          centrifugo::Error const &error) {
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
 
         if (m_stop) {
@@ -2379,9 +2436,12 @@ void Net::centrifugoSetup()
 
         if (m_restartCentrifugoPending.exchange(false)) {
             INF("API-CF rebuilding centrifugo client after disconnect");
-            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this]() {
-                centrifugoSetup();
-                centrifugoConnect();
+            retireCentrifugoClient();
+            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this] {
+                if (m_stop || m_centrifugo) {
+                    return;
+                }
+                setupAndConnectCentrifugo(true);
             });
             return;
         }
@@ -2393,10 +2453,8 @@ void Net::centrifugoSetup()
         case 3502:
             if (!m_stop) {
                 INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
-                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this]() {
-                    centrifugoSetup();
-                    centrifugoConnect();
-                });
+                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY,
+                                    withActiveClient([this] { setupAndConnectCentrifugo(true); }));
                 // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset?
             }
             break;
@@ -2404,22 +2462,22 @@ void Net::centrifugoSetup()
         default:
             break;
         }
-    });
+    }));
 
-    m_centrifugo->onSubscribing([](const std::string &channel) {
+    m_centrifugo->onSubscribing(withActiveClient([](const std::string &channel) {
         INF("API-CF Subscribing to channel: {}...", channel);
-    });
+    }));
 
-    m_centrifugo->onSubscribed([](const std::string &channel) {
+    m_centrifugo->onSubscribed(withActiveClient([](const std::string &channel) {
         INF("API-CF Subscribed successfully to channel: {}", channel);
-    });
+    }));
 
-    m_centrifugo->onUnsubscribed([](const std::string &channel) {
+    m_centrifugo->onUnsubscribed(withActiveClient([](const std::string &channel) {
         INF("API-CF Unsubscribed from channel: {}", channel);
-    });
+    }));
 
-    m_centrifugo->onPublication([this](const std::string &channel,
-                                       centrifugo::Publication const &pub) {
+    m_centrifugo->onPublication(withActiveClient([this](const std::string &channel,
+                                                        centrifugo::Publication const &pub) {
         if (m_stop) {
             return;
         }
@@ -2497,12 +2555,17 @@ void Net::centrifugoSetup()
         } catch (const std::exception &e) {
             ERR("API-CF Error parsing publication data: {}", e.what());
         }
-    });
+    }));
 }
 
 void Net::centrifugoConnect()
 {
     if (m_stop || !m_centrifugo) {
+        return;
+    }
+
+    if (m_centrifugo->state() != centrifugo::ConnectionState::Disconnected) {
+        DBG("API-CF connect skipped, current state={}", static_cast<int>(m_centrifugo->state()));
         return;
     }
 
@@ -2512,14 +2575,27 @@ void Net::centrifugoConnect()
     }
 }
 
+void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
+{
+    pruneRetiredCentrifugoClients();
+    centrifugoSetup(fetchFreshToken);
+    centrifugoConnect();
+}
+
 void Net::restartCentrifugo()
 {
     m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
 
-    if (!m_centrifugo || m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+    if (!m_centrifugo) {
         m_restartCentrifugoPending = false;
-        centrifugoSetup();
-        centrifugoConnect();
+        setupAndConnectCentrifugo(true);
+        return;
+    }
+
+    if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+        m_restartCentrifugoPending = false;
+        retireCentrifugoClient();
+        setupAndConnectCentrifugo(true);
         return;
     }
 

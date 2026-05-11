@@ -37,6 +37,7 @@
 #include <functional>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <shared_mutex>
 #include <unordered_map>
 #include <optional>
@@ -217,8 +218,12 @@ private:
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
-    void centrifugoSetup();
+    bool isActiveCentrifugoClient(const centrifugo::Client *client) const;
+    void pruneRetiredCentrifugoClients();
+    void retireCentrifugoClient();
+    void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+    void setupAndConnectCentrifugo(bool fetchFreshToken = false);
     void restartCentrifugo();
 
     void clearPairedMachineContext();
@@ -320,6 +325,14 @@ private:
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker
     std::unique_ptr<centrifugo::Client> m_centrifugo;
+    struct RetiredCentrifugoClient
+    {
+        std::chrono::steady_clock::time_point retiredAt;
+        std::unique_ptr<centrifugo::Client> client;
+    };
+    // Keep restarted clients alive for a short grace period so pending transport callbacks can
+    // unwind safely without retaining every historical client for the rest of the process.
+    std::deque<RetiredCentrifugoClient> m_retiredCentrifugoClients;
     std::atomic_bool m_restartCentrifugoPending {false};
 
     std::optional<bool> m_lastEmittedPairingState;
