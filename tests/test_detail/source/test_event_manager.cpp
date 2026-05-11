@@ -663,7 +663,8 @@ TEST_CASE("PricingReceivedEvent full pricing")
 
     SECTION("Full pricing data extraction")
     {
-        eventManager->push(createPricingEvent(fullPricingJson()));
+        auto event = createPricingEvent(fullPricingJson());
+        eventManager->push(event);
         ioContext.run_for(std::chrono::milliseconds(50));
 
         REQUIRE(captured != nullptr);
@@ -710,7 +711,8 @@ TEST_CASE("PricingReceivedEvent free play")
 
     SECTION("Free play: no prices")
     {
-        eventManager->push(createPricingEvent(freePlayPricingJson()));
+        auto event = createPricingEvent(freePlayPricingJson());
+        eventManager->push(event);
         ioContext.run_for(std::chrono::milliseconds(50));
 
         REQUIRE(captured != nullptr);
