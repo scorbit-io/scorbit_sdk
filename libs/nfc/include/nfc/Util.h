@@ -130,6 +130,41 @@ class Util
         }
     }
 
+    static bool FromString(const std::string& s, uint64_t& value)
+    {
+        try
+        {
+
+            std::string parse = s;
+            // Reject negative numbers
+            if (!parse.empty() && s[0] == '-') { value = 0; return false; }
+            // Process sign
+            if (!parse.empty() && parse[0] == '+') parse.erase(parse.begin());
+            // Reject anothers sign after the first one
+            if (!parse.empty() && (parse[0] == '+' || parse[0] == '-')) { value = 0; return false; }
+            // Process hexadecimal prefix
+            int base = 10;
+            if (parse.size() > 2 && parse[0] == '0' && (parse[1] == 'x' || parse[1] == 'X')) { base = 16; parse = parse.substr(2); }
+            // Reject empty string
+            if (parse.empty()) { value = 0; return false; }
+            // Convert the number
+            size_t idx = 0;
+            unsigned long long raw = std::stoull(parse, &idx, base);
+            if (idx != parse.size()) { value = 0; return false; }
+            // Check range
+            if (raw > std::numeric_limits<uint64_t>::max()) { value = 0; return false; }
+            // Store the result
+            value = static_cast<uint64_t>(raw);
+            return true;
+        }
+        catch (...)
+        {
+            value = 0;
+            return false;
+        }
+    }
+
+
     static std::string ReadString(const uint8_t *data, size_t dataLen, size_t Pos, size_t MaxLen)
     {
         if (Pos >= dataLen) return {};
@@ -319,7 +354,6 @@ class Util
     }
 };
 
-
 class HardwareDebug
 {
 	public:
@@ -332,24 +366,28 @@ class HardwareDebug
 		DebugAll = 0xffffffff
 	};
 
-	static uint32_t DebugFlags;
-	static void SetFlags(uint32_t f) { DebugFlags = f; }
+    inline static uint32_t DebugFlags = HardwareDebug::DebugNone;
+    static void SetFlags(uint32_t f) { DebugFlags = f; }
 	static bool IsFlagSet(uint32_t f) 
     { 
-        // Are the flags forced by en environment variable ?
-        const char *s = getenv("HARDWARE_DEBUG");
-        if (s != NULL)
+        // Are the flags forced by en environment variable (only done once) ?
+		static bool bReadEnv = false;
+        if (!bReadEnv)
         {
-            uint32_t v = 0;
-            if (Util::FromString(s, v))
-                DebugFlags = v;
+			bReadEnv = true;
+            const char *s = getenv("HARDWARE_DEBUG");
+            if (s != NULL)
+            {
+                uint32_t v = 0;
+                if (Util::FromString(s, v))
+                    DebugFlags = v;
+            }
         }
         // Read the flag
         return (DebugFlags & f) != 0; 
     }
 };
 
-inline uint32_t HardwareDebug::DebugFlags = HardwareDebug::DebugNone;
 
 class InterprocessLock
 {
