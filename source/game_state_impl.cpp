@@ -256,9 +256,12 @@ void GameStateImpl::setCreditsStatus(bool freePlay, int credits, int maxCredits,
     m_net->setCreditsStatus(freePlay, credits, maxCredits, pricing);
 }
 
-void GameStateImpl::requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+void GameStateImpl::requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                                     const std::string &since,
+                                     LeaderboardVpinFilter vpinFilter,
+                                     LeaderboardHandleCallback callback)
 {
-    m_net->requestTopScores(scoreFilter, std::move(callback));
+    m_net->requestTopScores(scope, period, since, vpinFilter, std::move(callback));
 }
 
 void GameStateImpl::requestPairCode(StringCallback callback) const

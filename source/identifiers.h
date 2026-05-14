@@ -12,6 +12,8 @@ namespace detail {
 
 constexpr auto ARG_SCORBITRON_UUID {"scorbitron_uuid"};
 constexpr auto ARG_MACHINE_UUID {"machine_uuid"};
+constexpr auto ARG_VARIANT_UUID {"variant_uuid"};
+constexpr auto ARG_GAME_SLUG {"game_slug"};
 constexpr auto ARG_SESSION_UUID {"session_uuid"};
 constexpr auto ARG_SCORE_ID {"score_id"};
 
@@ -31,6 +33,9 @@ constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid
 constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
 constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
 constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
+constexpr auto URL_MACHINE_LEADERS {"v2/machines/{machine_uuid}/leaders/"};
+constexpr auto URL_VARIANT_LEADERS {"v2/variants/{variant_uuid}/leaders/"};
+constexpr auto URL_GAME_LEADERS {"v2/games/{game_slug}/leaders/"};
 constexpr auto URL_SCORBITRON_DIAGNOSTICS {"v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
 
 constexpr auto URL_V2_PROVISION {"v2/provision/"};
@@ -168,6 +173,8 @@ constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};
 // Machine object
 constexpr auto JKEY_MOBJ_NAME {"name"};
 constexpr auto JKEY_MOBJ_EDITION {"edition"};
+constexpr auto JKEY_MOBJ_GAME {"game"};
+constexpr auto JKEY_MOBJ_SLUG {"slug"};
 
 // Session
 constexpr auto JKEY_SESS_UUID {"id"};

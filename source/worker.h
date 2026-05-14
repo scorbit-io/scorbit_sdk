@@ -45,6 +45,7 @@ public:
         CentrifugoReconnect,
         NfcBootReason,
         ModeExpiry,
+        LeaderboardDeferred,
 
         // IMPORTANT! This must be last entry!
         Count,

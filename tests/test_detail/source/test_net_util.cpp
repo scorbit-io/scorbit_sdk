@@ -206,12 +206,54 @@ TEST_CASE("isInternalDownloadForAuth is host-based regardless of DeviceInfo::pro
     nonScorbit.provider = "integration_client";
 
     const std::string apiBase = "https://api.scorbit.io:443";
-    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase, nonScorbit));
+    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase,
+                                    nonScorbit));
 
     DeviceInfo scorbitron;
     scorbitron.provider = "scorbitron";
-    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase, scorbitron));
+    CHECK(isInternalDownloadForAuth("https://api.scorbit.io/v2/sdk-1.0.0.tgz", apiBase,
+                                    scorbitron));
 
+    CHECK_FALSE(isInternalDownloadForAuth("https://cdn.example.com/sdk-1.0.0.tgz", apiBase,
+                                          nonScorbit));
+}
+
+TEST_CASE("leaderboardRequestTerminalError")
+{
+    CHECK(leaderboardRequestTerminalError(AuthStatus::AuthenticationFailed) == Error::AuthFailed);
+    CHECK(leaderboardRequestTerminalError(AuthStatus::AuthenticatedUnpaired) == Error::NotPaired);
+    CHECK_FALSE(leaderboardRequestTerminalError(AuthStatus::NotAuthenticated).has_value());
+    CHECK_FALSE(leaderboardRequestTerminalError(AuthStatus::Authenticating).has_value());
     CHECK_FALSE(
-            isInternalDownloadForAuth("https://cdn.example.com/sdk-1.0.0.tgz", apiBase, nonScorbit));
+            leaderboardRequestTerminalError(AuthStatus::AuthenticatedCheckingPairing).has_value());
+    CHECK_FALSE(leaderboardRequestTerminalError(AuthStatus::AuthenticatedPaired).has_value());
+}
+
+TEST_CASE("isLeaderboardContextReady defers until paired context exists")
+{
+    const std::string machineUuid = "5f28c973-84e3-4779-8bfa-de9d6b264a2f";
+    const std::optional<std::string> variantUuid = "ae1f422d-9b57-478c-ab45-aaa1bfe111e1";
+    const std::optional<std::string> gameSlug = "cirqus-voltaire";
+
+    CHECK_FALSE(isLeaderboardContextReady(AuthStatus::Authenticating, LeaderboardScope::Game,
+                                          machineUuid, variantUuid, gameSlug));
+
+    CHECK_FALSE(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired, LeaderboardScope::Game,
+                                          machineUuid, variantUuid, std::nullopt));
+
+    CHECK(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired, LeaderboardScope::Game,
+                                    machineUuid, variantUuid, gameSlug));
+
+    CHECK_FALSE(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired,
+                                          LeaderboardScope::Machine, "", variantUuid, gameSlug));
+
+    CHECK(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired, LeaderboardScope::Machine,
+                                    machineUuid, variantUuid, gameSlug));
+
+    CHECK_FALSE(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired,
+                                          LeaderboardScope::Variant, machineUuid, std::nullopt,
+                                          gameSlug));
+
+    CHECK(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired, LeaderboardScope::Variant,
+                                    machineUuid, variantUuid, gameSlug));
 }

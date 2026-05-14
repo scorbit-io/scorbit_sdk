@@ -213,13 +213,18 @@ def _pair_code_cb(error, short_code):
     else:
         print(f"Error: {error}")
 
-def _top_scores_cb(error, reply):
+def _top_scores_cb(error, leaderboard):
     if error == scorbit.Error.Success:
-        print(f"Top scores: {reply}")
+        print(f"Top scores count: {len(leaderboard.entries)}")
+        for entry in leaderboard.entries:
+            print(
+                f"#{entry.rank} {entry.player.initials} "
+                f"{entry.player.display_name} {entry.high_score}"
+            )
     elif error == scorbit.Error.NotPaired:
         print("Device is not paired")
     elif error == scorbit.Error.ApiError:
-        print(f"API error: {reply}")
+        print("API error")
     else:
         print(f"Error: {error}")
 
@@ -247,7 +252,13 @@ def main():
     gs.set_capabilities(scorbit.Capability.StartGame | scorbit.Capability.CreditDrop)
 
     gs.request_pair_code(_pair_code_cb)
-    gs.request_top_scores(0, _top_scores_cb)
+    gs.request_top_scores(
+        scorbit.LeaderboardScope.Machine,
+        scorbit.LeaderboardPeriod.AllTime,
+        None,
+        scorbit.LeaderboardVpinFilter.RealOnly,
+        _top_scores_cb,
+    )
 
     print(f"Deeplink for pairing: {gs.pair_deeplink}")
 

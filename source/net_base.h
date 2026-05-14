@@ -22,6 +22,7 @@
 #include <nfc/probes_manager.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
+#include "leaderboard_internal.h"
 #include "device_info.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
@@ -69,7 +70,10 @@ public:
 
     virtual const DeviceInfo &deviceInfo() const = 0;
 
-    virtual void requestTopScores(sb_score_t scoreFilter, StringCallback callback) = 0;
+    virtual void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                                  const std::string &since,
+                                  LeaderboardVpinFilter vpinFilter,
+                                  LeaderboardHandleCallback callback) = 0;
     virtual void requestUnpair(StringCallback callback) = 0;
 
     virtual void download(bool isAsync, StringCallback callback, const std::string &url,

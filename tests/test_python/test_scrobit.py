@@ -298,13 +298,20 @@ class TestGameStateAsyncMethods(unittest.TestCase):
         callback_called = threading.Event()
         received_data = {}
         
-        def score_callback(error, json_scores):
+        def score_callback(error, leaderboard):
             received_data['error'] = error
-            received_data['scores'] = json_scores
+            self.assertIsInstance(leaderboard, scorbit.LeaderboardResult)
+            received_data['leaderboard'] = leaderboard
             callback_called.set()
             
         # This should not raise an exception
-        self.game_state.request_top_scores(100000, score_callback)
+        self.game_state.request_top_scores(
+            scorbit.LeaderboardScope.Game,
+            scorbit.LeaderboardPeriod.Days30,
+            "2026-04-22T04:00:00Z",
+            scorbit.LeaderboardVpinFilter.RealOnly,
+            score_callback,
+        )
         
         # Wait a bit for potential callback (won't actually be called in unit test)
         callback_called.wait(timeout=0.1)
@@ -356,6 +363,50 @@ class TestModuleAttributes(unittest.TestCase):
         """Test module documentation."""
         self.assertEqual(scorbit.__doc__, "Scorbit SDK")
 
+    def test_leaderboard_enums_exported(self):
+        """Test leaderboard enums are exported from the module."""
+        self.assertTrue(hasattr(scorbit, 'LeaderboardScope'))
+        self.assertTrue(hasattr(scorbit, 'LeaderboardPeriod'))
+        self.assertTrue(hasattr(scorbit, 'LeaderboardVpinFilter'))
+        self.assertEqual(scorbit.LeaderboardScope.Machine, 0)
+        self.assertEqual(scorbit.LeaderboardScope.Game, 2)
+        self.assertEqual(scorbit.LeaderboardPeriod.AllTime, 0)
+        self.assertEqual(scorbit.LeaderboardVpinFilter.Any, 0)
+
+    def test_leaderboard_types_exported(self):
+        """Test typed leaderboard classes are exported from the module."""
+        self.assertTrue(hasattr(scorbit, 'LeaderboardPlayer'))
+        self.assertTrue(hasattr(scorbit, 'LeaderboardEntry'))
+        self.assertTrue(hasattr(scorbit, 'LeaderboardResult'))
+
+        player = scorbit.LeaderboardPlayer(
+            id="player-1",
+            username="dilshodm",
+            display_name="Dilshod",
+            initials="DTM",
+            avatar="https://cdn-staging.scorbit.io/profile_pictures/dilshodm.jpg",
+            follower_count=14,
+            following_count=10,
+            last_login="2026-05-13T14:57:07.616568Z",
+        )
+        entry = scorbit.LeaderboardEntry(
+            id=3828382,
+            rank=1,
+            player=player,
+            high_score=146250,
+            reaction_count=0,
+            score_count=12,
+            is_nfc_verified=False,
+            is_verified=True,
+            is_vpin=False,
+            created="2026-03-31T08:14:10.091057Z",
+        )
+        result = scorbit.LeaderboardResult([entry])
+
+        self.assertEqual(len(result.entries), 1)
+        self.assertEqual(result.entries[0].player.display_name, "Dilshod")
+        self.assertEqual(result.entries[0].high_score, 146250)
+
 
 class TestErrorHandling(unittest.TestCase):
     """Test error handling and edge cases."""
@@ -389,7 +440,13 @@ class TestErrorHandling(unittest.TestCase):
         game_state = scorbit.create_game_state("test_key", device_info)
         
         # These async methods should handle callback exceptions gracefully
-        game_state.request_top_scores(0, failing_callback)
+        game_state.request_top_scores(
+            scorbit.LeaderboardScope.Machine,
+            scorbit.LeaderboardPeriod.AllTime,
+            None,
+            scorbit.LeaderboardVpinFilter.Any,
+            failing_callback,
+        )
         game_state.request_pair_code(failing_callback)
         game_state.request_unpair(failing_callback)
         

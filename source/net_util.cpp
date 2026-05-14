@@ -190,5 +190,38 @@ bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string
     return isHostMatching(resolvedUrl, apiHostname);
 }
 
+std::optional<Error> leaderboardRequestTerminalError(AuthStatus status)
+{
+    switch (status) {
+    case AuthStatus::AuthenticationFailed:
+        return Error::AuthFailed;
+    case AuthStatus::AuthenticatedUnpaired:
+        return Error::NotPaired;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
+                               const std::string &machineUuid,
+                               const std::optional<std::string> &variantUuid,
+                               const std::optional<std::string> &gameSlug)
+{
+    if (status != AuthStatus::AuthenticatedPaired) {
+        return false;
+    }
+
+    switch (scope) {
+    case LeaderboardScope::Machine:
+        return !machineUuid.empty();
+    case LeaderboardScope::Variant:
+        return variantUuid.has_value();
+    case LeaderboardScope::Game:
+        return gameSlug.has_value();
+    default:
+        return false;
+    }
+}
+
 } // namespace detail
 } // namespace scorbit

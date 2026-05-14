@@ -56,6 +56,27 @@ enum class GameStartOrigin {
     FromLobby = SB_GAME_STARTED_FROM_LOBBY,  // started explicitly via Scorbit app request
 };
 
+enum class LeaderboardScope {
+    Machine = SB_LEADERBOARD_SCOPE_MACHINE, // Specific paired venue machine leaderboard
+    Variant = SB_LEADERBOARD_SCOPE_VARIANT, // Shared machine variant leaderboard
+    Game = SB_LEADERBOARD_SCOPE_GAME,       // Shared game leaderboard across variants
+};
+
+enum class LeaderboardPeriod {
+    AllTime = SB_LEADERBOARD_PERIOD_ALL_TIME, // All-time leaderboard
+    Days14 = SB_LEADERBOARD_PERIOD_14D,       // Rolling 14-day leaderboard
+    Days30 = SB_LEADERBOARD_PERIOD_30D,       // Rolling 30-day leaderboard
+    Days90 = SB_LEADERBOARD_PERIOD_90D,       // Rolling 90-day leaderboard
+    Days180 = SB_LEADERBOARD_PERIOD_180D,     // Rolling 180-day leaderboard
+    Days365 = SB_LEADERBOARD_PERIOD_365D,     // Rolling 365-day leaderboard
+};
+
+enum class LeaderboardVpinFilter {
+    Any = SB_LEADERBOARD_VPIN_ANY,           // Include both virtual and physical scores
+    VpinOnly = SB_LEADERBOARD_VPIN_ONLY,     // Only virtual pinball scores
+    RealOnly = SB_LEADERBOARD_VPIN_REAL_ONLY // Exclude virtual pinball scores
+};
+
 enum Capability : sb_capabilities_t {
     StartGame = SB_CAPABILITY_START_GAME,   // Game can be started remotely
     CreditDrop = SB_CAPABILITY_CREDIT_DROP, // Machine can accept coin drop events

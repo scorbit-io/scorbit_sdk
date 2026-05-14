@@ -141,7 +141,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 | `machine_uuid` | Machine UUID string. |
 | `machine_serial` | Machine serial number (`int`, unsigned 64-bit; same as TPM / device info). |
 | `pair_deeplink` | Pairing URL. |
-| `request_top_scores(filter, cb)` | Async leaderboard. |
+| `request_top_scores(scope, period, since, vpin_filter, cb)` | Async leaderboard. |
 | `request_pair_code(cb)` | Async pairing code. |
 | `request_unpair(cb)` | Async unpair. |
 | `set_capabilities(flags)` | Capability flags. |

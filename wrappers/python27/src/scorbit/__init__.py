@@ -46,9 +46,19 @@ from ._enums import (
     Error,
     EventType,
     GameStartOrigin,
+    LeaderboardPeriod,
+    LeaderboardScope,
+    LeaderboardVpinFilter,
     LogLevel,
 )
-from ._types import BundlePrice, PlayerInfo, PricingInfo
+from ._types import (
+    BundlePrice,
+    LeaderboardEntry,
+    LeaderboardPlayer,
+    LeaderboardResult,
+    PlayerInfo,
+    PricingInfo,
+)
 from .config import Config
 from .event import Event
 from .game_state import GameState, create_game_state
@@ -112,9 +122,15 @@ __all__ = [
     "Error",
     "EventType",
     "GameStartOrigin",
+    "LeaderboardPeriod",
+    "LeaderboardScope",
+    "LeaderboardVpinFilter",
     "LogLevel",
     # Types
     "BundlePrice",
+    "LeaderboardEntry",
+    "LeaderboardPlayer",
+    "LeaderboardResult",
     "PlayerInfo",
     "PricingInfo",
     # Classes

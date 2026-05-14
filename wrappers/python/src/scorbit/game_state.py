@@ -19,16 +19,25 @@ The object supports the context-manager protocol for automatic cleanup::
 """
 
 import traceback
-from ctypes import POINTER, c_char_p, c_size_t, c_uint8
+from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
 
 from ._bindings import (
     _lib,
     sb_buffer_callback_t,
+    sb_leaderboard_callback_t,
     sb_string_callback_t,
 )
-from ._enums import AuthStatus, Error, GameStartOrigin
+from ._enums import (
+    AuthStatus,
+    Error,
+    GameStartOrigin,
+    LeaderboardPeriod,
+    LeaderboardScope,
+    LeaderboardVpinFilter,
+)
 from . import config as _config_mod
 from .config import Config, _encode
+from ._types import LeaderboardEntry, LeaderboardPlayer, LeaderboardResult
 
 
 class GameState(object):
@@ -247,19 +256,115 @@ class GameState(object):
         self._async_callbacks.append(_trampoline)
         return _trampoline
 
-    def request_top_scores(self, score_filter, callback):
-        # type: (int, ...) -> None
+    @staticmethod
+    def _decode_c_string(raw):
+        # type: (bytes | str | None) -> str
+        if isinstance(raw, bytes):
+            return raw.decode("utf-8", errors="replace")
+        return raw or ""
+
+    def _leaderboard_from_handle(self, leaderboard):
+        # type: (int) -> LeaderboardResult
+        count = int(_lib.sb_leaderboard_entries_count(leaderboard))
+        entries = []
+
+        for index in range(count):
+            player = LeaderboardPlayer()
+            entry = LeaderboardEntry(player=player)
+
+            value_u64 = c_uint64()
+            value_i64 = c_int64()
+            value_i = c_int()
+            value_b = c_bool()
+            value_s = c_char_p()
+
+            if _lib.sb_leaderboard_entry_id(leaderboard, index, byref(value_u64)):
+                entry.id = int(value_u64.value)
+            if _lib.sb_leaderboard_entry_rank(leaderboard, index, byref(value_i)):
+                entry.rank = int(value_i.value)
+            if _lib.sb_leaderboard_entry_high_score(leaderboard, index, byref(value_i64)):
+                entry.high_score = int(value_i64.value)
+            if _lib.sb_leaderboard_entry_image(leaderboard, index, byref(value_s)):
+                entry.image = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_reaction_count(leaderboard, index, byref(value_i)):
+                entry.reaction_count = int(value_i.value)
+            if _lib.sb_leaderboard_entry_score_count(leaderboard, index, byref(value_i)):
+                entry.score_count = int(value_i.value)
+            if _lib.sb_leaderboard_entry_is_nfc_verified(leaderboard, index, byref(value_b)):
+                entry.is_nfc_verified = bool(value_b.value)
+            if _lib.sb_leaderboard_entry_is_verified(leaderboard, index, byref(value_b)):
+                entry.is_verified = bool(value_b.value)
+            if _lib.sb_leaderboard_entry_is_vpin(leaderboard, index, byref(value_b)):
+                entry.is_vpin = bool(value_b.value)
+            if _lib.sb_leaderboard_entry_created(leaderboard, index, byref(value_s)):
+                entry.created = self._decode_c_string(value_s.value)
+
+            if _lib.sb_leaderboard_entry_player_id(leaderboard, index, byref(value_s)):
+                player.id = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_player_username(leaderboard, index, byref(value_s)):
+                player.username = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_player_display_name(leaderboard, index, byref(value_s)):
+                player.display_name = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_player_initials(leaderboard, index, byref(value_s)):
+                player.initials = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_player_avatar(leaderboard, index, byref(value_s)):
+                player.avatar = self._decode_c_string(value_s.value)
+            if _lib.sb_leaderboard_entry_player_follower_count(leaderboard, index, byref(value_i)):
+                player.follower_count = int(value_i.value)
+            if _lib.sb_leaderboard_entry_player_following_count(leaderboard, index, byref(value_i)):
+                player.following_count = int(value_i.value)
+            if _lib.sb_leaderboard_entry_player_last_login(leaderboard, index, byref(value_s)):
+                player.last_login = self._decode_c_string(value_s.value)
+
+            entries.append(entry)
+
+        return LeaderboardResult(entries)
+
+    def _make_leaderboard_cb(self, callback):
+        """Wrap a Python ``(error, leaderboard)`` callback in a C trampoline."""
+
+        @sb_leaderboard_callback_t
+        def _trampoline(error_code, leaderboard, user_data):
+            try:
+                if _config_mod._shutting_down:
+                    return
+                result = (
+                    self._leaderboard_from_handle(leaderboard)
+                    if leaderboard
+                    else LeaderboardResult()
+                )
+                callback(Error(error_code), result)
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        return _trampoline
+
+    def request_top_scores(self, scope, period, since, vpin_filter, callback):
+        # type: (LeaderboardScope | int, LeaderboardPeriod | int, str | None, LeaderboardVpinFilter | int, ...) -> None
         """Fetch leaderboard scores asynchronously.
 
-        If *score_filter* is non-zero, the result contains ten scores above
-        and below that value.
-
         Args:
-            score_filter: Filter value, or ``0`` for unfiltered.
-            callback: ``(error: Error, json: str) -> None``.
+            scope: :class:`LeaderboardScope` or integer value selecting
+                machine vs variant vs game leaderboard.
+            period: :class:`LeaderboardPeriod` or integer value selecting
+                the backend time bucket.
+            since: Optional UTC ISO-8601 lower-bound time filter. When set,
+                the backend ignores *period*.
+            vpin_filter: :class:`LeaderboardVpinFilter` or integer value
+                selecting whether virtual pinball scores are included.
+            callback: ``(error: Error, leaderboard: LeaderboardResult) -> None``.
         """
-        cb = self._make_string_cb(callback)
-        _lib.sb_request_top_scores(self._handle, score_filter, cb, None)
+        cb = self._make_leaderboard_cb(callback)
+        _lib.sb_request_top_scores(
+            self._handle,
+            int(scope),
+            int(period),
+            _encode(since) if since else None,
+            int(vpin_filter),
+            cb,
+            None,
+        )
 
     def request_pair_code(self, callback):
         # type: (...) -> None

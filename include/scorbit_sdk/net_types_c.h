@@ -59,6 +59,27 @@ typedef enum {
 } sb_game_start_origin_t;
 
 typedef enum {
+    SB_LEADERBOARD_SCOPE_MACHINE = 0, // Specific paired venue machine leaderboard
+    SB_LEADERBOARD_SCOPE_VARIANT = 1, // Shared machine variant leaderboard
+    SB_LEADERBOARD_SCOPE_GAME = 2,    // Shared game leaderboard across variants
+} sb_leaderboard_scope_t;
+
+typedef enum {
+    SB_LEADERBOARD_PERIOD_ALL_TIME = 0, // All-time leaderboard
+    SB_LEADERBOARD_PERIOD_14D = 1,      // Rolling 14-day leaderboard
+    SB_LEADERBOARD_PERIOD_30D = 2,      // Rolling 30-day leaderboard
+    SB_LEADERBOARD_PERIOD_90D = 3,      // Rolling 90-day leaderboard
+    SB_LEADERBOARD_PERIOD_180D = 4,     // Rolling 180-day leaderboard
+    SB_LEADERBOARD_PERIOD_365D = 5,     // Rolling 365-day leaderboard
+} sb_leaderboard_period_t;
+
+typedef enum {
+    SB_LEADERBOARD_VPIN_ANY = 0,       // Include both virtual and physical scores
+    SB_LEADERBOARD_VPIN_ONLY = 1,      // Only virtual pinball scores
+    SB_LEADERBOARD_VPIN_REAL_ONLY = 2, // Exclude virtual pinball scores
+} sb_leaderboard_vpin_filter_t;
+
+typedef enum {
     SB_CAPABILITY_START_GAME = 1u << 0,  // Game can be started remotely
     SB_CAPABILITY_CREDIT_DROP = 1u << 1, // Machine can accept coin drop events
 } sb_capability_t;

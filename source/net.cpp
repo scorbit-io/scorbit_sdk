@@ -60,7 +60,6 @@ namespace detail {
 
 // constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
-// constexpr auto LOCAL_TOP_SCORES_URL {"venuemachine/{venuemachine_id}/top_scores/"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
@@ -87,6 +86,8 @@ constexpr size_t DIAG_MAX_LOG_STRING_SIZE = 10 * 1024 * 1024 + 100;   // 10 MB
 constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
 constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
+constexpr auto TOP_SCORES_DEFER_RETRY = 1000ms;
+constexpr int TOP_SCORES_DEFER_MAX_ATTEMPTS = 30;
 constexpr auto CF_RETIRED_CLIENT_GRACE_PERIOD = 30s;
 
 constexpr auto NFC_CHECK_TIME = 2000ms;    // Check NFC nonces every 1000 milliseconds
@@ -98,6 +99,26 @@ constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve fo
 constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 
 auto noop_task = []() { };
+
+std::optional<std::string_view> leaderboardPeriodParam(LeaderboardPeriod period)
+{
+    switch (period) {
+    case LeaderboardPeriod::AllTime:
+        return std::string_view {};
+    case LeaderboardPeriod::Days14:
+        return "14d";
+    case LeaderboardPeriod::Days30:
+        return "30d";
+    case LeaderboardPeriod::Days90:
+        return "90d";
+    case LeaderboardPeriod::Days180:
+        return "180d";
+    case LeaderboardPeriod::Days365:
+        return "365d";
+    }
+
+    return std::nullopt;
+}
 
 std::string elideUrl(const std::string &url, size_t keep = 20)
 {
@@ -531,21 +552,142 @@ const DeviceInfo &Net::deviceInfo() const
     return m_deviceInfo;
 }
 
-void Net::requestTopScores(sb_score_t /*scoreFilter*/, StringCallback /*callback*/)
+bool Net::isLeaderboardContextReady(LeaderboardScope scope) const
 {
-    return; // FIXME: implement when API will be ready
+    return detail::isLeaderboardContextReady(m_status, scope, m_machineInfo.machineUuid,
+                                             m_machineInfo.variantUuid, m_machineInfo.gameSlug);
+}
 
-    // m_worker.postQueue(createGetRequestTask(std::move(callback), [this, scoreFilter]() {
-    //     const auto endpoint = url(fmt::format(
-    //             LOCAL_TOP_SCORES_URL, fmt::arg("venuemachine_id",
-    //             m_machineInfo.venuemachineId)));
-    //     cpr::Parameters parameters;
-    //     if (scoreFilter > 0) {
-    //         parameters.Add({"score", fmt::format("{}", scoreFilter)});
-    //     }
+std::optional<Error> Net::leaderboardRequestTerminalError() const
+{
+    return detail::leaderboardRequestTerminalError(m_status);
+}
 
-    //     return make_tuple(endpoint, parameters);
-    // }));
+void Net::requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                           const std::string &since, LeaderboardVpinFilter vpinFilter,
+                           LeaderboardHandleCallback callback)
+{
+    requestTopScoresImpl(scope, period, since, vpinFilter, std::move(callback), 0);
+}
+
+void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
+                               const std::string &since, LeaderboardVpinFilter vpinFilter,
+                               LeaderboardHandleCallback callback, int deferAttempt)
+{
+    m_worker.postQueue([this, scope, period, since, vpinFilter, deferAttempt,
+                        callback = std::move(callback)]() mutable {
+        if (scope != LeaderboardScope::Machine && scope != LeaderboardScope::Variant
+            && scope != LeaderboardScope::Game) {
+            callback(Error::ApiError, nullptr);
+            return;
+        }
+
+        std::string_view periodParam;
+        if (since.empty()) {
+            const auto mappedPeriod = leaderboardPeriodParam(period);
+            if (!mappedPeriod.has_value()) {
+                callback(Error::ApiError, nullptr);
+                return;
+            }
+            periodParam = *mappedPeriod;
+        }
+
+        if (vpinFilter != LeaderboardVpinFilter::Any
+            && vpinFilter != LeaderboardVpinFilter::VpinOnly
+            && vpinFilter != LeaderboardVpinFilter::RealOnly) {
+            callback(Error::ApiError, nullptr);
+            return;
+        }
+
+        if (const auto terminalError = leaderboardRequestTerminalError()) {
+            callback(*terminalError, nullptr);
+            return;
+        }
+
+        if (!isLeaderboardContextReady(scope)) {
+            if (deferAttempt >= TOP_SCORES_DEFER_MAX_ATTEMPTS) {
+                ERR("API request top scores gave up after {} defer attempts (scope={})",
+                    TOP_SCORES_DEFER_MAX_ATTEMPTS, static_cast<int>(scope));
+                callback(Error::ApiError, nullptr);
+                return;
+            }
+
+            INF("API request top scores deferred (scope={}), attempt {}/{}, retry in {}ms...",
+                static_cast<int>(scope), deferAttempt + 1, TOP_SCORES_DEFER_MAX_ATTEMPTS,
+                std::chrono::duration_cast<std::chrono::milliseconds>(TOP_SCORES_DEFER_RETRY)
+                        .count());
+            m_worker.startTimer(Worker::Timer::LeaderboardDeferred, TOP_SCORES_DEFER_RETRY,
+                                [this, scope, period, since, vpinFilter, deferAttempt,
+                                 callback = std::move(callback)]() mutable {
+                                    requestTopScoresImpl(scope, period, since, vpinFilter,
+                                                         std::move(callback), deferAttempt + 1);
+                                });
+            return;
+        }
+
+        auto deferredSetup = [this, scope, periodParam, since,
+                              vpinFilter]() -> std::tuple<cpr::Url, cpr::Parameters> {
+            cpr::Parameters parameters;
+            if (!since.empty()) {
+                parameters.Add({"since", since});
+            } else if (!periodParam.empty()) {
+                parameters.Add({"period", std::string {periodParam}});
+            }
+
+            switch (vpinFilter) {
+            case LeaderboardVpinFilter::Any:
+                break;
+            case LeaderboardVpinFilter::VpinOnly:
+                parameters.Add({"vpin", "true"});
+                break;
+            case LeaderboardVpinFilter::RealOnly:
+                parameters.Add({"vpin", "false"});
+                break;
+            }
+
+            switch (scope) {
+            case LeaderboardScope::Machine:
+                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
+            case LeaderboardScope::Variant:
+                return make_tuple(url(URL_VARIANT_LEADERS,
+                                      fmt::arg(ARG_VARIANT_UUID, *m_machineInfo.variantUuid)),
+                                  std::move(parameters));
+            case LeaderboardScope::Game:
+                return make_tuple(
+                        url(URL_GAME_LEADERS, fmt::arg(ARG_GAME_SLUG, *m_machineInfo.gameSlug)),
+                        std::move(parameters));
+            default:
+                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
+            }
+        };
+
+        auto replyCallback = [callback = std::move(callback)](Error error,
+                                                              std::string reply) mutable {
+            if (error != Error::Success) {
+                callback(error, nullptr);
+                return;
+            }
+
+            std::unique_ptr<sb_leaderboard_t> leaderboard;
+            try {
+                leaderboard.reset(parseLeaderboardJson(reply));
+            } catch (const std::exception &e) {
+                ERR("API request top scores parse error: {}, reply: {}", e.what(), reply);
+                callback(Error::ApiError, nullptr);
+                return;
+            }
+
+            if (!leaderboard) {
+                ERR("API request top scores parse failed, reply: {}", reply);
+                callback(Error::ApiError, nullptr);
+                return;
+            }
+
+            callback(Error::Success, leaderboard.release());
+        };
+
+        createGetRequestTask(std::move(replyCallback), std::move(deferredSetup))();
+    });
 }
 
 void Net::requestUnpair(StringCallback callback)
@@ -1716,6 +1858,18 @@ void Net::requestMachineObject()
                 const auto name = j.value(JKEY_MOBJ_NAME, std::string {});
                 const auto edition = j.value(JKEY_MOBJ_EDITION, std::string {});
 
+                if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
+                    gameIt != j.end() && gameIt->is_object()) {
+                    if (const auto slugIt = gameIt->find(JKEY_MOBJ_SLUG);
+                        slugIt != gameIt->end() && slugIt->is_string()) {
+                        m_machineInfo.gameSlug = slugIt->get<std::string>();
+                    } else {
+                        m_machineInfo.gameSlug.reset();
+                    }
+                } else {
+                    m_machineInfo.gameSlug.reset();
+                }
+
                 m_machineInfo.title = fmt::format("{} ({})", name, edition);
                 updateDiscoveryDescription();
             } catch (const std::exception &e) {
@@ -1819,6 +1973,7 @@ void Net::clearPairedMachineContext()
     m_machineInfo.opdbId.clear();
     m_machineInfo.machineUuid.clear();
     m_machineInfo.variantUuid.reset();
+    m_machineInfo.gameSlug.reset();
     m_machineInfo.venueUuid.reset();
     m_machineInfo.title = fmt::format("not paired");
     m_machineChannel.clear();

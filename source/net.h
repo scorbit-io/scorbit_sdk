@@ -20,6 +20,7 @@
 #pragma once
 
 #include <scorbit_sdk/net_types.h>
+#include "leaderboard_internal.h"
 #include "net_base.h"
 #include "key_resolver.h"
 #include "game_data.h"
@@ -80,6 +81,7 @@ class Net : public NetBase
         std::string opdbId;
         std::string machineUuid;
         std::optional<std::string> variantUuid;
+        std::optional<std::string> gameSlug;
         std::optional<std::string> venueUuid;
         std::string title;
     };
@@ -111,7 +113,9 @@ public:
 
     const DeviceInfo &deviceInfo() const override;
 
-    void requestTopScores(sb_score_t scoreFilter, StringCallback callback) override;
+    void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                          const std::string &since, LeaderboardVpinFilter vpinFilter,
+                          LeaderboardHandleCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
     void download(bool isAsync, StringCallback callback, const std::string &url,
@@ -216,6 +220,12 @@ private:
     cpr::SslOptions sslOptions() const;
 
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
+
+    bool isLeaderboardContextReady(LeaderboardScope scope) const;
+    std::optional<Error> leaderboardRequestTerminalError() const;
+    void requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
+                              const std::string &since, LeaderboardVpinFilter vpinFilter,
+                              LeaderboardHandleCallback callback, int deferAttempt);
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
     bool isActiveCentrifugoClient(const centrifugo::Client *client) const;
@@ -325,8 +335,7 @@ private:
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker
     std::unique_ptr<centrifugo::Client> m_centrifugo;
-    struct RetiredCentrifugoClient
-    {
+    struct RetiredCentrifugoClient {
         std::chrono::steady_clock::time_point retiredAt;
         std::unique_ptr<centrifugo::Client> client;
     };

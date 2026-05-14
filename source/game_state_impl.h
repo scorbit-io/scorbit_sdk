@@ -21,6 +21,7 @@
 
 #include "scorbit_sdk/common_types_c.h"
 #include <nfc/probes_manager.h>
+#include "leaderboard_internal.h"
 #include "net_base.h"
 #include "game_data.h"
 #include <cstdint>
@@ -76,7 +77,9 @@ public:
     void setCreditsDropped(int credits, const std::string &transaction, bool success);
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);
 
-    void requestTopScores(sb_score_t scoreFilter, StringCallback callback);
+    void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period, const std::string &since,
+                          LeaderboardVpinFilter vpinFilter,
+                          LeaderboardHandleCallback callback);
 
     void requestPairCode(StringCallback callback) const;
     void requestUnpair(StringCallback callback) const;

@@ -86,8 +86,13 @@ target_sources(
         ../../source/player_state.h
         ../../source/player_state.cpp
         ../../include/scorbit_sdk/game_state.h
+        ../../include/scorbit_sdk/leaderboard.h
+        ../../include/scorbit_sdk/leaderboard_c.h
         ../../source/game_state_impl.h
         ../../source/game_state_impl.cpp
+        ../../source/leaderboard_internal.h
+        ../../source/leaderboard_c.cpp
+        source/test_leaderboard.cpp
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp

@@ -22,6 +22,7 @@
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
 
+#include "leaderboard.h"
 #include "net_types.h"
 #include "game_state_c.h"
 #include "event.h"
@@ -257,19 +258,32 @@ public:
      * in a separate thread from the main calling thread. It is recommended to use appropriate locks
      * (e.g., a mutex) when accessing shared data.
      *
-     * @param scoreFilter A score value used to filter the leaderboard results. If a score is
-     * provided, the function retrieves the ten scores above and ten scores below the specified
-     * value, allowing the user to view their score in the leaderboard context. Set to 0 to disable
-     * the score filter.
-     * @param callback A callback function of type @ref StringCallback that receives the top scores
-     * in JSON format as a string. Returns @ref Error::Success if the request was successful.
-     * Otherwise, it returns an error codes: @ref Error::NotPaired if machine is not paired, or @ref
-     * Error::ApiError if the API call failed.
+     * @param scope Selects whether the request targets the paired venue machine leaderboard, the
+     * variant-wide leaderboard for the paired title, or the shared game leaderboard.
+     * @param period Selects the backend time bucket. Use @ref LeaderboardPeriod::AllTime for the
+     * unfiltered all-time leaderboard.
+     * @param since Optional UTC ISO-8601 lower-bound time filter. When non-empty, the backend uses
+     * this value instead of @p period.
+     * @param vpinFilter Controls whether virtual pinball scores are included. Use
+     * @ref LeaderboardVpinFilter::Any to include both virtual and physical scores.
+     * @param callback Receives a @ref LeaderboardResult built from the API response. The SDK
+     * copies leaderboard data before your callback runs; you do not receive a raw handle to free.
+     *
+     * If pairing or machine context (machine UUID, variant UUID, or game slug, depending on
+     * @p scope) is not available yet, the SDK defers the HTTP request and retries automatically
+     * until the context is ready or a terminal error occurs. The callback is invoked only when
+     * the request completes or fails terminally.
      */
-    void requestTopScores(sb_score_t scoreFilter, StringCallback callback)
+    void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                          const std::string &since, LeaderboardVpinFilter vpinFilter,
+                          LeaderboardCallback callback)
     {
-        auto cbPair = prepareStringCallback(std::move(callback));
-        sb_request_top_scores(m_handle.get(), scoreFilter, cbPair.first, cbPair.second);
+        auto cbPair = prepareLeaderboardCallback(std::move(callback));
+        sb_request_top_scores(m_handle.get(), static_cast<sb_leaderboard_scope_t>(scope),
+                              static_cast<sb_leaderboard_period_t>(period),
+                              since.empty() ? nullptr : since.c_str(),
+                              static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), cbPair.first,
+                              cbPair.second);
     }
 
     /**
@@ -460,6 +474,22 @@ public:
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
 private:
+    static void leaderboard_callback_c(sb_error_t error, sb_leaderboard_t *leaderboard,
+                                       void *user_data)
+    {
+        auto *cb = static_cast<LeaderboardCallback *>(user_data);
+        auto result = leaderboard ? LeaderboardResult::fromC(leaderboard) : LeaderboardResult {};
+        (*cb)(static_cast<Error>(error), result);
+        delete cb;
+    }
+
+    static std::pair<sb_leaderboard_callback_t, void *>
+    prepareLeaderboardCallback(LeaderboardCallback callback)
+    {
+        auto *userData = new LeaderboardCallback(std::move(callback));
+        return std::make_pair(&GameState::leaderboard_callback_c, userData);
+    }
+
     static void string_callback_c(sb_error_t error, const char *reply, void *user_data)
     {
         auto *cb = static_cast<StringCallback *>(user_data);

@@ -18,11 +18,13 @@
  */
 
 #include <scorbit_sdk/game_state_c.h>
+#include <scorbit_sdk/leaderboard_c.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/net_types_c.h>
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
 #include "game_state_impl.h"
+#include "leaderboard_internal.h"
 #include "net_base.h"
 #include "net.h"
 #include "key_resolver.h"
@@ -125,8 +127,11 @@ struct JobCommit {
 
 struct JobRequestTopScores {
     sb_game_state_struct *h;
-    sb_score_t score_filter;
-    sb_string_callback_t callback;
+    sb_leaderboard_scope_t scope;
+    sb_leaderboard_period_t period;
+    std::string since;
+    sb_leaderboard_vpin_filter_t vpin_filter;
+    sb_leaderboard_callback_t callback;
     void *user_data;
 };
 
@@ -231,6 +236,18 @@ inline auto makeBufferReplyBridge(sb_buffer_callback_t cb, void *user_data)
     };
 }
 
+inline auto makeLeaderboardReplyBridge(sb_leaderboard_callback_t cb, void *user_data)
+{
+    return [cb, user_data](Error error, sb_leaderboard_t *leaderboard) {
+        if (cb) {
+            cb(static_cast<sb_error_t>(error), leaderboard, user_data);
+        }
+        if (leaderboard) {
+            detail::destroyLeaderboard(leaderboard);
+        }
+    };
+}
+
 } // namespace scorbit_c_api_queue
 
 struct sb_game_state_struct {
@@ -273,7 +290,10 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobCommit &&j) { j.h->gameState.commit(); },
                     [](JobRequestTopScores &&j) {
                         j.h->gameState.requestTopScores(
-                                j.score_filter, makeCStringReplyBridge(j.callback, j.user_data));
+                                static_cast<LeaderboardScope>(j.scope),
+                                static_cast<LeaderboardPeriod>(j.period), j.since,
+                                static_cast<LeaderboardVpinFilter>(j.vpin_filter),
+                                makeLeaderboardReplyBridge(j.callback, j.user_data));
                     },
                     [](JobRequestPairCode &&j) {
                         j.h->gameState.requestPairCode(
@@ -480,10 +500,14 @@ const char *sb_get_pair_deeplink(sb_game_handle_t handle)
     return handle->gameState.getPairDeeplink().c_str();
 }
 
-void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
-                           sb_string_callback_t callback, void *user_data)
+void sb_request_top_scores(sb_game_handle_t handle, sb_leaderboard_scope_t scope,
+                           sb_leaderboard_period_t period, const char *since,
+                           sb_leaderboard_vpin_filter_t vpin_filter,
+                           sb_leaderboard_callback_t callback, void *user_data)
 {
-    handle->postApiJob(JobRequestTopScores {handle, score_filter, callback, user_data});
+    handle->postApiJob(JobRequestTopScores {handle, scope, period,
+                                            scorbit_c_api_queue::copyCStr(since), vpin_filter,
+                                            callback, user_data});
 }
 
 void sb_request_pair_code(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
