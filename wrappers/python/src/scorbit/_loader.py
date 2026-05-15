@@ -12,7 +12,8 @@
 Locates and loads the native ``libscorbit_sdk`` shared library using:
 
 1. The ``SCORBIT_SDK_PATH`` environment variable (directory containing the lib).
-2. Standard system library paths (``LD_LIBRARY_PATH``, ``DYLD_LIBRARY_PATH``,
+2. The default install location ``/opt/scorbit/lib`` (official Linux packages).
+3. Standard system library paths (``LD_LIBRARY_PATH``, ``DYLD_LIBRARY_PATH``,
    system lib dirs via :func:`ctypes.util.find_library`).
 """
 
@@ -52,7 +53,19 @@ def _load_library():
                 except OSError:
                     pass
 
-    # 2. Try standard system paths via ctypes.util.find_library
+    # 2. Official package layout under /opt/scorbit
+    for prefix in ("/opt/scorbit",):
+        for path in (
+            os.path.join(prefix, "lib", lib_filename),
+            os.path.join(prefix, lib_filename),
+        ):
+            if os.path.isfile(path):
+                try:
+                    return ctypes.CDLL(path)
+                except OSError:
+                    pass
+
+    # 3. Try standard system paths via ctypes.util.find_library
     found = ctypes.util.find_library("scorbit_sdk")
     if found:
         try:
@@ -60,7 +73,7 @@ def _load_library():
         except OSError:
             pass
 
-    # 3. Try loading by name directly (relies on LD_LIBRARY_PATH / DYLD_LIBRARY_PATH)
+    # 4. Try loading by name directly (relies on LD_LIBRARY_PATH / DYLD_LIBRARY_PATH)
     try:
         return ctypes.CDLL(lib_filename)
     except OSError:
@@ -72,8 +85,8 @@ def _load_library():
         "Please either:\n"
         "  1. Set the SCORBIT_SDK_PATH environment variable to the directory\n"
         "     containing {lib}, or\n"
-        "  2. Install the SDK shared library to a standard system library path\n"
-        "     (e.g. /usr/local/lib) and run ldconfig.\n"
+        "  2. Install the runtime package so the library is under /opt/scorbit/lib\n"
+        "     (and run ldconfig if needed), or use another path on LD_LIBRARY_PATH.\n"
         "\n"
         "For more information, see: https://github.com/scorbit/scorbit_sdk".format(
             lib=lib_filename

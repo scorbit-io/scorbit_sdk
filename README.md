@@ -19,15 +19,30 @@ From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the nec
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
+Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). The runtime Debian package installs `postinst`/`postrm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, and set the install root to mode `1777` (sticky, world-writable) so deployed devices can self-update the SDK without changing install paths. Tighter production setups can adjust permissions after install.
+
 ### Install C/C++ SDK
 
 #### Choose the right pre-built package based on your system OS and architecture
 
 The pre-built packages are available for different platforms and architectures. Choose the appropriate package based on your system configuration: [`<arch>`](#processor-architecture-arch) and [`<abi_tag>`](#abi-tag-abi_tag) (e.g. `scorbit_sdk-1.1.0-amd64_u20.tar.gz`):
 
+**Debian/Ubuntu (.deb):** there are two packages per build:
+
+* **`scorbit-sdk`** — shared library, linker configuration, and post-install hooks (runtime only).
+* **`scorbit-sdk-dev`** — headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit-sdk`).
+
+Example file names (version, Debian architecture, and ABI tag; `unknown` is not used in production builds):
+
 ```
-scorbit-sdk-<version>-<arch>_<abi_tag>.deb
-scorbit-sdk-<version>-<arch>_<abi_tag>.tgz
+scorbit-sdk_<version>_<debian_arch>_<abi_tag>.deb
+scorbit-sdk-dev_<version>_<debian_arch>_<abi_tag>.deb
+```
+
+**Tarball (.tgz):** one archive containing the full install tree (headers, libraries, and CMake files together), for example:
+
+```
+scorbit_sdk-<version>-<arch>_<abi_tag>.tar.gz
 ```
 
 #### Processor Architecture (`<arch>`)

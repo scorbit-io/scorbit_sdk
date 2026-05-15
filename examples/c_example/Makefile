@@ -9,8 +9,8 @@
 
 # Compiler and flags
 CC = gcc
-CFLAGS = -std=c99 -Wall -I../.. -I/usr/local/include
-LDFLAGS = -L/usr/local/lib -lscorbit_sdk -lrt
+CFLAGS = -std=c99 -Wall -I../.. -I/opt/scorbit/include
+LDFLAGS = -L/opt/scorbit/lib -lscorbit_sdk -lrt
 
 # Source files
 SRC = main.c

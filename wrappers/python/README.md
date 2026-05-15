@@ -9,7 +9,8 @@ Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library. Works o
 Install the Scorbit SDK shared library on the system. The wrapper loads it in this order:
 
 1. Directory from **`SCORBIT_SDK_PATH`**
-2. Normal dynamic linker paths (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `/usr/local/lib`, etc.)
+2. **`/opt/scorbit/lib`** when using official Linux packages
+3. Normal dynamic linker paths (`LD_LIBRARY_PATH`, `DYLD_LIBRARY_PATH`, `/usr/local/lib`, etc.)
 
 | Platform | Library file           |
 |----------|------------------------|

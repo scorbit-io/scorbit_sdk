@@ -34,7 +34,7 @@ set_property(CACHE SCORBIT_LOGGER PROPERTY STRINGS callback spdlog)
 
 set(SCORBIT_SDK_ABI "unknown" CACHE STRING "ABI tag for self update")
 
-set(SCORBIT_SDK_INSTALL_PREFIX "/usr/local")
+set(SCORBIT_SDK_INSTALL_PREFIX "/opt/scorbit")
 set(SCORBIT_SDK_PLATFORM_ID "${TARGET_ARCH}_${SCORBIT_SDK_ABI}")
 
 # ---- Include guards ----
@@ -82,6 +82,7 @@ if(POLICY CMP0177)
 endif()
 # PackageProject.cmake will be used to make our target installable
 CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
+include(${MY_CMAKE_DIR}/scorbit_sdk_package_project.cmake)
 
 include(${MY_CMAKE_DIR}/lib_fmt.cmake)
 
@@ -327,7 +328,9 @@ set(CMAKE_INSTALL_LIBDIR "lib" CACHE PATH "" FORCE)
 
 set_property(TARGET scorbit_sdk PROPERTY EXPORT_NAME scorbit_sdk)
 
-packageProject(
+# Installs with components scorbit_sdk_Runtime / scorbit_sdk_Development (forked from
+# PackageProject.cmake so lib<name>.so namelink ships in Runtime; see scorbit_sdk_package_project.cmake).
+scorbit_sdk_packageProject(
     NAME ${PROJECT_NAME}
     VERSION ${PROJECT_VERSION}
     NAMESPACE ${PROJECT_NAME}
@@ -339,6 +342,27 @@ packageProject(
     EXPORT_HEADER "${EXPORT_HEADER_LOCATION}"
     DISABLE_VERSION_SUFFIX YES
 )
+
+# Dynamic linker path for official Linux layout (written by runtime DEB postinst).
+set(SCORBIT_SDK_LD_SO_PATH "${SCORBIT_SDK_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
+set(_SCORBIT_RUNTIME_CTRL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/runtime-control")
+configure_file(
+    "${_SCORBIT_RUNTIME_CTRL_DIR}/postinst.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst"
+    @ONLY
+)
+file(
+    CHMOD
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst"
+    PERMISSIONS
+    OWNER_READ
+    OWNER_WRITE
+    OWNER_EXECUTE
+)
+set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_CONTROL_EXTRA
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst;${_SCORBIT_RUNTIME_CTRL_DIR}/postrm"
+)
+
 set(CPACK_GENERATOR DEB)
 
 set(CPACK_PACKAGE_VENDOR "scorbit.io")
@@ -365,5 +389,25 @@ endif()
 set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${TARGET_ARCH}")
 
 set(CPACK_PACKAGING_INSTALL_PREFIX ${SCORBIT_SDK_INSTALL_PREFIX})
+
+# Split DEB into runtime vs development; keep a single TGZ with the full prefix tree.
+set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+if(SCORBIT_SDK_SHARED)
+    # Only package the main SDK; other targets may expose install() components we do not ship as DEBs.
+    set(CPACK_COMPONENTS_ALL scorbit_sdk_Runtime scorbit_sdk_Development)
+    set(CPACK_DEB_COMPONENT_INSTALL ON)
+    set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
+    set(CPACK_COMPONENT_SCORBIT_SDK_DEVELOPMENT_DEPENDS scorbit_sdk_Runtime)
+    set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_NAME "scorbit-sdk")
+    set(CPACK_DEBIAN_SCORBIT_SDK_DEVELOPMENT_PACKAGE_NAME "scorbit-sdk-dev")
+    set(CPACK_COMPONENT_SCORBIT_SDK_RUNTIME_DISPLAY_NAME "Scorbit SDK (runtime)")
+    set(CPACK_COMPONENT_SCORBIT_SDK_DEVELOPMENT_DISPLAY_NAME "Scorbit SDK (headers and CMake)")
+    # Include ABI tag (e.g. u12, u20) in .deb filenames, matching prebuilt artifact conventions.
+    set(_SCORBIT_DEB_FILE_TAG "${PROJECT_VERSION}_${TARGET_ARCH}_${SCORBIT_SDK_ABI}")
+    set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_FILE_NAME "scorbit-sdk_${_SCORBIT_DEB_FILE_TAG}.deb")
+    set(CPACK_DEBIAN_SCORBIT_SDK_DEVELOPMENT_FILE_NAME "scorbit-sdk-dev_${_SCORBIT_DEB_FILE_TAG}.deb")
+else()
+    set(CPACK_DEB_COMPONENT_INSTALL OFF)
+endif()
 
 include(CPack)
