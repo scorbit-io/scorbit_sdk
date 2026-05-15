@@ -419,20 +419,35 @@ sb_game_handle_t setup_game_state(void)
     return handle;
 }
 
-void top_scores_callback(sb_error_t error, const char *reply, void *user_data)
+void top_scores_callback(sb_error_t error, sb_leaderboard_t *leaderboard, void *user_data)
 {
     (void)user_data;
 
     switch (error) {
-    case SB_EC_SUCCESS:
-        printf("Top scores: %s\n", reply);
-        break;
+    case SB_EC_SUCCESS: {
+        size_t count = sb_leaderboard_entries_count(leaderboard);
+        printf("Top scores count: %zu\n", count);
+        for (size_t i = 0; i < count; ++i) {
+            int rank = 0;
+            sb_score_t high_score = 0;
+            const char *initials = NULL;
+            const char *display_name = NULL;
+
+            sb_leaderboard_entry_rank(leaderboard, i, &rank);
+            sb_leaderboard_entry_high_score(leaderboard, i, &high_score);
+            sb_leaderboard_entry_player_initials(leaderboard, i, &initials);
+            sb_leaderboard_entry_player_display_name(leaderboard, i, &display_name);
+
+            printf("#%d %s %s %lld\n", rank, initials ? initials : "",
+                   display_name ? display_name : "", (long long)high_score);
+        }
+    } break;
     case SB_EC_NOT_PAIRED:
         printf("Device is not paired\n");
         break;
     case SB_EC_API_ERROR:
-        printf("API error: %s\n", reply);
-        return;
+        printf("API error\n");
+        break;
     default:
         printf("Error: %d\n", error);
         break;
@@ -514,7 +529,8 @@ int main(void)
     // Short code for pairing (6 alphanumeric chars); alternative to QR deeplink
     sb_request_pair_code(gs, &shortcode_callback, NULL);
 
-    sb_request_top_scores(gs, 0, &top_scores_callback, NULL);
+    sb_request_top_scores(gs, SB_LEADERBOARD_SCOPE_MACHINE, SB_LEADERBOARD_PERIOD_ALL_TIME, NULL,
+                          SB_LEADERBOARD_VPIN_REAL_ONLY, &top_scores_callback, NULL);
 
     printf("Deeplink for pairing %s\n", sb_get_pair_deeplink(gs));
 

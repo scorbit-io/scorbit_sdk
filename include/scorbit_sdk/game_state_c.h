@@ -22,6 +22,7 @@
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
 #include "config_c.h"
+#include "leaderboard_c.h"
 #include "net_types_c.h"
 #include "event_types_c.h"
 
@@ -297,18 +298,30 @@ const char *sb_get_pair_deeplink(sb_game_handle_t handle);
  * a mutex) when accessing shared data.
  *
  * @param handle The game handle created using @ref sb_create_game_state.
- * @param score_filter A score value used to filter the leaderboard results. If a score is provided,
- * the function retrieves the ten scores above and ten scores below the specified value, allowing
- * the user to view their score in the leaderboard context. Set to 0 to disable the score filter.
- * @param callback A callback function of @ref sb_string_callback_t that receives the top scores in
- * JSON format as a string. Returns @ref SB_EC_SUCCESS if the request was successful.
- * Otherwise, it returns an error codes: @ref SB_EC_NOT_PAIRED if machine is not paired, or @ref
- * SB_EC_API_ERROR if the API call failed.
+ * @param scope Selects whether the request targets the paired venue machine leaderboard, the
+ * variant-wide leaderboard for the paired title, or the shared game leaderboard.
+ * @param period Selects the backend time bucket. Use @ref SB_LEADERBOARD_PERIOD_ALL_TIME for the
+ * unfiltered all-time leaderboard.
+ * @param since Optional UTC ISO-8601 lower-bound time filter. When set, only scores created at or
+ * after this timestamp are returned and the @p period parameter is ignored by the backend.
+ * Pass NULL to omit this filter.
+ * @param vpin_filter Controls whether virtual pinball scores are included. Use
+ * @ref SB_LEADERBOARD_VPIN_ANY to include both virtual and physical scores.
+ * @param callback A callback function of @ref sb_leaderboard_callback_t. On success,
+ * @p leaderboard is non-NULL and valid only during the callback; do not store it or free it.
+ * Otherwise, @p leaderboard is NULL. Error codes include @ref SB_EC_NOT_PAIRED,
+ * @ref SB_EC_AUTH_FAILED, and @ref SB_EC_API_ERROR.
+ *
+ * If pairing or machine context required for @p scope is not available yet, the SDK defers the
+ * HTTP request and retries automatically until the context is ready or a terminal error occurs.
+ * The callback is invoked only when the request completes or fails terminally.
  * @param user_data Optional user data to pass to the callback. Pass NULL if not used.
  */
 SCORBIT_SDK_EXPORT
-void sb_request_top_scores(sb_game_handle_t handle, sb_score_t score_filter,
-                           sb_string_callback_t callback, void *user_data);
+void sb_request_top_scores(sb_game_handle_t handle, sb_leaderboard_scope_t scope,
+                           sb_leaderboard_period_t period, const char *since,
+                           sb_leaderboard_vpin_filter_t vpin_filter,
+                           sb_leaderboard_callback_t callback, void *user_data);
 
 /**
  * @brief Request a pairing short code (6 alphanumeric characters).

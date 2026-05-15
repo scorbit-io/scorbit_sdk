@@ -38,6 +38,7 @@ from ._loader import _lib
 # ---------------------------------------------------------------------------
 sb_game_handle_t = c_void_p
 sb_config_t = c_void_p
+sb_leaderboard_t = c_void_p
 
 # ---------------------------------------------------------------------------
 # Constants from net_types_c.h
@@ -59,6 +60,9 @@ sb_string_callback_t = CFUNCTYPE(None, c_int, c_char_p, c_void_p)
 
 # void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size, void *user_data)
 sb_buffer_callback_t = CFUNCTYPE(None, c_int, POINTER(c_uint8), c_size_t, c_void_p)
+
+# void (*sb_leaderboard_callback_t)(sb_error_t error, sb_leaderboard_t*, void *user_data)
+sb_leaderboard_callback_t = CFUNCTYPE(None, c_int, sb_leaderboard_t, c_void_p)
 
 # int (*sb_signer_callback_t)(uint8_t signature[72], size_t *signature_len,
 #                              const uint8_t digest[32], void *user_data)
@@ -250,11 +254,58 @@ _lib.sb_get_machine_serial.argtypes = [sb_game_handle_t]
 _lib.sb_get_pair_deeplink.restype = c_char_p
 _lib.sb_get_pair_deeplink.argtypes = [sb_game_handle_t]
 
-# void sb_request_top_scores(sb_game_handle_t, sb_score_t, sb_string_callback_t, void*)
+# void sb_request_top_scores(sb_game_handle_t, sb_leaderboard_scope_t,
+#                            sb_leaderboard_period_t, const char*,
+#                            sb_leaderboard_vpin_filter_t,
+#                            sb_leaderboard_callback_t, void*)
 _lib.sb_request_top_scores.restype = None
 _lib.sb_request_top_scores.argtypes = [
-    sb_game_handle_t, c_int64, sb_string_callback_t, c_void_p
+    sb_game_handle_t, c_int, c_int, c_char_p, c_int, sb_leaderboard_callback_t, c_void_p
 ]
+
+# size_t sb_leaderboard_entries_count(const sb_leaderboard_t*)
+_lib.sb_leaderboard_entries_count.restype = c_size_t
+_lib.sb_leaderboard_entries_count.argtypes = [sb_leaderboard_t]
+
+# leaderboard entry accessors
+_lib.sb_leaderboard_entry_id.restype = c_bool
+_lib.sb_leaderboard_entry_id.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_uint64)]
+_lib.sb_leaderboard_entry_rank.restype = c_bool
+_lib.sb_leaderboard_entry_rank.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int)]
+_lib.sb_leaderboard_entry_high_score.restype = c_bool
+_lib.sb_leaderboard_entry_high_score.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int64)]
+_lib.sb_leaderboard_entry_image.restype = c_bool
+_lib.sb_leaderboard_entry_image.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_reaction_count.restype = c_bool
+_lib.sb_leaderboard_entry_reaction_count.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int)]
+_lib.sb_leaderboard_entry_score_count.restype = c_bool
+_lib.sb_leaderboard_entry_score_count.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int)]
+_lib.sb_leaderboard_entry_is_nfc_verified.restype = c_bool
+_lib.sb_leaderboard_entry_is_nfc_verified.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_bool)]
+_lib.sb_leaderboard_entry_is_verified.restype = c_bool
+_lib.sb_leaderboard_entry_is_verified.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_bool)]
+_lib.sb_leaderboard_entry_is_vpin.restype = c_bool
+_lib.sb_leaderboard_entry_is_vpin.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_bool)]
+_lib.sb_leaderboard_entry_created.restype = c_bool
+_lib.sb_leaderboard_entry_created.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+
+# leaderboard player accessors
+_lib.sb_leaderboard_entry_player_id.restype = c_bool
+_lib.sb_leaderboard_entry_player_id.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_player_username.restype = c_bool
+_lib.sb_leaderboard_entry_player_username.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_player_display_name.restype = c_bool
+_lib.sb_leaderboard_entry_player_display_name.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_player_initials.restype = c_bool
+_lib.sb_leaderboard_entry_player_initials.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_player_avatar.restype = c_bool
+_lib.sb_leaderboard_entry_player_avatar.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
+_lib.sb_leaderboard_entry_player_follower_count.restype = c_bool
+_lib.sb_leaderboard_entry_player_follower_count.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int)]
+_lib.sb_leaderboard_entry_player_following_count.restype = c_bool
+_lib.sb_leaderboard_entry_player_following_count.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_int)]
+_lib.sb_leaderboard_entry_player_last_login.restype = c_bool
+_lib.sb_leaderboard_entry_player_last_login.argtypes = [sb_leaderboard_t, c_size_t, POINTER(c_char_p)]
 
 # void sb_request_pair_code(sb_game_handle_t, sb_string_callback_t, void*)
 _lib.sb_request_pair_code.restype = None

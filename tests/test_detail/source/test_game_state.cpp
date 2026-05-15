@@ -64,7 +64,11 @@ public:
         info.gameCodeVersion = "1.2.3";
         return info;
     };
-    void requestTopScores(sb_score_t, StringCallback) override {};
+    void requestTopScores(LeaderboardScope, LeaderboardPeriod, const std::string &,
+                          LeaderboardVpinFilter,
+                          LeaderboardHandleCallback) override
+    {
+    };
     void requestUnpair(StringCallback) override {};
     MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
     MAKE_MOCK0(authenticate, void(), override);

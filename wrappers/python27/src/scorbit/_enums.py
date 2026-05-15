@@ -46,6 +46,54 @@ class GameStartOrigin(IntEnum):
     """Game started explicitly via Scorbit app request."""
 
 
+class LeaderboardScope(IntEnum):
+    """Leaderboard source to query."""
+
+    Machine = 0
+    """Specific paired venue machine leaderboard."""
+
+    Variant = 1
+    """Shared variant leaderboard for the paired title."""
+
+    Game = 2
+    """Shared game leaderboard across variants."""
+
+
+class LeaderboardPeriod(IntEnum):
+    """Time bucket to query for leaderboard results."""
+
+    AllTime = 0
+    """All-time leaderboard."""
+
+    Days14 = 1
+    """Rolling 14-day leaderboard."""
+
+    Days30 = 2
+    """Rolling 30-day leaderboard."""
+
+    Days90 = 3
+    """Rolling 90-day leaderboard."""
+
+    Days180 = 4
+    """Rolling 180-day leaderboard."""
+
+    Days365 = 5
+    """Rolling 365-day leaderboard."""
+
+
+class LeaderboardVpinFilter(IntEnum):
+    """How virtual pinball scores should be filtered."""
+
+    Any = 0
+    """Include both virtual and physical scores."""
+
+    VpinOnly = 1
+    """Include only virtual pinball scores."""
+
+    RealOnly = 2
+    """Exclude virtual pinball scores."""
+
+
 class Capability(object):
     """Device capability flags (combine with bitwise OR).
 

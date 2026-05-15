@@ -20,7 +20,9 @@
 #pragma once
 
 #include "game_data.h"
+#include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -63,6 +65,14 @@ bool isHostMatching(const std::string &url, const std::string &hostname);
  */
 bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string &apiHostname,
                                const ::scorbit::DeviceInfo &deviceInfo);
+
+/** @return terminal error for leaderboard fetch, or nullopt if the request may proceed or defer. */
+std::optional<Error> leaderboardRequestTerminalError(AuthStatus status);
+
+bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
+                               const std::string &machineUuid,
+                               const std::optional<std::string> &variantUuid,
+                               const std::optional<std::string> &gameSlug);
 
 } // namespace detail
 } // namespace scorbit

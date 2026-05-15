@@ -381,16 +381,22 @@ int main()
         }
     });
 
-    gs.requestTopScores(0, [](scorbit::Error error, std::string reply) {
+    gs.requestTopScores(scorbit::LeaderboardScope::Machine, scorbit::LeaderboardPeriod::AllTime,
+                        "", scorbit::LeaderboardVpinFilter::RealOnly,
+                        [](scorbit::Error error, const scorbit::LeaderboardResult &leaderboard) {
         switch (error) {
         case scorbit::Error::Success:
-            cout << "Top scores: " << reply << endl;
+            cout << "Top scores count: " << leaderboard.entries.size() << endl;
+            for (const auto &entry : leaderboard.entries) {
+                cout << "#" << entry.rank << " " << entry.player.initials << " "
+                     << entry.player.displayName << " " << entry.highScore << endl;
+            }
             break;
         case scorbit::Error::NotPaired:
             cout << "Device is not paired" << endl;
             break;
         case scorbit::Error::ApiError:
-            cout << "API error: " << reply << endl;
+            cout << "API error" << endl;
             break;
         default:
             cout << "Error: " << static_cast<int>(error) << endl;

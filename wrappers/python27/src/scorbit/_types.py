@@ -139,3 +139,117 @@ class PlayerInfo(object):
                 self.id, self.preferred_name
             )
         return "PlayerInfo(claim_deeplink={0!r})".format(self.claim_deeplink)
+
+
+class LeaderboardPlayer(object):
+    """Leaderboard player information."""
+
+    __slots__ = (
+        "id",
+        "username",
+        "display_name",
+        "initials",
+        "avatar",
+        "follower_count",
+        "following_count",
+        "last_login",
+    )
+
+    def __init__(
+        self,
+        id="",
+        username="",
+        display_name="",
+        initials="",
+        avatar="",
+        follower_count=0,
+        following_count=0,
+        last_login="",
+    ):
+        # type: (str, str, str, str, str, int, int, str) -> None
+        self.id = id
+        self.username = username
+        self.display_name = display_name
+        self.initials = initials
+        self.avatar = avatar
+        self.follower_count = follower_count
+        self.following_count = following_count
+        self.last_login = last_login
+
+    def __repr__(self):
+        # type: () -> str
+        return "LeaderboardPlayer(id={0!r}, username={1!r})".format(
+            self.id, self.username
+        )
+
+
+class LeaderboardEntry(object):
+    """Single leaderboard entry."""
+
+    __slots__ = (
+        "id",
+        "rank",
+        "player",
+        "high_score",
+        "image",
+        "reaction_count",
+        "score_count",
+        "is_nfc_verified",
+        "is_verified",
+        "is_vpin",
+        "created",
+    )
+
+    def __init__(
+        self,
+        id=0,
+        rank=0,
+        player=None,
+        high_score=0,
+        image="",
+        reaction_count=0,
+        score_count=0,
+        is_nfc_verified=False,
+        is_verified=False,
+        is_vpin=False,
+        created="",
+    ):
+        # type: (int, int, object, int, str, int, int, bool, bool, bool, str) -> None
+        self.id = id
+        self.rank = rank
+        self.player = player if player is not None else LeaderboardPlayer()
+        self.high_score = high_score
+        self.image = image
+        self.reaction_count = reaction_count
+        self.score_count = score_count
+        self.is_nfc_verified = is_nfc_verified
+        self.is_verified = is_verified
+        self.is_vpin = is_vpin
+        self.created = created
+
+    def __repr__(self):
+        # type: () -> str
+        return "LeaderboardEntry(id={0!r}, rank={1!r}, high_score={2!r})".format(
+            self.id, self.rank, self.high_score
+        )
+
+
+class LeaderboardResult(object):
+    """Typed leaderboard response."""
+
+    __slots__ = ("entries",)
+
+    def __init__(self, entries=None):
+        # type: (object) -> None
+        self.entries = entries if entries is not None else []
+
+    def __len__(self):
+        # type: () -> int
+        return len(self.entries)
+
+    def __iter__(self):
+        return iter(self.entries)
+
+    def __repr__(self):
+        # type: () -> str
+        return "LeaderboardResult(entries={0!r})".format(len(self.entries))
