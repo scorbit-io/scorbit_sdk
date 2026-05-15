@@ -275,7 +275,7 @@ bool Updater::replaceBinary(const std::string &libPath, const std::string &newLi
                 // .old still locked from previous session
                 fs::remove(libPath); // Try removing the current one
             } else {
-                // We successfully removed .old — safe to backup current
+                // We successfully removed .old - safe to backup current
                 fs::rename(libPath, backupPath);
             }
         } else if (fs::exists(libPath)) {
@@ -305,7 +305,7 @@ bool Updater::replaceBinary(const std::string &libPath, const std::string &newLi
                 return false;
             }
         } else {
-            // Current lib doesn't exist — simple case
+            // Current lib doesn't exist - simple case
             fs::rename(newLibPath, libPath);
             return true;
         }

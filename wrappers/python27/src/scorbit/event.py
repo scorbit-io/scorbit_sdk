@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-"""Event wrapper -- provides Pythonic access to SDK event data.
+"""Event wrapper - provides Pythonic access to SDK event data.
 
 An :class:`Event` instance is only valid during the event callback invocation.
 Do **not** store it for later use; extract the data you need inside the callback.

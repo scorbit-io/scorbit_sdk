@@ -137,7 +137,7 @@ bool SoftKeyResolver::tryLoadKey(DeviceInfo &info)
 
         if (storedHmac.size() != expectedHmac.size()
             || CRYPTO_memcmp(storedHmac.data(), expectedHmac.data(), expectedHmac.size()) != 0) {
-            ERR("SoftKeyResolver: HMAC verification failed -- key data may have been tampered "
+            ERR("SoftKeyResolver: HMAC verification failed - key data may have been tampered "
                 "with");
             return false;
         }
@@ -205,7 +205,7 @@ bool SoftKeyResolver::provisionNewKey(DeviceInfo &info, const std::vector<uint8_
     const auto fpHash = fingerprints.computeHash();
     INF("SoftKeyResolver: fingerprint hash={}", fpHash);
 
-    // Strip the 0x04 uncompressed point prefix — API expects raw 64-byte (x || y)
+    // Strip the 0x04 uncompressed point prefix - API expects raw 64-byte (x || y)
     utils::ByteArray rawPublicKey(publicKey.data() + 1, publicKey.size() - 1);
 
     auto confirmed = client.confirm(*result, rawPublicKey.hex(), deviceSignature.hex(),

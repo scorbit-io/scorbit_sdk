@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-"""Scorbit SDK — Python wrapper (pure-Python / ctypes).
+"""Scorbit SDK - Python wrapper (pure-Python / ctypes).
 
 This package provides a Pythonic interface to the Scorbit SDK C library.
 The SDK shared library (``libscorbit_sdk.so`` / ``.dylib`` / ``.dll``) must
@@ -63,7 +63,7 @@ from .config import Config
 from .event import Event
 from .game_state import GameState, create_game_state
 
-# -- logger API (only when the native library wires callbacks; spdlog builds omit it) --
+# -- logger API (only when the native library wires callbacks; spdlog builds omit it).
 from ._bindings import _has_logger as _has_logger, _lib as _lib
 
 if _has_logger:

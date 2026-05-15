@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-"""Game state wrapper -- the main entry point for interacting with the SDK.
+"""Game state wrapper - the main entry point for interacting with the SDK.
 
 Use :func:`create_game_state` to obtain a :class:`GameState` instance.
 The object supports the context-manager protocol for automatic cleanup::

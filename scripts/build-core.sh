@@ -17,7 +17,7 @@ if [[ -z "$BUILD_DIR" || -z "$ABI" ]]; then
 fi
 
 # Pass through when set in the environment (e.g. ENV in gcc-builder Docker image).
-# Do not use \$ here — that sent the literal "$CMAKE_TOOLCHAIN_FILE" to CMake.
+# Do not use \$ here - that sent the literal "$CMAKE_TOOLCHAIN_FILE" to CMake.
 CMAKE_TOOLCHAIN_ARGS=()
 if [[ -n "${CMAKE_TOOLCHAIN_FILE}" ]]; then
     CMAKE_TOOLCHAIN_ARGS=(-D "CMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")

@@ -19,7 +19,7 @@ From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the nec
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
-Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`1777`** (sticky, world-writable) so the shared library can self-replace, and run **`bin/add-rpi-rp2-fstab.sh add`** to add the same **RPI-RP2** `/etc/fstab` block used by scorbitd (mount label `RPI-RP2` at `/mnt/RPI-RP2`). The fstab helper is shipped from **`assets/scripts/`** to **`/opt/scorbit/bin/`** and is **not** placed on `PATH`; it is only invoked from package maintainer scripts. On remove/upgrade, `prerm` runs **`add … remove`**. Tighter production setups can adjust permissions or fstab after install.
+Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`1777`** (sticky, world-writable) so the shared library can self-replace, and run **`bin/add-rpi-rp2-fstab.sh add`** to add the same **RPI-RP2** `/etc/fstab` block used by scorbitd (mount label `RPI-RP2` at `/mnt/RPI-RP2`). The fstab helper is shipped from **`assets/scripts/`** to **`/opt/scorbit/bin/`** and is **not** placed on `PATH`; it is only invoked from package maintainer scripts. On remove/upgrade, `prerm` runs **`add ... remove`**. Tighter production setups can adjust permissions or fstab after install.
 
 ### Install C/C++ SDK
 
@@ -29,8 +29,8 @@ The pre-built packages are available for different platforms and architectures. 
 
 **Debian/Ubuntu (.deb):** there are two packages per build:
 
-* **`scorbit-sdk`** — shared library, linker configuration, and post-install hooks (runtime only).
-* **`scorbit-sdk-dev`** — headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit-sdk`).
+* **`scorbit-sdk`**: shared library, linker configuration, and post-install hooks (runtime only).
+* **`scorbit-sdk-dev`**: headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit-sdk`).
 
 Example file names (version, Debian architecture, and ABI tag; `unknown` is not used in production builds):
 
@@ -81,7 +81,7 @@ pip install scorbit-1.0.3-cp310-cp310-linux_x86_64.whl
 
 ## Documentation
 
-Detailed documentation is available [here](https://support.scorbit.io/sdk/sdk-001-introduction/). It covers the SDK’s API references and integration guidelines.
+Detailed documentation is available [here](https://support.scorbit.io/sdk/sdk-001-introduction/). It covers the SDK's API references and integration guidelines.
 
 ## Examples
 
@@ -101,4 +101,4 @@ Scorbit is a platform that includes software, services, multiple applications, a
 
 This project is licensed under the MIT license.
 
-© 2025 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved
+(c) 2025 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved

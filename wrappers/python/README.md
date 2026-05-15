@@ -1,4 +1,4 @@
-# Scorbit SDK — Python wrapper
+# Scorbit SDK - Python wrapper
 
 Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library. Works on **Python 3.6+** with no compilation: it uses `ctypes` against the stable C ABI.
 
@@ -130,8 +130,8 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 |-------------------|-------------|
 | `set_game_started(origin)` | Start a session. |
 | `set_game_finished()` | End session (auto-commits). |
-| `set_current_ball(ball)` | Ball 1–9. |
-| `set_active_player(player)` | Active player 1–9. |
+| `set_current_ball(ball)` | Ball 1-9. |
+| `set_active_player(player)` | Active player 1-9. |
 | `set_score(player, score, feature=0)` | Set score. |
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
@@ -198,4 +198,4 @@ scorbit.reset_logger()  # when done
 
 ## License
 
-MIT — see the LICENSE file in the repository root.
+MIT - see the LICENSE file in the repository root.

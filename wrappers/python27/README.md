@@ -1,4 +1,4 @@
-# Scorbit SDK — Python 2.7 wrapper
+# Scorbit SDK - Python 2.7 wrapper
 
 Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library for **Python 2.7**. Uses `ctypes` against the stable C ABI; no compilation.
 
@@ -109,7 +109,7 @@ with scorbit.create_game_state(config) as gs:
 | `Error`           | `Success`, `Unknown`, `AuthFailed`, `NotPaired`, `ApiError`, `FileError` |
 | `AuthStatus`      | `NotAuthenticated`, `Authenticating`, `AuthenticatedCheckingPairing`, `AuthenticatedUnpaired`, `AuthenticatedPaired`, `AuthenticationFailed` |
 | `GameStartOrigin` | `StartButton`, `FromLobby` |
-| `Capability`      | `StartGame`, `CreditDrop` — integer constants; combine with `|` (`enum34` has no `IntFlag`) |
+| `Capability`      | `StartGame`, `CreditDrop` - integer constants; combine with `|` (`enum34` has no `IntFlag`) |
 | `EventType`       | `GameStartRequested`, `CreditsAddRequested`, `CreditsStatusRequested`, `ConfigReceived`, `PlayersUpdated`, `PlayerPictureReady` |
 | `LogLevel`        | `Debug`, `Info`, `Warn`, `Error` |
 
@@ -141,8 +141,8 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 |-------------------|-------------|
 | `set_game_started(origin)` | Start a session. |
 | `set_game_finished()` | End session (auto-commits). |
-| `set_current_ball(ball)` | Ball 1–9. |
-| `set_active_player(player)` | Active player 1–9. |
+| `set_current_ball(ball)` | Ball 1-9. |
+| `set_active_player(player)` | Active player 1-9. |
 | `set_score(player, score, feature=0)` | Set score. |
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
@@ -174,7 +174,7 @@ Helpers return parsed data or `None` if the type does not match.
 | `get_credits_add_requested()` | `(int, str)` or `None` |
 | `get_pricing_received()` | `PricingInfo` or `None` |
 | `get_config_received()` | JSON `str` or `None` |
-| `get_players_updated()` | `dict` (player number → `PlayerInfo`) or `None` |
+| `get_players_updated()` | `dict` (player number -> `PlayerInfo`) or `None` |
 | `get_player_picture_ready()` | `(int, bytes)` or `None` |
 
 ### `PlayerInfo`
@@ -218,4 +218,4 @@ Both publish as **`scorbit`**; `pip` picks the wheel for the running interpreter
 
 ## License
 
-MIT — see the LICENSE file in the repository root.
+MIT - see the LICENSE file in the repository root.

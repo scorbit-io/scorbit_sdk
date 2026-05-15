@@ -30,7 +30,7 @@ from ._bindings import (
 )
 from .event import Event
 
-# Global shutdown flag — checked by every callback trampoline so we never try
+# Global shutdown flag - checked by every callback trampoline so we never try
 # to call back into Python while the interpreter is tearing down.
 _shutting_down = False
 

@@ -1070,7 +1070,7 @@ task_t Net::createAuthenticateTask()
 
         m_isRefreshingToken = true;
 
-        // Get server time first — provisioning and authentication both need accurate timestamps
+        // Get server time first - provisioning and authentication both need accurate timestamps
         std::string timestamp;
         for (int i = 0; i < 10 && !m_stop; ++i) {
             INF("API getting noop to retrieve server time...");
@@ -1189,7 +1189,7 @@ task_t Net::createAuthenticateTask()
                     continue;
                 }
             } else if (r.status_code == 404 && reprovisionSoftKey(timestamp)) {
-                // Scorbitron was deleted from API — re-provisioned with a new identity, retry auth
+                // Scorbitron was deleted from API - re-provisioned with a new identity, retry auth
                 if (i < 10) {
                     continue;
                 }
@@ -1408,7 +1408,7 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
         formData.parts.push_back({JKEY_SESS_SUCCESSFULLY_COMPLETED, "True"});
     }
 
-    // History CSV logs — built under m_gameSessionsMutex from session.history (no GameHistory
+    // History CSV logs - built under m_gameSessionsMutex from session.history (no GameHistory
     // copy). csv must outlive formData for cpr::Buffer; SafeMultipart copies buffers later.
     if (flags.has(SessionFlag::UploadHistoryLogs)) {
         formData.parts.push_back(

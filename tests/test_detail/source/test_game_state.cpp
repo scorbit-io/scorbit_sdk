@@ -801,7 +801,7 @@ TEST_CASE("Sending version of sdk and game_code")
     GameStateImpl gameState(std::move(mockNet));
 }
 
-TEST_CASE("addModeExpiring — duration normalization and scheduling")
+TEST_CASE("addModeExpiring - duration normalization and scheduling")
 {
     using namespace std::chrono_literals;
 
@@ -837,14 +837,14 @@ TEST_CASE("addModeExpiring — duration normalization and scheduling")
         REQUIRE(approxEqMs(mockNetRef.lastModeExpiryScheduleDuration, 10));
     }
 
-    SECTION("1–10 seconds pass through unchanged")
+    SECTION("1-10 seconds pass through unchanged")
     {
         gameState.addModeExpiring("MB:Multiball", 7);
         REQUIRE(approxEqMs(mockNetRef.lastModeExpiryScheduleDuration, 7));
     }
 }
 
-TEST_CASE("addModeExpiring — promote to front on repeat add")
+TEST_CASE("addModeExpiring - promote to front on repeat add")
 {
     auto mockNet = std::make_unique<MockNetBase>();
     auto &mockNetRef = *mockNet;
@@ -875,7 +875,7 @@ TEST_CASE("addModeExpiring — promote to front on repeat add")
     gameState.commit();
 }
 
-TEST_CASE("addModeExpiring — tick removes mode after delay; clearModes cancels timer")
+TEST_CASE("addModeExpiring - tick removes mode after delay; clearModes cancels timer")
 {
     using namespace std::chrono_literals;
 

@@ -60,7 +60,7 @@ bool isHostMatching(const std::string &url, const std::string &hostname);
 
 /**
  * Whether SDK auth headers should be attached to a download of @p resolvedUrl.
- * Uses API host match only. @p deviceInfo is intentionally not used for gating — updater and
+ * Uses API host match only. @p deviceInfo is intentionally not used for gating - updater and
  * non-Scorbitron integrations download authenticated artifacts from the configured API host.
  */
 bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string &apiHostname,
