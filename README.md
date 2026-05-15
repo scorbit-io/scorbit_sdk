@@ -19,7 +19,7 @@ From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the nec
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
-Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). The runtime Debian package installs `postinst`/`postrm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, and set the install root to mode `1777` (sticky, world-writable) so deployed devices can self-update the SDK without changing install paths. Tighter production setups can adjust permissions after install.
+Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`1777`** (sticky, world-writable) so the shared library can self-replace, and run **`bin/add-rpi-rp2-fstab.sh add`** to add the same **RPI-RP2** `/etc/fstab` block used by scorbitd (mount label `RPI-RP2` at `/mnt/RPI-RP2`). The fstab helper is shipped from **`assets/scripts/`** to **`/opt/scorbit/bin/`** and is **not** placed on `PATH`; it is only invoked from package maintainer scripts. On remove/upgrade, `prerm` runs **`add … remove`**. Tighter production setups can adjust permissions or fstab after install.
 
 ### Install C/C++ SDK
 

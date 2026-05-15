@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+CONF=/etc/ld.so.conf.d/scorbit-sdk.conf
+if [ "$1" = "configure" ]; then
+  mkdir -p /etc/ld.so.conf.d
+  echo "@SCORBIT_SDK_LD_SO_PATH@" > "$CONF"
+  if [ -d "@SCORBIT_SDK_LIBDIR@" ]; then
+    chmod 1777 "@SCORBIT_SDK_LIBDIR@" || true
+  fi
+  if [ -x "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" ]; then
+    "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" add || true
+  fi
+fi
+ldconfig

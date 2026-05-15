@@ -345,10 +345,16 @@ scorbit_sdk_packageProject(
 
 # Dynamic linker path for official Linux layout (written by runtime DEB postinst).
 set(SCORBIT_SDK_LD_SO_PATH "${SCORBIT_SDK_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
-set(_SCORBIT_RUNTIME_CTRL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/runtime-control")
+set(SCORBIT_SDK_LIBDIR "${SCORBIT_SDK_LD_SO_PATH}")
+set(_SCORBIT_RUNTIME_CTRL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/deb")
 configure_file(
     "${_SCORBIT_RUNTIME_CTRL_DIR}/postinst.in"
     "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst"
+    @ONLY
+)
+configure_file(
+    "${_SCORBIT_RUNTIME_CTRL_DIR}/prerm.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/prerm"
     @ONLY
 )
 file(
@@ -359,8 +365,23 @@ file(
     OWNER_WRITE
     OWNER_EXECUTE
 )
+file(
+    CHMOD
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/prerm"
+    PERMISSIONS
+    OWNER_READ
+    OWNER_WRITE
+    OWNER_EXECUTE
+)
 set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_CONTROL_EXTRA
-    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst;${_SCORBIT_RUNTIME_CTRL_DIR}/postrm"
+    "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst;${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/prerm;${_SCORBIT_RUNTIME_CTRL_DIR}/postrm"
+)
+
+# RP2040 UF2 fstab helper (same behavior as scorbitd). Installed under prefix/bin; not added to PATH.
+install(
+    PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/assets/scripts/add-rpi-rp2-fstab.sh"
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    COMPONENT scorbit_sdk_Runtime
 )
 
 set(CPACK_GENERATOR DEB)
