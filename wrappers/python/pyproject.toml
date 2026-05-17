@@ -43,7 +43,9 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://scorbit.io"
-Repository = "https://github.com/scorbit/scorbit_sdk"
+Repository = "https://github.com/scorbit-io/scorbit_sdk"
+Documentation = "https://github.com/scorbit-io/scorbit_sdk#install-pre-built-package"
+Changelog = "https://github.com/scorbit-io/scorbit_sdk/releases"
 
 [tool.setuptools.dynamic]
 # Single-line version for setuptools (no ``import scorbit`` during metadata; see README).

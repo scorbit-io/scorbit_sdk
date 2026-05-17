@@ -4,6 +4,10 @@ Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library for **Py
 
 > For Python 3.6+, use [`wrappers/python`](../python/).
 
+## Native SDK required
+
+`pip install scorbit` installs **only** the Python wrapper. Install the **native** shared library for the **same version** from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases). If the library is missing, `import scorbit` reports a version-matched release URL and suggested filenames.
+
 ## Prerequisites
 
 | Requirement | Details |
@@ -27,8 +31,10 @@ Load order for the shared library:
 ## Installation
 
 ```bash
-pip install scorbit
+pip install scorbit==1.99.66
 ```
+
+Then install the native SDK from the matching [GitHub release](https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66).
 
 From this repository:
 

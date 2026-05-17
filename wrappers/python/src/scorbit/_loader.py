@@ -21,7 +21,9 @@ import ctypes
 import ctypes.util
 import os
 import platform
-import sys
+
+from ._install_hints import format_missing_library_message
+from ._version import __version__
 
 _LIB_NAMES = {
     "Linux": "libscorbit_sdk.so",
@@ -80,17 +82,7 @@ def _load_library():
         pass
 
     raise ImportError(
-        "Cannot find the Scorbit SDK shared library ({lib}).\n"
-        "\n"
-        "Please either:\n"
-        "  1. Set the SCORBIT_SDK_PATH environment variable to the directory\n"
-        "     containing {lib}, or\n"
-        "  2. Install the runtime package so the library is under /opt/scorbit/lib\n"
-        "     (and run ldconfig if needed), or use another path on LD_LIBRARY_PATH.\n"
-        "\n"
-        "For more information, see: https://github.com/scorbit/scorbit_sdk".format(
-            lib=lib_filename
-        )
+        format_missing_library_message(__version__, lib_filename)
     )
 
 
