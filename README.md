@@ -29,8 +29,8 @@ The pre-built packages are available for different platforms and architectures. 
 
 **Debian/Ubuntu (.deb):** there are two packages per build:
 
-* **`scorbit-sdk`**: shared library, linker configuration, and post-install hooks (runtime only).
-* **`scorbit-sdk-dev`**: headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit-sdk`).
+* **`scorbit_sdk`**: shared library, linker configuration, and post-install hooks (runtime only).
+* **`scorbit_sdk-dev`**: headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit_sdk`).
 
 Example file names (`unknown` is not used in production builds):
 
@@ -41,8 +41,8 @@ scorbit_sdk-dev-<version>-<arch>_<abi_tag>.deb
 
 **Tarball (.tar.gz):** two archives per build, with the same split as the `.deb` packages:
 
-* **`scorbit-sdk`**: shared library and `bin/add-rpi-rp2-fstab.sh` (runtime).
-* **`scorbit-sdk-dev`**: headers and CMake package files (development).
+* **`scorbit_sdk`**: shared library and `bin/add-rpi-rp2-fstab.sh` (runtime).
+* **`scorbit_sdk-dev`**: headers and CMake package files (development).
 
 Example file names:
 
