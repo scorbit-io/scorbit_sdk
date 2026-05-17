@@ -16,7 +16,13 @@ Copy from this directory:
 
 ## Interface lines
 
-**USB CDC (UART)** — matches Scorbit SDK `Tpm::tryUsbBus`:
+**USB CDC (UART)** — matches Scorbit SDK `Tpm::tryUsbBus` (auto-discovers the probe CDC port; no hardcoded `/dev/ttyACM*`):
+
+```ini
+interface = uart,auto,c0,115200
+```
+
+Use `auto` or `discover`, or leave the path empty (`interface = uart,,c0,115200`). To pin a specific device for debugging:
 
 ```ini
 interface = uart,/dev/ttyACM0,c0,115200

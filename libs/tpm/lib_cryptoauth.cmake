@@ -62,6 +62,8 @@ if(cryptoauth_ADDED)
         # PKCS11 session types need CBC/CMAC enabled without requiring ATECC608 (LIBRARY_USAGE_EN).
         target_compile_definitions(cryptoauth PRIVATE LIBRARY_USAGE_EN)
         target_compile_definitions(cryptoauth PUBLIC ATCAB_AES_GCM_EN=0)
+        # ATECC508A-only build leaves many atcab_* stubs in atca_basic.c with unused parameters.
+        target_compile_options(cryptoauth PRIVATE -Wno-unused-parameter)
     endif()
 
     # Workaournd to export inlclude dirs correctly
@@ -216,7 +218,20 @@ if(cryptoauth_ADDED)
         cfg->rx_retries = 20;
         rv = CKR_ARGUMENTS_BAD;
 
-        if ((argc > 1) && (argv[1][0] != '\\0'))
+        if (argc <= 1 || argv[1][0] == '\\0' ||
+            (0 == strcmp(argv[1], \"auto\")) || (0 == strcmp(argv[1], \"discover\")))
+        {
+            if (0 == scorbit_pkcs11_discover_cdc((char*)slot_ctx->devpath, sizeof(slot_ctx->devpath)))
+            {
+                cfg->cfg_data = (char*)slot_ctx->devpath;
+                rv = CKR_OK;
+            }
+            else
+            {
+                rv = CKR_DEVICE_ERROR;
+            }
+        }
+        else
         {
             size_t path_len = strlen(argv[1]);
             if (path_len < sizeof(slot_ctx->devpath))
@@ -265,9 +280,64 @@ if(cryptoauth_ADDED)
                 string(REPLACE "${_pkcs11_hid_vidpid_old}" "${_pkcs11_hid_vidpid_new}" _pkcs11_config_content "${_pkcs11_config_content}")
             endif()
 
+            set(_pkcs11_uart_path_old
+"        if ((argc > 1) && (argv[1][0] != '\\0'))
+        {
+            size_t path_len = strlen(argv[1]);
+            if (path_len < sizeof(slot_ctx->devpath))
+            {
+                (void)memcpy(slot_ctx->devpath, argv[1], path_len + 1u);
+                cfg->cfg_data = (char*)slot_ctx->devpath;
+                rv = CKR_OK;
+            }
+        }")
+            set(_pkcs11_uart_path_new
+"        if (argc <= 1 || argv[1][0] == '\\0' ||
+            (0 == strcmp(argv[1], \"auto\")) || (0 == strcmp(argv[1], \"discover\")))
+        {
+            if (0 == scorbit_pkcs11_discover_cdc((char*)slot_ctx->devpath, sizeof(slot_ctx->devpath)))
+            {
+                cfg->cfg_data = (char*)slot_ctx->devpath;
+                rv = CKR_OK;
+            }
+            else
+            {
+                rv = CKR_DEVICE_ERROR;
+            }
+        }
+        else
+        {
+            size_t path_len = strlen(argv[1]);
+            if (path_len < sizeof(slot_ctx->devpath))
+            {
+                (void)memcpy(slot_ctx->devpath, argv[1], path_len + 1u);
+                cfg->cfg_data = (char*)slot_ctx->devpath;
+                rv = CKR_OK;
+            }
+        }")
+            string(FIND "${_pkcs11_config_content}" "scorbit_pkcs11_discover_cdc" _pkcs11_discover_fn_pos)
+            if(_pkcs11_discover_fn_pos EQUAL -1)
+                string(REPLACE "${_pkcs11_uart_path_old}" "${_pkcs11_uart_path_new}" _pkcs11_config_content "${_pkcs11_config_content}")
+            endif()
+
+            string(FIND "${_pkcs11_config_content}" "scorbit_pkcs11_discover.h" _pkcs11_discover_inc_pos)
+            if(_pkcs11_discover_inc_pos EQUAL -1)
+                string(REPLACE
+                    "#include \"pkcs11_config.h\""
+                    "#include \"pkcs11_config.h\"\n#include \"scorbit_pkcs11_discover.h\""
+                    _pkcs11_config_content "${_pkcs11_config_content}")
+            endif()
+
             if(NOT _pkcs11_config_content STREQUAL _pkcs11_config_orig)
                 file(WRITE "${_pkcs11_config_c}" "${_pkcs11_config_content}")
             endif()
+        endif()
+
+        set(_scorbit_pkcs11_discover_c "${CMAKE_CURRENT_LIST_DIR}/../cryptoauth_shared/scorbit_pkcs11_discover.c")
+        if(EXISTS "${_scorbit_pkcs11_discover_c}")
+            target_sources(cryptoauth PRIVATE "${_scorbit_pkcs11_discover_c}")
+            target_include_directories(cryptoauth PRIVATE
+                "${CMAKE_CURRENT_LIST_DIR}/../cryptoauth_shared")
         endif()
     endif()
 endif()

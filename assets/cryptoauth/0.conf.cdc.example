@@ -1,5 +1,5 @@
 # Slot 0: ATECC508A via USB CDC (UART kit protocol). Copy to /var/lib/cryptoauth/0.conf
-# and set the tty path for your probe (e.g. /dev/ttyACM0).
-interface = uart,/dev/ttyACM0,c0,115200
+# Device path is discovered automatically (same as SDK CdcTpm::DiscoverTpmDevice).
+interface = uart,auto,c0,115200
 device = ATECC508A
 object = private,device,0
