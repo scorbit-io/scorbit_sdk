@@ -19,16 +19,39 @@ From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the nec
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
+Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`777`** (world-writable, no sticky bit) so a non-root process can rename root-owned `.so` files for self-update, and run **`bin/add-rpi-rp2-fstab.sh add`** to add the same **RPI-RP2** `/etc/fstab` block used by scorbitd (mount label `RPI-RP2` at `/mnt/RPI-RP2`). The fstab helper is shipped from **`assets/scripts/`** to **`/opt/scorbit/bin/`** and is **not** placed on `PATH`; it is only invoked from package maintainer scripts. On remove/upgrade, `prerm` runs **`add ... remove`**. Tighter production setups can adjust permissions or fstab after install.
+
 ### Install C/C++ SDK
 
 #### Choose the right pre-built package based on your system OS and architecture
 
 The pre-built packages are available for different platforms and architectures. Choose the appropriate package based on your system configuration: [`<arch>`](#processor-architecture-arch) and [`<abi_tag>`](#abi-tag-abi_tag) (e.g. `scorbit_sdk-1.1.0-amd64_u20.tar.gz`):
 
+**Debian/Ubuntu (.deb):** there are two packages per build:
+
+* **`scorbit_sdk`**: shared library, linker configuration, and post-install hooks (runtime only).
+* **`scorbit_sdk-dev`**: headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit_sdk`).
+
+Example file names (`unknown` is not used in production builds):
+
 ```
-scorbit-sdk-<version>-<arch>_<abi_tag>.deb
-scorbit-sdk-<version>-<arch>_<abi_tag>.tgz
+scorbit_sdk-<version>-<arch>_<abi_tag>.deb
+scorbit_sdk-dev-<version>-<arch>_<abi_tag>.deb
 ```
+
+**Tarball (.tar.gz):** two archives per build, with the same split as the `.deb` packages:
+
+* **`scorbit_sdk`**: shared library and `bin/add-rpi-rp2-fstab.sh` (runtime).
+* **`scorbit_sdk-dev`**: headers and CMake package files (development).
+
+Example file names:
+
+```
+scorbit_sdk-<version>-<arch>_<abi_tag>.tar.gz
+scorbit_sdk-dev-<version>-<arch>_<abi_tag>.tar.gz
+```
+
+Extract both under the same prefix (e.g. `/opt/scorbit`) to reproduce the full install tree.
 
 #### Processor Architecture (`<arch>`)
 
@@ -66,7 +89,7 @@ pip install scorbit-1.0.3-cp310-cp310-linux_x86_64.whl
 
 ## Documentation
 
-Detailed documentation is available [here](https://support.scorbit.io/sdk/sdk-001-introduction/). It covers the SDK’s API references and integration guidelines.
+Detailed documentation is available [here](https://support.scorbit.io/sdk/sdk-001-introduction/). It covers the SDK's API references and integration guidelines.
 
 ## Examples
 
@@ -86,4 +109,4 @@ Scorbit is a platform that includes software, services, multiple applications, a
 
 This project is licensed under the MIT license.
 
-© 2025 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved
+(c) 2025 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved

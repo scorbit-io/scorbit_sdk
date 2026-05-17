@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+case "$1" in
+  remove|upgrade|deconfigure)
+    if [ -x "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" ]; then
+      "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" remove || true
+    fi
+    ;;
+esac
+exit 0

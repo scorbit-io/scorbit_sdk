@@ -183,7 +183,7 @@ void sb_add_mode(sb_game_handle_t handle, const char *mode);
  *
  * @param duration_seconds Unsigned duration in whole seconds. **0** is normalized to **3** seconds
  * (recommended default for transient UI modes). Values **greater than 10** are clamped to **10**
- * seconds (maximum). Values **1–10** are used as-is. **3** seconds is the recommended duration.
+ * seconds (maximum). Values **1-10** are used as-is. **3** seconds is the recommended duration.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
  * @param mode The mode to add (e.g., "MB:Multiball").

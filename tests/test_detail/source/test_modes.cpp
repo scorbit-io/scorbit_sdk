@@ -175,7 +175,7 @@ TEST_CASE("Modes to string", "[Modes]")
     }
 }
 
-TEST_CASE("addModeExpiring — duration normalization", "[Modes]")
+TEST_CASE("addModeExpiring - duration normalization", "[Modes]")
 {
     auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
@@ -213,7 +213,7 @@ TEST_CASE("addModeExpiring — duration normalization", "[Modes]")
     }
 }
 
-TEST_CASE("addModeExpiring — promotes to front", "[Modes]")
+TEST_CASE("addModeExpiring - promotes to front", "[Modes]")
 {
     Modes modes;
     modes.addMode("A");
@@ -225,7 +225,7 @@ TEST_CASE("addModeExpiring — promotes to front", "[Modes]")
     CHECK(modes.hasExpiryDeadlines());
 }
 
-TEST_CASE("tickExpiries — removes expired modes", "[Modes]")
+TEST_CASE("tickExpiries - removes expired modes", "[Modes]")
 {
     using namespace std::chrono_literals;
 
@@ -242,7 +242,7 @@ TEST_CASE("tickExpiries — removes expired modes", "[Modes]")
     CHECK_FALSE(modes.hasExpiryDeadlines());
 }
 
-TEST_CASE("removeMode — clears deadline", "[Modes]")
+TEST_CASE("removeMode - clears deadline", "[Modes]")
 {
     Modes modes;
     modes.addModeExpiring("MB:Multiball", 3);
@@ -253,7 +253,7 @@ TEST_CASE("removeMode — clears deadline", "[Modes]")
     CHECK(modes.isEmpty());
 }
 
-TEST_CASE("clear — clears deadlines", "[Modes]")
+TEST_CASE("clear - clears deadlines", "[Modes]")
 {
     Modes modes;
     modes.addModeExpiring("A", 2);
@@ -265,7 +265,7 @@ TEST_CASE("clear — clears deadlines", "[Modes]")
     CHECK(modes.isEmpty());
 }
 
-TEST_CASE("clearExpiries — clears deadlines but keeps modes", "[Modes]")
+TEST_CASE("clearExpiries - clears deadlines but keeps modes", "[Modes]")
 {
     Modes modes;
     modes.addModeExpiring("A", 2);
@@ -278,7 +278,7 @@ TEST_CASE("clearExpiries — clears deadlines but keeps modes", "[Modes]")
     CHECK(modes.str() == "A;B");
 }
 
-TEST_CASE("nextExpiryDelay — returns nullopt when no expiring modes", "[Modes]")
+TEST_CASE("nextExpiryDelay - returns nullopt when no expiring modes", "[Modes]")
 {
     Modes modes;
     CHECK_FALSE(modes.nextExpiryDelay().has_value());
@@ -343,7 +343,7 @@ TEST_CASE("operator==", "[Modes]")
     CHECK(a == b);
 }
 
-TEST_CASE("addOrPromoteToFront — mode not in list is inserted at front", "[Modes]")
+TEST_CASE("addOrPromoteToFront - mode not in list is inserted at front", "[Modes]")
 {
     Modes modes;
     modes.addMode("A");
@@ -355,7 +355,7 @@ TEST_CASE("addOrPromoteToFront — mode not in list is inserted at front", "[Mod
     CHECK(modes.contains("C"));
 }
 
-TEST_CASE("addModeExpiring — duration 10 unchanged, 11 clamps to 10", "[Modes]")
+TEST_CASE("addModeExpiring - duration 10 unchanged, 11 clamps to 10", "[Modes]")
 {
     auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
@@ -375,7 +375,7 @@ TEST_CASE("addModeExpiring — duration 10 unchanged, 11 clamps to 10", "[Modes]
     CHECK(approxEqMs(*modes11.nextExpiryDelay(), 10));
 }
 
-TEST_CASE("nextExpiryDelay — minimum of multiple deadlines", "[Modes]")
+TEST_CASE("nextExpiryDelay - minimum of multiple deadlines", "[Modes]")
 {
     auto approxEqMs = [](std::chrono::steady_clock::duration d, int expectedSec) {
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(d).count();
@@ -393,7 +393,7 @@ TEST_CASE("nextExpiryDelay — minimum of multiple deadlines", "[Modes]")
     CHECK(approxEqMs(*delay, 2));
 }
 
-TEST_CASE("tickExpiries — removes only expired modes", "[Modes]")
+TEST_CASE("tickExpiries - removes only expired modes", "[Modes]")
 {
     using namespace std::chrono_literals;
 
@@ -414,7 +414,7 @@ TEST_CASE("tickExpiries — removes only expired modes", "[Modes]")
     CHECK(modes.hasExpiryDeadlines());
 }
 
-TEST_CASE("tickExpiries — multiple expired modes in one tick", "[Modes]")
+TEST_CASE("tickExpiries - multiple expired modes in one tick", "[Modes]")
 {
     using namespace std::chrono_literals;
 
@@ -427,7 +427,7 @@ TEST_CASE("tickExpiries — multiple expired modes in one tick", "[Modes]")
     CHECK_FALSE(modes.hasExpiryDeadlines());
 }
 
-TEST_CASE("removeMode — non-expiring mode unchanged deadlines for others", "[Modes]")
+TEST_CASE("removeMode - non-expiring mode unchanged deadlines for others", "[Modes]")
 {
     Modes modes;
     modes.addMode("Plain");

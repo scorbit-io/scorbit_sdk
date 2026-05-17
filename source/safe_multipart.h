@@ -28,7 +28,7 @@ namespace detail {
 
 /**
  * @brief The SafeMultipart class holds a cpr::Multipart object along with associated data buffers
- * to ensure that the data referenced by cpr::Buffer— a non-owning structure—remains valid even
+ * to ensure that the data referenced by cpr::Buffer - a non-owning structure - remains valid even
  * after the original data it pointed to has been destroyed.
  */
 class SafeMultipart

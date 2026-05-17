@@ -14,6 +14,11 @@ cmake_minimum_required(VERSION 3.28)
 # Note: update this to your new project's name and version
 project(encrypt_tool VERSION 1.0.0 LANGUAGES CXX)
 
+if(NOT DEFINED SCORBIT_SDK_INSTALL_PREFIX)
+    set(SCORBIT_SDK_INSTALL_PREFIX "/opt/scorbit")
+endif()
+set(CMAKE_INSTALL_PREFIX "${SCORBIT_SDK_INSTALL_PREFIX}" CACHE PATH "" FORCE)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -40,7 +45,7 @@ file(
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_BINDIR}
     ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}
 )
-set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir} "/usr/local/lib")
+set(CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/${relDir} "${CMAKE_INSTALL_FULL_LIBDIR}")
 
 # ---- Add dependencies ----
 find_package(OpenSSL REQUIRED)

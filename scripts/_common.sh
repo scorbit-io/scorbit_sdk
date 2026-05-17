@@ -94,7 +94,7 @@ build_using_docker() {
     cleanup_build_files "$BUILD_DIR" || true
     docker_build "$CMD" "$DOCKER_IMAGE"
 
-    # Move artifacts to dist directory (.deb omitted when cpack DEB was skipped — no dpkg-deb)
+    # Move artifacts to dist directory (.deb omitted when cpack DEB was skipped - no dpkg-deb)
     mkdir -p "$DIST_DIR"
     shopt -s nullglob
     artifacts=("$BUILD_DIR"/*.deb "$BUILD_DIR"/*.tar.gz "$BUILD_DIR"/encrypt_tool/*.tar.gz)

@@ -163,7 +163,7 @@ public:
      * @brief Add a mode that expires automatically after a duration (seconds).
      *
      * Duration rules: **0** becomes **3** seconds (recommended default); values **> 10** clamp to
-     * **10**; **1–10** unchanged. **3** seconds is recommended. No need to call @ref removeMode
+     * **10**; **1-10** unchanged. **3** seconds is recommended. No need to call @ref removeMode
      * when the timer elapses; calling again with the same mode before expiry promotes it to the
      * front and resets the timer.
      *

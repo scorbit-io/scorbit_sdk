@@ -64,4 +64,4 @@ PLANTUML_JAR_PATH = /home/dilshodm/Downloads/plantuml-mit-1.2024.7.jar
 # Disable to include only explicitly documented objects
 ##! M_SHOW_UNDOCUMENTED = YES
 
-##! M_PAGE_FINE_PRINT   = '© 2024 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved'
+##! M_PAGE_FINE_PRINT   = '(c) 2024 Spinner Systems, Inc. (DBA Scorbit), All Rights Reserved'

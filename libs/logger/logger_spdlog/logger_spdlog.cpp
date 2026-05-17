@@ -44,7 +44,6 @@ constexpr spdlog::level::level_enum toSpdlogLevel(logger::LogLevel level)
 
 void logCompressorCallback(spdlog::filename_t filename)
 {
-
 }
 
 } // namespace
@@ -104,11 +103,15 @@ void Logger::flush()
 void Logger::logImpl(const std::string &message, LogLevel level, const char *file, int line)
 {
     if (LIKELY(m_logger)) {
+        // Already formatted by logMessage(); string_view hits spdlog's non-template log() so the
+        // message is not routed through spdlog's log(loc, lvl, "{}", msg) fmt indirection.
+        const spdlog::source_loc loc {file, line, nullptr};
+        const auto lvl = toSpdlogLevel(level);
         if (LIKELY(message.length() <= m_maxLogMessageLength)) {
-            m_logger->log(spdlog::source_loc {file, line, nullptr}, toSpdlogLevel(level), message);
+            m_logger->log(loc, lvl, spdlog::string_view_t {message.data(), message.size()});
         } else {
-            m_logger->log(spdlog::source_loc {file, line, nullptr}, toSpdlogLevel(level),
-                          cutLongString(message, m_maxLogMessageLength));
+            const auto truncated = cutLongString(message, m_maxLogMessageLength);
+            m_logger->log(loc, lvl, spdlog::string_view_t {truncated.data(), truncated.size()});
         }
     }
 }

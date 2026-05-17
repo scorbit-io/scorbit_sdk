@@ -9,6 +9,16 @@ function(packageProject)
     )
 endfunction()
 
+function(scorbit_sdk_packageProject)
+    cmake_parse_arguments(
+      PROJECT
+      ""
+      "NAME;VERSION;INCLUDE_DIR;INCLUDE_DESTINATION;BINARY_DIR;COMPATIBILITY;EXPORT_HEADER;VERSION_HEADER;NAMESPACE;DISABLE_VERSION_SUFFIX;ARCH_INDEPENDENT;INCLUDE_HEADER_PATTERN;CPACK;RUNTIME_DESTINATION"
+      "DEPENDENCIES"
+      ${ARGN}
+    )
+endfunction()
+
 function(CPMAddPackage)
     set(oneValueArgs
         NAME
