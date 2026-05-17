@@ -32,18 +32,26 @@ The pre-built packages are available for different platforms and architectures. 
 * **`scorbit-sdk`**: shared library, linker configuration, and post-install hooks (runtime only).
 * **`scorbit-sdk-dev`**: headers, CMake package files, and the shared-library symlink used when linking (`Depends` on the matching `scorbit-sdk`).
 
-Example file names (version, Debian architecture, and ABI tag; `unknown` is not used in production builds):
+Example file names (`unknown` is not used in production builds):
 
 ```
-scorbit-sdk_<version>_<debian_arch>_<abi_tag>.deb
-scorbit-sdk-dev_<version>_<debian_arch>_<abi_tag>.deb
+scorbit_sdk-<version>-<arch>_<abi_tag>.deb
+scorbit_sdk-dev-<version>-<arch>_<abi_tag>.deb
 ```
 
-**Tarball (.tgz):** one archive containing the full install tree (headers, libraries, and CMake files together), for example:
+**Tarball (.tar.gz):** two archives per build, with the same split as the `.deb` packages:
+
+* **`scorbit-sdk`**: shared library and `bin/add-rpi-rp2-fstab.sh` (runtime).
+* **`scorbit-sdk-dev`**: headers and CMake package files (development).
+
+Example file names:
 
 ```
 scorbit_sdk-<version>-<arch>_<abi_tag>.tar.gz
+scorbit_sdk-dev-<version>-<arch>_<abi_tag>.tar.gz
 ```
+
+Extract both under the same prefix (e.g. `/opt/scorbit`) to reproduce the full install tree.
 
 #### Processor Architecture (`<arch>`)
 

@@ -411,24 +411,32 @@ set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "${TARGET_ARCH}")
 
 set(CPACK_PACKAGING_INSTALL_PREFIX ${SCORBIT_SDK_INSTALL_PREFIX})
 
-# Split DEB into runtime vs development; keep a single TGZ with the full prefix tree.
-set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
+# Split DEB and TGZ into runtime vs development (one archive/package per component).
 if(SCORBIT_SDK_SHARED)
-    # Only package the main SDK; other targets may expose install() components we do not ship as DEBs.
+    # Only package the main SDK; other targets may expose install() components we do not ship.
     set(CPACK_COMPONENTS_ALL scorbit_sdk_Runtime scorbit_sdk_Development)
+    set(CPACK_COMPONENTS_GROUPING IGNORE)
     set(CPACK_DEB_COMPONENT_INSTALL ON)
+    set(CPACK_TGZ_COMPONENT_INSTALL ON)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
     set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
     set(CPACK_COMPONENT_SCORBIT_SDK_DEVELOPMENT_DEPENDS scorbit_sdk_Runtime)
     set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_NAME "scorbit-sdk")
     set(CPACK_DEBIAN_SCORBIT_SDK_DEVELOPMENT_PACKAGE_NAME "scorbit-sdk-dev")
     set(CPACK_COMPONENT_SCORBIT_SDK_RUNTIME_DISPLAY_NAME "Scorbit SDK (runtime)")
     set(CPACK_COMPONENT_SCORBIT_SDK_DEVELOPMENT_DISPLAY_NAME "Scorbit SDK (headers and CMake)")
-    # Include ABI tag (e.g. u12, u20) in .deb filenames, matching prebuilt artifact conventions.
-    set(_SCORBIT_DEB_FILE_TAG "${PROJECT_VERSION}_${TARGET_ARCH}_${SCORBIT_SDK_ABI}")
-    set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_FILE_NAME "scorbit-sdk_${_SCORBIT_DEB_FILE_TAG}.deb")
-    set(CPACK_DEBIAN_SCORBIT_SDK_DEVELOPMENT_FILE_NAME "scorbit-sdk-dev_${_SCORBIT_DEB_FILE_TAG}.deb")
+    # Artifact basenames: scorbit_sdk-<version>-<arch>_<abi> (runtime), scorbit_sdk-dev-<version>-<arch>_<abi> (dev).
+    set(_SCORBIT_PKG_ARTIFACT_BASENAME "${CPACK_PACKAGE_FILE_NAME}")
+    set(_SCORBIT_PKG_DEV_ARTIFACT_BASENAME "${PROJECT_NAME}-dev-${PROJECT_VERSION}-${SCORBIT_SDK_PLATFORM_ID}")
+    set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_FILE_NAME "${_SCORBIT_PKG_ARTIFACT_BASENAME}.deb")
+    set(CPACK_DEBIAN_SCORBIT_SDK_DEVELOPMENT_FILE_NAME "${_SCORBIT_PKG_DEV_ARTIFACT_BASENAME}.deb")
+    # Archive generator uses CPACK_ARCHIVE_<COMPONENT>_FILE_NAME (no extension; .tar.gz is appended).
+    set(CPACK_ARCHIVE_SCORBIT_SDK_RUNTIME_FILE_NAME "${_SCORBIT_PKG_ARTIFACT_BASENAME}")
+    set(CPACK_ARCHIVE_SCORBIT_SDK_DEVELOPMENT_FILE_NAME "${_SCORBIT_PKG_DEV_ARTIFACT_BASENAME}")
 else()
     set(CPACK_DEB_COMPONENT_INSTALL OFF)
+    set(CPACK_TGZ_COMPONENT_INSTALL OFF)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
 endif()
 
 include(CPack)
