@@ -24,6 +24,8 @@ if [[ "$ARCH" != "armhf" && "$ARCH" != "arm64" ]]; then
     exit 1
 fi
 
+SCORBIT_OPENSSH_PREFIX=/usr/local/scorbit/openssh
+
 OPENSSH_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/OPENSSH_VERSION")"
 OPENSSH_TARBALL="openssh-${OPENSSH_VERSION}.tar.gz"
 OPENSSH_URL="https://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/${OPENSSH_TARBALL}"
@@ -131,8 +133,8 @@ cd "$SRC_DIR"
 
 ./configure \
     --host="$GNU_HOST" \
-    --prefix=/usr \
-    --sysconfdir=/etc/ssh \
+    --prefix="$SCORBIT_OPENSSH_PREFIX" \
+    --sysconfdir="${SCORBIT_OPENSSH_PREFIX}/etc/ssh" \
     --with-privsep-path=/var/empty \
     --with-privsep-user=sshd \
     --with-ssl-dir="${SYSROOT}/usr/local" \
@@ -165,6 +167,7 @@ cp -a "$STAGING_DIR/." "$PKG_DIR/"
 )
 
 echo "OpenSSH ${OPENSSH_VERSION} for ${ARCH}:"
+echo "  prefix:  ${SCORBIT_OPENSSH_PREFIX}"
 echo "  staging: ${STAGING_DIR}"
 echo "  package: ${DIST_DIR}/${PKG_NAME}.tar.gz"
 find "$PKG_DIR" -maxdepth 3 \( -name ssh -o -name sshd -o -name scp \) 2>/dev/null

@@ -9,14 +9,21 @@ make openssh armhf
 make openssh arm64
 ```
 
-Version is pinned in [`OPENSSH_VERSION`](../../OPENSSH_VERSION) (currently 10.0p1). Artifacts:
+Version is pinned in [`OPENSSH_VERSION`](../../OPENSSH_VERSION). Artifacts:
 
 ```text
 build/openssh_armhf_u12/dist/openssh-<ver>-armhf.tar.gz
 build/openssh_arm64_u18/dist/openssh-<ver>-arm64.tar.gz
 ```
 
-Unpack on the device under `/` (contains `usr/bin/ssh`, `etc/ssh/`, …).
+Unpack on the device under `/` (installs to `/usr/local/scorbit/openssh/` — `bin/ssh`, `etc/ssh/`, …).
+
+Add to `PATH` or invoke by full path:
+
+```bash
+export PATH="/usr/local/scorbit/openssh/bin:$PATH"
+ssh -V
+```
 
 Build **after** the sysroot has OpenSSL (same gcc-builder image). Optionally build the TPM provider:
 
