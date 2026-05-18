@@ -39,8 +39,8 @@ docker_build() {
 # Same image and volume layout as docker_build, but without a TTY (works under CI / scripts)
 # and without ARCH (not needed for pure-Python wheels). Used by python-build.sh / python27-build.sh.
 #
-# Runs as root (no --user): gcc-builder images often lack python3-venv; upgrading pip
-# inside the container for the wheel step requires write access to site-packages.
+# Runs as root (no --user): python-builder images have pip preinstalled; root avoids
+# permission issues when pip writes to site-packages during wheel builds.
 docker_build_wheel() {
     CMD=$1
     DOCKER_IMAGE=$2

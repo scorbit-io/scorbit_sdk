@@ -4,6 +4,10 @@ Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library. Works o
 
 > For Python 2.7, use [`wrappers/python27`](../python27/).
 
+## Native SDK required
+
+`pip install scorbit` installs **only** the Python wrapper (PyPI wheel). You must also install the **native** shared library (`libscorbit_sdk.so` / `.dylib` / `.dll`) for the **same version** from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases) (for example `scorbit_sdk-1.99.66-arm64_u18.deb` or `.tar.gz`). If the library is missing, `import scorbit` prints a version-matched release URL and suggested filenames for your platform.
+
 ## Prerequisites
 
 Install the Scorbit SDK shared library on the system. The wrapper loads it in this order:
@@ -21,8 +25,10 @@ Install the Scorbit SDK shared library on the system. The wrapper loads it in th
 ## Installation
 
 ```bash
-pip install scorbit
+pip install scorbit==1.99.66
 ```
+
+Then install the native SDK from the matching release, for example [1.99.66](https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66), and use the `.deb` or `.tar.gz` for your architecture and ABI tag (see the root [README](../../README.md)).
 
 From this repository:
 
@@ -33,7 +39,7 @@ pip install .
 
 ### Building a wheel from the SDK repo
 
-`make python` runs `scripts/python-build.sh`. By default the wheel is built in **Docker** using the same `dilshodm/gcc-builder:<tag>` image as Linux SDK builds (`DOCKER_RELEASE` in the repo root), via `docker_build_wheel` in `scripts/_common.sh`. Use **`SCORBIT_PYTHON_NO_DOCKER=1`**, run already inside a container (`/.dockerenv`), or skip Docker when it is unavailable to build with the current host Python instead.
+`make python` runs `scripts/python-build.sh`. By default the wheel is built in **Docker** using `dilshodm/python-builder:<tag>` (`DOCKER_RELEASE` in the repo root; built from the gcc-builder repo), via `docker_build_wheel` in `scripts/_common.sh`. Use **`SCORBIT_PYTHON_NO_DOCKER=1`**, run already inside a container (`/.dockerenv`), or skip Docker when it is unavailable to build with the current host Python instead.
 
 ### Setting the library path
 

@@ -4,6 +4,10 @@ Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library for **Py
 
 > For Python 3.6+, use [`wrappers/python`](../python/).
 
+## Native SDK required
+
+`pip install scorbit` installs **only** the Python wrapper. Install the **native** shared library for the **same version** from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases). If the library is missing, `import scorbit` reports a version-matched release URL and suggested filenames.
+
 ## Prerequisites
 
 | Requirement | Details |
@@ -27,8 +31,10 @@ Load order for the shared library:
 ## Installation
 
 ```bash
-pip install scorbit
+pip install scorbit==1.99.66
 ```
+
+Then install the native SDK from the matching [GitHub release](https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66).
 
 From this repository:
 
@@ -39,7 +45,7 @@ pip install .
 
 ### Building a wheel from the SDK repo
 
-`make python27` runs `scripts/python27-build.sh`. By default it uses the **same Docker image** as the Linux SDK and Python 3 wheel (`dilshodm/gcc-builder:<tag>` from `DOCKER_RELEASE`), via `docker_build_wheel` in `scripts/_common.sh`. Set **`SCORBIT_PYTHON_NO_DOCKER=1`** to build on the host (or current container).
+`make python27` runs `scripts/python27-build.sh`. By default it uses the **python-builder** image (`dilshodm/python-builder:<tag>` from `DOCKER_RELEASE`; built from the gcc-builder repo), via `docker_build_wheel` in `scripts/_common.sh`. Set **`SCORBIT_PYTHON_NO_DOCKER=1`** to build on the host (or current container).
 
 ### Setting the library path
 

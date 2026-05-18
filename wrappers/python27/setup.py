@@ -32,7 +32,7 @@ setup(
     author_email="dilshodm@scorbit.io",
     url="https://scorbit.io",
     project_urls={
-        "Repository": "https://github.com/scorbit/scorbit_sdk",
+        "Repository": "https://github.com/scorbit-io/scorbit_sdk",
     },
     license="MIT",
     python_requires=">=2.7,<3",

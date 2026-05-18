@@ -22,13 +22,13 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/_common.sh"
 VER_STR=$(get_version "$REPO_ROOT/VERSION")
 
-# Same gcc-builder image as scripts/l-build.sh (see DOCKER_RELEASE), unless we are
+# Same python-builder image tag as DOCKER_RELEASE (see gcc-builder repo), unless we are
 # already inside a container or SCORBIT_PYTHON_NO_DOCKER is set or Docker is unavailable.
 if [[ ! -f /.dockerenv ]] && [[ -z "${SCORBIT_PYTHON_NO_DOCKER:-}" ]] && docker info >/dev/null 2>&1; then
     REL="$(cat "$REPO_ROOT/DOCKER_RELEASE")"
     REL="${REL//[$'\t\r\n ']}"
     BUILD_DIR="$REPO_ROOT/build/build_python"
-    DOCKER_IMAGE="dilshodm/gcc-builder:${REL}"
+    DOCKER_IMAGE="dilshodm/python-builder:${REL}"
     echo "!!! Building pure-Python wheel (scorbit $VER_STR) via Docker: $DOCKER_IMAGE !!!"
     docker_build_wheel "./scripts/python-build.sh" "$DOCKER_IMAGE"
     exit 0
@@ -66,7 +66,7 @@ cat > "$STAGE/src/scorbit/_version.py" <<EOF
 __version__ = "${VER_STR}"
 EOF
 
-# Python 3.6+ with pip. Inside Docker (gcc-builder) we upgrade pip once; the image has no python3-venv.
+# Python 3.6+ with pip. Inside Docker (python-builder) pip/setuptools/wheel are preinstalled.
 _pick_wheel_python() {
     local candidates=()
     if [[ -n "${PYTHON:-}" ]]; then
@@ -89,7 +89,6 @@ _pick_wheel_python() {
 }
 
 if [[ -f /.dockerenv ]]; then
-    python3 -m pip install -q -U "pip>=24.2" setuptools wheel
     PYTHON="python3"
 elif ! PYTHON="$(_pick_wheel_python)"; then
     echo "Could not find Python 3.6+ with pip (python -m pip --version must work)."
