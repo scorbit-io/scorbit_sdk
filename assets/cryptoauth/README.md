@@ -1,22 +1,36 @@
 # PKCS#11 config for standalone `libcryptoauth.so`
 
-Built with `make cryptoauth` (or `make cryptoauth armhf`). The library expects a main config file and slot configs under a filestore directory (paths are compile-time; check with `strings libcryptoauth.so | grep -E '/etc|/var/'`).
+Built with `make cryptoauth` (or `make cryptoauth armhf`). The library expects a main config file and slot configs under a filestore directory. Paths are **compile-time** (baked into the `.so`).
+
+Verify paths:
+
+```bash
+strings /usr/lib/libcryptoauth.so | grep -E '/etc|/var/|cryptoauth'
+```
+
+Expect:
+
+```text
+/etc/cryptoauthlib/cryptoauthlib.conf
+```
+
+(and `filestore = /var/lib/cryptoauthlib/` in that file). Rebuild if you see a relative path like `etc/cryptoauthlib/...` without a leading `/`.
 
 ## On-device layout
 
 ```text
-/etc/cryptoauth/cryptoauth.conf     # filestore = /var/lib/cryptoauth/
-/var/lib/cryptoauth/0.conf          # slot 0: interface + device + objects
+/etc/cryptoauthlib/cryptoauthlib.conf
+/var/lib/cryptoauthlib/0.conf
 ```
 
 Copy from this directory:
 
-- `cryptoauth.conf` -> `/etc/cryptoauth/cryptoauth.conf`
-- `0.conf.cdc.example` or `0.conf.hid.example` -> `/var/lib/cryptoauth/0.conf` (edit paths/IDs as needed)
+- [`cryptoauthlib.conf`](cryptoauthlib.conf) → `/etc/cryptoauthlib/cryptoauthlib.conf`
+- `0.conf.cdc.example` or `0.conf.hid.example` → `/var/lib/cryptoauthlib/0.conf`
 
 ## Interface lines
 
-**USB CDC (UART)** — matches Scorbit SDK `Tpm::tryUsbBus` (auto-discovers the probe CDC port; no hardcoded `/dev/ttyACM*`):
+**USB CDC (UART)** — matches Scorbit SDK `Tpm::tryUsbBus` (auto-discovers the probe CDC port):
 
 ```ini
 interface = uart,auto,c0,115200
@@ -36,12 +50,29 @@ interface = hid,i2c,c0,cafe,4005
 
 Optional 4th/5th fields override HID VID/PID (defaults: Microchip kit `03eb:2312`).
 
+## Troubleshooting `pkcs11_add_provider: PKCS #11 error`
+
+1. **Paths** — `strings` vs files on disk (authoritative):
+
+   ```bash
+   strace -e openat,open -f p11tool --provider=/usr/lib/libcryptoauth.so --list-tokens 2>&1 \
+     | grep -E 'conf|ENOENT|C_Initialize'
+   ```
+
+   `ENOENT` on `/etc/cryptoauthlib/cryptoauthlib.conf` → install [`cryptoauthlib.conf`](cryptoauthlib.conf) there.
+
+2. **Filestore** — `/var/lib/cryptoauthlib/0.conf` must exist (not only `slot.conf.tmpl`).
+
+3. **CDC** (for `uart,auto,...`): user in `dialout`, probe not held by another process (`lsof /dev/ttyACM*`).
+
+4. **Dependencies**: `ldd /usr/lib/libcryptoauth.so`
+
 ## OpenSSH
 
 ```bash
 ssh -o PKCS11Provider=/usr/lib/libcryptoauth.so -o PKCS11Enable=yes user@host
 ```
 
-`C_Initialize` error `5` (`CKR_GENERAL_ERROR`) usually means missing config files under the paths above, not a missing `C_GetFunctionList` symbol.
+`C_Initialize` error `5` usually means missing config, CDC discovery failure, or device init failure.
 
 Verify symbol: `nm -D /usr/lib/libcryptoauth.so | grep C_GetFunctionList`

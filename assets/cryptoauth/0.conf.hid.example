@@ -1,4 +1,4 @@
-# Slot 0: ATECC508A via USB HID (Scorbit probe VID/PID). Copy to /var/lib/cryptoauth/0.conf
+# Slot 0: ATECC508A via USB HID (Scorbit probe VID/PID). Copy to /var/lib/cryptoauthlib/0.conf
 interface = hid,i2c,c0,cafe,4005
 device = ATECC508A
 object = private,device,0

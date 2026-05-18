@@ -1,4 +1,4 @@
-# Slot 0: ATECC508A via USB CDC (UART kit protocol). Copy to /var/lib/cryptoauth/0.conf
+# Slot 0: ATECC508A via USB CDC (UART kit protocol). Copy to /var/lib/cryptoauthlib/0.conf
 # Device path is discovered automatically (same as SDK CdcTpm::DiscoverTpmDevice).
 interface = uart,auto,c0,115200
 device = ATECC508A

@@ -29,19 +29,39 @@ else()
     set(_SCORBIT_CRYPTOAUTH_USE_ATCAB_FUNCTIONS OFF)
 endif()
 
+# PKCS11 paths are compile-time strings (ATCA_LIBRARY_CONF / filestore in atca_config.h).
+# Cross-builds often set CMAKE_INSTALL_SYSCONFDIR to relative "etc", yielding a broken
+# relative path "etc/cryptoauthlib/cryptoauthlib.conf". Force absolute Microchip layout.
+if(_SCORBIT_CRYPTOAUTH_PKCS11)
+    set(DEFAULT_CONF_PATH "/etc/cryptoauthlib" CACHE STRING "PKCS11 main config directory" FORCE)
+    set(DEFAULT_STORE_PATH "/var/lib/cryptoauthlib" CACHE STRING "PKCS11 slot config filestore" FORCE)
+    set(DEFAULT_CONF_FILE_NAME "cryptoauthlib.conf" CACHE STRING "PKCS11 main config file name" FORCE)
+endif()
+
+set(_cryptoauth_cpm_options
+    "ATCA_HAL_I2C ${_SCORBIT_CRYPTOAUTH_HAL_I2C}"
+    "ATCA_HAL_KIT_HID ON"
+    "ATCA_HAL_KIT_UART ON"
+    "ATCA_BUILD_SHARED_LIBS ${_SCORBIT_CRYPTOAUTH_SHARED_LIBS}"
+    "ATCA_PKCS11 ${_SCORBIT_CRYPTOAUTH_PKCS11}"
+    "ATCA_OPENSSL ${_SCORBIT_CRYPTOAUTH_OPENSSL}"
+    "ATCA_USE_ATCAB_FUNCTIONS ${_SCORBIT_CRYPTOAUTH_USE_ATCAB_FUNCTIONS}"
+)
+if(_SCORBIT_CRYPTOAUTH_PKCS11)
+    list(APPEND _cryptoauth_cpm_options
+        "DEFAULT_CONF_PATH /etc/cryptoauthlib"
+        "DEFAULT_STORE_PATH /var/lib/cryptoauthlib"
+        "DEFAULT_CONF_FILE_NAME cryptoauthlib.conf"
+    )
+endif()
+
 cpmaddpackage(
     NAME cryptoauth
     URL https://github.com/MicrochipTech/cryptoauthlib/archive/refs/tags/v3.7.9.tar.gz
     URL_HASH SHA256=8923ef8de3371e3d55c03bbdb1b83272e38dc4d674dea5bf5afc1874f7044596
     PATCHES "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-build-fixes.patch"
     OPTIONS
-        "ATCA_HAL_I2C ${_SCORBIT_CRYPTOAUTH_HAL_I2C}"
-        "ATCA_HAL_KIT_HID ON"
-        "ATCA_HAL_KIT_UART ON"
-        "ATCA_BUILD_SHARED_LIBS ${_SCORBIT_CRYPTOAUTH_SHARED_LIBS}"
-        "ATCA_PKCS11 ${_SCORBIT_CRYPTOAUTH_PKCS11}"
-        "ATCA_OPENSSL ${_SCORBIT_CRYPTOAUTH_OPENSSL}"
-        "ATCA_USE_ATCAB_FUNCTIONS ${_SCORBIT_CRYPTOAUTH_USE_ATCAB_FUNCTIONS}"
+        ${_cryptoauth_cpm_options}
         "ATCA_ATECC508A_SUPPORT ON"
         "ATCA_ATSHA204A_SUPPORT OFF"
         "ATCA_ATSHA206A_SUPPORT OFF"
