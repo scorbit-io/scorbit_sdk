@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-.PHONY: help all clean armhf arm64 amd64 macos python python27 release cryptoauth
+.PHONY: help all clean armhf arm64 amd64 macos python python27 release cryptoauth openssh
 
 RELEASE_VERSION := $(shell tr -d '[:space:]' < VERSION)
 
@@ -25,6 +25,14 @@ ifdef ARCH
 CRYPTOAUTH_ARCH := $(ARCH)
 endif
 
+# make openssh armhf|arm64 — cross-build OpenSSH only (Docker).
+OPENSSH_ARCH_GOALS := $(filter armhf arm64,$(MAKECMDGOALS))
+ifneq (,$(filter openssh,$(MAKECMDGOALS)))
+ifneq (,$(OPENSSH_ARCH_GOALS))
+OPENSSH_ARCH := $(firstword $(OPENSSH_ARCH_GOALS))
+endif
+endif
+
 help:
 	@echo "Scorbit SDK build targets:"
 	@echo ""
@@ -38,6 +46,7 @@ help:
 	@echo "  make release    - Create release branch and commits from VERSION"
 	@echo "  make cryptoauth              - Build cryptoauthlib as standalone .so/.dylib on this host"
 	@echo "  make cryptoauth armhf|arm64|amd64 - Cross-build standalone libcryptoauth.so (Docker/gcc-builder)"
+	@echo "  make openssh armhf|arm64     - Cross-build OpenSSH with PKCS#11 (Docker/gcc-builder)"
 	@echo "  make clean      - Remove build artifacts"
 	@echo ""
 	@echo "  SCORBIT_PYTHON_NO_DOCKER=1 make python   - Build Python wheel on host Python (no Docker)"
@@ -45,7 +54,7 @@ help:
 all: armhf arm64 amd64 python python27
 
 armhf arm64 amd64:
-ifneq (,$(filter cryptoauth,$(MAKECMDGOALS)))
+ifneq (,$(filter cryptoauth openssh,$(MAKECMDGOALS)))
 	@:
 else
 	./scripts/linux-build.sh $@
@@ -91,6 +100,10 @@ release:
 cryptoauth:
 	bash ./scripts/cryptoauth-build.sh $(CRYPTOAUTH_ARCH)
 
+openssh:
+	bash ./scripts/openssh-build.sh $(OPENSSH_ARCH)
+
 clean:
 	rm -rf build/armhf_* build/arm64_* build/amd64_*
 	rm -rf build/cryptoauth_shared build/cryptoauth_*
+	rm -rf build/openssh_*
