@@ -45,7 +45,7 @@ pip install .
 
 ### Building a wheel from the SDK repo
 
-`make python27` runs `scripts/python27-build.sh`. By default it uses the **same Docker image** as the Linux SDK and Python 3 wheel (`dilshodm/gcc-builder:<tag>` from `DOCKER_RELEASE`), via `docker_build_wheel` in `scripts/_common.sh`. Set **`SCORBIT_PYTHON_NO_DOCKER=1`** to build on the host (or current container).
+`make python27` runs `scripts/python27-build.sh`. By default it uses the **python-builder** image (`dilshodm/python-builder:<tag>` from `DOCKER_RELEASE`; built from the gcc-builder repo), via `docker_build_wheel` in `scripts/_common.sh`. Set **`SCORBIT_PYTHON_NO_DOCKER=1`** to build on the host (or current container).
 
 ### Setting the library path
 
