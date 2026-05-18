@@ -1,8 +1,8 @@
-# Scorbit SDK - Python wrapper
+# Scorbit SDK - Python 3.6+
 
 Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library. Works on **Python 3.6+** with no compilation: it uses `ctypes` against the stable C ABI.
 
-> For Python 2.7, use [`wrappers/python27`](../python27/).
+> For Python 2.7, use [`wrappers/python27`](../python27/) (`pip install scorbit-py2` on PyPI).
 
 ## Native SDK required
 
@@ -25,7 +25,7 @@ Install the Scorbit SDK shared library on the system. The wrapper loads it in th
 ## Installation
 
 ```bash
-pip install scorbit==1.99.66
+pip install scorbit
 ```
 
 Then install the native SDK from the matching release, for example [1.99.66](https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66), and use the `.deb` or `.tar.gz` for your architecture and ABI tag (see the root [README](../../README.md)).
