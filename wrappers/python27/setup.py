@@ -23,7 +23,7 @@ with open(os.path.join(here, "README.md")) as f:
     long_description = f.read()
 
 setup(
-    name="scorbit",
+    name="scorbit-py2",
     version=version_ns["__version__"],
     description="Python 2.7 wrapper for the Scorbit SDK (pinball scoring platform)",
     long_description=long_description,

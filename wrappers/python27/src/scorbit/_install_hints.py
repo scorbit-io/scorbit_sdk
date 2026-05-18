@@ -178,7 +178,7 @@ def format_missing_library_message(version, lib_filename):
     return (
         "Cannot find the Scorbit SDK shared library ({0}).\n"
         "\n"
-        "Python package scorbit {1} requires the native SDK for this platform.\n"
+        "Python package scorbit-py2 {1} requires the native SDK for this platform.\n"
         "\n"
         "{2}"
         "Install from:\n"

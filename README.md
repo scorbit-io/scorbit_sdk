@@ -75,12 +75,13 @@ More compilers and OS will be added on request.
 
 ### Install Python SDK
 
-Minimum supported Python version is 3.8 (Python 2.7 wheels are also published as **`scorbit`** with a `py2-none-any` tag).
+Minimum supported Python version is 3.8. Python 2.7 uses a separate PyPI package **`scorbit-py2`** (`py2-none-any` wheel).
 
-The PyPI package is a **pure-Python** wrapper. Install it with pip, then install the **native** SDK for the same version from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases):
+The PyPI packages are **pure-Python** wrappers. Install with pip, then install the **native** SDK for the same version from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases):
 
 ```bash
-pip install scorbit==1.99.66
+pip install scorbit==1.99.66        # Python 3
+pip install scorbit-py2==1.99.66  # Python 2.7
 # Install native runtime from https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66
 # e.g. scorbit_sdk-1.99.66-arm64_u18.deb or .tar.gz (see arch / ABI tags above)
 ```

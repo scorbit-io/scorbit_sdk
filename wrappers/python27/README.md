@@ -1,4 +1,4 @@
-# Scorbit SDK - Python 2.7 wrapper
+# Scorbit SDK - Python 2.7
 
 Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library for **Python 2.7**. Uses `ctypes` against the stable C ABI; no compilation.
 
@@ -6,7 +6,7 @@ Pure-Python wrapper for the [Scorbit SDK](https://scorbit.io) C library for **Py
 
 ## Native SDK required
 
-`pip install scorbit` installs **only** the Python wrapper. Install the **native** shared library for the **same version** from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases). If the library is missing, `import scorbit` reports a version-matched release URL and suggested filenames.
+`pip install scorbit-py2` installs **only** the Python wrapper. Install the **native** shared library for the **same version** from [GitHub releases](https://github.com/scorbit-io/scorbit_sdk/releases). If the library is missing, `import scorbit` reports a version-matched release URL and suggested filenames.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ Load order for the shared library:
 ## Installation
 
 ```bash
-pip install scorbit==1.99.66
+pip install scorbit-py2
 ```
 
 Then install the native SDK from the matching [GitHub release](https://github.com/scorbit-io/scorbit_sdk/releases/tag/1.99.66).
@@ -218,9 +218,9 @@ Same behavior as the Python 3 wrapper: C calls release the GIL; callbacks acquir
 | `enum.IntFlag` for `Capability` | Plain class with integer constants |
 | `requires-python >= 3.6` | `python_requires` 2.7 (not 3.x) |
 | No extra deps | `enum34` |
-| Wheel `py3-none-any` | Wheel `py2-none-any` |
+| PyPI **`scorbit`**, wheel `py3-none-any` | PyPI **`scorbit-py2`**, wheel `py2-none-any` |
 
-Both publish as **`scorbit`**; `pip` picks the wheel for the running interpreter.
+Import name is **`scorbit`** for both; only the pip package name differs.
 
 ## License
 
