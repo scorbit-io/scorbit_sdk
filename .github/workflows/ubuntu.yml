@@ -1,42 +1,99 @@
-name: Ubuntu
+name: Release Ubuntu
 
 on:
   push:
-    branches:
-      - master
-      - main
-  pull_request:
-    branches:
-      - master
-      - main
+    tags:
+      - "[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
 
 env:
-  CTEST_OUTPUT_ON_FAILURE: 1
-  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
 jobs:
-  build:
+  build-release:
+    name: Build Ubuntu release artifacts
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/cache@v4
-        with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+      - name: Read VERSION
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
 
-      - name: configure
-        run: cmake -Stest -Bbuild -DENABLE_TEST_COVERAGE=1 -DCMAKE_BUILD_TYPE=Debug
-
-      - name: build
-        run: cmake --build build -j4
-
-      - name: test
+      - name: Verify tag matches VERSION file
         run: |
-          cd build
-          ctest --build-config Debug
+          if [ "${{ env.VERSION }}" != "${GITHUB_REF_NAME}" ]; then
+            echo "VERSION file (${{ env.VERSION }}) does not match git tag (${GITHUB_REF_NAME})"
+            exit 1
+          fi
 
-      - name: collect code coverage
-        run: bash <(curl -s https://codecov.io/bash) || echo "Codecov did not collect coverage reports"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            build/_cache
+            cpm_modules
+          key: ${{ runner.os }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-cpm-modules-
+
+      - name: Verify encryption secret
+        env:
+          SCORBIT_SDK_ENCRYPT_SECRET: ${{ secrets.SCORBIT_SDK_ENCRYPT_SECRET }}
+        run: |
+          if [ -z "${SCORBIT_SDK_ENCRYPT_SECRET:-}" ]; then
+            echo "SCORBIT_SDK_ENCRYPT_SECRET is not set. Add it as a GitHub Actions secret."
+            exit 1
+          fi
+
+      - name: Build release artifacts
+        env:
+          SCORBIT_SDK_ENCRYPT_SECRET: ${{ secrets.SCORBIT_SDK_ENCRYPT_SECRET }}
+        run: make all
+
+      - name: Upload draft release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ${{ env.VERSION }}
+          files: |
+            build/dist/${{ env.VERSION }}/encrypt_tool-*.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_py2-${{ env.VERSION }}-py2-none-any.whl
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-amd64_u18.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-amd64_u18.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-arm64_u18.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-arm64_u18.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-armhf_u12.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-${{ env.VERSION }}-armhf_u12.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-amd64_u18.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-amd64_u18.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-arm64_u18.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-arm64_u18.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-armhf_u12.deb
+            build/dist/${{ env.VERSION }}/scorbit_sdk-dev-${{ env.VERSION }}-armhf_u12.tar.gz
+            build/dist/${{ env.VERSION }}/scorbit-${{ env.VERSION }}-py3-none-any.whl
+          fail_on_unmatched_files: true
+
+      # - name: Publish GitHub release
+      #   env:
+      #     GH_TOKEN: ${{ github.token }}
+      #   run: |
+      #     release_id="$(
+      #       gh api "repos/${GITHUB_REPOSITORY}/releases" \
+      #         --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .id" \
+      #         | head -n 1
+      #     )"
+
+      #     if [ -z "$release_id" ]; then
+      #       echo "Could not find draft release for tag ${GITHUB_REF_NAME}"
+      #       exit 1
+      #     fi
+
+      #     gh api \
+      #       --method PATCH \
+      #       "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+      #       -F draft=false
