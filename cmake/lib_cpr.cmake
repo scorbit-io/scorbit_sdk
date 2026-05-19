@@ -9,8 +9,8 @@ set(cpr_PATCH_FILE "${CMAKE_CURRENT_LIST_DIR}/patches/cpr-gcc-9.3-build-fix.patc
 
 CPMAddPackage(
     NAME cpr
-    URL https://github.com/libcpr/cpr/archive/refs/tags/1.14.1.tar.gz
-    URL_HASH SHA256=213ccc7c98683d2ca6304d9760005effa12ec51d664bababf114566cb2b1e23c
+    URL https://github.com/libcpr/cpr/archive/refs/tags/1.14.2.tar.gz
+    URL_HASH SHA256=b9b529b47083bfe80bba855ca5308d12d767ae7c7b629aef5ef018c4343cf62b
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
     PATCHES "${cpr_PATCH_FILE}"
