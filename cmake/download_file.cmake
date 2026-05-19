@@ -1,7 +1,7 @@
 # By Dilshod Mukhtarov, Oct 2025, dilshodm<at>gmail.com
 
 # Usage:
-# download_file(<URL> <DEST_DIR> [FILENAME])
+# download_file(<URL> <DEST_DIR> [FILENAME] [EXPECTED_HASH])
 # Example:
 # download_file("https://example.com/file.txt" "${CMAKE_BINARY_DIR}/downloads")
 
@@ -12,22 +12,46 @@ function(download_file URL DEST_DIR)
     else()
         get_filename_component(FILENAME "${URL}" NAME)
     endif()
+    if(ARGC GREATER 3)
+        set(EXPECTED_HASH "${ARGV3}")
+    endif()
 
     # Ensure destination directory exists
     file(MAKE_DIRECTORY "${DEST_DIR}")
 
     set(OUTPUT_PATH "${DEST_DIR}/${FILENAME}")
 
+    if(EXISTS "${OUTPUT_PATH}" AND DEFINED EXPECTED_HASH)
+        if(EXPECTED_HASH MATCHES "^SHA256=([0-9a-fA-F]+)$")
+            file(SHA256 "${OUTPUT_PATH}" ACTUAL_HASH)
+            string(TOLOWER "${CMAKE_MATCH_1}" EXPECTED_SHA256)
+            string(TOLOWER "${ACTUAL_HASH}" ACTUAL_HASH)
+            if(NOT ACTUAL_HASH STREQUAL EXPECTED_SHA256)
+                message(STATUS "Removing ${OUTPUT_PATH}: SHA256 mismatch")
+                file(REMOVE "${OUTPUT_PATH}")
+            endif()
+        else()
+            message(FATAL_ERROR "Unsupported EXPECTED_HASH format: ${EXPECTED_HASH}")
+        endif()
+    endif()
+
     # Only download if file does not exist
     if(NOT EXISTS "${OUTPUT_PATH}")
         message(STATUS "Downloading ${URL} -> ${OUTPUT_PATH}")
-        file(DOWNLOAD
+        set(_download_hash_args "")
+        if(DEFINED EXPECTED_HASH)
+            list(APPEND _download_hash_args EXPECTED_HASH "${EXPECTED_HASH}")
+        endif()
+
+        file(
+            DOWNLOAD
             "${URL}"
             "${OUTPUT_PATH}"
             SHOW_PROGRESS
             STATUS STATUS_VAR
             LOG LOG_VAR
             TIMEOUT 60
+            ${_download_hash_args}
         )
 
         list(GET STATUS_VAR 0 STATUS_CODE)

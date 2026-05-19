@@ -26,16 +26,20 @@ docker_build() {
 
     mkdir -p "$BUILD_DIR" build/_cache
 
-    echo $CMD
+    echo "$CMD"
     docker container run --rm \
-        -v $(pwd):/src \
-        -v $(pwd)/build/_cache:/cache \
+        -v "$(pwd):/src" \
+        -v "$(pwd)/build/_cache:/cache" \
         --workdir /src \
-        --user $(id -u):$(id -g) \
+        --user "$(id -u):$(id -g)" \
         -e SCORBIT_SDK_ENCRYPT_SECRET \
+        -e SOURCE_DATE_EPOCH \
+        -e TZ=UTC \
+        -e LC_ALL=C \
+        -e LANG=C \
         -e CPM_SOURCE_CACHE="/cache" \
-        -e ARCH=$ARCH \
-        $DOCKER_IMAGE bash -c "$CMD"
+        -e ARCH="$ARCH" \
+        "$DOCKER_IMAGE" bash -c "$CMD"
 }
 
 # Same image and volume layout as docker_build, but without a TTY (works under CI / scripts)

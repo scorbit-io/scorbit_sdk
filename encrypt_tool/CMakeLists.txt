@@ -67,6 +67,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(
+        ${PROJECT_NAME}
+        PRIVATE
+            "-ffile-prefix-map=${PROJECT_SOURCE_DIR}=."
+            "-ffile-prefix-map=${PROJECT_BINARY_DIR}=."
+            "-fdebug-prefix-map=${PROJECT_SOURCE_DIR}=."
+            "-fdebug-prefix-map=${PROJECT_BINARY_DIR}=."
+    )
+endif()
 
 # To exclude symbols from other static libraries
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
@@ -103,6 +113,7 @@ set(ARCHITECTURE "${TARGET_ARCH}")
 set(CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${ARCHITECTURE}")
 
 set(CPACK_GENERATOR TGZ)
+set(CPACK_THREADS 1)
 
 set(CPACK_PACKAGE_VENDOR "scorbit.io")
 set(CPACK_PACKAGE_CONTACT "Dilshod Mukhtarov <dilshodm@gmail.com>")

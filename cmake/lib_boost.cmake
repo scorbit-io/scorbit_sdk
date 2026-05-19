@@ -18,6 +18,7 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
 set(TRY_BOOST_VERSION 1.90.0) # Set the desired Boost version here for fetching by CPM
+set(BOOST_HASH SHA256=aca59f889f0f32028ad88ba6764582b63c916ce5f77b31289ad19421a96c555f)
 
 # Don't use find_package if boost was added by CPM, otherwise can't find include files
 if(NOT BOOST_ADDED_BY_CPM)
@@ -71,6 +72,7 @@ else()
     CPMAddPackage(
         NAME Boost
         URL ${BOOST_URL}
+        URL_HASH ${BOOST_HASH}
         EXCLUDE_FROM_ALL YES
         SYSTEM YES
         OPTIONS "BOOST_ENABLE_CMAKE ON" "BOOST_SKIP_INSTALL_RULES OFF"
