@@ -24,6 +24,8 @@ docker_build() {
 
     echo "Build dir is: $BUILD_DIR"
 
+    mkdir -p "$BUILD_DIR" build/_cache
+
     echo $CMD
     docker container run --rm \
         -v $(pwd):/src \
@@ -46,6 +48,8 @@ docker_build_wheel() {
     DOCKER_IMAGE=$2
 
     echo "Wheel build (Docker image: $DOCKER_IMAGE)"
+    mkdir -p build/_cache
+
     echo "$CMD"
     docker container run --rm \
         -v "$(pwd):/src" \
