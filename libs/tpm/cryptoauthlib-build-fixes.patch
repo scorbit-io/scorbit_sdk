@@ -1,0 +1,32 @@
+--- a/lib/hal/hal_linux_uart_userspace.c
++++ b/lib/hal/hal_linux_uart_userspace.c
+@@ -35,7 +35,7 @@
+ 
+ typedef struct atca_uart_host_s
+ {
+-    char uart_file[20];
++    char uart_file[64];
+     int  fd_uart;
+     int  ref_ct;
+ } atca_uart_host_t;
+--- a/lib/atcacert/atcacert_def.c
++++ b/lib/atcacert/atcacert_def.c
+@@ -851,6 +851,7 @@
+ 
+     ((void)cert);
+     ((void)cert_size);
++    ((void)cert_subj_buf);
+ 
+     if (NULL != cert_def)
+     {
+@@ -941,8 +942,8 @@
+ {
+     ATCA_STATUS status = ATCACERT_E_BAD_PARAMS;
+ 
+-    UNUSED_VAR(cert);
+-    UNUSED_VAR(cert_size);
++    ((void)cert);
++    ((void)cert_size);
+ 
+     if (NULL != cert_def && NULL != cert_issuer)
+     {

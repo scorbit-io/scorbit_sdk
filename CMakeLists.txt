@@ -81,7 +81,11 @@ if(POLICY CMP0177)
     set(CMAKE_POLICY_DEFAULT_CMP0177 NEW)
 endif()
 # PackageProject.cmake will be used to make our target installable
-CPMAddPackage("gh:TheLartians/PackageProject.cmake@1.13.0")
+CPMAddPackage(
+    NAME PackageProject
+    URL https://github.com/TheLartians/PackageProject.cmake/archive/refs/tags/v1.13.0.tar.gz
+    URL_HASH SHA256=2d124f7d2ff4991469a5ee3771459a8795a13c3d4fde9f7cecb767f174f7a545
+)
 include(${MY_CMAKE_DIR}/scorbit_sdk_package_project.cmake)
 
 include(${MY_CMAKE_DIR}/lib_fmt.cmake)
@@ -137,6 +141,8 @@ include(${MY_CMAKE_DIR}/download_file.cmake)
 download_file(
     "https://curl.se/ca/cacert.pem"
     "${CMAKE_CURRENT_BINARY_DIR}/"
+    "cacert.pem"
+    "SHA256=86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c"
 )
 set(CA_CERT_FILE "${DOWNLOADED_FILE}")
 
@@ -257,6 +263,16 @@ configure_file(source/platform_id.h.in "${CMAKE_CURRENT_BINARY_DIR}/platform_id.
 
 # being a cross-platform target, we enforce standards conformance on MSVC
 target_compile_options(${PROJECT_NAME} PUBLIC "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(
+        ${PROJECT_NAME}
+        PRIVATE
+            "-ffile-prefix-map=${PROJECT_SOURCE_DIR}=."
+            "-ffile-prefix-map=${PROJECT_BINARY_DIR}=."
+            "-fdebug-prefix-map=${PROJECT_SOURCE_DIR}=."
+            "-fdebug-prefix-map=${PROJECT_BINARY_DIR}=."
+    )
+endif()
 # target_compile_options(${PROJECT_NAME} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
 
 # To exclude symbols from other static libraries
@@ -364,6 +380,10 @@ file(
     OWNER_READ
     OWNER_WRITE
     OWNER_EXECUTE
+    GROUP_READ
+    GROUP_EXECUTE
+    WORLD_READ
+    WORLD_EXECUTE
 )
 file(
     CHMOD
@@ -372,6 +392,10 @@ file(
     OWNER_READ
     OWNER_WRITE
     OWNER_EXECUTE
+    GROUP_READ
+    GROUP_EXECUTE
+    WORLD_READ
+    WORLD_EXECUTE
 )
 set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst;${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/prerm;${_SCORBIT_RUNTIME_CTRL_DIR}/postrm"
@@ -385,6 +409,7 @@ install(
 )
 
 set(CPACK_GENERATOR DEB)
+set(CPACK_THREADS 1)
 
 set(CPACK_PACKAGE_VENDOR "scorbit.io")
 set(CPACK_PACKAGE_CONTACT "Scorbit <support@scorbit.io>")
@@ -396,6 +421,8 @@ set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 
 # Generate Deb dependencies
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+set(CPACK_DEBIAN_COMPRESSION_TYPE "gzip")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_STRICT_PERMISSION TRUE)
 # set(CPACK_DEBIAN_PACKAGE_DEPENDS "unzip, coreutils, wget, sed, grep, apt, bash")
 
 set(CPACK_DEBIAN_PACKAGE_SECTION "General")

@@ -7,28 +7,12 @@ endif()
 
 set(cpr_PATCH_FILE "${CMAKE_CURRENT_LIST_DIR}/patches/cpr-gcc-9.3-build-fix.patch")
 
-# Use CPMAddPackages patches option only if CPM_SOURCE_CACHE is defined
-# Otherwise it will fail on the second cmake run
-if(CPM_SOURCE_CACHE)
-    set(cpr_PATCHES_OPTION PATCHES "${cpr_PATCH_FILE}")
-endif()
-
 CPMAddPackage(
     NAME cpr
-    GIT_TAG 1.14.1
-    GITHUB_REPOSITORY libcpr/cpr
+    URL https://github.com/libcpr/cpr/archive/refs/tags/1.14.1.tar.gz
+    URL_HASH SHA256=213ccc7c98683d2ca6304d9760005effa12ec51d664bababf114566cb2b1e23c
     EXCLUDE_FROM_ALL YES
     SYSTEM YES
-    GIT_SHALLOW TRUE
-    ${cpr_PATCHES_OPTION}
+    PATCHES "${cpr_PATCH_FILE}"
     OPTIONS "BUILD_SHARED_LIBS OFF" "BUILD_CPR_TESTS OFF" "${CPR_OPTIONS}"
 )
-
-# If the patches option is not defined, apply the patch manually
-if(NOT DEFINED cpr_PATCHES_OPTION)
-    include(${CMAKE_CURRENT_LIST_DIR}/patch.cmake)
-    apply_patch(
-        "${cpr_PATCH_FILE}"
-        "${cpr_SOURCE_DIR}"
-    )
-endif()

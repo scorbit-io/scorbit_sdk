@@ -22,6 +22,13 @@ jobs:
       - name: Read VERSION
         run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
 
+      - name: Set reproducible build environment
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "TZ=UTC" >> "$GITHUB_ENV"
+          echo "LC_ALL=C" >> "$GITHUB_ENV"
+          echo "LANG=C" >> "$GITHUB_ENV"
+
       - name: Verify tag matches VERSION file
         run: |
           if [ "${{ env.VERSION }}" != "${GITHUB_REF_NAME}" ]; then
