@@ -11,22 +11,22 @@ strings /usr/lib/libcryptoauth.so | grep -E '/etc|/var/|cryptoauth'
 Expect:
 
 ```text
-/etc/cryptoauthlib/cryptoauthlib.conf
+/usr/local/scorbit/openssh/etc/cryptoauthilb/cryptoauthlib.conf
 ```
 
-(and `filestore = /var/lib/cryptoauthlib/` in that file). Rebuild if you see a relative path like `etc/cryptoauthlib/...` without a leading `/`.
+(and `filestore = /usr/local/scorbit/openssh/etc/cryptoauthilb/` in that file). Rebuild if you see a relative path without a leading `/`.
 
 ## On-device layout
 
 ```text
-/etc/cryptoauthlib/cryptoauthlib.conf
-/var/lib/cryptoauthlib/0.conf
+/usr/local/scorbit/openssh/etc/cryptoauthilb/cryptoauthlib.conf
+/usr/local/scorbit/openssh/etc/cryptoauthilb/0.conf
 ```
 
 Copy from this directory:
 
-- [`cryptoauthlib.conf`](cryptoauthlib.conf) → `/etc/cryptoauthlib/cryptoauthlib.conf`
-- `0.conf.cdc.example` or `0.conf.hid.example` → `/var/lib/cryptoauthlib/0.conf`
+- [`cryptoauthlib.conf`](cryptoauthlib.conf) → `/usr/local/scorbit/openssh/etc/cryptoauthlib/cryptoauthlib.conf`
+- `0.conf.cdc.example` or `0.conf.hid.example` → `/usr/local/scorbit/openssh/etc/cryptoauthlib/0.conf`
 
 ## Interface lines
 
@@ -59,7 +59,7 @@ Optional 4th/5th fields override HID VID/PID (defaults: Microchip kit `03eb:2312
      | grep -E 'conf|ENOENT|C_Initialize'
    ```
 
-   `ENOENT` on `/etc/cryptoauthlib/cryptoauthlib.conf` → install [`cryptoauthlib.conf`](cryptoauthlib.conf) there.
+   `ENOENT` on `/usr/local/scorbit/openssh/etc/cryptoauthlib/cryptoauthlib.conf` → install [`cryptoauthlib.conf`](cryptoauthlib.conf) there.
 
 2. **Filestore** — `/var/lib/cryptoauthlib/0.conf` must exist (not only `slot.conf.tmpl`).
 

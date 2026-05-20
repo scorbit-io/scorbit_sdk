@@ -31,10 +31,10 @@ endif()
 
 # PKCS11 paths are compile-time strings (ATCA_LIBRARY_CONF / filestore in atca_config.h).
 # Cross-builds often set CMAKE_INSTALL_SYSCONFDIR to relative "etc", yielding a broken
-# relative path "etc/cryptoauthlib/cryptoauthlib.conf". Force absolute Microchip layout.
+# relative path. Force the OpenSSH package layout used by Scorbit installs.
 if(_SCORBIT_CRYPTOAUTH_PKCS11)
-    set(DEFAULT_CONF_PATH "/etc/cryptoauthlib" CACHE STRING "PKCS11 main config directory" FORCE)
-    set(DEFAULT_STORE_PATH "/var/lib/cryptoauthlib" CACHE STRING "PKCS11 slot config filestore" FORCE)
+    set(DEFAULT_CONF_PATH "/usr/local/scorbit/openssh/etc/cryptoauthlib" CACHE STRING "PKCS11 main config directory" FORCE)
+    set(DEFAULT_STORE_PATH "/usr/local/scorbit/openssh/etc/cryptoauthlib" CACHE STRING "PKCS11 slot config filestore" FORCE)
     set(DEFAULT_CONF_FILE_NAME "cryptoauthlib.conf" CACHE STRING "PKCS11 main config file name" FORCE)
 endif()
 
@@ -49,8 +49,8 @@ set(_cryptoauth_cpm_options
 )
 if(_SCORBIT_CRYPTOAUTH_PKCS11)
     list(APPEND _cryptoauth_cpm_options
-        "DEFAULT_CONF_PATH /etc/cryptoauthlib"
-        "DEFAULT_STORE_PATH /var/lib/cryptoauthlib"
+        "DEFAULT_CONF_PATH /usr/local/scorbit/openssh/etc/cryptoauthlib"
+        "DEFAULT_STORE_PATH /usr/local/scorbit/openssh/etc/cryptoauthlib"
         "DEFAULT_CONF_FILE_NAME cryptoauthlib.conf"
     )
 endif()
