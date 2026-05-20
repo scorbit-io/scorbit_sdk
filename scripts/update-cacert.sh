@@ -41,5 +41,3 @@ PY
 )"
 
 echo "Updated assets/certs/cacert.pem"
-echo "SHA256: $sha256"
-echo "Update CA_CERT_SHA256 in CMakeLists.txt if this value changed, then commit both files."
