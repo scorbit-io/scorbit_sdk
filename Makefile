@@ -7,7 +7,9 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-.PHONY: help all clean armhf arm64 amd64 macos python python27
+.PHONY: help all clean armhf arm64 amd64 macos python python27 release
+
+RELEASE_VERSION := $(shell tr -d '[:space:]' < VERSION)
 
 .DEFAULT_GOAL := help
 
@@ -21,6 +23,7 @@ help:
 	@echo "  make macos      - Build for macOS"
 	@echo "  make python     - Build Python 3.6+ wheel (Docker: dilshodm/python-builder, see DOCKER_RELEASE)"
 	@echo "  make python27   - Build Python 2.7 wheel (same python-builder image)"
+	@echo "  make release    - Create release branch and commits from VERSION"
 	@echo "  make clean      - Remove build artifacts"
 	@echo ""
 	@echo "  SCORBIT_PYTHON_NO_DOCKER=1 make python   - Build Python wheel on host Python (no Docker)"
@@ -38,6 +41,34 @@ python:
 
 python27:
 	./scripts/python27-build.sh
+
+release:
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
+		echo "VERSION is empty"; \
+		exit 1; \
+	fi
+	@if git diff --quiet -- VERSION && git diff --cached --quiet -- VERSION; then \
+		echo "Refusing release: VERSION is not modified"; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain --untracked-files=all -- . ':!VERSION')" ]; then \
+		echo "Refusing release: staged or unstaged changes exist outside VERSION"; \
+		git status --short -- . ':!VERSION'; \
+		exit 1; \
+	fi
+	git switch -c "chore/release_$(RELEASE_VERSION)"
+	@if ! git diff --cached --quiet -- VERSION; then \
+		git restore --staged VERSION; \
+	fi
+	./scripts/update-cacert.sh
+	git add assets/certs/cacert.pem
+	@if ! git diff --cached --quiet -- assets/certs/cacert.pem; then \
+		git commit -m "chore: update certs"; \
+	else \
+		echo "No certificate changes to commit"; \
+	fi
+	git add VERSION
+	git commit -m "chore(release): bump version to $(RELEASE_VERSION)"
 
 clean:
 	rm -rf build/armhf_* build/arm64_* build/amd64_*
