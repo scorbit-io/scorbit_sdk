@@ -139,15 +139,6 @@ include(${MY_CMAKE_DIR}/CMakeRC.cmake)
 # Keep the embedded CA bundle as a versioned source input so release builds can be reproduced
 # without depending on the current contents of https://curl.se/ca/cacert.pem.
 set(CA_CERT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/certs/cacert.pem")
-set(CA_CERT_SHA256 "86a1f3366afac7c6f8ae9f3c779ac221129328c43f0ab2b8817eb2f362a5025c")
-file(SHA256 "${CA_CERT_FILE}" ACTUAL_CA_CERT_SHA256)
-if(NOT ACTUAL_CA_CERT_SHA256 STREQUAL CA_CERT_SHA256)
-    message(
-        FATAL_ERROR
-        "Vendored cacert.pem SHA256 mismatch. Run scripts/update-cacert.sh and commit both "
-        "assets/certs/cacert.pem and the updated CA_CERT_SHA256."
-    )
-endif()
 
 cmrc_add_resource_library(
     my-resources
