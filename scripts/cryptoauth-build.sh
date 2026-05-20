@@ -39,6 +39,7 @@ run_docker() {
     local docker_image="dilshodm/gcc-builder:${rel}"
 
     ARCH=$arch
+    BUILD_DIR=$build_dir
     echo "!!! Building cryptoauth for arch: $arch, ABI: $abi !!!"
     docker_build "bash ./scripts/cryptoauth-build-core.sh '$build_dir'" "$docker_image"
 }
