@@ -1,60 +1,68 @@
 name: Release PyPI
 
 on:
-  push:
-    tags:
-      - "[0-9]*.[0-9]*.[0-9]*"
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish to PyPI
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  build-wheels:
-    name: Build Python wheels
+  publish-pypi:
+    name: Publish to PyPI
     runs-on: ubuntu-latest
+    environment: pypi
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
+      - name: Verify release tag input
+        run: |
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "Release tag is required"
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Read VERSION
         run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
 
-      - name: Verify tag matches VERSION file
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Verify release tag matches VERSION file
         run: |
-          if [ "${{ env.VERSION }}" != "${GITHUB_REF_NAME}" ]; then
-            echo "VERSION file (${{ env.VERSION }}) does not match git tag (${GITHUB_REF_NAME})"
+          if [ "$VERSION" != "$RELEASE_TAG" ]; then
+            echo "VERSION file (${VERSION}) does not match release tag (${RELEASE_TAG})"
             exit 1
           fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Download release wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.whl" \
+            --dir dist
 
-      - name: Build Python 3 wheel
-        run: make python
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          if [ "${#wheels[@]}" -eq 0 ]; then
+            echo "No wheel assets found on release ${RELEASE_TAG}"
+            exit 1
+          fi
 
-      - name: Build Python 2.7 wheel
-        run: make python27
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v7
-        with:
-          name: dist-wheels
-          path: build/dist/${{ env.VERSION }}/*.whl
-          if-no-files-found: error
-
-  publish-pypi:
-    name: Publish to PyPI
-    needs: build-wheels
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist-wheels
-          path: dist
+          ls -la dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
