@@ -38,14 +38,64 @@ touch_reproducible_tree() {
     fi
 }
 
+normalize_deb_installed_size() {
+    local root=$1
+    local control_file="$root/DEBIAN/control"
+    local installed_size
+
+    installed_size="$(
+        python3 - "$root" <<'PY'
+import os
+import sys
+
+root = sys.argv[1]
+total = 0
+
+for dirpath, dirnames, filenames in os.walk(root):
+    rel_dir = os.path.relpath(dirpath, root)
+    if rel_dir == "DEBIAN" or rel_dir.startswith("DEBIAN" + os.sep):
+        dirnames[:] = []
+        continue
+
+    for name in filenames:
+        path = os.path.join(dirpath, name)
+        total += os.lstat(path).st_size
+
+print((total + 1023) // 1024)
+PY
+    )"
+
+    python3 - "$control_file" "$installed_size" <<'PY'
+import pathlib
+import sys
+
+control_file = pathlib.Path(sys.argv[1])
+installed_size = sys.argv[2]
+lines = control_file.read_text().splitlines()
+updated = False
+
+for index, line in enumerate(lines):
+    if line.startswith("Installed-Size:"):
+        lines[index] = f"Installed-Size: {installed_size}"
+        updated = True
+        break
+
+if not updated:
+    lines.append(f"Installed-Size: {installed_size}")
+
+control_file.write_text("\n".join(lines) + "\n")
+PY
+}
+
 rebuild_deb_root_owner_group() {
     local deb=$1
     local tmp_dir
 
     tmp_dir="$(mktemp -d)"
     dpkg-deb -R "$deb" "$tmp_dir/root"
+    normalize_deb_installed_size "$tmp_dir/root"
     touch_reproducible_tree "$tmp_dir/root"
-    dpkg-deb --build --root-owner-group -Zgzip -z9 --uniform-compression \
+    dpkg-deb --build --nocheck --root-owner-group -Zgzip -z9 --uniform-compression \
         "$tmp_dir/root" "$tmp_dir/rebuilt.deb" >/dev/null
     mv "$tmp_dir/rebuilt.deb" "$deb"
     rm -rf "$tmp_dir"
