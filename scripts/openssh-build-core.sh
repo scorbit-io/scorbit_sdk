@@ -29,6 +29,9 @@ SCORBIT_OPENSSH_PREFIX=/usr/local/scorbit/openssh
 OPENSSH_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/OPENSSH_VERSION")"
 OPENSSH_TARBALL="openssh-${OPENSSH_VERSION}.tar.gz"
 OPENSSH_URL="https://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/${OPENSSH_TARBALL}"
+AUTOSSH_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/AUTOSSH_VERSION")"
+AUTOSSH_TARBALL="autossh-${AUTOSSH_VERSION}.tgz"
+AUTOSSH_URL="https://www.harding.motd.ca/autossh/${AUTOSSH_TARBALL}"
 CACHE_DIR="${CPM_SOURCE_CACHE:-$REPO_ROOT/build/_cache}/openssh"
 SRC_PARENT="$BUILD_ROOT/src"
 STAGING_DIR="$BUILD_ROOT/staging"
@@ -81,6 +84,11 @@ ZLIB_PREFIX="$BUILD_ROOT/zlib-install"
 if [[ ! -f "$CACHE_DIR/$OPENSSH_TARBALL" ]]; then
     echo "Downloading $OPENSSH_URL"
     curl -fsSL "$OPENSSH_URL" -o "$CACHE_DIR/$OPENSSH_TARBALL"
+fi
+
+if [[ ! -f "$CACHE_DIR/$AUTOSSH_TARBALL" ]]; then
+    echo "Downloading $AUTOSSH_URL"
+    curl -fsSL "$AUTOSSH_URL" -o "$CACHE_DIR/$AUTOSSH_TARBALL"
 fi
 
 rm -rf "$SRC_PARENT"
@@ -155,6 +163,34 @@ grep -qE '^#define ENABLE_PKCS11\b' config.h || {
 make -j"$(nproc)"
 make install-nokeys DESTDIR="$STAGING_DIR"
 
+AUTOSSH_SRC_PARENT="$BUILD_ROOT/autossh-src"
+rm -rf "$AUTOSSH_SRC_PARENT"
+mkdir -p "$AUTOSSH_SRC_PARENT"
+read -r _autossh_tar_first_line < <(tar -tzf "$CACHE_DIR/$AUTOSSH_TARBALL")
+AUTOSSH_TOP_DIR="${_autossh_tar_first_line%%/*}"
+tar -xzf "$CACHE_DIR/$AUTOSSH_TARBALL" -C "$AUTOSSH_SRC_PARENT"
+AUTOSSH_SRC_DIR="$AUTOSSH_SRC_PARENT/${AUTOSSH_TOP_DIR}"
+[[ -d "$AUTOSSH_SRC_DIR" ]] || { echo "Expected autossh source dir under $AUTOSSH_SRC_PARENT" >&2; exit 1; }
+
+(
+    cd "$AUTOSSH_SRC_DIR"
+    # autossh 1.4g accepts --with-ssh but does not propagate it to the probe variable.
+    # Seed the autoconf cache directly so cross-builds do not need a runnable host ssh.
+    ac_cv_func_malloc_0_nonnull=yes \
+    ac_cv_func_realloc_0_nonnull=yes \
+    ac_cv_path_ssh="${SCORBIT_OPENSSH_PREFIX}/bin/ssh" \
+    ./configure \
+        --host="$GNU_HOST" \
+        --prefix="$SCORBIT_OPENSSH_PREFIX"
+    make -j"$(nproc)"
+
+    install -d \
+        "$STAGING_DIR${SCORBIT_OPENSSH_PREFIX}/bin" \
+        "$STAGING_DIR${SCORBIT_OPENSSH_PREFIX}/share/man/man1"
+    install -m 0755 autossh "$STAGING_DIR${SCORBIT_OPENSSH_PREFIX}/bin/autossh"
+    install -m 0644 autossh.1 "$STAGING_DIR${SCORBIT_OPENSSH_PREFIX}/share/man/man1/autossh.1"
+)
+
 PKG_NAME="openssh-${OPENSSH_VERSION}-${ARCH}"
 PKG_DIR="$DIST_DIR/$PKG_NAME"
 rm -rf "$PKG_DIR"
@@ -167,7 +203,8 @@ cp -a "$STAGING_DIR/." "$PKG_DIR/"
 )
 
 echo "OpenSSH ${OPENSSH_VERSION} for ${ARCH}:"
+echo "autossh ${AUTOSSH_VERSION} for ${ARCH}:"
 echo "  prefix:  ${SCORBIT_OPENSSH_PREFIX}"
 echo "  staging: ${STAGING_DIR}"
 echo "  package: ${DIST_DIR}/${PKG_NAME}.tar.gz"
-find "$PKG_DIR" -maxdepth 3 \( -name ssh -o -name sshd -o -name scp \) 2>/dev/null
+find "$PKG_DIR" -maxdepth 8 \( -name ssh -o -name sshd -o -name scp -o -name autossh \) 2>/dev/null

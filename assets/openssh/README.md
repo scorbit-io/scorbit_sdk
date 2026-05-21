@@ -1,6 +1,6 @@
-# Cross-built OpenSSH with PKCS#11
+# Cross-built OpenSSH with PKCS#11 and autossh
 
-Build portable OpenSSH in Docker (`dilshodm/gcc-builder`, same as the SDK) for **armhf** and **arm64**. The client supports `PKCS11Provider` (ATECC via `libcryptoauth.so`).
+Build portable OpenSSH and autossh in Docker (`dilshodm/gcc-builder`, same as the SDK) for **armhf** and **arm64**. The OpenSSH client supports `PKCS11Provider` (ATECC via `libcryptoauth.so`).
 
 ## Build
 
@@ -9,20 +9,21 @@ make openssh armhf
 make openssh arm64
 ```
 
-Version is pinned in [`OPENSSH_VERSION`](../../OPENSSH_VERSION). Artifacts:
+Versions are pinned in [`OPENSSH_VERSION`](../../OPENSSH_VERSION) and [`AUTOSSH_VERSION`](../../AUTOSSH_VERSION). Artifacts:
 
 ```text
 build/openssh_armhf_u12/dist/openssh-<ver>-armhf.tar.gz
 build/openssh_arm64_u18/dist/openssh-<ver>-arm64.tar.gz
 ```
 
-Unpack on the device under `/` (installs to `/usr/local/scorbit/openssh/` — `bin/ssh`, `etc/ssh/`, …).
+Unpack on the device under `/` (installs to `/usr/local/scorbit/openssh/` — `bin/ssh`, `bin/autossh`, `etc/ssh/`, …).
 
 Add to `PATH` or invoke by full path:
 
 ```bash
 export PATH="/usr/local/scorbit/openssh/bin:$PATH"
 ssh -V
+autossh -V
 ```
 
 Build **after** the sysroot has OpenSSL (same gcc-builder image). Optionally build the TPM provider:

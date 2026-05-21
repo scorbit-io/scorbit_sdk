@@ -46,7 +46,7 @@ help:
 	@echo "  make release    - Create release branch and commits from VERSION"
 	@echo "  make cryptoauth              - Build cryptoauthlib as standalone .so/.dylib on this host"
 	@echo "  make cryptoauth armhf|arm64|amd64 - Cross-build standalone libcryptoauth.so (Docker/gcc-builder)"
-	@echo "  make openssh armhf|arm64     - Cross-build OpenSSH with PKCS#11 (Docker/gcc-builder)"
+	@echo "  make openssh armhf|arm64     - Cross-build OpenSSH with PKCS#11 and autossh (Docker/gcc-builder)"
 	@echo "  make clean      - Remove build artifacts"
 	@echo ""
 	@echo "  SCORBIT_PYTHON_NO_DOCKER=1 make python   - Build Python wheel on host Python (no Docker)"
