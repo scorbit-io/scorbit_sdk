@@ -17,6 +17,10 @@ endif()
 
 include(${CMAKE_CURRENT_LIST_DIR}/CPM.cmake)
 
+# Workaround for boost 1.91.0 and later, which ASIO uses std::atomic_wait (slim_mutex) for c++20
+# and causes a crash when passing a strand to c++17 library (centrifugo-cpp)
+add_compile_definitions(BOOST_ASIO_DISABLE_STD_ATOMIC_WAIT)
+
 set(TRY_BOOST_VERSION 1.90.0) # Set the desired Boost version here for fetching by CPM
 set(BOOST_HASH SHA256=aca59f889f0f32028ad88ba6764582b63c916ce5f77b31289ad19421a96c555f)
 
