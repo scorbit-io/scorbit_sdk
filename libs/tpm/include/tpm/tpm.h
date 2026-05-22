@@ -7,7 +7,6 @@
 
 #pragma once
 
-
 #include "utils/bytearray.h"
 #include "utils/flags.h"
 #include <string>
@@ -23,7 +22,7 @@ constexpr uint16_t KEY3_SLOT = 3;
 constexpr uint16_t KEY4_SLOT = 4;
 constexpr uint16_t SERIAL_SLOT = 5;
 
-enum TpmBus: uint8_t {
+enum TpmBus : uint8_t {
     None = 0,
     I2C = 1 << 0,
     USB = 1 << 1,
@@ -34,21 +33,34 @@ using TpmBusFlags = utils::Flags<TpmBus>;
 
 extern std::string hex(const ByteArray &array, const std::string &separator = " ");
 
+struct TpmDevice {
+    TpmBus bus {TpmBus::None};
+    uint8_t i2cBus {0};
+    std::string usbDevicePath;
+
+    bool isValid() const { return bus != TpmBus::None; }
+};
+
 class Tpm
 {
     struct Impl;
 
 public:
     Tpm(TpmBusFlags busFlags = TpmBus::All, const std::string &usbDevicePath = {});
+    explicit Tpm(const TpmDevice &device);
+    Tpm(Tpm &&other) noexcept;
+    Tpm &operator=(Tpm &&other) noexcept;
     ~Tpm();
 
     bool ok() const;
+    TpmDevice device() const;
 
     ByteArray info();
     ByteArray tpmSerialNumber();
 
     uint64_t serialNumber() const;
     ByteArray uuid() const;
+    bool readIdentity();
     bool readSerialUuid();
 
     bool isConfigLocked();
@@ -71,8 +83,8 @@ public:
     bool writeData(uint16_t slot, const ByteArray &data);
 
 private:
-    bool tryI2cBus(Impl *p, uint8_t i2cBus);
-    bool tryUsbBus(Impl *p, const std::string &devicePath);
+    bool tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet = false);
+    bool tryUsbBus(Impl *p, const std::string &devicePath, bool quiet = false);
 
 private:
     std::unique_ptr<Impl> p;
