@@ -34,6 +34,7 @@ private:
 private:
     TpmBusFlags m_busFlags;
     std::string m_usbDevicePath;
+    TpmDevice m_device;
 
     uint64_t m_serial {0};
     ByteArray m_uuid;

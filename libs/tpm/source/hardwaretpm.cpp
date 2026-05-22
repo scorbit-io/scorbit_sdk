@@ -67,6 +67,10 @@ ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
 
 Tpm HardwareTpm::tpm() const
 {
+    if (m_device.isValid()) {
+        return Tpm(m_device);
+    }
+
     return Tpm(m_busFlags, m_usbDevicePath);
 }
 
@@ -81,5 +85,6 @@ bool HardwareTpm::readIdentity()
 
     m_serial = tpm1.serialNumber();
     m_uuid = tpm1.uuid();
+    m_device = tpm1.device();
     return true;
 }

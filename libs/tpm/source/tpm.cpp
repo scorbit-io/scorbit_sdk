@@ -37,7 +37,8 @@ ATCA_STATUS atcaRetry(std::function<ATCA_STATUS()> func)
             DELAY_BEFORE_RETRY.count());
         std::this_thread::sleep_for(DELAY_BEFORE_RETRY);
     }
-    ERR("{}: error {}, giving up after {} retries...", __func__, static_cast<int>(status), MAX_RETRY_TIMES);
+    ERR("{}: error {}, giving up after {} retries...", __func__, static_cast<int>(status),
+        MAX_RETRY_TIMES);
     return status;
 }
 
@@ -65,6 +66,7 @@ struct Tpm::Impl {
     ByteArray infoResult;
     ByteArray uuid;
     uint64_t serialNumber {0};
+    TpmDevice device;
 };
 
 /********************************************************************
@@ -90,13 +92,33 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     }
 
     if (found) {
-        if (ok() && isDataLocked()) {
-            readSerialUuid();
-        }
+        readIdentity();
     } else {
         WRN("Coudn't initialize HSM device");
     }
 }
+
+Tpm::Tpm(const TpmDevice &device)
+    : p {std::make_unique<Impl>()}
+{
+    bool found = false;
+
+    if (device.bus == TpmBus::I2C) {
+        found = tryI2cBus(p.get(), device.i2cBus, true);
+    } else if (device.bus == TpmBus::USB) {
+        found = tryUsbBus(p.get(), device.usbDevicePath, true);
+    }
+
+    if (found) {
+        readIdentity();
+    } else {
+        WRN("Coudn't initialize cached HSM device");
+    }
+}
+
+Tpm::Tpm(Tpm &&other) noexcept = default;
+
+Tpm &Tpm::operator=(Tpm &&other) noexcept = default;
 
 Tpm::~Tpm()
 {
@@ -105,6 +127,11 @@ Tpm::~Tpm()
 bool Tpm::ok() const
 {
     return !p->infoResult.empty();
+}
+
+TpmDevice Tpm::device() const
+{
+    return p->device;
 }
 
 ByteArray Tpm::info()
@@ -163,6 +190,15 @@ bool Tpm::readSerialUuid()
     }
 
     return true;
+}
+
+bool Tpm::readIdentity()
+{
+    if (ok() && isDataLocked()) {
+        return readSerialUuid();
+    }
+
+    return false;
 }
 
 bool Tpm::isConfigLocked()
@@ -332,9 +368,11 @@ bool Tpm::writeData(uint16_t slot, const ByteArray &data)
     return true;
 }
 
-bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus)
+bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet)
 {
-    INF("Trying I2C TPM: on bus {}", i2cBus);
+    if (!quiet) {
+        INF("Trying I2C TPM: on bus {}", i2cBus);
+    }
 
     // Re-initialize the atcaDevice and atcaConfig
     if (p->atcaDevice) {
@@ -356,10 +394,13 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus)
     }
 
     p->infoResult = info();
+    if (ok()) {
+        p->device = TpmDevice {TpmBus::I2C, i2cBus, {}};
+    }
     return ok();
 }
 
-bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath)
+bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
 {
     // Re-initialize the atcaDevice and atcaConfig
     if (p->atcaDevice) {
@@ -370,7 +411,9 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath)
 
     if (!devicePath.empty()) {
         // USB CDC path: use ATCA_UART_IFACE with the discovered serial device
-        INF("Trying USB CDC TPM at {}", devicePath);
+        if (!quiet) {
+            INF("Trying USB CDC TPM at {}", devicePath);
+        }
         p->usbDevicePath = devicePath;
         p->atcaConfig.iface_type = ATCA_UART_IFACE;
         p->atcaConfig.devtype = ATECC508A;
@@ -378,12 +421,14 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath)
         p->atcaConfig.atcauart.dev_identity = I2C_ADDRESS;
         p->atcaConfig.atcauart.baud = 115200;
         p->atcaConfig.atcauart.wordsize = 8;
-        p->atcaConfig.atcauart.parity = 2;   // none
+        p->atcaConfig.atcauart.parity = 2; // none
         p->atcaConfig.atcauart.stopbits = 1;
         p->atcaConfig.cfg_data = const_cast<char *>(p->usbDevicePath.c_str());
     } else {
         // Legacy HID path (fallback when no CDC device path is provided)
-        INF("Trying USB HID TPM");
+        if (!quiet) {
+            INF("Trying USB HID TPM");
+        }
 #ifdef DM320118
         p->atcaConfig.iface_type = ATCA_HID_IFACE;
         p->atcaConfig.devtype = ATECC608A;
@@ -410,5 +455,8 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath)
     }
 
     p->infoResult = info();
+    if (ok()) {
+        p->device = TpmDevice {TpmBus::USB, 0, devicePath};
+    }
     return ok();
 }
