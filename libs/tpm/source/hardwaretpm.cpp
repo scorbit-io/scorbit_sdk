@@ -10,8 +10,10 @@
 using ByteArray = utils::ByteArray;
 
 HardwareTpm::HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
-    : m_tpm {std::make_unique<Tpm>(busFlags, usbDevicePath)}
+    : m_busFlags(busFlags)
+    , m_usbDevicePath(usbDevicePath)
 {
+    readIdentity();
 }
 
 HardwareTpm::~HardwareTpm()
@@ -20,7 +22,7 @@ HardwareTpm::~HardwareTpm()
 
 bool HardwareTpm::hasTpm() const
 {
-    return m_tpm->ok();
+    return tpm().ok();
 }
 
 bool HardwareTpm::isValid() const
@@ -35,7 +37,7 @@ bool HardwareTpm::isValid() const
         serialNumber /= 10;
     }
 
-    return sum % 10 == 0 && m_tpm->uuid().size() == 16;
+    return sum % 10 == 0 && m_uuid.size() == 16;
 }
 
 std::string HardwareTpm::provider() const
@@ -45,20 +47,39 @@ std::string HardwareTpm::provider() const
 
 uint64_t HardwareTpm::serial() const
 {
-    return m_tpm->serialNumber();
+    return m_serial;
 }
 
 std::string HardwareTpm::uuid() const
 {
-    return m_tpm->uuid().hex();
+    return m_uuid.hex();
 }
 
 std::string HardwareTpm::signMessage(const ByteArray &message) const
 {
-    return m_tpm->signMessage(KEY4_SLOT, message).hex();
+    return tpm().signMessage(KEY4_SLOT, message).hex();
 }
 
 ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
 {
-    return m_tpm->signDigest(KEY4_SLOT, digest);
+    return tpm().signDigest(KEY4_SLOT, digest);
+}
+
+Tpm HardwareTpm::tpm() const
+{
+    return Tpm(m_busFlags, m_usbDevicePath);
+}
+
+bool HardwareTpm::readIdentity()
+{
+    auto tpm1 = tpm();
+    if (!tpm1.ok() || !tpm1.readSerialUuid()) {
+        m_serial = 0;
+        m_uuid.clear();
+        return false;
+    }
+
+    m_serial = tpm1.serialNumber();
+    m_uuid = tpm1.uuid();
+    return true;
 }

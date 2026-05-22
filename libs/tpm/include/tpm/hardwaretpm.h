@@ -28,5 +28,13 @@ public:
     utils::ByteArray signDigest(const utils::ByteArray &digest) const override;
 
 private:
-    std::unique_ptr<Tpm> m_tpm;
+    Tpm tpm() const;
+    bool readIdentity();
+
+private:
+    TpmBusFlags m_busFlags;
+    std::string m_usbDevicePath;
+
+    uint64_t m_serial {0};
+    ByteArray m_uuid;
 };

@@ -12,6 +12,7 @@
 #include <atca_device.h>
 #include <host/atca_host.h>
 #include <assert.h>
+#include <cstring>
 #include <functional>
 #include <thread>
 
@@ -155,7 +156,7 @@ bool Tpm::readSerialUuid()
         return false;
     }
 
-    p->serialNumber = *reinterpret_cast<const uint64_t *>(data.data());
+    std::memcpy(&p->serialNumber, data.data(), sizeof(p->serialNumber));
     auto it = data.cbegin() + sizeof(p->serialNumber);
     for (auto &a : p->uuid) {
         a = *it++;
