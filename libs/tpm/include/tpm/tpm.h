@@ -60,6 +60,7 @@ public:
 
     uint64_t serialNumber() const;
     ByteArray uuid() const;
+    bool readIdentity();
     bool readSerialUuid();
 
     bool isConfigLocked();
@@ -84,7 +85,6 @@ public:
 private:
     bool tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet = false);
     bool tryUsbBus(Impl *p, const std::string &devicePath, bool quiet = false);
-    bool readIdentity();
 
 private:
     std::unique_ptr<Impl> p;

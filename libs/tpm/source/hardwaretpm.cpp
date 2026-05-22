@@ -77,9 +77,10 @@ Tpm HardwareTpm::tpm() const
 bool HardwareTpm::readIdentity()
 {
     auto tpm1 = tpm();
-    if (!tpm1.ok() || !tpm1.readSerialUuid()) {
+    if (!tpm1.ok() || !tpm1.readIdentity()) {
         m_serial = 0;
         m_uuid.clear();
+        m_device = {};
         return false;
     }
 
