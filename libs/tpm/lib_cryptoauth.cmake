@@ -52,6 +52,7 @@ if(_SCORBIT_CRYPTOAUTH_PKCS11)
         "DEFAULT_CONF_PATH /usr/local/scorbit/openssh/etc/cryptoauthlib"
         "DEFAULT_STORE_PATH /usr/local/scorbit/openssh/etc/cryptoauthlib"
         "DEFAULT_CONF_FILE_NAME cryptoauthlib.conf"
+        "PKCS11_MAX_SLOTS_ALLOWED 2"
     )
 endif()
 
@@ -348,8 +349,74 @@ if(cryptoauth_ADDED)
                     _pkcs11_config_content "${_pkcs11_config_content}")
             endif()
 
+            string(FIND "${_pkcs11_config_content}" "isdigit((unsigned char)de->d_name[0])" _pkcs11_numeric_conf_pos)
+            if(_pkcs11_numeric_conf_pos EQUAL -1)
+                string(REPLACE
+                    "                    if (0 == strcmp(&de->d_name[fn_len - 5u], \".conf\"))"
+                    "                    if ((0 == strcmp(&de->d_name[fn_len - 5u], \".conf\")) &&\n                        isdigit((unsigned char)de->d_name[0]))"
+                    _pkcs11_config_content "${_pkcs11_config_content}")
+            endif()
+
             if(NOT _pkcs11_config_content STREQUAL _pkcs11_config_orig)
                 file(WRITE "${_pkcs11_config_c}" "${_pkcs11_config_content}")
+            endif()
+        endif()
+
+        set(_pkcs11_init_c "${cryptoauth_SOURCE_DIR}/lib/pkcs11/pkcs11_init.c")
+        if(EXISTS "${_pkcs11_init_c}")
+            file(READ "${_pkcs11_init_c}" _pkcs11_init_content)
+            set(_pkcs11_init_orig "${_pkcs11_init_content}")
+
+            # CryptoAuthLib returns the last slot init result and keeps probing after a
+            # token is ready. If an inactive removable slot is listed after the active
+            # HID slot, C_Initialize fails with CKR_DEVICE_ERROR and can disturb HID state.
+            set(_pkcs11_init_original_loop
+"                    for (CK_ULONG i = 0; i < slotCount; i++)
+                    {
+                        rv = pkcs11_slot_init(slotList[i]);
+                    }
+                    (void)pkcs11_unlock_device(lib_ctx);")
+            set(_pkcs11_init_previous_loop
+"                    CK_BBOOL any_slot_ready = FALSE;
+                    CK_RV init_rv = CKR_OK;
+                    for (CK_ULONG i = 0; i < slotCount; i++)
+                    {
+                        init_rv = pkcs11_slot_init(slotList[i]);
+                        if (CKR_OK == init_rv)
+                        {
+                            any_slot_ready = TRUE;
+                        }
+                        else if (CKR_OK == rv)
+                        {
+                            rv = init_rv;
+                        }
+                    }
+                    if (any_slot_ready)
+                    {
+                        rv = CKR_OK;
+                    }
+                    (void)pkcs11_unlock_device(lib_ctx);")
+            set(_pkcs11_init_new_loop
+"                    CK_RV init_rv = CKR_OK;
+                    for (CK_ULONG i = 0; i < slotCount; i++)
+                    {
+                        init_rv = pkcs11_slot_init(slotList[i]);
+                        if (CKR_OK == init_rv)
+                        {
+                            rv = CKR_OK;
+                            break;
+                        }
+                        else if (CKR_OK == rv)
+                        {
+                            rv = init_rv;
+                        }
+                    }
+                    (void)pkcs11_unlock_device(lib_ctx);")
+            string(REPLACE "${_pkcs11_init_previous_loop}" "${_pkcs11_init_new_loop}" _pkcs11_init_content "${_pkcs11_init_content}")
+            string(REPLACE "${_pkcs11_init_original_loop}" "${_pkcs11_init_new_loop}" _pkcs11_init_content "${_pkcs11_init_content}")
+
+            if(NOT _pkcs11_init_content STREQUAL _pkcs11_init_orig)
+                file(WRITE "${_pkcs11_init_c}" "${_pkcs11_init_content}")
             endif()
         endif()
 
