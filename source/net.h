@@ -41,6 +41,7 @@
 #include <deque>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 
 namespace scorbit {
@@ -255,6 +256,16 @@ private:
 
     void requestFirmwaresList();
 
+    // Diagnostic probe (SB-3363) — dispatched from the control_machine branch
+    // of onPublication. handleDiagnosticProbe validates the payload, dedupes
+    // duplicate trace_ids, and hands the publish + ack work off to the worker
+    // strand via the two helpers below.
+    void handleDiagnosticProbe(const nlohmann::json &payload);
+    void publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
+                                 const std::string &createdAt);
+    void postDiagnosticAck(const std::string &traceId, uint64_t sequence,
+                           const std::string &createdAt);
+
     void checkSystemTimeAccuracy(int64_t timestamp) const;
     void updateDiscoveryDescription();
 
@@ -320,6 +331,16 @@ private:
 
     mutable std::mutex m_scorbitronObjectMutex;
     nlohmann::json m_scorbitronObject;
+
+    // Diagnostic probe (SB-3363). m_diagProbeSequence is a per-process
+    // counter for the JKEY_SCR_SEQUENCE field on outbound probe publications;
+    // it is intentionally independent of GameSession::sessionCounter so a
+    // diag_probe never perturbs game-session state. m_seenDiagTraceIds is a
+    // bounded in-memory dedupe so a duplicate probe (Centrifugo history
+    // replay after a restart, etc.) cannot double-publish.
+    std::atomic<uint64_t> m_diagProbeSequence {0};
+    std::unordered_set<std::string> m_seenDiagTraceIds;
+    mutable std::mutex m_seenDiagTraceIdsMutex;
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
