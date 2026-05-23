@@ -1,0 +1,119 @@
+--- a/lib/pkcs11/pkcs11_config.c
++++ b/lib/pkcs11/pkcs11_config.c
+@@ -423,8 +423,8 @@
+ 
+ static CK_RV pkcs11_config_parse_interface(pkcs11_slot_ctx_ptr slot_ctx, char* cfgstr)
+ {
+-    int argc = 4;
+-    char* argv[4] = { "", "", "", "" };
++    int argc = 6;
++    char* argv[6] = { "", "", "", "", "", "" };
+     CK_RV rv = CKR_GENERAL_ERROR;
+     ATCAIfaceCfg * cfg = &slot_ctx->interface_config;
+     long l_tmp;
+@@ -536,7 +536,94 @@
+         {
+             rv = CKR_OK;
+         }
++
++        if ((CKR_OK == rv) && (argc > 4))
++        {
++            errno = 0;
++            l_tmp = strtol(argv[3], NULL, 16);
++            if ((0 == errno) && (l_tmp >= 0) && (l_tmp <= 0xFFFF))
++            {
++                ATCA_IFACECFG_VALUE(cfg, atcahid.vid) = (uint16_t)l_tmp;
++            }
++            else
++            {
++                rv = CKR_ARGUMENTS_BAD;
++            }
++
++            if (CKR_OK == rv)
++            {
++                errno = 0;
++                l_tmp = strtol(argv[4], NULL, 16);
++                if ((0 == errno) && (l_tmp >= 0) && (l_tmp <= 0xFFFF))
++                {
++                    ATCA_IFACECFG_VALUE(cfg, atcahid.pid) = (uint16_t)l_tmp;
++                }
++                else
++                {
++                    rv = CKR_ARGUMENTS_BAD;
++                }
++            }
++        }
+         #endif
++    }
++    else if (0 == strcmp(argv[0], "uart"))
++    {
++#ifdef ATCA_HAL_KIT_UART
++        cfg->iface_type = ATCA_UART_IFACE;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.dev_interface) = ATCA_KIT_AUTO_IFACE;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.dev_identity) = 0xC0;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.baud) = 115200;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.wordsize) = 8;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.parity) = 2;
++        ATCA_IFACECFG_VALUE(cfg, atcauart.stopbits) = 1;
++        cfg->wake_delay = 1500;
++        cfg->rx_retries = 20;
++        rv = CKR_ARGUMENTS_BAD;
++
++        if ((argc > 1) && (argv[1][0] != '\0'))
++        {
++            size_t path_len = strlen(argv[1]);
++            if (path_len < sizeof(slot_ctx->devpath))
++            {
++                (void)memcpy(slot_ctx->devpath, argv[1], path_len + 1u);
++                cfg->cfg_data = (char*)slot_ctx->devpath;
++                rv = CKR_OK;
++            }
++        }
++
++        if (CKR_OK == rv)
++        {
++            if (argc > 2)
++            {
++                errno = 0;
++                l_tmp = strtol(argv[2], NULL, 16);
++                if ((0 == errno) && (l_tmp > 0) && (l_tmp < PKCS11_CONFIG_U8_MAX))
++                {
++                    ATCA_IFACECFG_VALUE(cfg, atcauart.dev_identity) = (uint8_t)l_tmp;
++                }
++                else
++                {
++                    rv = CKR_ARGUMENTS_BAD;
++                }
++            }
++
++            if ((CKR_OK == rv) && (argc > 3))
++            {
++                errno = 0;
++                l_tmp = strtol(argv[3], NULL, 10);
++                if ((0 == errno) && (l_tmp > 0) && (l_tmp <= PKCS11_CONFIG_U32_MAX))
++                {
++                    ATCA_IFACECFG_VALUE(cfg, atcauart.baud) = (uint32_t)l_tmp;
++                }
++                else
++                {
++                    rv = CKR_ARGUMENTS_BAD;
++                }
++            }
++        }
++#else
++        rv = CKR_GENERAL_ERROR;
++#endif
+     }
+     else if (0 == strcmp(argv[0], "spi"))
+     {
+--- a/lib/pkcs11/pkcs11_slot.h
++++ b/lib/pkcs11/pkcs11_slot.h
+@@ -53,7 +53,7 @@
+ #endif
+ #if ((defined(ATCA_HAL_KIT_BRIDGE) && defined(PKCS11_TESTING_ENABLE)) || \
+     (defined(__linux__) && (defined(ATCA_HAL_SWI_UART) || defined(ATCA_HAL_KIT_UART))))
+-    uint8_t devpath[24];
++    uint8_t devpath[64];
+ #endif
+     CK_FLAGS flags;
+     uint16_t user_pin_handle;

@@ -1,0 +1,45 @@
+--- a/lib/pkcs11/pkcs11_config.c
++++ b/lib/pkcs11/pkcs11_config.c
+@@ -24,6 +24,7 @@
+  * THE AMOUNT OF FEES, IF ANY, THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR
+  * THIS SOFTWARE.
+  */
++#include <ctype.h>
+ #include <stdbool.h>
+ 
+ #include "cryptoauthlib.h"
+@@ -1291,8 +1292,9 @@
+                 size_t fn_len = strlen(de->d_name);
+                 if (5u < fn_len && ((size_t)MAX_CONF_FILE_NAME_SIZE > fn_len))
+                 {
+-                    /* Configuration files must end with ".conf" */
+-                    if (0 == strcmp(&de->d_name[fn_len - 5u], ".conf"))
++                    /* Configuration files must end with ".conf" and start with a slot number. */
++                    if ((0 == strcmp(&de->d_name[fn_len - 5u], ".conf")) &&
++                        isdigit((unsigned char)de->d_name[0]))
+                     {
+                         /* coverity[misra_c_2012_directive_4_12_violation] Standard library functions are required */
+                         /* coverity[misra_c_2012_rule_21_3_violation] Standard library functions are required */
+--- a/lib/pkcs11/pkcs11_init.c
++++ b/lib/pkcs11/pkcs11_init.c
+@@ -401,9 +401,19 @@
+             {
+                 if (CKR_OK == (rv = pkcs11_lock_device(lib_ctx)))
+                 {
++                    CK_RV init_rv = CKR_OK;
+                     for (CK_ULONG i = 0; i < slotCount; i++)
+                     {
+-                        rv = pkcs11_slot_init(slotList[i]);
++                        init_rv = pkcs11_slot_init(slotList[i]);
++                        if (CKR_OK == init_rv)
++                        {
++                            rv = CKR_OK;
++                            break;
++                        }
++                        else if (CKR_OK == rv)
++                        {
++                            rv = init_rv;
++                        }
+                     }
+                     (void)pkcs11_unlock_device(lib_ctx);
+                 }
