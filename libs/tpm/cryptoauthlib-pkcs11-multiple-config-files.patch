@@ -8,7 +8,19 @@
  #include <stdbool.h>
  
  #include "cryptoauthlib.h"
-@@ -1291,8 +1292,9 @@
+@@ -995,6 +997,11 @@
+         {
+             /* Unrecognized key encountered */
+         }
++
++        if (CKR_OK != rv)
++        {
++            break;
++        }
+     }
+     return rv;
+ }
+@@ -1291,8 +1298,9 @@
                  size_t fn_len = strlen(de->d_name);
                  if (5u < fn_len && ((size_t)MAX_CONF_FILE_NAME_SIZE > fn_len))
                  {
@@ -20,6 +32,39 @@
                      {
                          /* coverity[misra_c_2012_directive_4_12_violation] Standard library functions are required */
                          /* coverity[misra_c_2012_rule_21_3_violation] Standard library functions are required */
+@@ -1330,5 +1338,6 @@
+     argc = sizeof(argv) / sizeof(argv[0]);
+     /* First parse base file and then parse handle files if present*/
++    CK_BBOOL any_base_config_loaded = FALSE;
+     while (NULL != updateConfFileData[i])
+     {
+         size_t fileName_len = strlen(updateConfFileData[i]->filename);
+@@ -1439,7 +1448,13 @@
+                             /* Load configuration is successful*/
+                             slot_ctx->slot_state = SLOT_STATE_CONFIGURED;
+                             updateConfFileData[i]->initialized = true;
++                            any_base_config_loaded = TRUE;
+                         }
++                        else
++                        {
++                            updateConfFileData[i]->initialized = true;
++                            rv = CKR_OK;
++                        }
+ #endif
+                         pkcs11_os_free(buf);
+                     }
+@@ -1584,5 +1598,10 @@
+         i++;
+     }
+ 
++    if (FALSE == any_base_config_loaded)
++    {
++        rv = CKR_GENERAL_ERROR;
++    }
++
+     for (i = 0; NULL != updateConfFileData[i]; i++)
+     {
+         pkcs11_os_free(updateConfFileData[i]);
 --- a/lib/pkcs11/pkcs11_init.c
 +++ b/lib/pkcs11/pkcs11_init.c
 @@ -401,9 +401,19 @@
