@@ -120,6 +120,25 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_serial_number(sb_config_t config, uint64_t serial_number);
 
 /**
+ * @brief Set the device's LAN IP address.
+ *
+ * SB-3394 — the LAN IP is what the device sees on its own network interface
+ * (typically an RFC1918 address like 192.168.x.y), distinct from the WAN-side
+ * address the API observes via the request. The SDK does NOT detect this
+ * itself — the integrator (scorbitd on Linux via getifaddrs(), OEM platforms
+ * via their own method) supplies it here, and the SDK relays it to the API
+ * in the scorbitron-object PATCH at startup.
+ *
+ * Optional. Pass NULL or an empty string to leave it unset (legacy behavior;
+ * the API renders an em-dash on the Backstage diagnostic tab).
+ *
+ * @param config The configuration handle.
+ * @param lan_ip Null-terminated IP string (IPv4 or IPv6) or NULL to leave unset.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_lan_ip(sb_config_t config, const char *lan_ip);
+
+/**
  * @brief Enable or disable automatic player picture downloads.
  *
  * @param config The configuration handle.

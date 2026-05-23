@@ -47,6 +47,12 @@ struct DeviceInfo {
     std::string cfHostname;
     std::string uuid;
     uint64_t serialNumber {0};
+    // SB-3394 — LAN IP of the device's primary network interface. The SDK
+    // does NOT detect this itself (cross-platform networking is the
+    // integrator's job — getifaddrs on Linux, GetAdaptersAddresses on
+    // Windows, etc.); scorbitd / OEM integrators call setLanIp() and the
+    // SDK relays the value in initScorbitronObject. Empty = not set.
+    std::string lanIp;
     bool autoDownloadPlayerPics {false};
     std::vector<std::string> scoreFeatures;
     int scoreFeaturesVersion {0};

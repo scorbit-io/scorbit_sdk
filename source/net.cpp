@@ -1784,6 +1784,14 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
     m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = false;
     m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = false;
+
+    // SB-3394 — only emit the LAN IP when the integrator supplied one. The
+    // API serializer validates as IPAddressField; sending an empty string
+    // would fail validation, and leaving the key off matches the legacy
+    // shape that older API releases handle as null.
+    if (!m_deviceInfo.lanIp.empty()) {
+        m_scorbitronObject[JKEY_SOBJ_LAN_IP] = m_deviceInfo.lanIp;
+    }
 }
 
 void Net::sendScorbitronObject()
