@@ -155,6 +155,25 @@ public:
     }
 
     /**
+     * @brief Set the device's LAN IP address.
+     *
+     * SB-3394 — the LAN IP is what the device sees on its own network interface
+     * (typically an RFC1918 address), distinct from the WAN-side address the API
+     * observes via the request. The SDK does not detect this itself; integrators
+     * supply it here and the SDK relays it to the API in the scorbitron-object
+     * PATCH at startup. Optional — leave unset on platforms / integrators that
+     * don't have a clean detection path.
+     *
+     * @param lanIp IPv4 or IPv6 string. Empty string is treated as "not set".
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setLanIp(const std::string &lanIp)
+    {
+        sb_config_set_lan_ip(m_handle.get(), lanIp.c_str());
+        return *this;
+    }
+
+    /**
      * @brief Enable or disable automatic player picture downloads.
      * @param enable If true, player pictures are downloaded automatically.
      * @return Reference to this Config for method chaining.

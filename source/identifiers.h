@@ -166,6 +166,10 @@ constexpr auto JKEY_SOBJ_GAME_CODE_VERSION {"game_code_version"};
 constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
+// SB-3394 — LAN IP supplied by the integrator via Config::setLanIp(). Distinct
+// from the WAN-side IP the API observes on the request; useful for "did the
+// device get a DHCP lease" debugging on the Backstage diagnostic tab.
+constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};

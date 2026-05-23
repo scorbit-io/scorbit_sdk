@@ -80,6 +80,13 @@ void sb_config_set_serial_number(sb_config_t config, uint64_t serial_number)
     }
 }
 
+void sb_config_set_lan_ip(sb_config_t config, const char *lan_ip)
+{
+    if (config) {
+        config->lanIp = lan_ip ? lan_ip : std::string {};
+    }
+}
+
 void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable)
 {
     if (config) {
