@@ -20,28 +20,25 @@ constexpr auto ARG_SCORE_ID {"score_id"};
 // URLs
 constexpr auto NOOP_URL {"http://api.scorbit.io/api/noop/"};
 
-constexpr auto URL_API = "api";
-
-constexpr auto URL_SCORBITRON_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/token/"};
-constexpr auto URL_SCORBITRON_CF_TOKEN {"v2/scorbitrons/{scorbitron_uuid}/socket/"};
-constexpr auto URL_SCORBITRON_CONFIG {"v2/scorbitrons/{scorbitron_uuid}/config/"};
-constexpr auto URL_SCORBITRON_SESSIONS {"v2/scorbitrons/{scorbitron_uuid}/sessions/"};
+constexpr auto URL_SCORBITRON_TOKEN {"api/v2/scorbitrons/{scorbitron_uuid}/token/"};
+constexpr auto URL_SCORBITRON_CF_TOKEN {"api/v2/scorbitrons/{scorbitron_uuid}/socket/"};
+constexpr auto URL_SCORBITRON_CONFIG {"api/v2/scorbitrons/{scorbitron_uuid}/config/"};
+constexpr auto URL_SCORBITRON_SESSIONS {"api/v2/scorbitrons/{scorbitron_uuid}/sessions/"};
 constexpr auto URL_SCORBITRON_SESSION_UPDATE {
-        "v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
-constexpr auto URL_SCORBITRON_OBJECT {"v2/scorbitrons/{scorbitron_uuid}/"};
-constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"v2/scorbitrons/{scorbitron_uuid}/nonce/"};
-constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {"v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
-constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
-constexpr auto URL_MACHINE_OBJECT {"v2/machines/{machine_uuid}/"};
-constexpr auto URL_MACHINE_LEADERS {"v2/machines/{machine_uuid}/leaders/"};
-constexpr auto URL_VARIANT_LEADERS {"v2/variants/{variant_uuid}/leaders/"};
-constexpr auto URL_GAME_LEADERS {"v2/games/{game_slug}/leaders/"};
-constexpr auto URL_SCORBITRON_DIAGNOSTICS {"v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
-// Diagnostic-trace device-egress ack — not under /api/ on the server, so callers must build the
-// full URL with m_hostname directly rather than via the url() helper (which prepends URL_API).
+        "api/v2/scorbitrons/{scorbitron_uuid}/sessions/{session_uuid}/"};
+constexpr auto URL_SCORBITRON_OBJECT {"api/v2/scorbitrons/{scorbitron_uuid}/"};
+constexpr auto URL_SCORBITRON_NFC_NONCE_CREATE {"api/v2/scorbitrons/{scorbitron_uuid}/nonce/"};
+constexpr auto URL_SCORBITRON_CREDIT_DROP_CREATE {
+        "api/v2/scorbitrons/{scorbitron_uuid}/credit-drop/"};
+constexpr auto URL_SCORBITRON_FIRMWARES_LIST {"api/v2/scorbitrons/{scorbitron_uuid}/firmwares/"};
+constexpr auto URL_MACHINE_OBJECT {"api/v2/machines/{machine_uuid}/"};
+constexpr auto URL_MACHINE_LEADERS {"api/v2/machines/{machine_uuid}/leaders/"};
+constexpr auto URL_VARIANT_LEADERS {"api/v2/variants/{variant_uuid}/leaders/"};
+constexpr auto URL_GAME_LEADERS {"api/v2/games/{game_slug}/leaders/"};
+constexpr auto URL_SCORBITRON_DIAGNOSTICS {"api/v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
 constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 
-constexpr auto URL_V2_PROVISION {"v2/provision/"};
+constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
 constexpr auto URL_CLAIM_DEEPLINK {

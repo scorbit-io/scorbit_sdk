@@ -1018,11 +1018,7 @@ void Net::postDiagnosticAck(const std::string &traceId, uint64_t sequence,
                         {JKEY_DIAG_HOP, JVAL_DIAG_HOP_DEVICE_EGRESS},
                         {JKEY_DIAG_TS, createdAt},
                         {JKEY_DIAG_PAYLOAD, {{JKEY_DIAG_SEQUENCE, sequence}}}};
-                // /internal/api/diagnostics/ack/ lives outside the /api/ tree
-                // the url() helper assumes, so build the URL directly from
-                // the hostname.
-                const auto endpoint =
-                        cpr::Url {fmt::format("{}/{}", m_hostname, URL_DIAGNOSTICS_ACK_PATH)};
+                const auto endpoint = url(URL_DIAGNOSTICS_ACK_PATH);
                 INF("API sending diag ack: {}", j.dump());
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));

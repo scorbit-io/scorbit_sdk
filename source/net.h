@@ -282,7 +282,7 @@ private:
             return cpr::Url {formattedEndpoint};
         }
 
-        const auto myurl = fmt::format("{}/{}/{}", m_hostname, URL_API, formattedEndpoint);
+        const auto myurl = fmt::format("{}/{}", m_hostname, formattedEndpoint);
         return cpr::Url {myurl};
     }
 

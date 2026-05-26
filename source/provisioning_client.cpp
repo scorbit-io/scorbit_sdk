@@ -54,7 +54,7 @@ std::optional<ProvisionResult> ProvisioningClient::initiate(const std::string &p
     auto headers = buildProviderAuthHeaders(providerId, providerKey, serverTimestamp);
     headers[HDR_KEY_CACHE_CONTROL] = HDR_VAL_NO_CACHE;
 
-    const auto fullUrl = fmt::format("{}/{}/{}", m_hostname, URL_API, URL_V2_PROVISION);
+    const auto fullUrl = fmt::format("{}/{}", m_hostname, URL_V2_PROVISION);
     INF("Provisioning: initiating GET {}", fullUrl);
 
     auto r = cpr::Get(cpr::Url {fullUrl}, headers, cpr::Timeout {PROVISION_TIMEOUT}, m_sslOptions);
@@ -100,7 +100,7 @@ ProvisioningClient::confirm(const ProvisionResult &initiated, const std::string 
         headers[HDR_KEY_FINGERPRINT_HASH] = fingerprintHash;
     }
 
-    const auto fullUrl = fmt::format("{}/{}/{}", m_hostname, URL_API, URL_V2_PROVISION);
+    const auto fullUrl = fmt::format("{}/{}", m_hostname, URL_V2_PROVISION);
     INF("Provisioning: confirming POST {}", fullUrl);
 
     auto r = cpr::Post(cpr::Url {fullUrl}, cpr::Body {bodyStr}, headers,
