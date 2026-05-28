@@ -9,9 +9,11 @@
 #pragma once
 
 #include "wifi_diagnostics.h"
+#include "wpa_supplicant_dbus.h"
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -61,7 +63,10 @@ private:
     Sample collectSample(bool includeProbes, bool isFinal = false);
     void maybeEmitLinkEvent(const LinkInfo &link);
     void maybeEmitScanEvent();
+    void startDbusListener();
+    void stopDbusListener();
     void emitEvent(std::string kind, std::string payloadJson = {}, std::optional<int> reasonCode = {});
+    void emitEvent(Event event);
     void emitFinalSample();
 
     Options m_options;
@@ -73,6 +78,8 @@ private:
     std::string m_stopReason;
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
+    std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;
+    bool m_dbusListenerActive {false};
 };
 
 } // namespace wifi
