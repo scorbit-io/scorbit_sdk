@@ -179,6 +179,7 @@ constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SOBJ_DIAG_PROBE_CAPABLE {"diag_probe_capable"};
+constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};

@@ -28,6 +28,7 @@
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
 #include "utils/archiver.h"
+#include "utils/lan_ip.h"
 #include <utils/bytearray.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>
@@ -1899,6 +1900,10 @@ void Net::initScorbitronObject()
     // SB-3363 — handler ships unconditionally; advertise so the API can gate
     // probe dispatch on this bool and avoid timing out old-SDK devices.
     m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
+
+    if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
+        m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
+    }
 }
 
 void Net::sendScorbitronObject()
