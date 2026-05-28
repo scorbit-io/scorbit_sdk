@@ -1877,7 +1877,7 @@ void Net::initializeConnectionState()
     requestFirmwaresList();
     sendHeartbeat();
     startHeartbeatTimer();
-    centrifugoConnect();
+    restartCentrifugo();
     createNfcNonces();
 }
 
