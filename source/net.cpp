@@ -941,8 +941,8 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
         }
         // Cap the dedupe set so it cannot grow unbounded across long process
         // lifetimes. Real-world cadence is at most a few traces per device
-        // per day; clearing the oldest half at 1000 keeps memory trivial.
-        if (m_seenDiagTraceIds.size() > 1000) {
+        // per day; clearing the half at 10 keeps memory trivial.
+        if (m_seenDiagTraceIds.size() > 10) {
             const auto half = m_seenDiagTraceIds.size() / 2;
             auto it = m_seenDiagTraceIds.begin();
             for (size_t i = 0; i < half && it != m_seenDiagTraceIds.end(); ++i) {
