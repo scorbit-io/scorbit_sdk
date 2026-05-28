@@ -16,6 +16,7 @@ constexpr auto ARG_VARIANT_UUID {"variant_uuid"};
 constexpr auto ARG_GAME_SLUG {"game_slug"};
 constexpr auto ARG_SESSION_UUID {"session_uuid"};
 constexpr auto ARG_SCORE_ID {"score_id"};
+constexpr auto ARG_RUN_ID {"run_id"};
 
 // URLs
 constexpr auto NOOP_URL {"http://api.scorbit.io/api/noop/"};
@@ -37,6 +38,9 @@ constexpr auto URL_VARIANT_LEADERS {"api/v2/variants/{variant_uuid}/leaders/"};
 constexpr auto URL_GAME_LEADERS {"api/v2/games/{game_slug}/leaders/"};
 constexpr auto URL_SCORBITRON_DIAGNOSTICS {"api/v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
 constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
+constexpr auto URL_DIAGNOSTICS_WIFI_SAMPLE_PATH {
+        "internal/api/diagnostics/wifi-sample/{run_id}/"};
+constexpr auto URL_DIAGNOSTICS_WIFI_EVENT_PATH {"internal/api/diagnostics/wifi-event/{run_id}/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
@@ -125,6 +129,8 @@ constexpr auto JKEY_CHN_PAYLOAD {"payload"};
 constexpr auto JVAL_CHN_TYPE_START_GAME {"start_game"};
 constexpr auto JVAL_CHN_TYPE_ADD_CREDITS {"add_credits"};
 constexpr auto JVAL_CHN_TYPE_DIAG_PROBE {"diag_probe"};
+constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_START {"diag_capture_start"};
+constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_STOP {"diag_capture_stop"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
@@ -146,11 +152,30 @@ constexpr auto JVAL_SCR_GAME_END {"game_end"};
 // control_machine, the tagged packet republished to machine:<uuid>, and the
 // device_egress ack POSTed to /internal/api/diagnostics/ack/.
 constexpr auto JKEY_DIAG_TRACE_ID {"trace_id"};
+constexpr auto JKEY_DIAG_RUN_ID {"run_id"};
 constexpr auto JKEY_DIAG_DEADLINE_SECONDS {"deadline_seconds"};
+constexpr auto JKEY_DIAG_REQUESTED_DURATION {"requested_duration"};
 constexpr auto JKEY_DIAG_HOP {"hop"};
 constexpr auto JKEY_DIAG_TS {"ts"};
 constexpr auto JKEY_DIAG_PAYLOAD {"payload"};
 constexpr auto JKEY_DIAG_SEQUENCE {"sequence"};
+constexpr auto JKEY_DIAG_KIND {"kind"};
+constexpr auto JKEY_DIAG_REASON_CODE {"reason_code"};
+constexpr auto JKEY_DIAG_RSSI_DBM {"rssi_dbm"};
+constexpr auto JKEY_DIAG_LINK_RATE_MBPS {"link_rate_mbps"};
+constexpr auto JKEY_DIAG_TX_RETRY_PCT {"tx_retry_pct"};
+constexpr auto JKEY_DIAG_BEACON_LOSS_COUNT {"beacon_loss_count"};
+constexpr auto JKEY_DIAG_GATEWAY_RTT_MS {"gateway_rtt_ms"};
+constexpr auto JKEY_DIAG_GATEWAY_LOSS_PCT {"gateway_loss_pct"};
+constexpr auto JKEY_DIAG_SCORBIT_RTT_MS {"scorbit_rtt_ms"};
+constexpr auto JKEY_DIAG_SCORBIT_LOSS_PCT {"scorbit_loss_pct"};
+constexpr auto JKEY_DIAG_PUBLIC_RTT_MS {"public_rtt_ms"};
+constexpr auto JKEY_DIAG_PUBLIC_LOSS_PCT {"public_loss_pct"};
+constexpr auto JKEY_DIAG_BSSID {"bssid"};
+constexpr auto JKEY_DIAG_SSID {"ssid"};
+constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
+constexpr auto JKEY_DIAG_CHANNEL {"channel"};
+constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};
 constexpr auto JVAL_DIAG_HOP_DEVICE_EGRESS {"device_egress"};
 
 // Scorbitron config
@@ -179,6 +204,7 @@ constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SOBJ_DIAG_PROBE_CAPABLE {"diag_probe_capable"};
+constexpr auto JKEY_SOBJ_DIAG_CAPTURE_CAPABLE {"diag_capture_capable"};
 constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};

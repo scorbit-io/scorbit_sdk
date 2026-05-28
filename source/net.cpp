@@ -290,6 +290,11 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
 Net::~Net()
 {
+    if (m_networkMonitor) {
+        m_networkMonitor->stop("shutdown");
+        m_networkMonitor.reset();
+    }
+
     if (!m_stop.exchange(true)) {
         stopHeartbeatTimer();
         stopTokenRefreshTimer();
@@ -1023,6 +1028,176 @@ void Net::postDiagnosticAck(const std::string &traceId, uint64_t sequence,
                 INF("API sending diag ack: {}", j.dump());
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));
+}
+
+void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
+{
+    std::string runId;
+    int requestedDuration = 0;
+    try {
+        runId = payload.value(JKEY_DIAG_RUN_ID, std::string {});
+        requestedDuration = payload.value(JKEY_DIAG_REQUESTED_DURATION,
+                                          payload.value(JKEY_DIAG_DEADLINE_SECONDS, 0));
+    } catch (const std::exception &e) {
+        WRN("DIAG: capture start payload error: {}", e.what());
+        return;
+    }
+
+    if (runId.empty() || requestedDuration <= 0) {
+        WRN("DIAG: capture start missing run_id or duration, dropping");
+        return;
+    }
+
+    if (m_networkMonitor && m_networkMonitor->isActive()) {
+        WRN("DIAG: capture start refused: run_id={} active_run_id={}", runId,
+            m_networkMonitor->runId());
+        return;
+    }
+
+    wifi::NetworkMonitor::Options options;
+    options.runId = runId;
+    options.requestedDuration = std::chrono::seconds {requestedDuration};
+
+    wifi::NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [this, runId](const wifi::Sample &sample) {
+        postWifiCaptureSample(runId, sample);
+    };
+    callbacks.onEvent = [this, runId](const wifi::Event &event) {
+        postWifiCaptureEvent(runId, event);
+    };
+
+    m_networkMonitor = std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
+    if (!m_networkMonitor->start()) {
+        WRN("DIAG: capture start failed: run_id={}", runId);
+        m_networkMonitor.reset();
+        return;
+    }
+
+    INF("DIAG: capture started: run_id={} duration={}s", runId, requestedDuration);
+}
+
+void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
+{
+    const auto runId = payload.value(JKEY_DIAG_RUN_ID, std::string {});
+    if (!m_networkMonitor || !m_networkMonitor->isActive() || m_networkMonitor->runId() != runId) {
+        WRN("DIAG: capture stop ignored: no matching active capture run_id={}", runId);
+        return;
+    }
+
+    m_networkMonitor->stop("manual_stop");
+    m_networkMonitor.reset();
+    INF("DIAG: capture stopped: run_id={}", runId);
+}
+
+void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample)
+{
+    m_worker.post(createPostRequestTask(
+            [runId](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API wifi capture sample: ok, run_id={}", runId);
+                } else {
+                    WRN("API wifi capture sample: failed, run_id={}, error code: {}, reply: {}",
+                        runId, static_cast<int>(error), reply);
+                }
+            },
+            [this, runId, sample]() {
+                auto addInt = [](json &j, const char *key, const std::optional<int> &value) {
+                    if (value) {
+                        j[key] = *value;
+                    }
+                };
+                auto addDouble = [](json &j, const char *key, const std::optional<double> &value) {
+                    if (value) {
+                        j[key] = *value;
+                    }
+                };
+                auto addProbe = [&](json &j, const std::optional<wifi::ProbeResult> &probe,
+                                    const char *rttKey, const char *lossKey) {
+                    if (!probe) {
+                        return;
+                    }
+                    addInt(j, rttKey, probe->rttMs);
+                    addDouble(j, lossKey, probe->lossPct);
+                };
+
+                json j {{JKEY_DIAG_TS, to_iso8601(sample.ts)},
+                        {JKEY_DIAG_SSID, sample.link.ssid},
+                        {JKEY_DIAG_BSSID, sample.link.bssid},
+                        {JKEY_DIAG_IS_FINAL, sample.isFinal}};
+
+                addInt(j, JKEY_DIAG_RSSI_DBM, sample.link.rssiDbm);
+                addInt(j, JKEY_DIAG_LINK_RATE_MBPS, sample.link.linkRateMbps);
+                addDouble(j, JKEY_DIAG_TX_RETRY_PCT, sample.link.txRetryPct);
+                addInt(j, JKEY_DIAG_BEACON_LOSS_COUNT, sample.link.beaconLossCount);
+                addInt(j, JKEY_DIAG_FREQ_MHZ, sample.link.freqMhz);
+                addInt(j, JKEY_DIAG_CHANNEL, sample.link.channel);
+                addProbe(j, sample.gateway, JKEY_DIAG_GATEWAY_RTT_MS, JKEY_DIAG_GATEWAY_LOSS_PCT);
+                addProbe(j, sample.scorbit, JKEY_DIAG_SCORBIT_RTT_MS, JKEY_DIAG_SCORBIT_LOSS_PCT);
+                addProbe(j, sample.publicInternet, JKEY_DIAG_PUBLIC_RTT_MS,
+                         JKEY_DIAG_PUBLIC_LOSS_PCT);
+
+                const auto endpoint = url(URL_DIAGNOSTICS_WIFI_SAMPLE_PATH, fmt::arg(ARG_RUN_ID, runId));
+                INF("API sending wifi capture sample: run_id={}, final={}", runId, sample.isFinal);
+                return std::make_tuple(endpoint, cpr::Body {j.dump()});
+            }));
+}
+
+void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &event)
+{
+    m_worker.post(createPostRequestTask(
+            [runId, kind = event.kind](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API wifi capture event: ok, run_id={}, kind={}", runId, kind);
+                } else {
+                    WRN("API wifi capture event: failed, run_id={}, kind={}, error code: {}, "
+                        "reply: {}",
+                        runId, kind, static_cast<int>(error), reply);
+                }
+            },
+            [this, runId, event]() {
+                json payload = json::object();
+                if (!event.payloadJson.empty()) {
+                    try {
+                        payload = json::parse(event.payloadJson);
+                    } catch (const std::exception &) {
+                        payload = event.payloadJson;
+                    }
+                }
+
+                json j {{JKEY_DIAG_TS, to_iso8601(event.ts)},
+                        {JKEY_DIAG_KIND, event.kind},
+                        {JKEY_DIAG_PAYLOAD, payload}};
+                if (event.reasonCode) {
+                    j[JKEY_DIAG_REASON_CODE] = *event.reasonCode;
+                }
+
+                const auto endpoint = url(URL_DIAGNOSTICS_WIFI_EVENT_PATH, fmt::arg(ARG_RUN_ID, runId));
+                INF("API sending wifi capture event: run_id={}, kind={}", runId, event.kind);
+                return std::make_tuple(endpoint, cpr::Body {j.dump()});
+            }));
+}
+
+void Net::recoverNetworkMonitorState()
+{
+    if (m_networkMonitorStateRecovered) {
+        return;
+    }
+    m_networkMonitorStateRecovered = true;
+
+    const auto state = wifi::NetworkMonitor::recoverState();
+    if (!state || state->deadline <= std::chrono::system_clock::now()) {
+        return;
+    }
+
+    nlohmann::json payload {
+            {"started_at", to_iso8601(state->startedAt)},
+            {"deadline", to_iso8601(state->deadline)},
+            {"now", to_iso8601(std::chrono::system_clock::now())},
+    };
+    wifi::Event event;
+    event.kind = "scorbitd_restart";
+    event.payloadJson = payload.dump();
+    postWifiCaptureEvent(state->runId, event);
 }
 
 void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
@@ -1880,6 +2055,7 @@ void Net::initializeConnectionState()
     startHeartbeatTimer();
     restartCentrifugo();
     createNfcNonces();
+    recoverNetworkMonitorState();
 }
 
 void Net::initScorbitronObject()
@@ -1900,6 +2076,7 @@ void Net::initScorbitronObject()
     // SB-3363 — handler ships unconditionally; advertise so the API can gate
     // probe dispatch on this bool and avoid timing out old-SDK devices.
     m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
+    m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
@@ -2796,6 +2973,10 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                                 std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
                     } else if (type == JVAL_CHN_TYPE_DIAG_PROBE) {
                         handleDiagnosticProbe(*payloadIt);
+                    } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_START) {
+                        handleDiagnosticCaptureStart(*payloadIt);
+                    } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_STOP) {
+                        handleDiagnosticCaptureStop(*payloadIt);
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
                     }

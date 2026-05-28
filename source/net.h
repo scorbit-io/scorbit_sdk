@@ -29,6 +29,7 @@
 #include "identifiers.h"
 #include "event_manager.h"
 #include "utils/machine_fingerprint.h"
+#include "utils/wifi/network_monitor.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
@@ -39,6 +40,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <memory>
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -265,6 +267,11 @@ private:
                                  const std::string &createdAt);
     void postDiagnosticAck(const std::string &traceId, uint64_t sequence,
                            const std::string &createdAt);
+    void handleDiagnosticCaptureStart(const nlohmann::json &payload);
+    void handleDiagnosticCaptureStop(const nlohmann::json &payload);
+    void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample);
+    void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event);
+    void recoverNetworkMonitorState();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
     void updateDiscoveryDescription();
@@ -341,6 +348,8 @@ private:
     std::atomic<uint64_t> m_diagProbeSequence {0};
     std::unordered_set<std::string> m_seenDiagTraceIds;
     mutable std::mutex m_seenDiagTraceIdsMutex;
+    std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;
+    bool m_networkMonitorStateRecovered {false};
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;

@@ -223,6 +223,10 @@ target_sources(
         source/utils/archiver.cpp
         source/utils/lan_ip.h
         source/utils/lan_ip.cpp
+        source/utils/wifi/wifi_diagnostics.h
+        source/utils/wifi/wifi_diagnostics.cpp
+        source/utils/wifi/network_monitor.h
+        source/utils/wifi/network_monitor.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
