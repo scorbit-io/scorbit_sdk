@@ -121,6 +121,11 @@ target_sources(
         ../../source/utils/lan_ip.h
         ../../source/utils/lan_ip.cpp
         source/test_lan_ip.cpp
+        ../../source/utils/wifi/wifi_diagnostics.h
+        ../../source/utils/wifi/wifi_diagnostics.cpp
+        ../../source/utils/wifi/network_monitor.h
+        ../../source/utils/wifi/network_monitor.cpp
+        source/test_wifi_diagnostics.cpp
         ../../source/utils/machine_fingerprint.h
         ../../source/utils/machine_fingerprint.cpp
         source/test_machine_fingerprint.cpp
