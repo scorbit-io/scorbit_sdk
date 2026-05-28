@@ -912,6 +912,118 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
     });
 }
 
+void Net::handleDiagnosticProbe(const nlohmann::json &payload)
+{
+    // SB-3363 — see eng_docs/plans/scorbitd_diagnostic_implementation_plan.md.
+    // Inbound shape: {"type":"diag_probe","payload":{"trace_id":"...",
+    // "deadline_seconds":15}}.  Validate, dedupe defensively (a Centrifugo
+    // history replay after reconnect could deliver the same probe twice),
+    // then hand the publish + ack off to the worker strand so the centrifugo
+    // dispatcher thread is never blocked on network I/O.
+    std::string traceId;
+    try {
+        traceId = payload.value(JKEY_DIAG_TRACE_ID, std::string {});
+    } catch (const std::exception &e) {
+        WRN("DIAG: probe payload error: {}", e.what());
+        return;
+    }
+    if (traceId.empty()) {
+        WRN("DIAG: probe missing trace_id, dropping");
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_seenDiagTraceIdsMutex);
+        const auto [_, inserted] = m_seenDiagTraceIds.insert(traceId);
+        if (!inserted) {
+            WRN("DIAG: probe trace_id={} already seen, refusing duplicate", traceId);
+            return;
+        }
+        // Cap the dedupe set so it cannot grow unbounded across long process
+        // lifetimes. Real-world cadence is at most a few traces per device
+        // per day; clearing the half at 10 keeps memory trivial.
+        if (m_seenDiagTraceIds.size() > 10) {
+            const auto half = m_seenDiagTraceIds.size() / 2;
+            auto it = m_seenDiagTraceIds.begin();
+            for (size_t i = 0; i < half && it != m_seenDiagTraceIds.end(); ++i) {
+                it = m_seenDiagTraceIds.erase(it);
+            }
+        }
+    }
+
+    const auto sequence = m_diagProbeSequence.fetch_add(1, std::memory_order_relaxed);
+    const auto createdAt = to_iso8601(chrono::system_clock::now());
+
+    INF("DIAG: received probe trace_id={} sequence={} channel={}", traceId, sequence,
+        m_machineChannel);
+
+    publishDiagnosticPacket(traceId, sequence, createdAt);
+    postDiagnosticAck(traceId, sequence, createdAt);
+}
+
+void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
+                                  const std::string &createdAt)
+{
+    m_worker.post([this, traceId, sequence, createdAt]() {
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
+        if (m_machineChannel.empty()) {
+            WRN("DIAG: machine channel not ready, dropping publish for trace_id={}", traceId);
+            return;
+        }
+
+        json j {{JKEY_CHN_TYPE, JVAL_CHN_TYPE_DIAG_PROBE},
+                {JKEY_CHN_PAYLOAD,
+                 {
+                         {JKEY_DIAG_TRACE_ID, traceId},
+                 }},
+                {JKEY_SCR_METADATA,
+                 {
+                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
+                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
+                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_SEQUENCE, sequence},
+                         {JKEY_SCR_CREATED_AT, createdAt},
+                         {JKEY_SCR_UPDATED_AT, createdAt},
+                 }}};
+
+        INF("API-CF sending diag probe: {}", j.dump());
+        const auto r = m_centrifugo->publish(m_machineChannel, j);
+        if (!r) {
+            WRN("API-CF failed to send diag probe: code:{}, error: {}", r.error().ec.value(),
+                r.error().message);
+        }
+    });
+}
+
+void Net::postDiagnosticAck(const std::string &traceId, uint64_t sequence,
+                            const std::string &createdAt)
+{
+    m_worker.post(createPostRequestTask(
+            [traceId](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API diag ack: ok, trace_id={}, {}", traceId, reply);
+                } else {
+                    // Ack is best-effort — the synthetic subscriber's primary
+                    // signal is the machine: channel publish above. Log and
+                    // move on so a failing ack POST never throws or blocks
+                    // subsequent dispatches.
+                    WRN("API diag ack: failed, trace_id={}, error code: {}, reply: {}", traceId,
+                        static_cast<int>(error), reply);
+                }
+            },
+            [this, traceId, sequence, createdAt]() {
+                json j {{JKEY_DIAG_TRACE_ID, traceId},
+                        {JKEY_DIAG_HOP, JVAL_DIAG_HOP_DEVICE_EGRESS},
+                        {JKEY_DIAG_TS, createdAt},
+                        {JKEY_DIAG_PAYLOAD, {{JKEY_DIAG_SEQUENCE, sequence}}}};
+                const auto endpoint = url(URL_DIAGNOSTICS_ACK_PATH);
+                INF("API sending diag ack: {}", j.dump());
+                return std::make_tuple(endpoint, cpr::Body {j.dump()});
+            }));
+}
+
 void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn)
 {
@@ -1784,6 +1896,9 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
     m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = false;
     m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = false;
+    // SB-3363 — handler ships unconditionally; advertise so the API can gate
+    // probe dispatch on this bool and avoid timing out old-SDK devices.
+    m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
 }
 
 void Net::sendScorbitronObject()
@@ -2674,6 +2789,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                                 payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
                         m_eventManager->push(
                                 std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
+                    } else if (type == JVAL_CHN_TYPE_DIAG_PROBE) {
+                        handleDiagnosticProbe(*payloadIt);
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
                     }
