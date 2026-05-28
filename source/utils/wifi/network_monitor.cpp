@@ -62,6 +62,7 @@ bool NetworkMonitor::start()
     writeStateFile(m_options.stateFilePath,
                    State {m_options.runId, startedAt, startedAt + m_options.requestedDuration});
 
+    startDbusListener();
     m_thread = std::thread {[this] { run(); }};
     return true;
 }
@@ -78,6 +79,7 @@ void NetworkMonitor::stop(const std::string &endReason)
     }
     m_cv.notify_all();
 
+    stopDbusListener();
     if (m_thread.joinable()) {
         m_thread.join();
     }
@@ -178,6 +180,11 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
 
 void NetworkMonitor::maybeEmitLinkEvent(const LinkInfo &link)
 {
+    if (m_dbusListenerActive) {
+        m_lastLink = link;
+        return;
+    }
+
     if (!m_lastLink) {
         if (link.connected) {
             emitEvent("assoc", linkPayload(link));
@@ -223,17 +230,41 @@ void NetworkMonitor::maybeEmitScanEvent()
 #endif
 }
 
+void NetworkMonitor::startDbusListener()
+{
+#if defined(__linux__)
+    m_dbusListener = std::make_unique<WpaSupplicantDbusListener>([this](Event event) {
+        emitEvent(std::move(event));
+    });
+    m_dbusListenerActive = m_dbusListener->start();
+#endif
+}
+
+void NetworkMonitor::stopDbusListener()
+{
+    if (m_dbusListener) {
+        m_dbusListener->stop();
+        m_dbusListener.reset();
+    }
+    m_dbusListenerActive = false;
+}
+
 void NetworkMonitor::emitEvent(std::string kind, std::string payloadJson, std::optional<int> reasonCode)
 {
-    if (!m_callbacks.onEvent) {
-        return;
-    }
-
     Event event;
     event.ts = std::chrono::system_clock::now();
     event.kind = std::move(kind);
     event.reasonCode = reasonCode;
     event.payloadJson = std::move(payloadJson);
+    emitEvent(std::move(event));
+}
+
+void NetworkMonitor::emitEvent(Event event)
+{
+    if (!m_callbacks.onEvent) {
+        return;
+    }
+
     m_callbacks.onEvent(event);
 }
 

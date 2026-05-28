@@ -227,6 +227,8 @@ target_sources(
         source/utils/wifi/wifi_diagnostics.cpp
         source/utils/wifi/network_monitor.h
         source/utils/wifi/network_monitor.cpp
+        source/utils/wifi/wpa_supplicant_dbus.h
+        source/utils/wifi/wpa_supplicant_dbus.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
