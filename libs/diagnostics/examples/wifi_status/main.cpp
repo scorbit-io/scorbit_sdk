@@ -53,7 +53,8 @@ int main()
         if (!link) {
             std::cout << "Wi-Fi: unavailable\n";
         } else {
-            std::cout << "Wi-Fi: interface=" << valueOrUnknown(link->interfaceName)
+            std::cout << "Wi-Fi: backend=" << valueOrUnknown(link->backend)
+                      << " interface=" << valueOrUnknown(link->interfaceName)
                       << " connected=" << (link->connected ? "yes" : "no")
                       << " ssid=" << valueOrUnknown(link->ssid)
                       << " bssid=" << valueOrUnknown(link->bssid)

@@ -47,6 +47,17 @@ std::string lower(std::string value)
     return value;
 }
 
+void addBackend(LinkInfo &info, std::string_view backend)
+{
+    if (backend.empty()) {
+        return;
+    }
+    if (!info.backend.empty()) {
+        info.backend += "+";
+    }
+    info.backend += backend;
+}
+
 std::optional<int> parseInt(std::string_view value)
 {
     const auto text = trim(value);
@@ -252,6 +263,7 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
             if (info.interfaceName.empty()) {
                 info.interfaceName = parsed->interfaceName;
             }
+            addBackend(info, parsed->backend);
         }
     }
 
@@ -259,6 +271,7 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         station.exitCode == 0) {
         if (auto parsed = parseIwStationDump(station.output, info); parsed) {
             info = *parsed;
+            addBackend(info, "iw_station_dump");
         }
     }
 
@@ -282,6 +295,7 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
                 if (!info.rssiDbm) {
                     info.rssiDbm = parsed->rssiDbm;
                 }
+                addBackend(info, parsed->backend);
                 info.connected = info.connected || parsed->connected;
             }
         }
@@ -308,6 +322,7 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
                 if (!info.channel && info.freqMhz) {
                     info.channel = wifiChannelFromFrequency(*info.freqMhz);
                 }
+                addBackend(info, parsed->backend);
                 info.connected = info.connected || parsed->connected;
             }
         }
@@ -494,6 +509,7 @@ std::optional<LinkInfo> parseIwLink(std::string_view output, std::string interfa
 {
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
+    info.backend = "iw";
     info.interfaceName = std::move(interfaceName);
 
     static const std::regex connectedRe {R"(Connected to\s+([0-9a-fA-F:]{17}))"};
@@ -570,6 +586,7 @@ std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::strin
 
         LinkInfo info;
         info.kind = InterfaceKind::Wifi;
+        info.backend = "proc_net_wireless";
         info.interfaceName = std::move(interfaceName);
         info.connected = true;
         info.rssiDbm = static_cast<int>(level);
@@ -610,6 +627,7 @@ std::optional<LinkInfo> parseNmcliWifiList(std::string_view output)
 
         LinkInfo info;
         info.kind = InterfaceKind::Wifi;
+        info.backend = "nmcli";
         info.connected = true;
         info.ssid = fields[1];
         info.bssid = fields[2];
@@ -628,6 +646,7 @@ std::optional<LinkInfo> parseIwconfig(std::string_view output, std::string inter
 {
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
+    info.backend = "iwconfig";
     info.interfaceName = std::move(interfaceName);
 
     static const std::regex essidRe {R"ESSID(ESSID:"([^"]*)")ESSID"};
@@ -662,6 +681,7 @@ std::optional<LinkInfo> parseAirportInfo(std::string_view output)
 {
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
+    info.backend = "airport";
     info.interfaceName = "airport";
     info.ssid = matchString(output, std::regex {R"((^|\n)\s*SSID:\s*(.+))"}, 2).value_or("");
     info.bssid = matchString(output, std::regex {R"((^|\n)\s*BSSID:\s*([0-9a-fA-F:]{17}))"}, 2)
@@ -683,6 +703,7 @@ std::optional<LinkInfo> parseWdutilInfo(std::string_view output)
 {
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
+    info.backend = "wdutil";
     info.interfaceName = "wifi";
     info.ssid = matchString(output, std::regex {R"(\bSSID\s*:\s*(.+))"}).value_or("");
     info.bssid =
@@ -701,6 +722,7 @@ std::optional<LinkInfo> parseNetshWlanInterfaces(std::string_view output)
 {
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
+    info.backend = "netsh";
 
     const auto state =
             lower(matchString(output, std::regex {R"(\bState\s*:\s*(.+))"}).value_or(""));
