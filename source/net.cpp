@@ -28,7 +28,7 @@
 #include "utils/date_time_parser.h"
 #include "utils/jwt_parser.h"
 #include "utils/archiver.h"
-#include "utils/lan_ip.h"
+#include <diagnostics/lan_ip.h>
 #include <utils/bytearray.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/version.h>

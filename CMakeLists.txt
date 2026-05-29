@@ -132,6 +132,13 @@ CPMAddPackage(
     SYSTEM YES
 )
 
+CPMAddPackage(
+    NAME diagnostics
+    SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/libs/diagnostics
+    EXCLUDE_FROM_ALL YES
+    SYSTEM YES
+)
+
 # --- Add resources ---
 
 include(${MY_CMAKE_DIR}/CMakeRC.cmake)
@@ -221,14 +228,6 @@ target_sources(
         source/utils/jwt_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
-        source/utils/lan_ip.h
-        source/utils/lan_ip.cpp
-        source/utils/wifi/wifi_diagnostics.h
-        source/utils/wifi/wifi_diagnostics.cpp
-        source/utils/wifi/network_monitor.h
-        source/utils/wifi/network_monitor.cpp
-        source/utils/wifi/wpa_supplicant_dbus.h
-        source/utils/wifi/wpa_supplicant_dbus.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
@@ -303,6 +302,7 @@ target_link_libraries(
         $<BUILD_INTERFACE:centrifugo-cpp>
         $<BUILD_INTERFACE:nfc>
         $<BUILD_INTERFACE:tpm>
+        $<BUILD_INTERFACE:diagnostics>
         $<BUILD_INTERFACE:logger>
         concurrentqueue
 )

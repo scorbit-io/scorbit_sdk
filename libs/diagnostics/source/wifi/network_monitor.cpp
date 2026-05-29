@@ -6,8 +6,7 @@
  * MIT License
  */
 
-#include "network_monitor.h"
-#include "../../net_util.h"
+#include <diagnostics/wifi/network_monitor.h>
 #include <nlohmann/json.hpp>
 
 namespace scorbit {
@@ -159,7 +158,8 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
     sample.ts = std::chrono::system_clock::now();
     sample.isFinal = isFinal;
 
-    if (const auto link = collectLinkInfo(m_options.commandRunner, m_options.preferredInterface); link) {
+    if (const auto link = collectLinkInfo(m_options.commandRunner, m_options.preferredInterface);
+        link) {
         sample.link = *link;
     }
 
@@ -209,7 +209,8 @@ void NetworkMonitor::maybeEmitLinkEvent(const LinkInfo &link)
 void NetworkMonitor::maybeEmitScanEvent()
 {
 #if defined(__linux__)
-    if (!m_lastLink || m_lastLink->interfaceName.empty() || m_lastLink->kind != InterfaceKind::Wifi) {
+    if (!m_lastLink || m_lastLink->interfaceName.empty()
+        || m_lastLink->kind != InterfaceKind::Wifi) {
         return;
     }
 
@@ -233,9 +234,8 @@ void NetworkMonitor::maybeEmitScanEvent()
 void NetworkMonitor::startDbusListener()
 {
 #if defined(__linux__)
-    m_dbusListener = std::make_unique<WpaSupplicantDbusListener>([this](Event event) {
-        emitEvent(std::move(event));
-    });
+    m_dbusListener = std::make_unique<WpaSupplicantDbusListener>(
+            [this](Event event) { emitEvent(std::move(event)); });
     m_dbusListenerActive = m_dbusListener->start();
 #endif
 }
@@ -249,7 +249,8 @@ void NetworkMonitor::stopDbusListener()
     m_dbusListenerActive = false;
 }
 
-void NetworkMonitor::emitEvent(std::string kind, std::string payloadJson, std::optional<int> reasonCode)
+void NetworkMonitor::emitEvent(std::string kind, std::string payloadJson,
+                               std::optional<int> reasonCode)
 {
     Event event;
     event.ts = std::chrono::system_clock::now();

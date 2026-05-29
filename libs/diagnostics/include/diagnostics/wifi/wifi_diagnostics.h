@@ -73,8 +73,8 @@ struct CommandResult {
     std::string output;
 };
 
-using CommandRunner = std::function<CommandResult(const std::string &,
-                                                  const std::vector<std::string> &)>;
+using CommandRunner =
+        std::function<CommandResult(const std::string &, const std::vector<std::string> &)>;
 
 CommandResult runCommand(const std::string &command, const std::vector<std::string> &args);
 
