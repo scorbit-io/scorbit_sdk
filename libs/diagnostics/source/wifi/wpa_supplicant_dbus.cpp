@@ -6,12 +6,11 @@
  * MIT License
  */
 
-#include "wpa_supplicant_dbus.h"
+#include <diagnostics/wifi/wpa_supplicant_dbus.h>
 #include <nlohmann/json.hpp>
 #if defined(__linux__)
-#include <dlfcn.h>
+#    include <dlfcn.h>
 #endif
-#include <cstdint>
 
 namespace scorbit {
 namespace detail {
@@ -174,14 +173,16 @@ DbusApi loadDbusApi()
             loadSymbol<decltype(api.connectionFlush)>(api.handle, "dbus_connection_flush");
     api.connectionReadWrite =
             loadSymbol<decltype(api.connectionReadWrite)>(api.handle, "dbus_connection_read_write");
-    api.connectionPopMessage =
-            loadSymbol<decltype(api.connectionPopMessage)>(api.handle, "dbus_connection_pop_message");
+    api.connectionPopMessage = loadSymbol<decltype(api.connectionPopMessage)>(
+            api.handle, "dbus_connection_pop_message");
     api.connectionUnref =
             loadSymbol<decltype(api.connectionUnref)>(api.handle, "dbus_connection_unref");
-    api.messageGetType = loadSymbol<decltype(api.messageGetType)>(api.handle, "dbus_message_get_type");
+    api.messageGetType =
+            loadSymbol<decltype(api.messageGetType)>(api.handle, "dbus_message_get_type");
     api.messageGetMember =
             loadSymbol<decltype(api.messageGetMember)>(api.handle, "dbus_message_get_member");
-    api.messageGetPath = loadSymbol<decltype(api.messageGetPath)>(api.handle, "dbus_message_get_path");
+    api.messageGetPath =
+            loadSymbol<decltype(api.messageGetPath)>(api.handle, "dbus_message_get_path");
     api.messageUnref = loadSymbol<decltype(api.messageUnref)>(api.handle, "dbus_message_unref");
     api.messageIterInit =
             loadSymbol<decltype(api.messageIterInit)>(api.handle, "dbus_message_iter_init");

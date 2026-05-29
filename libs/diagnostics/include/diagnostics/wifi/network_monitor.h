@@ -56,7 +56,8 @@ public:
     bool isActive() const;
     const std::string &runId() const;
 
-    static std::optional<State> recoverState(const std::string &stateFilePath = defaultStateFilePath());
+    static std::optional<State>
+    recoverState(const std::string &stateFilePath = defaultStateFilePath());
 
 private:
     void run();
@@ -65,7 +66,8 @@ private:
     void maybeEmitScanEvent();
     void startDbusListener();
     void stopDbusListener();
-    void emitEvent(std::string kind, std::string payloadJson = {}, std::optional<int> reasonCode = {});
+    void emitEvent(std::string kind, std::string payloadJson = {},
+                   std::optional<int> reasonCode = {});
     void emitEvent(Event event);
     void emitFinalSample();
 

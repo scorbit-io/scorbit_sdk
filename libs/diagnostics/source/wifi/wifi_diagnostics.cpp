@@ -6,8 +6,7 @@
  * MIT License
  */
 
-#include "wifi_diagnostics.h"
-#include "../../net_util.h"
+#include <diagnostics/wifi/wifi_diagnostics.h>
 #include <nlohmann/json.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
@@ -108,21 +107,22 @@ std::optional<int> probeTcpConnectMs(std::string_view target, std::string_view s
         }
     });
 
-    resolver.async_resolve(std::string {target}, std::string {service},
-                           [&](const boost::system::error_code &ec,
-                               const tcp::resolver::results_type &results) {
-        if (ec) {
-            finalEc = ec;
-            timer.cancel();
-            return;
-        }
+    resolver.async_resolve(
+            std::string {target}, std::string {service},
+            [&](const boost::system::error_code &ec, const tcp::resolver::results_type &results) {
+                if (ec) {
+                    finalEc = ec;
+                    timer.cancel();
+                    return;
+                }
 
-        boost::asio::async_connect(socket, results, [&](const boost::system::error_code &connectEc,
-                                                        const tcp::endpoint &) {
-            finalEc = connectEc;
-            timer.cancel();
-        });
-    });
+                boost::asio::async_connect(
+                        socket, results,
+                        [&](const boost::system::error_code &connectEc, const tcp::endpoint &) {
+                            finalEc = connectEc;
+                            timer.cancel();
+                        });
+            });
 
     io.run();
     if (finalEc) {
@@ -255,15 +255,15 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         }
     }
 
-    if (const auto station = runner("iw", {"dev", *iface, "station", "dump"}); station.exitCode == 0) {
+    if (const auto station = runner("iw", {"dev", *iface, "station", "dump"});
+        station.exitCode == 0) {
         if (auto parsed = parseIwStationDump(station.output, info); parsed) {
             info = *parsed;
         }
     }
 
     if (!info.connected || info.ssid.empty() || info.bssid.empty()) {
-        if (const auto nmcli = runner("nmcli", {"-t", "-f",
-                                                "active,ssid,bssid,chan,rate,signal",
+        if (const auto nmcli = runner("nmcli", {"-t", "-f", "active,ssid,bssid,chan,rate,signal",
                                                 "dev", "wifi", "list", "--rescan", "no"});
             nmcli.exitCode == 0) {
             if (auto parsed = parseNmcliWifiList(nmcli.output); parsed) {
@@ -319,7 +319,8 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
 [[maybe_unused]] std::optional<LinkInfo> collectMacos(CommandRunner runner)
 {
     const std::vector<std::string> airportPaths {
-            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport",
+            "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/"
+            "airport",
             "airport",
     };
 
@@ -363,6 +364,16 @@ std::chrono::system_clock::time_point parseIso8601Utc(const std::string &value)
     const auto seconds = timegm(&tm);
 #endif
     return std::chrono::system_clock::from_time_t(seconds);
+}
+
+std::string toIso8601Utc(std::chrono::system_clock::time_point tp)
+{
+    const std::time_t t = std::chrono::system_clock::to_time_t(tp);
+    const std::tm tm = *std::gmtime(&t);
+
+    std::ostringstream stream;
+    stream << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return stream.str();
 }
 
 } // namespace
@@ -653,14 +664,12 @@ std::optional<LinkInfo> parseAirportInfo(std::string_view output)
     info.kind = InterfaceKind::Wifi;
     info.interfaceName = "airport";
     info.ssid = matchString(output, std::regex {R"((^|\n)\s*SSID:\s*(.+))"}, 2).value_or("");
-    info.bssid =
-            matchString(output, std::regex {R"((^|\n)\s*BSSID:\s*([0-9a-fA-F:]{17}))"}, 2)
-                    .value_or("");
+    info.bssid = matchString(output, std::regex {R"((^|\n)\s*BSSID:\s*([0-9a-fA-F:]{17}))"}, 2)
+                         .value_or("");
     info.rssiDbm = matchInt(output, std::regex {R"((^|\n)\s*agrCtlRSSI:\s*(-?\d+))"}, 2);
     info.linkRateMbps = matchInt(output, std::regex {R"((^|\n)\s*lastTxRate:\s*(\d+))"}, 2);
 
-    if (auto channel = matchInt(output, std::regex {R"((^|\n)\s*channel:\s*(\d+))"}, 2);
-        channel) {
+    if (auto channel = matchInt(output, std::regex {R"((^|\n)\s*channel:\s*(\d+))"}, 2); channel) {
         info.channel = channel;
     }
     info.connected = !info.ssid.empty() || !info.bssid.empty();
@@ -676,7 +685,8 @@ std::optional<LinkInfo> parseWdutilInfo(std::string_view output)
     info.kind = InterfaceKind::Wifi;
     info.interfaceName = "wifi";
     info.ssid = matchString(output, std::regex {R"(\bSSID\s*:\s*(.+))"}).value_or("");
-    info.bssid = matchString(output, std::regex {R"(\bBSSID\s*:\s*([0-9a-fA-F:]{17}))"}).value_or("");
+    info.bssid =
+            matchString(output, std::regex {R"(\bBSSID\s*:\s*([0-9a-fA-F:]{17}))"}).value_or("");
     info.rssiDbm = matchInt(output, std::regex {R"(\bRSSI\s*:\s*(-?\d+))"});
     info.channel = matchInt(output, std::regex {R"(\bChannel\s*:\s*(\d+))"});
     info.linkRateMbps = matchInt(output, std::regex {R"(\bTx Rate\s*:\s*(\d+))"});
@@ -692,11 +702,13 @@ std::optional<LinkInfo> parseNetshWlanInterfaces(std::string_view output)
     LinkInfo info;
     info.kind = InterfaceKind::Wifi;
 
-    const auto state = lower(matchString(output, std::regex {R"(\bState\s*:\s*(.+))"}).value_or(""));
+    const auto state =
+            lower(matchString(output, std::regex {R"(\bState\s*:\s*(.+))"}).value_or(""));
     info.connected = state.find("connected") != std::string::npos;
     info.interfaceName = matchString(output, std::regex {R"(\bName\s*:\s*(.+))"}).value_or("");
     info.ssid = matchString(output, std::regex {R"(\bSSID\s*:\s*(.+))"}).value_or("");
-    info.bssid = matchString(output, std::regex {R"(\bBSSID\s*:\s*([0-9a-fA-F:]{17}))"}).value_or("");
+    info.bssid =
+            matchString(output, std::regex {R"(\bBSSID\s*:\s*([0-9a-fA-F:]{17}))"}).value_or("");
     info.channel = matchInt(output, std::regex {R"(\bChannel\s*:\s*(\d+))"});
     if (auto signal = matchInt(output, std::regex {R"(\bSignal\s*:\s*(\d+)%?)"}); signal) {
         info.rssiDbm = (*signal / 2) - 100;
@@ -789,8 +801,8 @@ bool writeStateFile(const std::string &path, const State &state)
 
         nlohmann::json j {
                 {"run_id", state.runId},
-                {"started_at", to_iso8601(state.startedAt)},
-                {"deadline", to_iso8601(state.deadline)},
+                {"started_at", toIso8601Utc(state.startedAt)},
+                {"deadline", toIso8601Utc(state.deadline)},
         };
 
         std::ofstream file {path, std::ios::trunc};

@@ -6,7 +6,7 @@
  * MIT License
  */
 
-#include "utils/wifi/wifi_diagnostics.h"
+#include <diagnostics/wifi/wifi_diagnostics.h>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace scorbit::detail::wifi;

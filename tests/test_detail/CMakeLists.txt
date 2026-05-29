@@ -118,15 +118,7 @@ target_sources(
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp
-        ../../source/utils/lan_ip.h
-        ../../source/utils/lan_ip.cpp
         source/test_lan_ip.cpp
-        ../../source/utils/wifi/wifi_diagnostics.h
-        ../../source/utils/wifi/wifi_diagnostics.cpp
-        ../../source/utils/wifi/network_monitor.h
-        ../../source/utils/wifi/network_monitor.cpp
-        ../../source/utils/wifi/wpa_supplicant_dbus.h
-        ../../source/utils/wifi/wpa_supplicant_dbus.cpp
         source/test_wifi_diagnostics.cpp
         ../../source/utils/machine_fingerprint.h
         ../../source/utils/machine_fingerprint.cpp
@@ -186,6 +178,7 @@ target_link_libraries(
         nfc
         tpm
         utils
+        diagnostics
         $<BUILD_INTERFACE:scorbit::rc>
         nlohmann_json::nlohmann_json
         concurrentqueue

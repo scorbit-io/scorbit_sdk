@@ -29,7 +29,7 @@
 #include "identifiers.h"
 #include "event_manager.h"
 #include "utils/machine_fingerprint.h"
-#include "utils/wifi/network_monitor.h"
+#include <diagnostics/wifi/network_monitor.h>
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
