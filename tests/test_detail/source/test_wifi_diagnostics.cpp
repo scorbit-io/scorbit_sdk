@@ -33,6 +33,7 @@ TEST_CASE("iw link output is parsed", "[wifi]")
 
     REQUIRE(parsed);
     CHECK(parsed->connected);
+    CHECK(parsed->backend == "iw");
     CHECK(parsed->interfaceName == "wlan0");
     CHECK(parsed->ssid == "ScorbitVenue");
     CHECK(parsed->bssid == "aa:bb:cc:dd:ee:ff");
@@ -74,6 +75,7 @@ TEST_CASE("netsh wlan output is parsed", "[wifi]")
 
     REQUIRE(parsed);
     CHECK(parsed->connected);
+    CHECK(parsed->backend == "netsh");
     CHECK(parsed->interfaceName == "Wi-Fi");
     CHECK(parsed->ssid == "VenueWifi");
     CHECK(parsed->bssid == "00:11:22:33:44:55");
@@ -94,6 +96,7 @@ TEST_CASE("macOS airport output is parsed", "[wifi]")
 
     REQUIRE(parsed);
     CHECK(parsed->connected);
+    CHECK(parsed->backend == "airport");
     CHECK(parsed->ssid == "VenueWifi");
     CHECK(parsed->bssid == "a1:b2:c3:d4:e5:f6");
     CHECK(parsed->rssiDbm == -64);
