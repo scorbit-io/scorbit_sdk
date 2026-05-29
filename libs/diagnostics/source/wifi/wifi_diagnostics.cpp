@@ -333,6 +333,30 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
 
 [[maybe_unused]] std::optional<LinkInfo> collectMacos(CommandRunner runner)
 {
+    const auto wdutil = runner("wdutil", {"info"});
+    if (wdutil.exitCode == 0) {
+        if (auto parsed = parseWdutilInfo(wdutil.output); parsed) {
+            return parsed;
+        }
+    }
+
+    std::string wifiDevice = "en0";
+    const auto hardwarePorts = runner("networksetup", {"-listallhardwareports"});
+    if (hardwarePorts.exitCode == 0) {
+        static const std::regex wifiDeviceRe {
+                R"(Hardware Port:\s*(Wi-Fi|AirPort)\s*\nDevice:\s*([^\s]+))"};
+        if (auto device = matchString(hardwarePorts.output, wifiDeviceRe, 2); device) {
+            wifiDevice = *device;
+        }
+    }
+
+    const auto networksetup = runner("networksetup", {"-getairportnetwork", wifiDevice});
+    if (networksetup.exitCode == 0) {
+        if (auto parsed = parseNetworksetupAirportNetwork(networksetup.output, wifiDevice); parsed) {
+            return parsed;
+        }
+    }
+
     const std::vector<std::string> airportPaths {
             "/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/"
             "airport",
@@ -346,11 +370,6 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
                 return parsed;
             }
         }
-    }
-
-    const auto wdutil = runner("wdutil", {"info"});
-    if (wdutil.exitCode == 0) {
-        return parseWdutilInfo(wdutil.output);
     }
 
     return std::nullopt;
@@ -716,6 +735,30 @@ std::optional<LinkInfo> parseWdutilInfo(std::string_view output)
         return std::nullopt;
     }
     return info;
+}
+
+std::optional<LinkInfo> parseNetworksetupAirportNetwork(std::string_view output,
+                                                        std::string interfaceName)
+{
+    LinkInfo info;
+    info.kind = InterfaceKind::Wifi;
+    info.backend = "networksetup";
+    info.interfaceName = std::move(interfaceName);
+
+    static const std::regex currentNetworkRe {R"(Current Wi-?Fi Network:\s*(.+))"};
+    if (auto ssid = matchString(output, currentNetworkRe); ssid) {
+        info.ssid = *ssid;
+        info.connected = true;
+        return info;
+    }
+
+    if (output.find("not associated") != std::string_view::npos
+        || output.find("not connected") != std::string_view::npos) {
+        info.connected = false;
+        return info;
+    }
+
+    return std::nullopt;
 }
 
 std::optional<LinkInfo> parseNetshWlanInterfaces(std::string_view output)
