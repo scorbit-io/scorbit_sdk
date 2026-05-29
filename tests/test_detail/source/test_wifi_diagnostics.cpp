@@ -115,6 +115,25 @@ TEST_CASE("macOS networksetup output is parsed", "[wifi]")
     CHECK(parsed->ssid == "VenueWifi");
 }
 
+TEST_CASE("macOS ipconfig getsummary output is parsed", "[wifi]")
+{
+    const auto parsed = parseIpconfigGetsummary(
+            R"(<dictionary> {
+  BSSID : 11:22:33:44:55:66
+  InterfaceType : WiFi
+  LinkStatusActive : TRUE
+  SSID : VenueWifi
+})",
+            "en0");
+
+    REQUIRE(parsed);
+    CHECK(parsed->connected);
+    CHECK(parsed->backend == "ipconfig");
+    CHECK(parsed->interfaceName == "en0");
+    CHECK(parsed->ssid == "VenueWifi");
+    CHECK(parsed->bssid == "11:22:33:44:55:66");
+}
+
 TEST_CASE("ping output is parsed across platforms", "[wifi]")
 {
     const auto linuxPing = parsePingOutput(
