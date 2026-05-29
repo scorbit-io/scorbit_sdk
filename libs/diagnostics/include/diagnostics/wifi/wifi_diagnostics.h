@@ -28,6 +28,7 @@ enum class InterfaceKind {
 
 struct LinkInfo {
     InterfaceKind kind {InterfaceKind::Unknown};
+    std::string backend;
     std::string interfaceName;
     bool connected {false};
     std::string ssid;
