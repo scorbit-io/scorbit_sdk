@@ -350,6 +350,14 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         }
     }
 
+    const auto ipconfig = runner("ipconfig", {"getsummary", wifiDevice});
+    if (ipconfig.exitCode == 0) {
+        if (auto parsed = parseIpconfigGetsummary(ipconfig.output, wifiDevice);
+            parsed && parsed->connected) {
+            return parsed;
+        }
+    }
+
     const auto networksetup = runner("networksetup", {"-getairportnetwork", wifiDevice});
     if (networksetup.exitCode == 0) {
         if (auto parsed = parseNetworksetupAirportNetwork(networksetup.output, wifiDevice); parsed) {
@@ -734,6 +742,28 @@ std::optional<LinkInfo> parseWdutilInfo(std::string_view output)
     if (!info.connected && !info.rssiDbm) {
         return std::nullopt;
     }
+    return info;
+}
+
+std::optional<LinkInfo> parseIpconfigGetsummary(std::string_view output, std::string interfaceName)
+{
+    LinkInfo info;
+    info.kind = InterfaceKind::Wifi;
+    info.backend = "ipconfig";
+    info.interfaceName = std::move(interfaceName);
+
+    const auto interfaceType =
+            matchString(output, std::regex {R"(\bInterfaceType\s*:\s*([^\s]+))"}).value_or("");
+    if (interfaceType != "WiFi") {
+        return std::nullopt;
+    }
+
+    const auto linkActive =
+            matchString(output, std::regex {R"(\bLinkStatusActive\s*:\s*([A-Z]+))"}).value_or("");
+    info.connected = linkActive == "TRUE";
+    info.ssid = matchString(output, std::regex {R"(\bSSID\s*:\s*(.+))"}).value_or("");
+    info.bssid = matchString(output, std::regex {R"(\bBSSID\s*:\s*([^\s]+))"}).value_or("");
+
     return info;
 }
 
