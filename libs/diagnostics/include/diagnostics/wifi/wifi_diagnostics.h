@@ -94,6 +94,8 @@ std::optional<LinkInfo> parseNmcliWifiList(std::string_view output);
 std::optional<LinkInfo> parseIwconfig(std::string_view output, std::string interfaceName);
 std::optional<LinkInfo> parseAirportInfo(std::string_view output);
 std::optional<LinkInfo> parseWdutilInfo(std::string_view output);
+std::optional<LinkInfo> parseNetworksetupAirportNetwork(std::string_view output,
+                                                        std::string interfaceName);
 std::optional<LinkInfo> parseNetshWlanInterfaces(std::string_view output);
 std::optional<ProbeResult> parsePingOutput(std::string_view output, std::string target);
 std::optional<std::string> parseDefaultGateway(std::string_view output);

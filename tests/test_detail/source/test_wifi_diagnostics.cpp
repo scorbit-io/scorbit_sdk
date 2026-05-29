@@ -104,6 +104,17 @@ TEST_CASE("macOS airport output is parsed", "[wifi]")
     CHECK(parsed->channel == 149);
 }
 
+TEST_CASE("macOS networksetup output is parsed", "[wifi]")
+{
+    const auto parsed = parseNetworksetupAirportNetwork("Current Wi-Fi Network: VenueWifi", "en0");
+
+    REQUIRE(parsed);
+    CHECK(parsed->connected);
+    CHECK(parsed->backend == "networksetup");
+    CHECK(parsed->interfaceName == "en0");
+    CHECK(parsed->ssid == "VenueWifi");
+}
+
 TEST_CASE("ping output is parsed across platforms", "[wifi]")
 {
     const auto linuxPing = parsePingOutput(
