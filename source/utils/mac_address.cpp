@@ -112,7 +112,7 @@ std::string getMacAddress()
 bool isVirtualInterface(const std::string &interfaceName)
 {
     static const std::regex virtualPatterns(
-            R"((^lo$|^docker|^veth|^virbr|^br-|^tap|^tun|^wl|^awdl|^dummy|^anpi|^bridge|^vnet))",
+            R"((^lo$|^docker|^veth|^virbr|^br-|^tap|^tun|^awdl|^dummy|^anpi|^bridge|^vnet))",
             std::regex_constants::icase);
     return std::regex_search(interfaceName, virtualPatterns);
 }
