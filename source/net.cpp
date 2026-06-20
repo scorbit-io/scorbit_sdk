@@ -75,6 +75,8 @@ constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
+constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
+constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
@@ -182,6 +184,7 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 
 Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
     : m_keyResolvers(std::move(resolvers))
+    , m_authRetryBackoff(AUTH_RETRY_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
@@ -1274,6 +1277,7 @@ task_t Net::createAuthenticateTask()
                         json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
                     }
 
+                    m_authRetryBackoff = AUTH_RETRY_INITIAL_BACKOFF;
                     startTokenRefreshTimer(); // Start/restart token refresh timer
                     m_authCV.notify_all();
 
@@ -1307,10 +1311,21 @@ task_t Net::createAuthenticateTask()
                     continue;
                 }
             } else if (r.status_code == 0) {
-                // Network error, retry
-                ERR("API authentication network error: {}, will retry in 10s", r.error.message);
-                std::this_thread::sleep_for(10s);
-                continue;
+                ERR("API authentication network error: {}, will retry in {}s",
+                    r.error.message, m_authRetryBackoff.count());
+                auto backoff = m_authRetryBackoff;
+                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
+                m_isRefreshingToken = false;
+                if (normalAuthentication) {
+                    m_status = AuthStatus::NotAuthenticated;
+                }
+                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
+                    if (isAuthenticated()) {
+                        m_isRefreshingToken = true;
+                    }
+                    authenticate();
+                });
+                return;
             }
 
             m_status = AuthStatus::AuthenticationFailed;

@@ -60,6 +60,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::LeaderboardDeferred:
             name = "LeaderboardDeferred";
             break;
+        case Worker::Timer::AuthRetry:
+            name = "AuthRetry";
+            break;
         case Worker::Timer::Count:
             break;
         }
@@ -73,6 +76,7 @@ namespace detail {
 Worker::Worker(int threadNiceValue)
     : m_threadNiceValue(threadNiceValue)
     , m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
