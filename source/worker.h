@@ -46,6 +46,7 @@ public:
         NfcBootReason,
         ModeExpiry,
         LeaderboardDeferred,
+        AuthRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

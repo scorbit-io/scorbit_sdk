@@ -306,6 +306,7 @@ private:
     std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
+    std::chrono::seconds m_authRetryBackoff;
 
     std::string m_hostname;
     std::string m_cfHostname;
