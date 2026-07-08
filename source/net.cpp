@@ -1092,15 +1092,33 @@ void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
     INF("DIAG: capture stopped: run_id={}", runId);
 }
 
+void Net::stopNetworkMonitorOnClosedRun(const std::string &runId, const std::string &reply)
+{
+    try {
+        const auto j = json::parse(reply);
+        if (j.contains("end_reason")) {
+            WRN("DIAG: run closed by API (end_reason={}), stopping capture run_id={}",
+                j.value("end_reason", ""), runId);
+            if (m_networkMonitor && m_networkMonitor->isActive()
+                && m_networkMonitor->runId() == runId) {
+                m_networkMonitor->stop("api_closed");
+                m_networkMonitor.reset();
+            }
+        }
+    } catch (...) {
+    }
+}
+
 void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample)
 {
     m_worker.post(createPostRequestTask(
-            [runId](Error error, std::string reply) {
+            [this, runId](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API wifi capture sample: ok, run_id={}", runId);
                 } else {
                     WRN("API wifi capture sample: failed, run_id={}, error code: {}, reply: {}",
                         runId, static_cast<int>(error), reply);
+                    stopNetworkMonitorOnClosedRun(runId, reply);
                 }
             },
             [this, runId, sample]() {
@@ -1149,13 +1167,14 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
 void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &event)
 {
     m_worker.post(createPostRequestTask(
-            [runId, kind = event.kind](Error error, std::string reply) {
+            [this, runId, kind = event.kind](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API wifi capture event: ok, run_id={}, kind={}", runId, kind);
                 } else {
                     WRN("API wifi capture event: failed, run_id={}, kind={}, error code: {}, "
                         "reply: {}",
                         runId, kind, static_cast<int>(error), reply);
+                    stopNetworkMonitorOnClosedRun(runId, reply);
                 }
             },
             [this, runId, event]() {

@@ -271,6 +271,7 @@ private:
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
     void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample);
     void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event);
+    void stopNetworkMonitorOnClosedRun(const std::string &runId, const std::string &reply);
     void recoverNetworkMonitorState();
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
