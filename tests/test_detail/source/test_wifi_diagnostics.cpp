@@ -43,6 +43,19 @@ TEST_CASE("iw link output is parsed", "[wifi]")
     CHECK(parsed->linkRateMbps == 72);
 }
 
+TEST_CASE("/proc/net/wireless noise is parsed", "[wifi]")
+{
+    const auto parsed = parseProcNetWireless(
+            "Inter-| sta-|   Quality        |   Discarded packets\n"
+            " face | tus | link level noise |\n"
+            " wlan0: 0000   70.  -40.  -95.        0      0      0\n",
+            "wlan0");
+
+    REQUIRE(parsed);
+    CHECK(parsed->rssiDbm == -40);
+    CHECK(parsed->noiseDbm == -95);
+}
+
 TEST_CASE("Linux station dump retry metrics are parsed", "[wifi]")
 {
     LinkInfo base;
@@ -88,6 +101,7 @@ TEST_CASE("macOS airport output is parsed", "[wifi]")
 {
     const auto parsed = parseAirportInfo(
             R"(     agrCtlRSSI: -64
+     agrCtlNoise: -89
           state: running
         lastTxRate: 156
             SSID: VenueWifi
@@ -100,6 +114,7 @@ TEST_CASE("macOS airport output is parsed", "[wifi]")
     CHECK(parsed->ssid == "VenueWifi");
     CHECK(parsed->bssid == "a1:b2:c3:d4:e5:f6");
     CHECK(parsed->rssiDbm == -64);
+    CHECK(parsed->noiseDbm == -89);
     CHECK(parsed->linkRateMbps == 156);
     CHECK(parsed->channel == 149);
 }

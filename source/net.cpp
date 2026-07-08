@@ -1129,6 +1129,7 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                         {JKEY_DIAG_IS_FINAL, sample.isFinal}};
 
                 addInt(j, JKEY_DIAG_RSSI_DBM, sample.link.rssiDbm);
+                addInt(j, JKEY_DIAG_NOISE_DBM, sample.link.noiseDbm);
                 addInt(j, JKEY_DIAG_LINK_RATE_MBPS, sample.link.linkRateMbps);
                 addDouble(j, JKEY_DIAG_TX_RETRY_PCT, sample.link.txRetryPct);
                 addInt(j, JKEY_DIAG_BEACON_LOSS_COUNT, sample.link.beaconLossCount);

@@ -34,6 +34,7 @@ struct LinkInfo {
     std::string ssid;
     std::string bssid;
     std::optional<int> rssiDbm;
+    std::optional<int> noiseDbm;
     std::optional<int> linkRateMbps;
     std::optional<double> txRetryPct;
     std::optional<int> beaconLossCount;

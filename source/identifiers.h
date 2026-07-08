@@ -162,6 +162,7 @@ constexpr auto JKEY_DIAG_SEQUENCE {"sequence"};
 constexpr auto JKEY_DIAG_KIND {"kind"};
 constexpr auto JKEY_DIAG_REASON_CODE {"reason_code"};
 constexpr auto JKEY_DIAG_RSSI_DBM {"rssi_dbm"};
+constexpr auto JKEY_DIAG_NOISE_DBM {"noise_dbm"};
 constexpr auto JKEY_DIAG_LINK_RATE_MBPS {"link_rate_mbps"};
 constexpr auto JKEY_DIAG_TX_RETRY_PCT {"tx_retry_pct"};
 constexpr auto JKEY_DIAG_BEACON_LOSS_COUNT {"beacon_loss_count"};

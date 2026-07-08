@@ -260,6 +260,9 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
             if (!info.rssiDbm) {
                 info.rssiDbm = parsed->rssiDbm;
             }
+            if (!info.noiseDbm) {
+                info.noiseDbm = parsed->noiseDbm;
+            }
             if (info.interfaceName.empty()) {
                 info.interfaceName = parsed->interfaceName;
             }
@@ -315,6 +318,9 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
                 }
                 if (!info.rssiDbm) {
                     info.rssiDbm = parsed->rssiDbm;
+                }
+                if (!info.noiseDbm) {
+                    info.noiseDbm = parsed->noiseDbm;
                 }
                 if (!info.freqMhz) {
                     info.freqMhz = parsed->freqMhz;
@@ -609,7 +615,8 @@ std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::strin
         std::string status;
         double link = 0.0;
         double level = 0.0;
-        stream >> status >> link >> level;
+        double noise = 0.0;
+        stream >> status >> link >> level >> noise;
 
         LinkInfo info;
         info.kind = InterfaceKind::Wifi;
@@ -617,6 +624,9 @@ std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::strin
         info.interfaceName = std::move(interfaceName);
         info.connected = true;
         info.rssiDbm = static_cast<int>(level);
+        if (noise != 0.0) {
+            info.noiseDbm = static_cast<int>(noise);
+        }
         return info;
     }
 
@@ -681,6 +691,7 @@ std::optional<LinkInfo> parseIwconfig(std::string_view output, std::string inter
     static const std::regex freqRe {R"(Frequency:([0-9.]+)\s*GHz)"};
     static const std::regex rateRe {R"(Bit Rate[=:]([0-9.]+))"};
     static const std::regex signalRe {R"(Signal level=(-?\d+))"};
+    static const std::regex noiseRe {R"(Noise level=(-?\d+))"};
 
     if (auto ssid = matchString(output, essidRe); ssid) {
         info.ssid = *ssid;
@@ -697,6 +708,7 @@ std::optional<LinkInfo> parseIwconfig(std::string_view output, std::string inter
         info.linkRateMbps = static_cast<int>(*rate);
     }
     info.rssiDbm = matchInt(output, signalRe);
+    info.noiseDbm = matchInt(output, noiseRe);
 
     if (!info.connected && info.ssid.empty() && !info.rssiDbm) {
         return std::nullopt;
@@ -714,6 +726,7 @@ std::optional<LinkInfo> parseAirportInfo(std::string_view output)
     info.bssid = matchString(output, std::regex {R"((^|\n)\s*BSSID:\s*([0-9a-fA-F:]{17}))"}, 2)
                          .value_or("");
     info.rssiDbm = matchInt(output, std::regex {R"((^|\n)\s*agrCtlRSSI:\s*(-?\d+))"}, 2);
+    info.noiseDbm = matchInt(output, std::regex {R"((^|\n)\s*agrCtlNoise:\s*(-?\d+))"}, 2);
     info.linkRateMbps = matchInt(output, std::regex {R"((^|\n)\s*lastTxRate:\s*(\d+))"}, 2);
 
     if (auto channel = matchInt(output, std::regex {R"((^|\n)\s*channel:\s*(\d+))"}, 2); channel) {
@@ -736,6 +749,7 @@ std::optional<LinkInfo> parseWdutilInfo(std::string_view output)
     info.bssid =
             matchString(output, std::regex {R"(\bBSSID\s*:\s*([0-9a-fA-F:]{17}))"}).value_or("");
     info.rssiDbm = matchInt(output, std::regex {R"(\bRSSI\s*:\s*(-?\d+))"});
+    info.noiseDbm = matchInt(output, std::regex {R"(\bNoise\s*:\s*(-?\d+))"});
     info.channel = matchInt(output, std::regex {R"(\bChannel\s*:\s*(\d+))"});
     info.linkRateMbps = matchInt(output, std::regex {R"(\bTx Rate\s*:\s*(\d+))"});
     info.connected = !info.ssid.empty() || !info.bssid.empty();
