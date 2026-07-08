@@ -1141,7 +1141,12 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                     addDouble(j, lossKey, probe->lossPct);
                 };
 
+                const auto *source = sample.link.kind == wifi::InterfaceKind::Ethernet
+                        ? JVAL_DIAG_SOURCE_ETHERNET
+                        : JVAL_DIAG_SOURCE_WIFI;
+
                 json j {{JKEY_DIAG_TS, to_iso8601(sample.ts)},
+                        {JKEY_DIAG_SOURCE, source},
                         {JKEY_DIAG_SSID, sample.link.ssid},
                         {JKEY_DIAG_BSSID, sample.link.bssid},
                         {JKEY_DIAG_IS_FINAL, sample.isFinal}};

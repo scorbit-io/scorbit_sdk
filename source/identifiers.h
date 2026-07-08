@@ -177,6 +177,9 @@ constexpr auto JKEY_DIAG_SSID {"ssid"};
 constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
 constexpr auto JKEY_DIAG_CHANNEL {"channel"};
 constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};
+constexpr auto JKEY_DIAG_SOURCE {"source"};
+constexpr auto JVAL_DIAG_SOURCE_WIFI {"wifi"};
+constexpr auto JVAL_DIAG_SOURCE_ETHERNET {"ethernet"};
 constexpr auto JVAL_DIAG_HOP_DEVICE_EGRESS {"device_egress"};
 
 // Scorbitron config
