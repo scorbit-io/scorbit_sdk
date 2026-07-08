@@ -1163,6 +1163,16 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                 addProbe(j, sample.publicInternet, JKEY_DIAG_PUBLIC_RTT_MS,
                          JKEY_DIAG_PUBLIC_LOSS_PCT);
 
+                // ponytail: passive checks only — read from SDK's existing connection state
+                json checks = json::object();
+                checks["wss443"] = (m_centrifugo
+                                    && m_centrifugo->state()
+                                            == centrifugo::ConnectionState::Connected)
+                        ? "ok"
+                        : "blocked";
+                checks["rest443"] = isAuthenticated() ? "ok" : "blocked";
+                j[JKEY_DIAG_DEPENDENCY_CHECKS] = checks;
+
                 const auto endpoint = url(URL_DIAGNOSTICS_WIFI_SAMPLE_PATH, fmt::arg(ARG_RUN_ID, runId));
                 INF("API sending wifi capture sample: run_id={}, final={}", runId, sample.isFinal);
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
