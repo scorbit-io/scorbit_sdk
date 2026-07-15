@@ -408,44 +408,46 @@ class ProbeBase
         #ifdef _WIN32
         bool bOk = false;
         // Enumerate all volumes
-        HANDLE hFind;
         wchar_t volName[MAX_PATH] = L"";
-        for (hFind = FindFirstVolumeW(volName, MAX_PATH);
-            hFind != INVALID_HANDLE_VALUE;
-            hFind = (FindNextVolumeW(hFind, volName, MAX_PATH)) ? hFind : INVALID_HANDLE_VALUE)
+        HANDLE hFind = FindFirstVolumeW(volName, MAX_PATH);
+        if (hFind != INVALID_HANDLE_VALUE)
         {
-            std::wstring volumeGuid = volName; // se termine par '\'
-
-            // Get mount point letter
-            DWORD needed = 0;
-            GetVolumePathNamesForVolumeNameW(volumeGuid.c_str(), nullptr, 0, &needed);
-            std::vector<wchar_t> buf(needed + 1, L'\0');
-            std::wstring mountPoint;
-            // There can be several mounting point; we take the first one
-            if (needed > 0 && GetVolumePathNamesForVolumeNameW(volumeGuid.c_str(), buf.data(), (DWORD)buf.size(), &needed))
-                for (const wchar_t* p = buf.data(); *p; p += wcslen(p) + 1)
-                    if (*p) { mountPoint = p; break; }
-
-            // Get volume Label with root path
-            std::wstring rootForInfo = mountPoint.empty() ? volumeGuid : mountPoint;
-            if (!rootForInfo.empty() && rootForInfo.back() != L'\\') rootForInfo.push_back(L'\\');
-            wchar_t Label[MAX_PATH + 1] = L"", fsName[MAX_PATH + 1] = L"";
-            DWORD serial = 0, maxCompLen = 0, fsFlags = 0;
-            if (!GetVolumeInformationW(rootForInfo.c_str(), Label, MAX_PATH, &serial, &maxCompLen, &fsFlags, fsName, MAX_PATH))
+            do
             {
-                if (bVerbose) ERR("Can't get volume label !\n"); return false;
-            }
+                std::wstring volumeGuid = volName; // se termine par '\'
 
-            // Check the volume label and the presence of INFO_UF2.TXT
-            std::string BootloaderDir; BootloaderDir.reserve(rootForInfo.size());
-            for (wchar_t wc : rootForInfo) BootloaderDir.push_back(static_cast<char>(wc));
-            if (std::wstring(Label) == L"RPI-RP2" && CopyFirmwareToBootloader(FirmwareFilename, BootloaderDir, bVerbose))
-            {
-                bOk = true;
-                break;
-            }
+                // Get mount point letter
+                DWORD needed = 0;
+                GetVolumePathNamesForVolumeNameW(volumeGuid.c_str(), nullptr, 0, &needed);
+                std::vector<wchar_t> buf(needed + 1, L'\0');
+                std::wstring mountPoint;
+                // There can be several mounting point; we take the first one
+                if (needed > 0 && GetVolumePathNamesForVolumeNameW(volumeGuid.c_str(), buf.data(), (DWORD)buf.size(), &needed))
+                    for (const wchar_t* p = buf.data(); *p; p += wcslen(p) + 1)
+                        if (*p) { mountPoint = p; break; }
+
+                // Get volume Label with root path
+                std::wstring rootForInfo = mountPoint.empty() ? volumeGuid : mountPoint;
+                if (!rootForInfo.empty() && rootForInfo.back() != L'\\') rootForInfo.push_back(L'\\');
+                wchar_t Label[MAX_PATH + 1] = L"", fsName[MAX_PATH + 1] = L"";
+                DWORD serial = 0, maxCompLen = 0, fsFlags = 0;
+                if (!GetVolumeInformationW(rootForInfo.c_str(), Label, MAX_PATH, &serial, &maxCompLen, &fsFlags, fsName, MAX_PATH))
+                {
+                    if (bVerbose) ERR("Can't get volume label !\n"); 
+                    continue;
+                }
+
+                // Check the volume label and the presence of INFO_UF2.TXT
+                std::string BootloaderDir; BootloaderDir.reserve(rootForInfo.size());
+                for (wchar_t wc : rootForInfo) BootloaderDir.push_back(static_cast<char>(wc));
+                if (std::wstring(Label) == L"RPI-RP2" && CopyFirmwareToBootloader(FirmwareFilename, BootloaderDir, bVerbose))
+                {
+                    bOk = true;
+                    break;
+                }
+            } while (FindNextVolumeW(hFind, volName, MAX_PATH));
+            FindVolumeClose(hFind);
         }
-        FindVolumeClose(hFind);
 
         #elif defined(__APPLE__) // see above _WIN32
 

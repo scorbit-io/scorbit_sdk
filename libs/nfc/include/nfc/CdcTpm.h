@@ -119,6 +119,8 @@ class CdcTpm
 
     bool SerialOpen(const std::string &path)
     {
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Using device %s for CDC TPM\n", path.c_str());
+
         #ifdef _WIN32
         std::string winPath = "\\\\.\\" + path;
         hSerial = CreateFileA(winPath.c_str(), GENERIC_READ | GENERIC_WRITE,
@@ -187,6 +189,9 @@ class CdcTpm
 
     bool SendReceive(const char *Cmd, char *Response, size_t SizeofResponse)
     {
+        if (Cmd == nullptr) return false;
+        if (Response && SizeofResponse == 0) return false;
+
         SerialFlush();
 
         size_t CmdLength = strlen(Cmd);
@@ -204,8 +209,11 @@ class CdcTpm
 
             for (int i = 0; i < n && !bCompleted; i++)
             {
-                if (nReceived >= SizeofResponse - 1) { bCompleted = true; break; }
-                if (Response) Response[nReceived] = buf[i];
+                if (Response && SizeofResponse > 0)
+                {
+                    if (nReceived >= SizeofResponse - 1) { bCompleted = true; break; }
+                    Response[nReceived] = buf[i];
+                }
                 nReceived++;
                 if (buf[i] == '\n' || buf[i] == '\r' || buf[i] == '\0')
                     bCompleted = true;
