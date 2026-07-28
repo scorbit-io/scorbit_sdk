@@ -145,7 +145,7 @@ constexpr auto JKEY_ACH_INPUT_TIME {"input_time"};
 constexpr auto JKEY_ACH_VISIBLE {"visible"};
 constexpr auto JKEY_ACH_NOTIFY {"notify_when_achieved"};
 constexpr auto JKEY_ACH_IS_TROPHY {"is_trophy"};
-constexpr auto JKEY_ACH_GROUP_ID {"groupid"};
+constexpr auto JKEY_ACH_GROUP_ID {"group_id"};
 constexpr auto JKEY_ACH_ACHIEVEMENT_ID {"achievementid"};
 constexpr auto JKEY_ACH_TRIGGER {"trigger"};
 constexpr auto JKEY_ACH_MODE_NAME {"mode_name"};
