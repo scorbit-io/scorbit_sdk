@@ -232,6 +232,146 @@ public:
         return ::sb_event_diagnostics_uploaded(m_event, &success);
     }
 
+    // ------------------------------------------------------------------
+    // Achievements
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process an achievement unlocked event.
+     *
+     * This is the server's authoritative unlock - a local match from
+     * @ref scorbit::detail::AchievementManager is only predictive.
+     *
+     * The event type must be @ref scorbit::EventType::AchievementUnlocked, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] The achievement key.
+     * @param name [OUT] The achievement display name.
+     * @param userId [OUT] The user's UUID. The server publishes a UUID here, not the numeric user
+     * id taken by @ref GameState::unlockAchievement.
+     * @param username [OUT] The user's username.
+     * @param isTrophy [OUT] Whether this achievement is a trophy.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAchievementUnlocked(std::string &key, std::string &name, std::string &userId,
+                                std::string &username, bool &isTrophy) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        if (!::sb_event_achievement_unlocked(m_event, &keyCStr, &nameCStr, &userIdCStr,
+                                             &usernameCStr, &isTrophy)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to process an achievement locked (trophy revoked) event.
+     *
+     * The event type must be @ref scorbit::EventType::AchievementLocked, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] The achievement key.
+     * @param name [OUT] The achievement display name.
+     * @param userId [OUT] The UUID of the user who lost the achievement.
+     * @param username [OUT] That user's username.
+     * @param isTrophy [OUT] Whether this achievement is a trophy.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAchievementLocked(std::string &key, std::string &name, std::string &userId,
+                              std::string &username, bool &isTrophy) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        if (!::sb_event_achievement_locked(m_event, &keyCStr, &nameCStr, &userIdCStr, &usernameCStr,
+                                           &isTrophy)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to process an achievement progress event.
+     *
+     * A progress event at 100% arrives alongside an
+     * @ref scorbit::EventType::AchievementUnlocked event for the same achievement - show one
+     * celebration, not two.
+     *
+     * The event type must be @ref scorbit::EventType::AchievementProgress, otherwise the function
+     * returns false.
+     *
+     * @param key [OUT] The achievement key.
+     * @param name [OUT] The achievement display name.
+     * @param userId [OUT] The user's UUID.
+     * @param username [OUT] The user's username.
+     * @param progress [OUT] The server's current progress value.
+     * @param target [OUT] The target value needed to unlock, or 0 when the server omitted it.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAchievementProgress(std::string &key, std::string &name, std::string &userId,
+                                std::string &username, int &progress, int &target) const
+    {
+        const char *keyCStr = nullptr;
+        const char *nameCStr = nullptr;
+        const char *userIdCStr = nullptr;
+        const char *usernameCStr = nullptr;
+        if (!::sb_event_achievement_progress(m_event, &keyCStr, &nameCStr, &userIdCStr,
+                                             &usernameCStr, &progress, &target)) {
+            return false;
+        }
+        key = keyCStr ? std::string(keyCStr) : std::string {};
+        name = nameCStr ? std::string(nameCStr) : std::string {};
+        userId = userIdCStr ? std::string(userIdCStr) : std::string {};
+        username = usernameCStr ? std::string(usernameCStr) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Icon URL from an achievement unlocked, locked, or progress event.
+     *
+     * @param iconUrl [OUT] The icon URL.
+     * @return Returns true on success, or false if this is not an achievement event or the server
+     * published no icon.
+     */
+    bool getAchievementIconUrl(std::string &iconUrl) const
+    {
+        const char *str = nullptr;
+        if (!::sb_event_achievement_icon_url(m_event, &str) || !str) {
+            return false;
+        }
+        iconUrl = str;
+        return true;
+    }
+
+    /**
+     * @brief Unlock timestamp from an achievement unlocked event.
+     *
+     * @param achievedTime [OUT] The ISO-8601 timestamp.
+     * @return Returns true on success, or false if the event type does not match or the server
+     * published no timestamp.
+     */
+    bool getAchievementAchievedTime(std::string &achievedTime) const
+    {
+        const char *str = nullptr;
+        if (!::sb_event_achievement_achieved_time(m_event, &str) || !str) {
+            return false;
+        }
+        achievedTime = str;
+        return true;
+    }
+
     // ---------------- OEM providers can ignore the events below ----------------
 
     const sb_event_t *event() const { return m_event; }

@@ -776,6 +776,354 @@ void Net::requestUnpair(StringCallback callback)
                     });
 }
 
+// ---------------------------------- Achievements (v2) ----------------------------------
+//
+// Wire keys and endpoints all come from identifiers.h, which documents them against the server's
+// own serializers. Note in particular: the definition image is `icon`, progress entries nest the
+// achievement under `achievement`, the unlock endpoint is a batch API, and the progress endpoint
+// takes `user_id` as a query parameter rather than a path segment.
+
+std::string Net::currentSessionUuid()
+{
+    std::scoped_lock lock(m_gameSessionsMutex);
+    if (m_gameSessions.empty()) {
+        return {};
+    }
+    return m_gameSessions.rbegin()->second.sessionUuid;
+}
+
+void Net::fetchAchievements(AchievementsCallback callback)
+{
+    INF("API fetch achievements...");
+
+    m_worker.post(createGetRequestTask(
+            [callback = std::move(callback)](Error error, std::string reply) {
+                std::vector<Achievement> achievements;
+
+                if (error != Error::Success) {
+                    ERR("API fetch achievements: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                    if (callback) {
+                        callback(error, std::move(achievements));
+                    }
+                    return;
+                }
+
+                try {
+                    const auto j = json::parse(reply);
+                    if (!j.is_array()) {
+                        ERR("API fetch achievements: expected an array, reply: {}", reply);
+                        if (callback) {
+                            callback(Error::ApiError, std::move(achievements));
+                        }
+                        return;
+                    }
+
+                    achievements.reserve(j.size());
+                    for (const auto &item : j) {
+                        if (!item.is_object()) {
+                            continue;
+                        }
+
+                        Achievement ach;
+                        ach.key = item.value(JKEY_ACH_KEY, std::string {});
+                        ach.name = item.value(JKEY_ACH_NAME, std::string {});
+                        ach.description = item.value(JKEY_ACH_DESCRIPTION, std::string {});
+                        ach.scope = item.value(JKEY_ACH_SCOPE, std::string {});
+                        ach.imageUrl = item.value(JKEY_ACH_ICON, std::string {});
+                        ach.obscureImageUrl = item.value(JKEY_ACH_OBSCURE_IMAGE, std::string {});
+                        ach.obscure = item.value(JKEY_ACH_OBSCURE, false);
+                        ach.visible = item.value(JKEY_ACH_VISIBLE, true);
+                        ach.isTrophy = item.value(JKEY_ACH_IS_TROPHY, false);
+                        ach.notifyWhenAchieved = item.value(JKEY_ACH_NOTIFY_WHEN_ACHIEVED, false);
+                        ach.groupId = item.value(JKEY_ACH_GROUP_ID, 0);
+                        ach.level = item.value(JKEY_ACH_LEVEL, 0);
+                        // "complete before ball N" qualifier, never a counter threshold.
+                        ach.ballCount = item.value(JKEY_ACH_BALL_COUNT, 0);
+                        ach.inputTime = item.value(JKEY_ACH_IS_SINGLE_SESSION, false)
+                                ? AchievementInputTime::Limited
+                                : AchievementInputTime::Unlimited;
+
+                        if (const auto rulesIt = item.find(JKEY_ACH_RULES);
+                            rulesIt != item.end() && rulesIt->is_array()) {
+                            ach.rules.reserve(rulesIt->size());
+                            for (const auto &ruleJson : *rulesIt) {
+                                if (!ruleJson.is_object()) {
+                                    continue;
+                                }
+                                AchievementRule rule;
+                                rule.type = ruleJson.value(JKEY_ACH_RULE_TYPE, std::string {});
+                                rule.comparison =
+                                        ruleJson.value(JKEY_ACH_RULE_COMPARISON, std::string {">"});
+                                rule.target = ruleJson.value(JKEY_ACH_RULE_TARGET, 0);
+                                rule.reference =
+                                        ruleJson.value(JKEY_ACH_RULE_REFERENCE, std::string {});
+                                rule.subachievementId =
+                                        ruleJson.value(JKEY_ACH_RULE_SUBACHIEVEMENT, 0);
+                                ach.rules.push_back(std::move(rule));
+                            }
+                        }
+
+                        // Flat convenience fields are derived from rules[0] only and are therefore
+                        // lossy for multi-rule achievements; the rules array stays authoritative.
+                        if (!ach.rules.empty()) {
+                            const auto &primary = ach.rules.front();
+                            if (primary.type == "MODE") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Complete;
+                                ach.modeName = primary.reference;
+                            } else if (primary.type == "MODE_START") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Start;
+                                ach.modeName = primary.reference;
+                            } else if (primary.type == "MODE_STACK") {
+                                ach.trigger = AchievementTrigger::Mode;
+                                ach.modeType = AchievementModeType::Stack;
+                                ach.modeName = primary.reference;
+                            } else if (primary.type == "SCORE") {
+                                ach.trigger = AchievementTrigger::Score;
+                                ach.targetScore = primary.target;
+                            } else if (primary.type == "ACHIEVEMENT") {
+                                ach.trigger = AchievementTrigger::SubAchievement;
+                            }
+                        }
+
+                        achievements.push_back(std::move(ach));
+                    }
+
+                    INF("API fetch achievements: ok, {} definitions", achievements.size());
+                } catch (const std::exception &e) {
+                    ERR("API fetch achievements parse error: {}, reply: {}", e.what(), reply);
+                    if (callback) {
+                        callback(Error::ApiError, std::vector<Achievement> {});
+                    }
+                    return;
+                }
+
+                if (callback) {
+                    callback(Error::Success, std::move(achievements));
+                }
+            },
+            [this]() {
+                return make_tuple(url(URL_ACHIEVEMENTS_SCORBITRON), cpr::Parameters {});
+            }));
+}
+
+void Net::fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback)
+{
+    INF("API fetch achievement progress, user_id: {} ...", userId);
+
+    m_worker.post(createGetRequestTask(
+            [callback = std::move(callback)](Error error, std::string reply) {
+                std::vector<AchievementProgress> progress;
+
+                if (error != Error::Success) {
+                    ERR("API fetch achievement progress: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                    if (callback) {
+                        callback(error, std::move(progress));
+                    }
+                    return;
+                }
+
+                try {
+                    const auto j = json::parse(reply);
+                    if (!j.is_array()) {
+                        ERR("API fetch achievement progress: expected an array, reply: {}", reply);
+                        if (callback) {
+                            callback(Error::ApiError, std::move(progress));
+                        }
+                        return;
+                    }
+
+                    progress.reserve(j.size());
+                    for (const auto &item : j) {
+                        if (!item.is_object()) {
+                            continue;
+                        }
+
+                        // There is no flat {key, progress, unlocked} shape on the wire: the key
+                        // lives in the nested "achievement" object and has to be flattened here.
+                        AchievementProgress prog;
+                        if (const auto achIt = item.find(JKEY_ACH_PROG_ACHIEVEMENT);
+                            achIt != item.end() && achIt->is_object()) {
+                            prog.key = achIt->value(JKEY_ACH_KEY, std::string {});
+                        }
+                        if (prog.key.empty()) {
+                            continue;
+                        }
+
+                        prog.progress = item.value(JKEY_ACH_PROG_CURRENT_VALUE, 0);
+                        prog.unlocked = item.value(JKEY_ACH_PROG_ACHIEVED, false);
+                        if (const auto timeIt = item.find(JKEY_ACH_PROG_ACHIEVED_TIME);
+                            timeIt != item.end() && timeIt->is_string()) {
+                            prog.unlockedAt = timeIt->get<std::string>();
+                        }
+
+                        progress.push_back(std::move(prog));
+                    }
+
+                    INF("API fetch achievement progress: ok, {} entries", progress.size());
+                } catch (const std::exception &e) {
+                    ERR("API fetch achievement progress parse error: {}, reply: {}", e.what(),
+                        reply);
+                    if (callback) {
+                        callback(Error::ApiError, std::vector<AchievementProgress> {});
+                    }
+                    return;
+                }
+
+                if (callback) {
+                    callback(Error::Success, std::move(progress));
+                }
+            },
+            [this, userId]() {
+                cpr::Parameters parameters;
+                // user_id is a query parameter here, not a path segment.
+                parameters.Add({JKEY_ACH_UNLOCK_USER_ID, userId});
+                return make_tuple(url(URL_ACHIEVEMENTS_SCORBITRON_PROGRESS), std::move(parameters));
+            }));
+}
+
+void Net::unlockAchievement(const std::string &userId, const std::string &key, int count,
+                            AchievementUnlockCallback callback)
+{
+    INF("API unlock achievement: key={}, user_id={}, count={} ...", key, userId, count);
+
+    // The endpoint is a batch API, so a per-achievement call sends a single-element array.
+    json j {
+            {JKEY_ACH_UNLOCK_ACHIEVEMENTS,
+             json::array({json {
+                     {JKEY_ACH_UNLOCK_ITEM_KEY, key},
+                     {JKEY_ACH_UNLOCK_ITEM_COUNT, count},
+             }})},
+            {JKEY_ACH_UNLOCK_USER_ID, userId},
+    };
+
+    // Without session_uuid the unlock is recorded but publishes no real-time Centrifugo event.
+    if (const auto sessionUuid = currentSessionUuid(); !sessionUuid.empty()) {
+        j[JKEY_ACH_UNLOCK_SESSION_UUID] = sessionUuid;
+    } else {
+        WRN("API unlock achievement: no live session, sending without session_uuid - the unlock "
+            "will be recorded but no real-time event will be published");
+    }
+
+    m_worker.post(createPostRequestTask(
+            [key, callback = std::move(callback)](Error error, std::string reply) {
+                AchievementUnlockResult result;
+                result.key = key;
+
+                if (error != Error::Success) {
+                    ERR("API unlock achievement: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                    if (callback) {
+                        callback(error, std::move(result));
+                    }
+                    return;
+                }
+
+                try {
+                    // Response is an array of {key, newly_unlocked, user_achievement}. There is no
+                    // message field on the wire, so result.message stays empty.
+                    const auto j = json::parse(reply);
+                    if (j.is_array() && !j.empty() && j.front().is_object()) {
+                        const auto &item = j.front();
+                        result.success = true;
+                        result.newlyUnlocked =
+                                item.value(JKEY_ACH_UNLOCK_RESULT_NEWLY_UNLOCKED, false);
+                    } else {
+                        ERR("API unlock achievement: unexpected reply: {}", reply);
+                        if (callback) {
+                            callback(Error::ApiError, std::move(result));
+                        }
+                        return;
+                    }
+
+                    INF("API unlock achievement: ok, key={}, newly_unlocked={}", key,
+                        result.newlyUnlocked);
+                } catch (const std::exception &e) {
+                    ERR("API unlock achievement parse error: {}, reply: {}", e.what(), reply);
+                    if (callback) {
+                        callback(Error::ApiError, AchievementUnlockResult {key, false, false, {}});
+                    }
+                    return;
+                }
+
+                if (callback) {
+                    callback(Error::Success, std::move(result));
+                }
+            },
+            [this, body = j.dump()]() {
+                INF("API posting achievement unlock: {}", body);
+                return make_tuple(url(URL_ACHIEVEMENTS_UNLOCK), cpr::Body {body});
+            }));
+}
+
+void Net::lockAchievement(const std::string &userId, const std::string &key,
+                          AchievementUnlockCallback callback)
+{
+    INF("API lock achievement: key={}, user_id={} ...", key, userId);
+
+    json j {
+            {JKEY_ACH_KEY, key},
+            {JKEY_ACH_UNLOCK_USER_ID, userId},
+    };
+
+    if (const auto sessionUuid = currentSessionUuid(); !sessionUuid.empty()) {
+        j[JKEY_ACH_LOCK_SESSION_UUID] = sessionUuid;
+    }
+
+    m_worker.post(createPostRequestTask(
+            [key, callback = std::move(callback)](Error error, std::string reply) {
+                AchievementUnlockResult result;
+                result.key = key;
+
+                if (error != Error::Success) {
+                    ERR("API lock achievement: failed, error code: {}, reply: {}",
+                        static_cast<int>(error), reply);
+                    if (callback) {
+                        callback(error, std::move(result));
+                    }
+                    return;
+                }
+
+                try {
+                    // Response is a single UserAchievementV2 object, not an array.
+                    const auto j = json::parse(reply);
+                    if (!j.is_object()) {
+                        ERR("API lock achievement: unexpected reply: {}", reply);
+                        if (callback) {
+                            callback(Error::ApiError, std::move(result));
+                        }
+                        return;
+                    }
+
+                    // The lock succeeded when the achievement is no longer achieved. newlyUnlocked
+                    // describes an unlock and is therefore always false on this path.
+                    result.success = !j.value(JKEY_ACH_PROG_ACHIEVED, false);
+                    result.newlyUnlocked = false;
+
+                    INF("API lock achievement: ok, key={}, success={}", key, result.success);
+                } catch (const std::exception &e) {
+                    ERR("API lock achievement parse error: {}, reply: {}", e.what(), reply);
+                    if (callback) {
+                        callback(Error::ApiError, AchievementUnlockResult {key, false, false, {}});
+                    }
+                    return;
+                }
+
+                if (callback) {
+                    callback(Error::Success, std::move(result));
+                }
+            },
+            [this, body = j.dump()]() {
+                INF("API posting achievement lock: {}", body);
+                return make_tuple(url(URL_ACHIEVEMENTS_LOCK), cpr::Body {body});
+            }));
+}
+
+// ---------------------------------------------------------------------------------------
+
 void Net::download(bool isAsync, StringCallback callback, const std::string &url,
                    const std::string &filename, const HttpHeaders &headers)
 {

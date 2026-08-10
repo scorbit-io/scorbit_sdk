@@ -20,6 +20,7 @@
 #pragma once
 
 #include <nfc/probes_manager.h>
+#include <scorbit_sdk/achievements.h>
 #include <scorbit_sdk/net_types.h>
 #include <scorbit_sdk/common_types_c.h>
 #include "leaderboard_internal.h"
@@ -74,6 +75,28 @@ public:
                                   LeaderboardVpinFilter vpinFilter,
                                   LeaderboardHandleCallback callback) = 0;
     virtual void requestUnpair(StringCallback callback) = 0;
+
+    // ---- Achievements (v2) ----
+
+    /** GET the published achievement definitions for this scorbitron's machine. */
+    virtual void fetchAchievements(AchievementsCallback callback) = 0;
+
+    /** GET one user's achievement progress for this scorbitron's machine. */
+    virtual void fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback) = 0;
+
+    /**
+     * @brief POST an unlock request for one achievement.
+     *
+     * The endpoint is a batch API; the SDK always sends a single-element array.
+     *
+     * @param count 1 for boolean achievements, or the increment for counters.
+     */
+    virtual void unlockAchievement(const std::string &userId, const std::string &key, int count,
+                                   AchievementUnlockCallback callback) = 0;
+
+    /** POST a lock (trophy revoke) request for one achievement. */
+    virtual void lockAchievement(const std::string &userId, const std::string &key,
+                                 AchievementUnlockCallback callback) = 0;
 
     virtual void download(bool isAsync, StringCallback callback, const std::string &url,
                           const std::string &filename, const HttpHeaders &headers) = 0;
