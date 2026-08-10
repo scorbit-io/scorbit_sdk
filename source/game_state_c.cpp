@@ -23,6 +23,7 @@
 #include <scorbit_sdk/net_types_c.h>
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
+#include "game_state_handle.h"
 #include "game_state_impl.h"
 #include "leaderboard_internal.h"
 #include "net_base.h"
@@ -33,238 +34,16 @@
 #include "soft_key_resolver.h"
 #include "utils/thread_priority.h"
 #include <logger/logger.h>
-#include <blockingconcurrentqueue.h>
 #include <string>
 #include <memory>
 #include <vector>
-#include <atomic>
 #include <exception>
-#include <thread>
 #include <utility>
 #include <variant>
 #include <cstdint>
 
 using namespace scorbit;
 using namespace detail;
-
-struct sb_game_state_struct;
-
-namespace scorbit_c_api_queue {
-
-inline std::string copyCStr(const char *p)
-{
-    return p ? std::string(p) : std::string {};
-}
-
-inline HttpHeaders copyHeaders(const sb_http_header_t *headers, size_t count)
-{
-    HttpHeaders result;
-    if (headers && count > 0) {
-        result.reserve(count);
-        for (size_t i = 0; i < count; ++i) {
-            result.emplace_back(copyCStr(headers[i].name), copyCStr(headers[i].value));
-        }
-    }
-    return result;
-}
-
-struct Poison {
-};
-
-struct JobSetGameStarted {
-    sb_game_state_struct *h;
-    sb_game_start_origin_t origin;
-};
-
-struct JobSetGameFinished {
-    sb_game_state_struct *h;
-};
-
-struct JobSetCurrentBall {
-    sb_game_state_struct *h;
-    sb_ball_t ball;
-};
-
-struct JobSetActivePlayer {
-    sb_game_state_struct *h;
-    sb_player_t player;
-};
-
-struct JobSetScore {
-    sb_game_state_struct *h;
-    sb_player_t player;
-    sb_score_t score;
-    sb_score_feature_t feature;
-};
-
-struct JobAddMode {
-    sb_game_state_struct *h;
-    std::string mode;
-};
-
-struct JobAddModeExpiring {
-    sb_game_state_struct *h;
-    std::string mode;
-    uint32_t duration_seconds;
-};
-
-struct JobTickModeExpiries {
-    sb_game_state_struct *h;
-};
-
-struct JobRemoveMode {
-    sb_game_state_struct *h;
-    std::string mode;
-};
-
-struct JobClearModes {
-    sb_game_state_struct *h;
-};
-
-struct JobCommit {
-    sb_game_state_struct *h;
-};
-
-struct JobRequestTopScores {
-    sb_game_state_struct *h;
-    sb_leaderboard_scope_t scope;
-    sb_leaderboard_period_t period;
-    std::string since;
-    sb_leaderboard_vpin_filter_t vpin_filter;
-    sb_leaderboard_callback_t callback;
-    void *user_data;
-};
-
-struct JobRequestPairCode {
-    sb_game_state_struct *h;
-    sb_string_callback_t callback;
-    void *user_data;
-};
-
-struct JobRequestUnpair {
-    sb_game_state_struct *h;
-    sb_string_callback_t callback;
-    void *user_data;
-};
-
-struct JobSetCapabilities {
-    sb_game_state_struct *h;
-    sb_capabilities_t capabilities;
-};
-
-struct JobPairMachine {
-    sb_game_state_struct *h;
-    std::string machine_uuid;
-    std::string owner_uuid;
-    sb_string_callback_t callback;
-    void *user_data;
-};
-
-struct JobCreditsDropped {
-    sb_game_state_struct *h;
-    int credits;
-    std::string transaction;
-    bool success;
-};
-
-struct JobCreditsStatus {
-    sb_game_state_struct *h;
-    bool free_play;
-    int credits;
-    int max_credits;
-    std::string pricing;
-};
-
-struct JobDownload {
-    sb_game_state_struct *h;
-    std::string url;
-    std::string filename;
-    HttpHeaders headers;
-    sb_string_callback_t callback;
-    void *user_data;
-};
-
-struct JobDownloadBuffer {
-    sb_game_state_struct *h;
-    std::string url;
-    size_t reserve_buffer_size;
-    HttpHeaders headers;
-    sb_buffer_callback_t callback;
-    void *user_data;
-};
-
-struct JobUploadDiagnostics {
-    sb_game_state_struct *h;
-    std::vector<std::string> logPaths;
-    std::vector<std::string> recordingPaths;
-    std::string logString;
-};
-
-using ApiQueueItem =
-        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
-                     JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                     JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
-                     JobRequestTopScores, JobRequestPairCode, JobRequestUnpair, JobSetCapabilities,
-                     JobPairMachine, JobCreditsDropped, JobCreditsStatus, JobDownload,
-                     JobDownloadBuffer, JobUploadDiagnostics>;
-
-// Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
-// std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
-// (std::overloaded).
-template<class... Ts>
-struct Overloaded : Ts... {
-    using Ts::operator()...;
-};
-template<class... Ts>
-Overloaded(Ts...) -> Overloaded<Ts...>;
-
-inline auto makeCStringReplyBridge(sb_string_callback_t cb, void *user_data)
-{
-    return [cb, user_data](Error error, const std::string &reply) {
-        if (cb) {
-            cb(static_cast<sb_error_t>(error), reply.c_str(), user_data);
-        }
-    };
-}
-
-inline auto makeBufferReplyBridge(sb_buffer_callback_t cb, void *user_data)
-{
-    return [cb, user_data](Error error, const std::vector<uint8_t> &data) {
-        if (cb) {
-            cb(static_cast<sb_error_t>(error), data.data(), data.size(), user_data);
-        }
-    };
-}
-
-inline auto makeLeaderboardReplyBridge(sb_leaderboard_callback_t cb, void *user_data)
-{
-    return [cb, user_data](Error error, sb_leaderboard_t *leaderboard) {
-        if (cb) {
-            cb(static_cast<sb_error_t>(error), leaderboard, user_data);
-        }
-        if (leaderboard) {
-            detail::destroyLeaderboard(leaderboard);
-        }
-    };
-}
-
-} // namespace scorbit_c_api_queue
-
-struct sb_game_state_struct {
-    detail::GameStateImpl gameState;
-    moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::ApiQueueItem> cApiQueue;
-    std::atomic<bool> cApiAccepting {true};
-    std::thread cApiDispatcher;
-
-    explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
-    ~sb_game_state_struct();
-
-    void postApiJob(scorbit_c_api_queue::ApiQueueItem &&job);
-    void shutdownCApiDispatcher();
-
-private:
-    void cApiDispatcherLoop();
-};
 
 namespace scorbit_c_api_queue {
 
@@ -330,6 +109,25 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.uploadDiagnostics(std::move(j.logPaths),
                                                          std::move(j.recordingPaths),
                                                          std::move(j.logString));
+                    },
+                    [](JobFetchAchievements &&j) {
+                        j.h->gameState.fetchAchievements(
+                                makeAchievementsReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobFetchAchievementProgress &&j) {
+                        j.h->gameState.fetchAchievementProgress(
+                                j.user_id,
+                                makeAchievementProgressReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobUnlockAchievement &&j) {
+                        j.h->gameState.unlockAchievement(
+                                j.user_id, j.key, j.count,
+                                makeAchievementUnlockReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobLockAchievement &&j) {
+                        j.h->gameState.lockAchievement(
+                                j.user_id, j.key,
+                                makeAchievementUnlockReplyBridge(j.callback, j.user_data));
                     },
             },
             std::move(item));

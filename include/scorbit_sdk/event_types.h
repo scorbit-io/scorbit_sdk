@@ -35,6 +35,9 @@ enum class EventType {
     DiagnosticsUploaded = SB_EVT_DIAGNOSTICS_UPLOADED,
     PricingReceived = SB_EVT_PRICING_RECEIVED,
     PairingStatusChanged = SB_EVT_PAIRING_STATUS_CHANGED,
+    AchievementUnlocked = SB_EVT_ACHIEVEMENT_UNLOCKED,
+    AchievementLocked = SB_EVT_ACHIEVEMENT_LOCKED,
+    AchievementProgress = SB_EVT_ACHIEVEMENT_PROGRESS,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

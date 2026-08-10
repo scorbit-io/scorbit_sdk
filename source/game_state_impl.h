@@ -21,13 +21,17 @@
 
 #include "scorbit_sdk/common_types_c.h"
 #include <nfc/probes_manager.h>
+#include <scorbit_sdk/achievements.h>
+#include "achievement_manager.h"
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "game_data.h"
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
@@ -95,6 +99,63 @@ public:
     void uploadDiagnostics(std::vector<std::string> logPaths,
                            std::vector<std::string> recordingPaths, std::string logString);
 
+    // ---------------------------- Achievements ----------------------------
+    //
+    // The AchievementManager is owned here, alongside m_net, rather than by Net: the local cache
+    // and matcher are game-state concerns, and Net stays purely a transport. The two fetch methods
+    // therefore do double duty - they hand the result to the caller's callback *and* refresh the
+    // local cache the check*() methods read. unlockAchievement()/lockAchievement() are pure
+    // passthroughs: only incrementProgress() mutates local progress from game code, and
+    // server-side unlock state arrives back through the AchievementUnlocked/AchievementLocked
+    // events rather than through the unlock/lock reply.
+
+    /** Fetch definitions from the API, delivering them to @p callback and refreshing the cache. */
+    void fetchAchievements(AchievementsCallback callback);
+
+    // TEMPORARY - LOCAL TESTING ONLY - DELETE BEFORE COMMIT. Seeds the cache directly, bypassing
+    // the network, since there is no real key.json available for auth on this dev machine.
+    void debugSeedAchievements(std::vector<Achievement> achievements)
+    {
+        m_achievementManager.setAchievements(std::move(achievements));
+    }
+
+    /** Fetch one user's progress, delivering it to @p callback and refreshing the cache. */
+    void fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback);
+
+    /** Ask the server to unlock an achievement. Does not touch the local cache. */
+    void unlockAchievement(const std::string &userId, const std::string &key, int count,
+                           AchievementUnlockCallback callback);
+
+    /** Ask the server to revoke a trophy. Does not touch the local cache. */
+    void lockAchievement(const std::string &userId, const std::string &key,
+                         AchievementUnlockCallback callback);
+
+    // Local matching and cache access - no network, no job queue. AchievementManager is internally
+    // thread-safe, so these are plain synchronous delegations.
+
+    std::vector<std::string> checkModeAchievements(const std::string &modeName,
+                                                  const std::string &modeType, const std::string &userId);
+    std::vector<std::string> checkModeAchievementsWithScore(const std::string &modeName,
+                                                            const std::string &modeType,
+                                                            const std::string &userId, int64_t score);
+    std::vector<std::string> checkScoreAchievements(int64_t score, const std::string &userId);
+    bool incrementProgress(const std::string &key, const std::string &userId, int increment,
+                           const std::string &metricKey);
+    void clearUserProgress(const std::string &userId);
+    void clearAllProgress();
+
+    bool hasAchievements();
+    std::vector<Achievement> getCachedAchievements();
+    std::optional<Achievement> getCachedAchievement(const std::string &key);
+    std::optional<AchievementProgress> getCachedProgress(const std::string &userId, const std::string &key);
+
+    void setAchievementTriggeredCallback(AchievementTriggeredCallback callback);
+
+    /** Download every cached definition's artwork that has no DMD frame cached yet. */
+    void downloadAchievementFrames();
+    bool hasDmdFrame(const std::string &key);
+    DmdFrame getDmdFrame(const std::string &key);
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
@@ -116,6 +177,10 @@ private:
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 
     std::function<void()> m_postModeExpiryToCApi;
+
+    // Declared before m_net so it outlives it: the fetch callbacks handed to m_net capture `this`
+    // and write into the manager, and ~Net() stops the worker before this member is destroyed.
+    AchievementManager m_achievementManager;
 
     std::unique_ptr<NetBase> m_net;
 };

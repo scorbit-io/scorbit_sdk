@@ -332,6 +332,88 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
 SCORBIT_SDK_EXPORT
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired);
 
+// -------------------------------- Achievement helpers --------------------------------
+
+/**
+ * @brief Helper function to process an achievement unlocked event.
+ *
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_UNLOCKED, otherwise the function returns false.
+ * All out-params are optional - pass NULL for the fields you do not need. Strings are owned by the
+ * event and are valid only for the duration of the event callback.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key Receives the achievement key.
+ * @param [OUT] name Receives the achievement display name.
+ * @param [OUT] user_id Receives the user's UUID as a string (the server publishes a UUID here,
+ *              not the numeric user id taken by @ref sb_unlock_achievement).
+ * @param [OUT] username Receives the user's username.
+ * @param [OUT] is_trophy Receives whether this achievement is a trophy.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username, bool *is_trophy);
+
+/**
+ * @brief Retrieves the icon URL from an achievement unlocked, locked, or progress event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] icon_url Receives the icon URL.
+ * @return Returns true on success, or false if the event is not an achievement event or the
+ *         server published no icon.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_icon_url(const sb_event_t *event, const char **icon_url);
+
+/**
+ * @brief Retrieves the unlock timestamp from an achievement unlocked event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] achieved_time Receives the ISO-8601 timestamp.
+ * @return Returns true on success, or false if the event type does not match or the server
+ *         published no timestamp.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_achieved_time(const sb_event_t *event, const char **achieved_time);
+
+/**
+ * @brief Helper function to process an achievement locked (trophy revoked) event.
+ *
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_LOCKED, otherwise the function returns false.
+ * All out-params are optional - pass NULL for the fields you do not need.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key Receives the achievement key.
+ * @param [OUT] name Receives the achievement display name.
+ * @param [OUT] user_id Receives the UUID of the user who lost the achievement.
+ * @param [OUT] username Receives that user's username.
+ * @param [OUT] is_trophy Receives whether this achievement is a trophy.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_locked(const sb_event_t *event, const char **key, const char **name,
+                                 const char **user_id, const char **username, bool *is_trophy);
+
+/**
+ * @brief Helper function to process an achievement progress event.
+ *
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_PROGRESS, otherwise the function returns false.
+ * All out-params are optional - pass NULL for the fields you do not need.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key Receives the achievement key.
+ * @param [OUT] name Receives the achievement display name.
+ * @param [OUT] user_id Receives the user's UUID as a string.
+ * @param [OUT] username Receives the user's username.
+ * @param [OUT] progress Receives the server's current progress value.
+ * @param [OUT] target Receives the target value needed to unlock, or 0 when the server omitted it.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_progress(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username, int *progress,
+                                   int *target);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT

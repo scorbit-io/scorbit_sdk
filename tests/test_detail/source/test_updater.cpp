@@ -62,6 +62,12 @@ public:
     {
     };
     void requestUnpair(StringCallback) override {};
+    void fetchAchievements(AchievementsCallback) override {};
+    void fetchAchievementProgress(int64_t, AchievementProgressCallback) override {};
+    void unlockAchievement(int64_t, const std::string &, int, AchievementUnlockCallback) override
+    {
+    };
+    void lockAchievement(int64_t, const std::string &, AchievementUnlockCallback) override {};
     void authenticate() override { };
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
                        std::function<void()>) override { };

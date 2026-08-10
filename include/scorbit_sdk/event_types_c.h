@@ -92,6 +92,28 @@ typedef enum {
      */
     SB_EVT_PAIRING_STATUS_CHANGED,
 
+    /**
+     * @brief The server unlocked an achievement for a player.
+     *
+     * This is the authoritative unlock; a local match from `sb_check_mode_achievements` and
+     * friends is only predictive. Use @ref sb_event_achievement_unlocked to read the event.
+     */
+    SB_EVT_ACHIEVEMENT_UNLOCKED,
+
+    /**
+     * @brief A trophy achievement was revoked from a player (stolen by another player).
+     * Use @ref sb_event_achievement_locked to read the event.
+     */
+    SB_EVT_ACHIEVEMENT_LOCKED,
+
+    /**
+     * @brief The server recorded progress towards an achievement.
+     *
+     * A progress event at 100% arrives alongside @ref SB_EVT_ACHIEVEMENT_UNLOCKED for the same
+     * achievement - show one celebration, not two. Use @ref sb_event_achievement_progress.
+     */
+    SB_EVT_ACHIEVEMENT_PROGRESS,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

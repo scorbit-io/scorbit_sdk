@@ -22,6 +22,8 @@
 #include <scorbit_sdk/export.h>
 #include "common_types_c.h"
 
+#include "achievements.h"
+#include "achievements_c.h"
 #include "leaderboard.h"
 #include "net_types.h"
 #include "game_state_c.h"
@@ -30,6 +32,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <memory>
 #include <vector>
@@ -418,6 +421,266 @@ public:
                 recArr.size(), logString.c_str());
     }
 
+    // -------------------------- ACHIEVEMENTS ----------------------------------
+
+    /**
+     * @brief Fetch all published achievement definitions for the current machine.
+     *
+     * On success the definitions are also cached for local matching, so
+     * @ref checkModeAchievements and friends start working as soon as the callback fires.
+     *
+     * @note The callback function is invoked asynchronously when the operation completes, running
+     * in a separate thread from the main calling thread.
+     *
+     * @param callback Receives the definitions, or an empty vector on failure.
+     */
+    void fetchAchievements(AchievementsCallback callback)
+    {
+        auto cbPair = prepareAchievementsCallback(std::move(callback));
+        sb_fetch_achievements(m_handle.get(), cbPair.first, cbPair.second);
+    }
+
+    // TEMPORARY - LOCAL TESTING ONLY - DELETE BEFORE COMMIT.
+    bool debugSeedAchievements(const std::string &json)
+    {
+        return sb_debug_seed_achievements(m_handle.get(), json.c_str());
+    }
+
+    /**
+     * @brief Fetch one user's progress for the current machine's achievements.
+     *
+     * On success the progress is also cached for local matching. Call this when a player claims a
+     * slot.
+     *
+     * @param userId The user's UUID (the public "id" the v2 API exposes everywhere, not an
+     *               internal integer id) to fetch progress for.
+     * @param callback Receives the progress entries, or an empty vector on failure.
+     */
+    void fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback)
+    {
+        auto cbPair = prepareAchievementProgressCallback(std::move(callback));
+        sb_fetch_achievement_progress(m_handle.get(), userId.c_str(), cbPair.first, cbPair.second);
+    }
+
+    /**
+     * @brief Request that the server unlock an achievement for a user.
+     *
+     * The server validates the request and is the authority; a local match is not an unlock. Wait
+     * for the @ref scorbit::EventType::AchievementUnlocked event before telling the player they
+     * earned anything.
+     *
+     * @param userId The user to unlock the achievement for.
+     * @param key The achievement key.
+     * @param count Count value: 1 for boolean achievements, or the increment for counters.
+     * @param callback Receives the result of the request.
+     */
+    void unlockAchievement(const std::string &userId, const std::string &key, int count,
+                           AchievementUnlockCallback callback)
+    {
+        auto cbPair = prepareAchievementUnlockCallback(std::move(callback));
+        sb_unlock_achievement(m_handle.get(), userId.c_str(), key.c_str(), count, cbPair.first,
+                              cbPair.second);
+    }
+
+    /**
+     * @brief Request that the server revoke a trophy from its current holder.
+     *
+     * @param userId The user to revoke the trophy from.
+     * @param key The achievement key.
+     * @param callback Receives the result of the request.
+     */
+    void lockAchievement(const std::string &userId, const std::string &key, AchievementUnlockCallback callback)
+    {
+        auto cbPair = prepareAchievementUnlockCallback(std::move(callback));
+        sb_lock_achievement(m_handle.get(), userId.c_str(), key.c_str(), cbPair.first, cbPair.second);
+    }
+
+    /**
+     * @brief Return true if achievement definitions have been fetched and cached.
+     */
+    bool hasAchievements() const { return sb_has_achievements(m_handle.get()); }
+
+    /**
+     * @brief Every cached achievement definition.
+     */
+    std::vector<Achievement> getCachedAchievements() const
+    {
+        const auto count = sb_get_cached_achievements_count(m_handle.get());
+        std::vector<Achievement> result;
+        result.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            sb_achievement_t c {};
+            if (sb_get_cached_achievement_at(m_handle.get(), i, &c)) {
+                result.push_back(achievementFromC(c));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @brief One cached achievement definition, or nullopt if the key is unknown.
+     */
+    std::optional<Achievement> getCachedAchievement(const std::string &key) const
+    {
+        sb_achievement_t c {};
+        if (!sb_get_cached_achievement(m_handle.get(), key.c_str(), &c)) {
+            return std::nullopt;
+        }
+        return achievementFromC(c);
+    }
+
+    /**
+     * @brief A user's cached progress for one achievement, or nullopt if nothing is cached.
+     */
+    std::optional<AchievementProgress> getCachedProgress(const std::string &userId,
+                                                         const std::string &key) const
+    {
+        sb_achievement_progress_t c {};
+        if (!sb_get_cached_progress(m_handle.get(), userId.c_str(), key.c_str(), &c)) {
+            return std::nullopt;
+        }
+
+        AchievementProgress progress;
+        progress.key = c.key ? c.key : std::string {};
+        progress.progress = c.progress;
+        progress.unlocked = c.unlocked;
+        progress.unlockedAt = c.unlocked_at ? c.unlocked_at : std::string {};
+        return progress;
+    }
+
+    /**
+     * @brief Keys of the achievements matched by a mode event, ignoring score.
+     *
+     * Matching is **conservative** and **predictive only** - see @ref sb_check_mode_achievements.
+     * Because no score is supplied, an achievement carrying a `"SCORE"` rule can never match
+     * here; use @ref checkModeAchievementsWithScore for those.
+     *
+     * @param modeName The mode that started, completed, or stacked.
+     * @param modeType One of `"start"`, `"complete"`, `"stack"`.
+     * @param userId The user whose cached progress gates re-checking.
+     */
+    std::vector<std::string> checkModeAchievements(const std::string &modeName,
+                                                  const std::string &modeType, const std::string &userId) const
+    {
+        std::vector<const char *> keys(matchBufferSize());
+        const auto count = sb_check_mode_achievements(m_handle.get(), modeName.c_str(),
+                                                     modeType.c_str(), userId.c_str(), keys.data(),
+                                                     keys.size());
+        return toStringVector(keys, count);
+    }
+
+    /**
+     * @brief Keys of the achievements matched by a mode event, also judging `"SCORE"` rules.
+     *
+     * Use this entry point for any achievement that combines mode and score conditions.
+     */
+    std::vector<std::string> checkModeAchievementsWithScore(const std::string &modeName,
+                                                            const std::string &modeType,
+                                                            const std::string &userId, int64_t score) const
+    {
+        std::vector<const char *> keys(matchBufferSize());
+        const auto count = sb_check_mode_achievements_with_score(m_handle.get(), modeName.c_str(),
+                                                                modeType.c_str(), userId.c_str(), score,
+                                                                keys.data(), keys.size());
+        return toStringVector(keys, count);
+    }
+
+    /**
+     * @brief Keys of the achievements matched by the current score alone.
+     *
+     * An achievement combining a mode rule with a `"SCORE"` rule is **not** reported here; check
+     * those through @ref checkModeAchievementsWithScore when the mode event arrives.
+     */
+    std::vector<std::string> checkScoreAchievements(int64_t score, const std::string &userId) const
+    {
+        std::vector<const char *> keys(matchBufferSize());
+        const auto count = sb_check_score_achievements(m_handle.get(), score, userId.c_str(), keys.data(),
+                                                      keys.size());
+        return toStringVector(keys, count);
+    }
+
+    /**
+     * @brief Add to a counter achievement's locally accumulated progress.
+     *
+     * The unlock threshold comes from the achievement's `"PROGRESS"` rule `target`; see
+     * @ref sb_increment_achievement_progress.
+     *
+     * @param key Achievement key whose counter is being bumped.
+     * @param userId User the progress belongs to.
+     * @param increment Amount to add.
+     * @param metricKey The `"PROGRESS"` rule `reference`. Leave empty when the achievement has
+     * exactly one `"PROGRESS"` rule.
+     * @return true only if this call crossed the threshold of a located `"PROGRESS"` rule.
+     */
+    bool incrementAchievementProgress(const std::string &key, const std::string &userId, int increment = 1,
+                                      const std::string &metricKey = {})
+    {
+        return sb_increment_achievement_progress(m_handle.get(), key.c_str(), userId.c_str(), increment,
+                                                metricKey.c_str());
+    }
+
+    /**
+     * @brief Register the callback invoked when local matching records progress or a local unlock.
+     *
+     * @param callback The callback, or nullptr to clear it.
+     */
+    void setAchievementTriggeredCallback(AchievementTriggeredCallback callback)
+    {
+        if (!callback) {
+            sb_set_achievement_triggered_callback(m_handle.get(), nullptr, nullptr);
+            m_achievementTriggeredCallbackStorage.reset();
+            return;
+        }
+
+        m_achievementTriggeredCallbackStorage =
+                std::make_unique<AchievementTriggeredCallback>(std::move(callback));
+        sb_set_achievement_triggered_callback(m_handle.get(),
+                                             &GameState::achievement_triggered_callback_c,
+                                             m_achievementTriggeredCallbackStorage.get());
+    }
+
+    /**
+     * @brief Drop one user's locally accumulated progress.
+     *
+     * Call this when a player leaves the session, so that session-scoped counters do not carry
+     * into the next session and unlock early.
+     */
+    void clearAchievementUserProgress(const std::string &userId)
+    {
+        sb_clear_achievement_user_progress(m_handle.get(), userId.c_str());
+    }
+
+    /**
+     * @brief Drop every user's locally accumulated progress. Call this on game end.
+     */
+    void clearAchievementProgress() { sb_clear_achievement_progress(m_handle.get()); }
+
+    /**
+     * @brief Download and cache achievement DMD frames for later display.
+     */
+    void downloadAchievementFrames() { sb_download_achievement_frames(m_handle.get()); }
+
+    /**
+     * @brief Return true if a DMD frame is cached for @p key.
+     */
+    bool hasDmdFrame(const std::string &key) const
+    {
+        return sb_has_dmd_frame(m_handle.get(), key.c_str());
+    }
+
+    /**
+     * @brief The cached DMD frame for @p key, or an empty vector if it is not cached.
+     */
+    std::vector<uint8_t> getDmdFrame(const std::string &key) const
+    {
+        size_t size = 0;
+        const auto *data = sb_get_dmd_frame(m_handle.get(), key.c_str(), &size);
+        if (!data || size == 0) {
+            return {};
+        }
+        return std::vector<uint8_t>(data, data + size);
+    }
+
     // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -521,6 +784,136 @@ private:
         return std::make_pair(&GameState::buffer_callback_c, userData);
     }
 
+    // ---- Achievement callback bridges ----
+
+    static Achievement achievementFromC(const sb_achievement_t &c)
+    {
+        Achievement ach;
+        ach.key = c.key ? c.key : "";
+        ach.name = c.name ? c.name : "";
+        ach.description = c.description ? c.description : "";
+        ach.scope = c.scope ? c.scope : "";
+        ach.imageUrl = c.image_url ? c.image_url : "";
+        ach.obscureImageUrl = c.obscure_image_url ? c.obscure_image_url : "";
+        ach.obscure = c.obscure;
+        ach.visible = c.visible;
+        ach.isTrophy = c.is_trophy;
+        ach.notifyWhenAchieved = c.notify_when_achieved;
+        ach.inputTime = static_cast<AchievementInputTime>(c.input_time);
+        ach.trigger = static_cast<AchievementTrigger>(c.trigger);
+        ach.modeType = static_cast<AchievementModeType>(c.mode_type);
+        ach.modeName = c.mode_name ? c.mode_name : "";
+        ach.targetScore = c.target_score;
+        ach.groupId = c.group_id;
+        ach.level = c.level;
+        ach.ballCount = c.ball_count;
+        // Rules are read back through the handle by the caller when needed; rules_count is kept
+        // so callers can tell a rule-less achievement from one whose rules were not fetched.
+        ach.rules.resize(c.rules_count);
+        return ach;
+    }
+
+    static void achievements_callback_c(sb_error_t error, const sb_achievement_t *achievements,
+                                       size_t count, void *user_data)
+    {
+        auto *cb = static_cast<AchievementsCallback *>(user_data);
+        std::vector<Achievement> result;
+        if (achievements) {
+            result.reserve(count);
+            for (size_t i = 0; i < count; ++i) {
+                result.push_back(achievementFromC(achievements[i]));
+            }
+        }
+        (*cb)(static_cast<Error>(error), std::move(result));
+        delete cb;
+    }
+
+    static std::pair<sb_achievements_callback_t, void *>
+    prepareAchievementsCallback(AchievementsCallback callback)
+    {
+        auto *userData = new AchievementsCallback(std::move(callback));
+        return std::make_pair(&GameState::achievements_callback_c, userData);
+    }
+
+    static void achievement_progress_callback_c(sb_error_t error,
+                                               const sb_achievement_progress_t *progress,
+                                               size_t count, void *user_data)
+    {
+        auto *cb = static_cast<AchievementProgressCallback *>(user_data);
+        std::vector<AchievementProgress> result;
+        if (progress) {
+            result.reserve(count);
+            for (size_t i = 0; i < count; ++i) {
+                AchievementProgress entry;
+                entry.key = progress[i].key ? progress[i].key : "";
+                entry.progress = progress[i].progress;
+                entry.unlocked = progress[i].unlocked;
+                entry.unlockedAt = progress[i].unlocked_at ? progress[i].unlocked_at : "";
+                result.push_back(std::move(entry));
+            }
+        }
+        (*cb)(static_cast<Error>(error), std::move(result));
+        delete cb;
+    }
+
+    static std::pair<sb_achievement_progress_callback_t, void *>
+    prepareAchievementProgressCallback(AchievementProgressCallback callback)
+    {
+        auto *userData = new AchievementProgressCallback(std::move(callback));
+        return std::make_pair(&GameState::achievement_progress_callback_c, userData);
+    }
+
+    static void achievement_unlock_callback_c(sb_error_t error,
+                                             const sb_achievement_unlock_result_t *result,
+                                             void *user_data)
+    {
+        auto *cb = static_cast<AchievementUnlockCallback *>(user_data);
+        AchievementUnlockResult out;
+        if (result) {
+            out.key = result->key ? result->key : "";
+            out.success = result->success;
+            out.newlyUnlocked = result->newly_unlocked;
+            out.message = result->message ? result->message : "";
+        }
+        (*cb)(static_cast<Error>(error), std::move(out));
+        delete cb;
+    }
+
+    static std::pair<sb_achievement_unlock_callback_t, void *>
+    prepareAchievementUnlockCallback(AchievementUnlockCallback callback)
+    {
+        auto *userData = new AchievementUnlockCallback(std::move(callback));
+        return std::make_pair(&GameState::achievement_unlock_callback_c, userData);
+    }
+
+    static void achievement_triggered_callback_c(const char *key, const char *user_id,
+                                                bool is_unlock, int progress, void *user_data)
+    {
+        auto *cb = static_cast<AchievementTriggeredCallback *>(user_data);
+        if (cb && *cb) {
+            (*cb)(key ? std::string(key) : std::string {},
+                 user_id ? std::string(user_id) : std::string {}, is_unlock, progress);
+        }
+    }
+
+    /// Upper bound on how many keys a check*() call can return: one per cached definition.
+    size_t matchBufferSize() const
+    {
+        const auto count = sb_get_cached_achievements_count(m_handle.get());
+        return count > 0 ? count : 1;
+    }
+
+    static std::vector<std::string> toStringVector(const std::vector<const char *> &keys,
+                                                   size_t count)
+    {
+        std::vector<std::string> result;
+        result.reserve(count);
+        for (size_t i = 0; i < count && i < keys.size(); ++i) {
+            result.emplace_back(keys[i] ? keys[i] : "");
+        }
+        return result;
+    }
+
     static std::vector<sb_http_header_t> toCHeaders(const HttpHeaders &headers)
     {
         std::vector<sb_http_header_t> out;
@@ -539,6 +932,7 @@ private:
     std::unique_ptr<std::function<void(const Event &)>> m_eventCallbackStorage;
     std::unique_ptr<SaveKeyCallback> m_saveKeyCallbackStorage;
     std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
+    std::unique_ptr<AchievementTriggeredCallback> m_achievementTriggeredCallbackStorage;
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;

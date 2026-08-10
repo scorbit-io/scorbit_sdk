@@ -469,3 +469,137 @@ bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
     *is_paired = derived->isPaired();
     return true;
 }
+
+// ----------------------- Achievement helpers -----------------------
+
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username, bool *is_trophy)
+{
+    if (!event) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (key) {
+        *key = derived->key().c_str();
+    }
+    if (name) {
+        *name = derived->name().c_str();
+    }
+    if (user_id) {
+        *user_id = derived->userId().c_str();
+    }
+    if (username) {
+        *username = derived->username().c_str();
+    }
+    if (is_trophy) {
+        *is_trophy = derived->isTrophy();
+    }
+    return true;
+}
+
+bool sb_event_achievement_icon_url(const sb_event_t *event, const char **icon_url)
+{
+    if (!event || !icon_url) {
+        return false;
+    }
+
+    const std::string *url = nullptr;
+    if (auto unlocked = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event)) {
+        url = &unlocked->iconUrl();
+    } else if (auto locked = dynamic_cast<const scorbit::detail::AchievementLockedEvent *>(event)) {
+        url = &locked->iconUrl();
+    } else if (auto prog = dynamic_cast<const scorbit::detail::AchievementProgressEvent *>(event)) {
+        url = &prog->iconUrl();
+    }
+
+    if (!url || url->empty()) {
+        return false;
+    }
+
+    *icon_url = url->c_str();
+    return true;
+}
+
+bool sb_event_achievement_achieved_time(const sb_event_t *event, const char **achieved_time)
+{
+    if (!event || !achieved_time) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived || derived->achievedTime().empty()) {
+        return false;
+    }
+
+    *achieved_time = derived->achievedTime().c_str();
+    return true;
+}
+
+bool sb_event_achievement_locked(const sb_event_t *event, const char **key, const char **name,
+                                 const char **user_id, const char **username, bool *is_trophy)
+{
+    if (!event) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementLockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (key) {
+        *key = derived->key().c_str();
+    }
+    if (name) {
+        *name = derived->name().c_str();
+    }
+    if (user_id) {
+        *user_id = derived->userId().c_str();
+    }
+    if (username) {
+        *username = derived->username().c_str();
+    }
+    if (is_trophy) {
+        *is_trophy = derived->isTrophy();
+    }
+    return true;
+}
+
+bool sb_event_achievement_progress(const sb_event_t *event, const char **key, const char **name,
+                                   const char **user_id, const char **username, int *progress,
+                                   int *target)
+{
+    if (!event) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::AchievementProgressEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (key) {
+        *key = derived->key().c_str();
+    }
+    if (name) {
+        *name = derived->name().c_str();
+    }
+    if (user_id) {
+        *user_id = derived->userId().c_str();
+    }
+    if (username) {
+        *username = derived->username().c_str();
+    }
+    if (progress) {
+        *progress = derived->progress();
+    }
+    if (target) {
+        *target = derived->target();
+    }
+    return true;
+}

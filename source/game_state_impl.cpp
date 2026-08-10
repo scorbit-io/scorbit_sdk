@@ -19,6 +19,7 @@
 
 #include "game_state_impl.h"
 #include "fmt_formatters.h"
+#include "identifiers.h"
 #include <logger/logger.h>
 #include <scorbit_sdk/version.h>
 #include <nfc/probes_manager.h>
@@ -45,6 +46,9 @@ void displayProbeInfo(ProbeBase *probe, const std::string &device)
 
 namespace scorbit {
 namespace detail {
+
+/// Reserve for an achievement DMD frame download (PNG artwork, well under this in practice).
+constexpr auto DMD_FRAME_BUFFER_RESERVE = 300 * 1024;
 
 GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     : m_probesManager {std::make_shared<nfc::ProbesManager>()}
@@ -297,6 +301,143 @@ void GameStateImpl::uploadDiagnostics(std::vector<std::string> logPaths,
                                       std::string logString)
 {
     m_net->uploadDiagnostics(std::move(logPaths), std::move(recordingPaths), std::move(logString));
+}
+
+// ---------------------------------- Achievements ----------------------------------
+
+void GameStateImpl::fetchAchievements(AchievementsCallback callback)
+{
+    m_net->fetchAchievements(
+            [this, callback = std::move(callback)](Error error, std::vector<Achievement> ach) {
+                // Refresh the local cache before handing the data on, so a caller that immediately
+                // calls check*() from its callback sees the definitions it was just given.
+                if (error == Error::Success) {
+                    m_achievementManager.setAchievements(ach);
+                }
+                if (callback) {
+                    callback(error, std::move(ach));
+                }
+            });
+}
+
+void GameStateImpl::fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback)
+{
+    m_net->fetchAchievementProgress(
+            userId,
+            [this, userId, callback = std::move(callback)](
+                    Error error, std::vector<AchievementProgress> progress) {
+                if (error == Error::Success) {
+                    m_achievementManager.setUserProgress(userId, progress);
+                }
+                if (callback) {
+                    callback(error, std::move(progress));
+                }
+            });
+}
+
+void GameStateImpl::unlockAchievement(const std::string &userId, const std::string &key, int count,
+                                      AchievementUnlockCallback callback)
+{
+    m_net->unlockAchievement(userId, key, count, std::move(callback));
+}
+
+void GameStateImpl::lockAchievement(const std::string &userId, const std::string &key,
+                                    AchievementUnlockCallback callback)
+{
+    m_net->lockAchievement(userId, key, std::move(callback));
+}
+
+std::vector<std::string> GameStateImpl::checkModeAchievements(const std::string &modeName,
+                                                              const std::string &modeType,
+                                                              const std::string &userId)
+{
+    return m_achievementManager.checkModeAchievements(modeName, modeType, userId);
+}
+
+std::vector<std::string> GameStateImpl::checkModeAchievementsWithScore(const std::string &modeName,
+                                                                      const std::string &modeType,
+                                                                      const std::string &userId, int64_t score)
+{
+    return m_achievementManager.checkModeAchievementsWithScore(modeName, modeType, userId, score);
+}
+
+std::vector<std::string> GameStateImpl::checkScoreAchievements(int64_t score, const std::string &userId)
+{
+    return m_achievementManager.checkScoreAchievements(score, userId);
+}
+
+bool GameStateImpl::incrementProgress(const std::string &key, const std::string &userId, int increment,
+                                      const std::string &metricKey)
+{
+    return m_achievementManager.incrementProgress(key, userId, increment, metricKey);
+}
+
+void GameStateImpl::clearUserProgress(const std::string &userId)
+{
+    m_achievementManager.clearUserProgress(userId);
+}
+
+void GameStateImpl::clearAllProgress()
+{
+    m_achievementManager.clearAllProgress();
+}
+
+bool GameStateImpl::hasAchievements()
+{
+    return m_achievementManager.hasAchievements();
+}
+
+std::vector<Achievement> GameStateImpl::getCachedAchievements()
+{
+    return m_achievementManager.getAchievements();
+}
+
+std::optional<Achievement> GameStateImpl::getCachedAchievement(const std::string &key)
+{
+    return m_achievementManager.getAchievement(key);
+}
+
+std::optional<AchievementProgress> GameStateImpl::getCachedProgress(const std::string &userId,
+                                                                    const std::string &key)
+{
+    return m_achievementManager.getProgress(userId, key);
+}
+
+void GameStateImpl::setAchievementTriggeredCallback(AchievementTriggeredCallback callback)
+{
+    m_achievementManager.setTriggeredCallback(std::move(callback));
+}
+
+void GameStateImpl::downloadAchievementFrames()
+{
+    for (const auto &[key, imageUrl] : m_achievementManager.getFramesToDownload()) {
+        if (imageUrl.empty()) {
+            continue;
+        }
+
+        m_net->downloadBuffer(
+                true, // Async download
+                [this, key = key](Error error, std::vector<uint8_t> data) {
+                    if (error != Error::Success || data.empty()) {
+                        ERR("Achievement DMD frame download failed for {}: error code {}", key,
+                            static_cast<int>(error));
+                        return;
+                    }
+                    m_achievementManager.setDmdFrame(key, std::move(data));
+                },
+                imageUrl, DMD_FRAME_BUFFER_RESERVE,
+                {{HDR_KEY_ACCEPT_CONTENT, HDR_VAL_CONTENT_OCTET}});
+    }
+}
+
+bool GameStateImpl::hasDmdFrame(const std::string &key)
+{
+    return m_achievementManager.hasDmdFrame(key);
+}
+
+DmdFrame GameStateImpl::getDmdFrame(const std::string &key)
+{
+    return m_achievementManager.getDmdFrame(key);
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)

@@ -169,6 +169,7 @@ target_sources(
         source/net.cpp
         source/config_c.cpp
         source/game_state_c.cpp
+        source/game_state_handle.h
         source/game_state_impl.h
         source/game_state_impl.cpp
         include/scorbit_sdk/config_c.h
@@ -192,6 +193,11 @@ target_sources(
         source/net.h
         source/leaderboard_internal.h
         source/leaderboard_c.cpp
+        include/scorbit_sdk/achievements.h
+        include/scorbit_sdk/achievements_c.h
+        source/achievement_manager.h
+        source/achievement_manager.cpp
+        source/achievements_c.cpp
         source/player_state.h
         source/player_state.cpp
         source/modes.h
