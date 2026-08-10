@@ -70,6 +70,11 @@ public:
     {
     };
     void requestUnpair(StringCallback) override {};
+    void fetchAchievements(AchievementsCallback) override { };
+    void fetchAchievementProgress(int64_t, AchievementProgressCallback) override { };
+    void unlockAchievement(int64_t, const std::string &, int,
+                           AchievementUnlockCallback) override { };
+    void lockAchievement(int64_t, const std::string &, AchievementUnlockCallback) override { };
     MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,

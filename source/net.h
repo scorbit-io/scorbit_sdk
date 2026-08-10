@@ -119,6 +119,13 @@ public:
                           LeaderboardHandleCallback callback) override;
     void requestUnpair(StringCallback callback) override;
 
+    void fetchAchievements(AchievementsCallback callback) override;
+    void fetchAchievementProgress(const std::string &userId, AchievementProgressCallback callback) override;
+    void unlockAchievement(const std::string &userId, const std::string &key, int count,
+                           AchievementUnlockCallback callback) override;
+    void lockAchievement(const std::string &userId, const std::string &key,
+                         AchievementUnlockCallback callback) override;
+
     void download(bool isAsync, StringCallback callback, const std::string &url,
                   const std::string &filename, const HttpHeaders &headers) override;
     void downloadBuffer(bool isAsync, VectorCallback callback, const std::string &url,
@@ -174,6 +181,16 @@ private:
     void requestMachineObject();
 
     void requestSessionData(const std::string &sessionUuid);
+
+    /**
+     * @brief UUID of the newest live game session, or empty if no session is live.
+     *
+     * Finished sessions are erased from m_gameSessions (see createSessionUpdateTask), so the
+     * highest-keyed remaining entry is the session currently in play. Used to stamp achievement
+     * unlock/lock requests with `session_uuid`, without which the server records the unlock but
+     * publishes no real-time Centrifugo event.
+     */
+    std::string currentSessionUuid();
 
     void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
     task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);

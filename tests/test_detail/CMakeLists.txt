@@ -93,6 +93,12 @@ target_sources(
         ../../source/leaderboard_internal.h
         ../../source/leaderboard_c.cpp
         source/test_leaderboard.cpp
+        ../../include/scorbit_sdk/achievements.h
+        ../../include/scorbit_sdk/achievements_c.h
+        ../../source/achievement_manager.h
+        ../../source/achievement_manager.cpp
+        source/test_achievement_manager.cpp
+        source/test_game_state_achievements.cpp
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp

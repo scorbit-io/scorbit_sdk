@@ -385,5 +385,106 @@ private:
     bool m_isPaired;
 };
 
+// ---------------- Achievement events implementation ----------------
+//
+// Payload field names come from the server's AchievementPayloadSerializer in the api repo,
+// integrations/centrifugo/serializers/achievement.py:6-37, which every achievement message
+// (unlocked / locked / progress) embeds under "payload":
+//
+//     achievement_key   CharField     (:9)
+//     achievement_name  CharField     (:12)
+//     user_id           UUIDField     (:15)  <- a user UUID string, NOT the int64 user id the
+//                                              unlock/progress REST calls take
+//     username          CharField     (:16)
+//     current_value     IntegerField  (:17,  optional; progress only)
+//     target_value      IntegerField  (:20,  optional; progress only)
+//     achieved          BooleanField  (:23)
+//     achieved_time     DateTimeField (:26,  optional/nullable; unlocked only)
+//     icon_url          URLField      (:29,  optional/nullable)
+//     is_trophy         BooleanField  (:35,  default false)
+//
+// create_unlocked (:52-80) sends achieved=true plus achieved_time/icon_url/is_trophy;
+// create_locked (:94-118) sends achieved=false plus icon_url and leaves is_trophy defaulted;
+// create_progress (:132-160) sends current_value/target_value with achieved=false.
+
+/** Shared payload of the three achievement events; see the field-name citations above. */
+struct AchievementEventData {
+    std::string key;
+    std::string name;
+    std::string userId; // user UUID, as published by the server
+    std::string username;
+    std::string iconUrl;
+    std::string achievedTime;
+    int currentValue {0};
+    int targetValue {0};
+    bool isTrophy {false};
+};
+
+class AchievementUnlockedEvent : public EventBase
+{
+public:
+    explicit AchievementUnlockedEvent(AchievementEventData data)
+        : EventBase(EventType::AchievementUnlocked, EventPriority::Normal)
+        , m_data {std::move(data)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_data.key; }
+    auto name() const -> const std::string & { return m_data.name; }
+    auto userId() const -> const std::string & { return m_data.userId; }
+    auto username() const -> const std::string & { return m_data.username; }
+    auto iconUrl() const -> const std::string & { return m_data.iconUrl; }
+    auto achievedTime() const -> const std::string & { return m_data.achievedTime; }
+    auto isTrophy() const -> bool { return m_data.isTrophy; }
+
+private:
+    AchievementEventData m_data;
+};
+
+class AchievementLockedEvent : public EventBase
+{
+public:
+    explicit AchievementLockedEvent(AchievementEventData data)
+        : EventBase(EventType::AchievementLocked, EventPriority::Normal)
+        , m_data {std::move(data)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_data.key; }
+    auto name() const -> const std::string & { return m_data.name; }
+    auto userId() const -> const std::string & { return m_data.userId; }
+    auto username() const -> const std::string & { return m_data.username; }
+    auto iconUrl() const -> const std::string & { return m_data.iconUrl; }
+    auto isTrophy() const -> bool { return m_data.isTrophy; }
+
+private:
+    AchievementEventData m_data;
+};
+
+class AchievementProgressEvent : public EventBase
+{
+public:
+    explicit AchievementProgressEvent(AchievementEventData data)
+        : EventBase(EventType::AchievementProgress, EventPriority::Normal)
+        , m_data {std::move(data)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_data.key; }
+    auto name() const -> const std::string & { return m_data.name; }
+    auto userId() const -> const std::string & { return m_data.userId; }
+    auto username() const -> const std::string & { return m_data.username; }
+    auto iconUrl() const -> const std::string & { return m_data.iconUrl; }
+
+    /// The server's `current_value`; matches scorbit::AchievementProgress::progress in type.
+    auto progress() const -> int { return m_data.currentValue; }
+
+    /// The server's `target_value`; 0 when the server omitted it.
+    auto target() const -> int { return m_data.targetValue; }
+
+private:
+    AchievementEventData m_data;
+};
+
 } // namespace detail
 } // namespace scorbit

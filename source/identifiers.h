@@ -38,6 +38,16 @@ constexpr auto URL_GAME_LEADERS {"api/v2/games/{game_slug}/leaders/"};
 constexpr auto URL_SCORBITRON_DIAGNOSTICS {"api/v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
 constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 
+// Achievements. Confirmed directly against api/v2/urls.py (router.register("achievements", ...),
+// the "scorbitron"/"scorbitron/progress" @action url_paths on AchievementV2ViewSet, and the two
+// explicit path()s for unlock/lock) rather than inferred from documentation.
+constexpr auto URL_ACHIEVEMENTS_SCORBITRON {"api/v2/achievements/scorbitron/"};
+// GET-only; takes ?user_id=<id> as a query parameter, not a path segment.
+constexpr auto URL_ACHIEVEMENTS_SCORBITRON_PROGRESS {"api/v2/achievements/scorbitron/progress/"};
+constexpr auto URL_ACHIEVEMENTS_UNLOCK {"api/v2/achievements/unlock/"};
+constexpr auto URL_ACHIEVEMENTS_LOCK {"api/v2/achievements/lock/"};
+constexpr auto ARG_USER_ID {"user_id"};
+
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
 constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
@@ -245,6 +255,69 @@ constexpr auto JKEY_CREDITS_FREE_PLAY {"free_play"};
 constexpr auto JKEY_CREDITS_CURRENT {"credits"};
 constexpr auto JKEY_CREDITS_MAX {"max_credits"};
 constexpr auto JKEY_CREDITS_PRICING {"pricing"};
+
+// Achievements. Field names confirmed directly against the server's serializers:
+// ScorbitronAchievementSerializer / ScorbitronRuleSerializer (definitions, GET .../scorbitron/),
+// UserAchievementV2Serializer (progress, GET .../scorbitron/progress/), and
+// AchievementUnlockRequestSerializer / AchievementLockRequestSerializer (POST unlock/lock) in
+// api/v2/serializers/achievement.py. Do not rename these to match the SDK's own C++/C struct
+// field names (e.g. "icon" stays "icon" on the wire even though the SDK type calls it
+// imageUrl) - these constants are wire keys, not display names.
+
+// Achievement definition (ScorbitronAchievementSerializer)
+constexpr auto JKEY_ACH_KEY {"key"};
+constexpr auto JKEY_ACH_NAME {"name"};
+constexpr auto JKEY_ACH_DESCRIPTION {"description"};
+constexpr auto JKEY_ACH_ICON {"icon"};                     // NOT "image" - that key is v1/dead.
+constexpr auto JKEY_ACH_IS_SINGLE_SESSION {"is_single_session"};
+constexpr auto JKEY_ACH_IS_TROPHY {"is_trophy"};
+constexpr auto JKEY_ACH_SCOPE {"scope"};                   // "game" | "venue" | "event" | "global"
+constexpr auto JVAL_ACH_SCOPE_GLOBAL {"global"};
+constexpr auto JKEY_ACH_VISIBLE {"visible"};
+constexpr auto JKEY_ACH_OBSCURE {"obscure"};
+constexpr auto JKEY_ACH_OBSCURE_IMAGE {"obscure_image"};   // NOT "obscure_image_url".
+constexpr auto JKEY_ACH_GROUP_ID {"group_id"};              // NOT "groupid" (that was the K1 bug).
+constexpr auto JKEY_ACH_LEVEL {"level"};                    // Sparse position within the group.
+constexpr auto JKEY_ACH_BALL_COUNT {"ball_count"};          // "complete before ball N" - NOT a
+                                                             // counter threshold. See achievements.h
+                                                             // Achievement::ballCount.
+constexpr auto JKEY_ACH_NOTIFY_WHEN_ACHIEVED {"notify_when_achieved"};
+constexpr auto JKEY_ACH_RULES {"rules"};
+
+// Achievement rule (ScorbitronRuleSerializer)
+constexpr auto JKEY_ACH_RULE_TYPE {"type"};
+constexpr auto JKEY_ACH_RULE_COMPARISON {"comparison"};
+constexpr auto JKEY_ACH_RULE_TARGET {"target"};
+constexpr auto JKEY_ACH_RULE_REFERENCE {"reference"};
+constexpr auto JKEY_ACH_RULE_SUBACHIEVEMENT {"subachievement"};
+
+// Progress (UserAchievementV2Serializer) - one entry per achievement, nested under "achievement".
+// There is no flat {key, progress, unlocked} shape on the wire; the parser must reach into the
+// nested object for the key and flatten it into AchievementProgress itself.
+constexpr auto JKEY_ACH_PROG_ACHIEVEMENT {"achievement"};   // nested object; read JKEY_ACH_KEY from it
+constexpr auto JKEY_ACH_PROG_CURRENT_VALUE {"current_value"};
+constexpr auto JKEY_ACH_PROG_ACHIEVED {"achieved"};
+constexpr auto JKEY_ACH_PROG_ACHIEVED_TIME {"achieved_time"};
+
+// Unlock request (AchievementUnlockRequestSerializer) - POSTs a *batch*; the SDK always sends a
+// single-element "achievements" array per sb_unlock_achievement() call.
+constexpr auto JKEY_ACH_UNLOCK_ACHIEVEMENTS {"achievements"};
+constexpr auto JKEY_ACH_UNLOCK_ITEM_KEY {"key"};
+constexpr auto JKEY_ACH_UNLOCK_ITEM_COUNT {"count"};
+constexpr auto JKEY_ACH_UNLOCK_USER_ID {"user_id"};
+constexpr auto JKEY_ACH_UNLOCK_SESSION_UUID {"session_uuid"}; // Omit this and the unlock is
+                                                                // recorded but no realtime
+                                                                // Centrifugo event is published.
+constexpr auto JKEY_ACH_UNLOCK_SCORE_ID {"score_id"};          // optional, non-SDK clients only
+
+// Unlock response - array of {key, newly_unlocked, user_achievement: {...}}.
+constexpr auto JKEY_ACH_UNLOCK_RESULT_KEY {"key"};
+constexpr auto JKEY_ACH_UNLOCK_RESULT_NEWLY_UNLOCKED {"newly_unlocked"};
+constexpr auto JKEY_ACH_UNLOCK_RESULT_USER_ACHIEVEMENT {"user_achievement"};
+
+// Lock request (AchievementLockRequestSerializer) - reuses JKEY_ACH_KEY / _USER_ID above; the
+// response is a single UserAchievementV2 object (see the progress keys above), not a list.
+constexpr auto JKEY_ACH_LOCK_SESSION_UUID {"session_uuid"};
 
 } // namespace detail
 } // namespace scorbit
