@@ -32,7 +32,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <optional>
 #include <string>
 #include <memory>
 #include <vector>
@@ -518,34 +517,40 @@ public:
     }
 
     /**
-     * @brief One cached achievement definition, or nullopt if the key is unknown.
+     * @brief One cached achievement definition.
+     *
+     * @param achievement [OUT] The achievement, if found.
+     * @return true if the key exists in the cache, false otherwise.
      */
-    std::optional<Achievement> getCachedAchievement(const std::string &key) const
+    bool getCachedAchievement(const std::string &key, Achievement &achievement) const
     {
         sb_achievement_t c {};
         if (!sb_get_cached_achievement(m_handle.get(), key.c_str(), &c)) {
-            return std::nullopt;
+            return false;
         }
-        return achievementFromC(c);
+        achievement = achievementFromC(c);
+        return true;
     }
 
     /**
-     * @brief A user's cached progress for one achievement, or nullopt if nothing is cached.
+     * @brief A user's cached progress for one achievement.
+     *
+     * @param progress [OUT] The progress, if cached.
+     * @return true if progress is cached for that user and key, false otherwise.
      */
-    std::optional<AchievementProgress> getCachedProgress(const std::string &userId,
-                                                         const std::string &key) const
+    bool getCachedProgress(const std::string &userId, const std::string &key,
+                           AchievementProgress &progress) const
     {
         sb_achievement_progress_t c {};
         if (!sb_get_cached_progress(m_handle.get(), userId.c_str(), key.c_str(), &c)) {
-            return std::nullopt;
+            return false;
         }
 
-        AchievementProgress progress;
         progress.key = c.key ? c.key : std::string {};
         progress.progress = c.progress;
         progress.unlocked = c.unlocked;
         progress.unlockedAt = c.unlocked_at ? c.unlocked_at : std::string {};
-        return progress;
+        return true;
     }
 
     /**
