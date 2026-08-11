@@ -21,6 +21,7 @@
 #define _POSIX_C_SOURCE 200809L // for older compilers
 
 #include <scorbit_sdk/scorbit_sdk_c.h>
+#include <scorbit_sdk/achievements_c.h>
 
 #include <stdio.h>
 #include <stdint.h>
@@ -53,6 +54,9 @@ pthread_mutex_t gGameStartRequestMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Global pointer to game state for event callback (set after game state is created)
 sb_game_handle_t gGameStatePtr = NULL;
+
+static bool g_achievements_loaded = false;
+static char g_active_user_id[128] = "";
 
 void set_game_start_requested(bool val)
 {
@@ -189,6 +193,85 @@ void loggerCallback(const char *message, sb_log_level_t level, const char *file,
     fflush(stdout); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Achievement helpers ------------------
+// Local matching is predictive only; wait for SB_EVT_ACHIEVEMENT_UNLOCKED before celebrating.
+
+static void unlock_result_callback(sb_error_t error, const sb_achievement_unlock_result_t *result,
+                                   void *user_data)
+{
+    (void)user_data;
+    if (error == SB_EC_SUCCESS && result && result->success) {
+        printf("Unlock request accepted for %s\n", result->key ? result->key : "");
+    }
+}
+
+static void post_matched_achievements(sb_game_handle_t gs, const char **keys, size_t count)
+{
+    if (g_active_user_id[0] == '\0') {
+        return;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        sb_achievement_t ach;
+        if (sb_get_cached_achievement(gs, keys[i], &ach)) {
+            printf("Local match (predictive): %s (%s)\n", ach.name ? ach.name : "", keys[i]);
+        }
+        sb_unlock_achievement(gs, g_active_user_id, keys[i], 1, &unlock_result_callback, NULL);
+    }
+}
+
+static void achievement_triggered_callback(const char *key, const char *user_id, bool is_unlock,
+                                           int progress, void *user_data)
+{
+    (void)user_data;
+    printf("Achievement triggered locally: key=%s user=%s unlock=%d progress=%d\n",
+           key ? key : "", user_id ? user_id : "", is_unlock, progress);
+}
+
+static void achievements_callback(sb_error_t error, const sb_achievement_t *achievements,
+                                  size_t count, void *user_data)
+{
+    (void)user_data;
+    if (error != SB_EC_SUCCESS) {
+        printf("Failed to fetch achievements\n");
+        return;
+    }
+
+    g_achievements_loaded = true;
+    printf("Loaded %zu achievement definition(s)\n", count);
+    for (size_t i = 0; i < count; ++i) {
+        printf("  %s: %s\n", achievements[i].key ? achievements[i].key : "",
+               achievements[i].name ? achievements[i].name : "");
+    }
+
+    if (gGameStatePtr && count > 0 && achievements[0].key) {
+        sb_achievement_t cached;
+        if (sb_get_cached_achievement(gGameStatePtr, achievements[0].key, &cached)) {
+            printf("Cache lookup OK: %s\n", cached.name ? cached.name : "");
+        }
+    }
+}
+
+static void achievement_progress_callback(sb_error_t error,
+                                          const sb_achievement_progress_t *progress, size_t count,
+                                          void *user_data)
+{
+    (void)user_data;
+    if (error != SB_EC_SUCCESS) {
+        printf("Failed to fetch achievement progress\n");
+        return;
+    }
+
+    printf("Cached progress for %zu achievement(s)\n", count);
+    if (gGameStatePtr && count > 0 && progress[0].key && g_active_user_id[0] != '\0') {
+        sb_achievement_progress_t cached;
+        if (sb_get_cached_progress(gGameStatePtr, g_active_user_id, progress[0].key, &cached)) {
+            printf("  %s: progress=%d unlocked=%d\n", cached.key ? cached.key : "", cached.progress,
+                   cached.unlocked);
+        }
+    }
+}
+
 // --------------- Example of key persistence callbacks ------------------
 // These callbacks are used to save and load a key to/from persistent storage.
 // The SDK will call these when it needs to persist or retrieve the key.
@@ -289,8 +372,16 @@ void eventsCallback(const sb_event_t *event, void *user_data)
                 bool has_info = false;
                 if (sb_event_player_has_info(event, p, &has_info) && has_info) {
                     const char *preferred_name = NULL;
+                    const char *player_id = NULL;
                     if (sb_event_player_preferred_name(event, p, &preferred_name)) {
                         printf("  Player %d: %s\n", p, preferred_name);
+                    }
+                    if (gGameStatePtr && sb_event_player_id(event, p, &player_id) && player_id &&
+                        player_id[0] != '\0') {
+                        strncpy(g_active_user_id, player_id, sizeof(g_active_user_id) - 1);
+                        g_active_user_id[sizeof(g_active_user_id) - 1] = '\0';
+                        sb_fetch_achievement_progress(gGameStatePtr, g_active_user_id,
+                                                      &achievement_progress_callback, NULL);
                     }
                 } else {
                     const char *claim_url = NULL;
@@ -357,6 +448,43 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         bool is_paired = false;
         if (sb_event_pairing_status_changed(event, &is_paired)) {
             printf("Pairing status changed: %s\n", is_paired ? "paired" : "unpaired");
+        }
+    } break;
+
+    case SB_EVT_ACHIEVEMENT_UNLOCKED: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        bool is_trophy = false;
+        if (sb_event_achievement_unlocked(event, &key, &name, &user_id, &username, &is_trophy)) {
+            printf("Achievement unlocked (authoritative): %s for %s%s\n",
+                   name ? name : "", username ? username : "", is_trophy ? " [trophy]" : "");
+        }
+    } break;
+
+    case SB_EVT_ACHIEVEMENT_LOCKED: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        bool is_trophy = false;
+        if (sb_event_achievement_locked(event, &key, &name, &user_id, &username, &is_trophy)) {
+            printf("Achievement locked (trophy revoked): %s from %s\n", name ? name : "",
+                   username ? username : "");
+        }
+    } break;
+
+    case SB_EVT_ACHIEVEMENT_PROGRESS: {
+        const char *key = NULL;
+        const char *name = NULL;
+        const char *user_id = NULL;
+        const char *username = NULL;
+        int progress = 0;
+        int target = 0;
+        if (sb_event_achievement_progress(event, &key, &name, &user_id, &username, &progress,
+                                        &target)) {
+            printf("Achievement progress: %s %d/%d\n", name ? name : "", progress, target);
         }
     } break;
 
@@ -533,6 +661,11 @@ int main(void)
     // Set the global pointer so event callback can access the game state
     gGameStatePtr = gs;
 
+    // Load achievement definitions once at startup; local matching works after the callback fires.
+    sb_fetch_achievements(gs, &achievements_callback, NULL);
+    sb_set_achievement_triggered_callback(gs, &achievement_triggered_callback, NULL);
+    sb_download_achievement_frames(gs);
+
     // Set capabilities. Here we set both start game and credit drop capabilities
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
@@ -569,6 +702,7 @@ int main(void)
         // Next game cycle started. First check if game is finished, because it might happen,
         // that in the same cycle one game finished and started new game
         if (isGameFinished(i)) {
+            sb_clear_achievement_progress(gs);
             // This will close current active session and do commit.
             sb_set_game_finished(gs);
         }
@@ -603,6 +737,13 @@ int main(void)
             // Set player1 score, no problem, if it was not changed in the current cycle
             sb_set_score(gs, 1, player1Score(i), 2); // 2 is a feature, e.g., right spinner
 
+            if (g_achievements_loaded && g_active_user_id[0] != '\0') {
+                const char *matched_keys[16];
+                const size_t matched_count = sb_check_score_achievements(
+                        gs, player1Score(i), g_active_user_id, matched_keys, 16);
+                post_matched_achievements(gs, matched_keys, matched_count);
+            }
+
             if (hasPlayer2()) {
                 // Set player2 score if player2 is present
                 sb_set_score(gs, 2, player2Score(), 0);
@@ -627,6 +768,13 @@ int main(void)
             // Add/remove game modes:
             if (i % 10 == 0) {
                 sb_add_mode(gs, "MB:Multiball");
+                if (g_achievements_loaded && g_active_user_id[0] != '\0') {
+                    const char *matched_keys[16];
+                    const size_t matched_count = sb_check_mode_achievements_with_score(
+                            gs, "MB:Multiball", "complete", g_active_user_id, player1Score(i),
+                            matched_keys, 16);
+                    post_matched_achievements(gs, matched_keys, matched_count);
+                }
             } else {
                 sb_remove_mode(gs, "MB:Multiball");
             }

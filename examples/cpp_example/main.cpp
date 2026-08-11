@@ -45,6 +45,9 @@ constexpr int G_SCORE_FEATURES_VERSION = 1;
 atomic_int gNumberOfPlayersRequested;
 atomic_bool gGameStartRequestedFromLobby {false};
 
+atomic_bool gAchievementsLoaded {false};
+std::string gActiveUserId; // Public user UUID from PlayersUpdated; empty until a slot is claimed
+
 // Global pointer to GameState for event callback (set after GameState is created)
 scorbit::GameState *gGameStatePtr = nullptr;
 
@@ -171,6 +174,29 @@ void loggerCallback(const std::string &message, scorbit::LogLevel level, const c
     std::cout.flush(); // Maybe we should not flush buffer, so it will not slow down the program
 }
 
+// --------------- Achievement helpers ------------------
+// Local matching is predictive only; wait for AchievementUnlocked before celebrating.
+
+static void postMatchedAchievements(scorbit::GameState &gs, const std::vector<std::string> &keys)
+{
+    if (gActiveUserId.empty()) {
+        return;
+    }
+
+    for (const auto &key : keys) {
+        scorbit::Achievement ach;
+        if (gs.getCachedAchievement(key, ach)) {
+            cout << "Local match (predictive): " << ach.name << " (" << key << ')' << endl;
+        }
+        gs.unlockAchievement(gActiveUserId, key, 1,
+                               [](scorbit::Error error, scorbit::AchievementUnlockResult result) {
+            if (error == scorbit::Error::Success && result.success) {
+                cout << "Unlock request accepted for " << result.key << endl;
+            }
+        });
+    }
+}
+
 // --------------- Example of key persistence callbacks ------------------
 // These callbacks are used to save and load a key to/from persistent storage.
 // The SDK will call these when it needs to persist or retrieve the key.
@@ -246,6 +272,30 @@ void eventsCallback(const scorbit::Event &event)
                 if (item.second.hasInfo()) {
                     cout << "  Player " << item.first << ": " << item.second.preferredName
                          << " (id: " << item.second.id << ")" << endl;
+                    // Fetch this user's cached progress when they claim a slot.
+                    if (gGameStatePtr && !item.second.id.empty()) {
+                        gActiveUserId = item.second.id;
+                        const std::string userId = item.second.id;
+                        gGameStatePtr->fetchAchievementProgress(
+                                userId,
+                                [userId](scorbit::Error error,
+                                         std::vector<scorbit::AchievementProgress> progress) {
+                            if (error != scorbit::Error::Success) {
+                                cout << "Failed to fetch achievement progress" << endl;
+                                return;
+                            }
+                            cout << "Cached progress for " << progress.size() << " achievement(s)"
+                                 << endl;
+                            if (gGameStatePtr && !progress.empty()) {
+                                scorbit::AchievementProgress cached;
+                                if (gGameStatePtr->getCachedProgress(userId, progress[0].key,
+                                                                      cached)) {
+                                    cout << "  " << cached.key << ": progress=" << cached.progress
+                                         << " unlocked=" << cached.unlocked << endl;
+                                }
+                            }
+                        });
+                    }
                 } else {
                     cout << "  Player " << item.first << ": unclaimed, claim at "
                          << item.second.claimDeeplink << endl;
@@ -304,6 +354,44 @@ void eventsCallback(const scorbit::Event &event)
         bool isPaired = false;
         if (event.getPairingStatusChanged(isPaired)) {
             cout << "Pairing status changed: " << (isPaired ? "paired" : "unpaired") << endl;
+        }
+    } break;
+
+    case scorbit::EventType::AchievementUnlocked: {
+        std::string key;
+        std::string name;
+        std::string userId;
+        std::string username;
+        bool isTrophy = false;
+        if (event.getAchievementUnlocked(key, name, userId, username, isTrophy)) {
+            cout << "Achievement unlocked (authoritative): " << name << " for " << username;
+            if (isTrophy) {
+                cout << " [trophy]";
+            }
+            cout << endl;
+        }
+    } break;
+
+    case scorbit::EventType::AchievementLocked: {
+        std::string key;
+        std::string name;
+        std::string userId;
+        std::string username;
+        bool isTrophy = false;
+        if (event.getAchievementLocked(key, name, userId, username, isTrophy)) {
+            cout << "Achievement locked (trophy revoked): " << name << " from " << username << endl;
+        }
+    } break;
+
+    case scorbit::EventType::AchievementProgress: {
+        std::string key;
+        std::string name;
+        std::string userId;
+        std::string username;
+        int progress = 0;
+        int target = 0;
+        if (event.getAchievementProgress(key, name, userId, username, progress, target)) {
+            cout << "Achievement progress: " << name << " " << progress << '/' << target << endl;
         }
     } break;
 
@@ -380,6 +468,35 @@ int main()
     // Set the global pointer so event callback can access the GameState
     gGameStatePtr = &gs;
 
+    // Load achievement definitions once at startup; local matching works after the callback fires.
+    gs.fetchAchievements([](scorbit::Error error, std::vector<scorbit::Achievement> achievements) {
+        if (error != scorbit::Error::Success) {
+            cout << "Failed to fetch achievements" << endl;
+            return;
+        }
+        gAchievementsLoaded = true;
+        cout << "Loaded " << achievements.size() << " achievement definition(s)" << endl;
+        for (const auto &ach : achievements) {
+            cout << "  " << ach.key << ": " << ach.name << endl;
+        }
+
+        // Cached lookups use bool + out-parameter (C++14-friendly).
+        if (gGameStatePtr && !achievements.empty()) {
+            scorbit::Achievement cached;
+            if (gGameStatePtr->getCachedAchievement(achievements[0].key, cached)) {
+                cout << "Cache lookup OK: " << cached.name << endl;
+            }
+        }
+    });
+
+    gs.setAchievementTriggeredCallback([](const std::string &key, const std::string &userId,
+                                          bool isUnlock, int progress) {
+        cout << "Achievement triggered locally: key=" << key << " user=" << userId
+             << " unlock=" << isUnlock << " progress=" << progress << endl;
+    });
+
+    gs.downloadAchievementFrames();
+
     // Set capabilities. Here we set both start game and credit drop capabilities
     gs.setCapabilities(scorbit::Capability::StartGame | scorbit::Capability::CreditDrop);
 
@@ -429,6 +546,8 @@ int main()
         // Next game cycle started. First check if game is finished, because it might happen,
         // that in the same cycle one game finished and started new game
         if (isGameFinished(i)) {
+            // Drop session-scoped local counters before closing the session.
+            gs.clearAchievementProgress();
             // This will close current active session and do commit.
             gs.setGameFinished();
         }
@@ -477,6 +596,11 @@ int main()
             // Set player1 score, no problem, if it was not changed in the current cycle
             gs.setScore(1, player1Score(i), 2); // 2 is a feature, e.g., right spinner
 
+            if (gAchievementsLoaded && !gActiveUserId.empty()) {
+                const auto matched = gs.checkScoreAchievements(player1Score(i), gActiveUserId);
+                postMatchedAchievements(gs, matched);
+            }
+
             if (hasPlayer2()) {
                 // Set player2 score if player2 is present
                 gs.setScore(2, player2Score());
@@ -501,6 +625,11 @@ int main()
             // Add/remove game modes:
             if (i % 10 == 0) {
                 gs.addMode("MB:Multiball");
+                if (gAchievementsLoaded && !gActiveUserId.empty()) {
+                    const auto matched = gs.checkModeAchievementsWithScore(
+                            "MB:Multiball", "complete", gActiveUserId, player1Score(i));
+                    postMatchedAchievements(gs, matched);
+                }
             } else {
                 gs.removeMode("MB:Multiball");
             }
