@@ -243,6 +243,12 @@ private:
     void retireCentrifugoClient();
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+
+    /// Arm the idle disconnect for a Centrifugo connection that a heartbeat wake just opened.
+    void startCentrifugoIdleTimer();
+    /// Give the idle window a full extension, but only when it is already armed.
+    void resetCentrifugoIdleTimerIfArmed();
+    void stopCentrifugoIdleTimer();
     void setupAndConnectCentrifugo(bool fetchFreshToken = false);
     void restartCentrifugo();
 
@@ -388,6 +394,9 @@ private:
     // unwind safely without retaining every historical client for the rest of the process.
     std::deque<RetiredCentrifugoClient> m_retiredCentrifugoClients;
     std::atomic_bool m_restartCentrifugoPending {false};
+    // True only while a heartbeat-wake-opened connection is on its idle countdown. Gates the
+    // activity reset so a connection we did not open never acquires an idle disconnect.
+    std::atomic_bool m_isCentrifugoIdleTimerArmed {false};
 
     std::optional<bool> m_lastEmittedPairingState;
 

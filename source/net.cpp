@@ -97,6 +97,8 @@ constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
 constexpr auto TOP_SCORES_DEFER_RETRY = 1000ms;
 constexpr int TOP_SCORES_DEFER_MAX_ATTEMPTS = 30;
 constexpr auto CF_RETIRED_CLIENT_GRACE_PERIOD = 30s;
+/// How long a wake-triggered Centrifugo connection is kept alive without a game or a command.
+constexpr auto CF_IDLE_DISCONNECT_TIME = 5min;
 
 constexpr auto NFC_CHECK_TIME = 2000ms;    // Check NFC nonces every 1000 milliseconds
 constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seconds
@@ -303,6 +305,7 @@ Net::~Net()
     if (!m_stop.exchange(true)) {
         stopHeartbeatTimer();
         m_worker.stopTimer(Worker::Timer::HeartbeatResponse);
+        stopCentrifugoIdleTimer();
         stopTokenRefreshTimer();
         m_eventManager->stop();
         m_authCV.notify_all();
@@ -423,6 +426,10 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
         session.gameData = data;
         session.history.push_back(data);
     }
+
+    // The game session owns the Centrifugo connection from here on, so a wake-armed idle
+    // disconnect must not fire mid-game
+    stopCentrifugoIdleTimer();
 
     INF("API post create session, id: {}", data.id);
     m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
@@ -1733,8 +1740,18 @@ void Net::onHeartbeatResponse(const boost::system::error_code &ec, std::size_t b
     // centrifugoConnect() is a no-op unless the client is disconnected, so a wake while already
     // connected won't open a second connection. Both calls are moved off the heartbeat strand.
     m_worker.post([this]() {
+        // Only a connection this wake actually opened may be idle-disconnected later. If we were
+        // already connected the link is not ours to tear down, and arming the timer here would
+        // drop a healthy long-lived connection.
+        const bool wasDisconnected =
+                m_centrifugo && m_centrifugo->state() == centrifugo::ConnectionState::Disconnected;
+
         centrifugoConnect();
         getConfig();
+
+        if (wasDisconnected) {
+            startCentrifugoIdleTimer();
+        }
     });
 }
 
@@ -2831,6 +2848,13 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                     pub.info->client);
             }
 
+            // Any command on a control channel counts as activity: if this connection was opened
+            // by a heartbeat wake, give it another full idle window to finish the exchange.
+            if (channel.starts_with(CF_CHN_CONTROL_MACHINE)
+                || channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
+                resetCentrifugoIdleTimerIfArmed();
+            }
+
             if (channel.starts_with(CF_CHN_CONTROL_MACHINE)) {
                 const auto &j = pub.data;
                 if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
@@ -2923,6 +2947,52 @@ void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
     pruneRetiredCentrifugoClients();
     centrifugoSetup(fetchFreshToken);
     centrifugoConnect();
+}
+
+void Net::startCentrifugoIdleTimer()
+{
+    m_isCentrifugoIdleTimerArmed = true;
+
+    m_worker.startTimer(Worker::Timer::CentrifugoIdleDisconnect, CF_IDLE_DISCONNECT_TIME, [this] {
+        m_isCentrifugoIdleTimerArmed = false;
+
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
+
+        // A game session owns the connection for its whole duration, so never cut it short.
+        // sessionCreate() already stops this timer; this is a second guard against a session
+        // that started between the timer firing and this handler running.
+        {
+            std::scoped_lock lock(m_gameSessionsMutex);
+            if (!m_gameSessions.empty()) {
+                DBG("API-CF idle disconnect skipped, game session active");
+                return;
+            }
+        }
+
+        if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+            return;
+        }
+
+        INF("API-CF idle for {}, disconnecting until next heartbeat wake", CF_IDLE_DISCONNECT_TIME);
+        m_centrifugo->disconnect();
+    });
+}
+
+void Net::resetCentrifugoIdleTimerIfArmed()
+{
+    // Deliberately does not arm a timer that isn't already running: a connection we did not open
+    // via a heartbeat wake must not acquire an idle disconnect just because a command arrived.
+    if (m_isCentrifugoIdleTimerArmed) {
+        startCentrifugoIdleTimer();
+    }
+}
+
+void Net::stopCentrifugoIdleTimer()
+{
+    m_isCentrifugoIdleTimerArmed = false;
+    m_worker.stopTimer(Worker::Timer::CentrifugoIdleDisconnect);
 }
 
 void Net::restartCentrifugo()

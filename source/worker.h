@@ -44,6 +44,7 @@ public:
         GameData,
         SessionUpdate,
         CentrifugoReconnect,
+        CentrifugoIdleDisconnect,
         NfcBootReason,
         ModeExpiry,
         LeaderboardDeferred,
