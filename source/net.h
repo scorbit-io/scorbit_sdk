@@ -168,6 +168,10 @@ private:
     /// failure the next attempt is deferred with exponential backoff up to
     /// HEARTBEAT_RESOLVE_MAX_BACKOFF. Must be called on the heartbeat strand.
     bool resolveHeartbeatEndpoint();
+    /// Heartbeat endpoint, in precedence order: config setter, then environment, then built-in
+    /// default. The environment path exists for development against a local heartbeat server.
+    std::string heartbeatHost() const;
+    std::string heartbeatPort() const;
     /// Handle the 1-byte heartbeat reply. Runs on the heartbeat strand.
     void onHeartbeatResponse(const boost::system::error_code &ec, std::size_t bytes);
     void startTokenRefreshTimer();

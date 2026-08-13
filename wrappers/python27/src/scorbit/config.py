@@ -155,6 +155,32 @@ class Config(object):
         _lib.sb_config_set_cf_hostname(self._handle, _encode(hostname))
         return self
 
+    def set_heartbeat_host(self, host):
+        # type: (str) -> Config
+        """Set the heartbeat server hostname.
+
+        Optional. Defaults to ``"heartbeat.scorbit.io"``. Intended for testing
+        against a staging or local heartbeat server.
+        """
+        _lib.sb_config_set_heartbeat_host(self._handle, _encode(host))
+        return self
+
+    def set_heartbeat_port(self, port):
+        # type: (int) -> Config
+        """Set the heartbeat server UDP port.
+
+        Optional. Pass ``0`` to use the default port 8443.
+
+        Raises:
+            ValueError: if ``port`` is outside 0-65535. ctypes would otherwise
+                silently truncate it to 16 bits and point the heartbeat at the
+                wrong port.
+        """
+        if not 0 <= port <= 65535:
+            raise ValueError("heartbeat port must be between 0 and 65535, got %r" % (port,))
+        _lib.sb_config_set_heartbeat_port(self._handle, port)
+        return self
+
     def set_uuid(self, uuid):
         # type: (str) -> Config
         """Set the device UUID.

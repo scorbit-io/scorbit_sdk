@@ -61,6 +61,10 @@ constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 constexpr auto HEARTBEAT_HOST = "heartbeat.scorbit.io";
 constexpr auto HEARTBEAT_PORT = "8443";
 
+// Development-only overrides, consulted when the config setters were not used
+constexpr auto ENV_HEARTBEAT_HOST = "HEARTBEAT_HOST";
+constexpr auto ENV_HEARTBEAT_PORT = "HEARTBEAT_PORT";
+
 // Headers
 constexpr auto HDR_KEY_AUTHORIZATION {"Authorization"};
 constexpr auto HDR_VAL_BEARER {"Bearer "}; // note the space at the end

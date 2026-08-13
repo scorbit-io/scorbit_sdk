@@ -44,6 +44,7 @@
 #include <boost/url/parse.hpp>
 #include <algorithm>
 #include <ranges>
+#include <cstdlib>
 #include <fstream>
 #include <optional>
 #include <future>
@@ -1679,6 +1680,32 @@ task_t Net::createHeartbeatTask()
     };
 }
 
+std::string Net::heartbeatHost() const
+{
+    if (!m_deviceInfo.heartbeatHost.empty()) {
+        return m_deviceInfo.heartbeatHost;
+    }
+
+    if (const auto *env = std::getenv(ENV_HEARTBEAT_HOST); env != nullptr && *env != '\0') {
+        return env;
+    }
+
+    return HEARTBEAT_HOST;
+}
+
+std::string Net::heartbeatPort() const
+{
+    if (m_deviceInfo.heartbeatPort != 0) {
+        return std::to_string(m_deviceInfo.heartbeatPort);
+    }
+
+    if (const auto *env = std::getenv(ENV_HEARTBEAT_PORT); env != nullptr && *env != '\0') {
+        return env;
+    }
+
+    return HEARTBEAT_PORT;
+}
+
 bool Net::resolveHeartbeatEndpoint()
 {
     if (m_isHeartbeatEndpointResolved) {
@@ -1690,15 +1717,17 @@ bool Net::resolveHeartbeatEndpoint()
         return false;
     }
 
+    const auto host = heartbeatHost();
+    const auto port = heartbeatPort();
+
     boost::system::error_code ec;
     boost::asio::ip::udp::resolver resolver(m_worker.heartbeatStrand());
-    const auto endpoints =
-            resolver.resolve(boost::asio::ip::udp::v4(), HEARTBEAT_HOST, HEARTBEAT_PORT, ec);
+    const auto endpoints = resolver.resolve(boost::asio::ip::udp::v4(), host, port, ec);
 
     if (ec || endpoints.empty()) {
         m_heartbeatResolveNextAttempt = now + m_heartbeatResolveBackoff;
-        WRN("API heartbeat can't resolve {}:{}, next attempt in {}: {}", HEARTBEAT_HOST,
-            HEARTBEAT_PORT, m_heartbeatResolveBackoff, ec.message());
+        WRN("API heartbeat can't resolve {}:{}, next attempt in {}: {}", host, port,
+            m_heartbeatResolveBackoff, ec.message());
         m_heartbeatResolveBackoff =
                 std::min<seconds>(m_heartbeatResolveBackoff * 2, HEARTBEAT_RESOLVE_MAX_BACKOFF);
         return false;
