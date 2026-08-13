@@ -36,6 +36,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::Heartbeat:
             name = "Heartbeat";
             break;
+        case Worker::Timer::HeartbeatResponse:
+            name = "HeartbeatResponse";
+            break;
         case Worker::Timer::TokenRefresh:
             name = "TokenRefresh";
             break;
@@ -76,6 +79,7 @@ namespace detail {
 Worker::Worker(int threadNiceValue)
     : m_threadNiceValue(threadNiceValue)
     , m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},

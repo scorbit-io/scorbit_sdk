@@ -33,6 +33,8 @@
 #include <fmt/format.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <functional>
@@ -161,6 +163,13 @@ private:
 
     void startHeartbeatTimer();
     void stopHeartbeatTimer();
+
+    /// Resolve HEARTBEAT_HOST once and cache the endpoint. Returns false while unresolved; on
+    /// failure the next attempt is deferred with exponential backoff up to
+    /// HEARTBEAT_RESOLVE_MAX_BACKOFF. Must be called on the heartbeat strand.
+    bool resolveHeartbeatEndpoint();
+    /// Handle the 1-byte heartbeat reply. Runs on the heartbeat strand.
+    void onHeartbeatResponse(const boost::system::error_code &ec, std::size_t bytes);
     void startTokenRefreshTimer();
     void stopTokenRefreshTimer();
 
@@ -308,6 +317,12 @@ private:
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
 
+    // Heartbeat endpoint resolution state. Touched only on the heartbeat strand, so no
+    // synchronisation is needed.
+    std::chrono::seconds m_heartbeatResolveBackoff;
+    std::chrono::steady_clock::time_point m_heartbeatResolveNextAttempt;
+    bool m_isHeartbeatEndpointResolved {false};
+
     std::string m_hostname;
     std::string m_cfHostname;
     std::string m_stoken;
@@ -353,6 +368,14 @@ private:
     // This must be last element, as it has to be destroyed first, otherwise it will try to access
     // already destroyed member variables
     Worker m_worker;
+
+    // Heartbeat v2 UDP socket. Bound to m_worker's heartbeat strand, so it depends on m_worker and
+    // has to be created after m_worker and destroyed before m_worker. All socket operations and
+    // their completion handlers therefore run serialised on that strand.
+    boost::asio::ip::udp::socket m_heartbeatSocket;
+    boost::asio::ip::udp::endpoint m_heartbeatEndpoint;
+    boost::asio::ip::udp::endpoint m_heartbeatSenderEndpoint;
+    std::array<std::uint8_t, 1> m_heartbeatResponse {};
 
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker

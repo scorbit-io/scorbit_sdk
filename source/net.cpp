@@ -73,7 +73,12 @@ constexpr auto NET_CONNECT_TIMEOUT = 60s;
 constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
-constexpr auto HEARTBEAT_TIME = 10s;
+constexpr auto HEARTBEAT_TIME = 45s;
+/// How long to wait for the 1-byte heartbeat reply before giving up on this cycle.
+constexpr auto HEARTBEAT_RECV_TIMEOUT = 5s;
+/// DNS for the heartbeat host is resolved lazily; back off when it is unreachable.
+constexpr auto HEARTBEAT_RESOLVE_INITIAL_BACKOFF = 2s;
+constexpr auto HEARTBEAT_RESOLVE_MAX_BACKOFF = 5min;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
@@ -185,10 +190,12 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
     : m_keyResolvers(std::move(resolvers))
     , m_authRetryBackoff(AUTH_RETRY_INITIAL_BACKOFF)
+    , m_heartbeatResolveBackoff(HEARTBEAT_RESOLVE_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice)
+    , m_heartbeatSocket(m_worker.heartbeatStrand())
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
@@ -295,10 +302,25 @@ Net::~Net()
 {
     if (!m_stop.exchange(true)) {
         stopHeartbeatTimer();
+        m_worker.stopTimer(Worker::Timer::HeartbeatResponse);
         stopTokenRefreshTimer();
         m_eventManager->stop();
         m_authCV.notify_all();
         m_shortCodeCV.notify_all();
+    }
+
+    // Close the heartbeat socket on its own strand, otherwise we would race a pending
+    // async_receive_from running there. Its handler then unwinds with operation_aborted while the
+    // worker drains below.
+    if (m_worker.isRunning()) {
+        auto done = std::make_shared<std::promise<void>>();
+        auto wait = done->get_future();
+        m_worker.postHeartbeatQueue([this, done]() {
+            boost::system::error_code ignored;
+            m_heartbeatSocket.close(ignored);
+            done->set_value();
+        });
+        wait.wait();
     }
 
     // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
@@ -434,10 +456,13 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 
 void Net::sendHeartbeat()
 {
-    return; // FIXME: disable heartbeat for now
+    if (m_stop) {
+        return;
+    }
+
     // Ensure that only single task in the queue (while another can be running)
     if (!m_isHeartbeatInQueue.exchange(true)) {
-        INF("API post heartbeat");
+        DBG("API post heartbeat");
         m_worker.postHeartbeatQueue(createHeartbeatTask());
     }
 }
@@ -1586,105 +1611,131 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
 
 task_t Net::createHeartbeatTask()
 {
-    return noop_task; // FIXME: disable heartbeat for now, implement heatbeat v2
-
-    /*
     return [this]() {
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            // DBG("Before waiting heartbeat");
-
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                switch (m_status) {
-                case AuthStatus::AuthenticatedCheckingPairing:
-                case AuthStatus::AuthenticatedUnpaired:
-                case AuthStatus::AuthenticatedPaired:
-                case AuthStatus::AuthenticationFailed:
-                    return true;
-                default:
-                    if (m_stop) {
-                        return true;
-                    }
-                    return false;
-                }
-            });
-
-            if (m_status == AuthStatus::AuthenticationFailed) {
-                break;
-            }
-
-            bool isActiveSession;
-            {
-                std::scoped_lock lockGameSession(m_gameSessionsMutex);
-                isActiveSession = !m_gameSessions.empty();
-            }
-            const auto parameters =
-                    cpr::Parameters {{"session_active", isActiveSession ? "true" : "false"}};
-
-            // TODO: sentry
-
-            INF("API sending heartbeat with session_active: {}", isActiveSession);
-
-            const auto r = cpr::Get(url(HEARTBEAT_URL), parameters, authHeader(),
-                                    cpr::Timeout {NET_TIMEOUT}, sslOptions());
-
-            if (r.status_code == 200) {
-                INF("API heartbeat: ok, {}", r.text);
-
-                try {
-                    json json = json::parse(r.text);
-                    AuthStatus status {AuthStatus::AuthenticatedPaired};
-                    if (const auto it = json.find("unpaired");
-                        it != json.end() && it->is_boolean()) {
-                        if (it->get<bool>()) {
-                            status = AuthStatus::AuthenticatedUnpaired;
-                            m_machineInfo.venuemachineId = 0;
-                            m_machineInfo.opdbId.clear();
-                        }
-                    }
-
-                    if (const auto it = json.find("venuemachine_id");
-                        it != json.end() && it->is_number()) {
-                        m_machineInfo.venuemachineId = it->get<int64_t>();
-                    }
-
-                    if (const auto configIt = json.find("config");
-                        configIt != json.end() && configIt->is_object()) {
-                        if (const auto opdbIt = configIt->find("opdb_id");
-                            opdbIt != configIt->end() && opdbIt->is_string()) {
-                            m_machineInfo.opdbId = opdbIt->get<std::string>();
-                        }
-                    }
-
-                    m_updater.checkNewVersionAndUpdate(json);
-
-                    if (m_status != status) {
-                        m_status = status;
-                        m_authCV.notify_all();
-                    }
-                } catch (const std::exception &e) {
-                    ERR("Error parsing heartbeat reply: {}", e.what());
-                }
-                break;
-            }
-
-            ERR("API hearbeat failed: code={}, {}", r.status_code, r.error.message);
-            ERR("{}", r.text);
-
-            if (r.status_code != 401) {
-                break;
-            }
-
-            m_status = AuthStatus::NotAuthenticated;
-            stopTokenRefreshTimer();
-            auto auth = createAuthenticateTask();
-            auth();
+        if (m_stop) {
+            m_isHeartbeatInQueue = false;
+            return;
         }
 
-        m_isHeartbeatInQueue = false;
-        // DBG("On quit heartbeat");
+        if (!resolveHeartbeatEndpoint()) {
+            m_isHeartbeatInQueue = false;
+            return;
+        }
+
+        boost::system::error_code ec;
+
+        if (!m_heartbeatSocket.is_open()) {
+            m_heartbeatSocket.open(m_heartbeatEndpoint.protocol(), ec);
+            if (ec) {
+                ERR("API heartbeat can't open socket: {}", ec.message());
+                m_isHeartbeatInQueue = false;
+                return;
+            }
+        }
+
+        // The server identifies the device solely by the 36 character uuid in the datagram
+        const auto &uuid = m_deviceInfo.uuid;
+        m_heartbeatSocket.send_to(boost::asio::buffer(uuid), m_heartbeatEndpoint, 0, ec);
+        if (ec) {
+            ERR("API heartbeat send failed: {}", ec.message());
+            m_isHeartbeatInQueue = false;
+            return;
+        }
+
+        DBG("API heartbeat sent to {}:{}", m_heartbeatEndpoint.address().to_string(),
+            m_heartbeatEndpoint.port());
+
+        m_heartbeatSocket.async_receive_from(
+                boost::asio::buffer(m_heartbeatResponse), m_heartbeatSenderEndpoint,
+                [this](const boost::system::error_code &ec, std::size_t bytes) {
+                    m_worker.stopTimer(Worker::Timer::HeartbeatResponse);
+                    onHeartbeatResponse(ec, bytes);
+                    m_isHeartbeatInQueue = false;
+                });
+
+        // UDP has no delivery guarantee, so bound the wait. Cancelling the socket completes the
+        // receive above with operation_aborted. The cancel is posted back onto the heartbeat
+        // strand because the timer handler runs on an arbitrary worker thread.
+        m_worker.startTimer(Worker::Timer::HeartbeatResponse, HEARTBEAT_RECV_TIMEOUT, [this] {
+            m_worker.postHeartbeatQueue([this] {
+                boost::system::error_code ignored;
+                m_heartbeatSocket.cancel(ignored);
+            });
+        });
     };
-*/
+}
+
+bool Net::resolveHeartbeatEndpoint()
+{
+    if (m_isHeartbeatEndpointResolved) {
+        return true;
+    }
+
+    const auto now = steady_clock::now();
+    if (now < m_heartbeatResolveNextAttempt) {
+        return false;
+    }
+
+    boost::system::error_code ec;
+    boost::asio::ip::udp::resolver resolver(m_worker.heartbeatStrand());
+    const auto endpoints =
+            resolver.resolve(boost::asio::ip::udp::v4(), HEARTBEAT_HOST, HEARTBEAT_PORT, ec);
+
+    if (ec || endpoints.empty()) {
+        m_heartbeatResolveNextAttempt = now + m_heartbeatResolveBackoff;
+        WRN("API heartbeat can't resolve {}:{}, next attempt in {}: {}", HEARTBEAT_HOST,
+            HEARTBEAT_PORT, m_heartbeatResolveBackoff, ec.message());
+        m_heartbeatResolveBackoff =
+                std::min<seconds>(m_heartbeatResolveBackoff * 2, HEARTBEAT_RESOLVE_MAX_BACKOFF);
+        return false;
+    }
+
+    m_heartbeatEndpoint = *endpoints.begin();
+    m_heartbeatResolveBackoff = HEARTBEAT_RESOLVE_INITIAL_BACKOFF;
+    m_isHeartbeatEndpointResolved = true;
+
+    INF("API heartbeat endpoint resolved: {}:{}", m_heartbeatEndpoint.address().to_string(),
+        m_heartbeatEndpoint.port());
+    return true;
+}
+
+void Net::onHeartbeatResponse(const boost::system::error_code &ec, std::size_t bytes)
+{
+    if (ec == boost::asio::error::operation_aborted) {
+        // Either the response timed out or we are shutting down; the next tick will retry
+        WRN("API heartbeat no response within {}", HEARTBEAT_RECV_TIMEOUT);
+        return;
+    }
+
+    if (ec) {
+        ERR("API heartbeat receive failed: {}", ec.message());
+        return;
+    }
+
+    if (bytes < m_heartbeatResponse.size()) {
+        WRN("API heartbeat truncated response, {} bytes", bytes);
+        return;
+    }
+
+    const auto flags = m_heartbeatResponse[0];
+    DBG("API heartbeat response flags: {:#04x}", static_cast<unsigned>(flags));
+
+    if (!isHeartbeatAcked(flags)) {
+        WRN("API heartbeat response without ack flag: {:#04x}", static_cast<unsigned>(flags));
+    }
+
+    if (!isHeartbeatWakeRequested(flags)) {
+        return;
+    }
+
+    INF("API heartbeat wake flag received");
+
+    // centrifugoConnect() is a no-op unless the client is disconnected, so a wake while already
+    // connected won't open a second connection. Both calls are moved off the heartbeat strand.
+    m_worker.post([this]() {
+        centrifugoConnect();
+        getConfig();
+    });
 }
 
 void Net::sessionUpdate(int sessionId, SessionFlags flags)

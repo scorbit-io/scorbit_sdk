@@ -38,6 +38,7 @@ class Worker
 public:
     enum class Timer {
         Heartbeat,
+        HeartbeatResponse,
         TokenRefresh,
         NfcCheckTag,
         GameData,
@@ -72,6 +73,7 @@ public:
     void startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func);
     void stopTimer(Timer timerType);
 
+    auto &heartbeatStrand() { return m_heartbeatStrand; }
     auto &centrifugoStrand() { return m_centrifugoStrand; }
     auto &eventsStrand() { return m_eventsStrand; }
 

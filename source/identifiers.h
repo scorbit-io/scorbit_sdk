@@ -57,6 +57,10 @@ constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 
+// Heartbeat v2 UDP keepalive. Port is a string because asio's resolver takes the service as text.
+constexpr auto HEARTBEAT_HOST = "heartbeat.scorbit.io";
+constexpr auto HEARTBEAT_PORT = "8443";
+
 // Headers
 constexpr auto HDR_KEY_AUTHORIZATION {"Authorization"};
 constexpr auto HDR_VAL_BEARER {"Bearer "}; // note the space at the end
