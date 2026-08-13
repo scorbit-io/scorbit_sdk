@@ -256,6 +256,8 @@ private:
     void emitPairingStatusEventIfChanged(bool isPaired);
     void onPaired();
     void onUnpaired();
+    /// Enter AuthenticationFailed and stop work that a non-authenticating machine should not do.
+    void onAuthenticationFailed();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 

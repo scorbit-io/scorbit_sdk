@@ -1247,7 +1247,7 @@ task_t Net::createAuthenticateTask()
         // Done after obtaining server time so provisioning uses accurate timestamps.
         if (!m_signer && !m_keyResolvers.empty()) {
             if (!resolveKeys(timestamp)) {
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 ERR("API there is no functional key to authenticate");
                 m_authCV.notify_all();
                 return;
@@ -1258,7 +1258,7 @@ task_t Net::createAuthenticateTask()
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 stopTokenRefreshTimer();
                 m_authCV.notify_all();
                 return;
@@ -1289,7 +1289,7 @@ task_t Net::createAuthenticateTask()
                                cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 m_isRefreshingToken = false;
                 m_authCV.notify_all();
                 return;
@@ -1311,6 +1311,13 @@ task_t Net::createAuthenticateTask()
 
                     m_authRetryBackoff = AUTH_RETRY_INITIAL_BACKOFF;
                     startTokenRefreshTimer(); // Start/restart token refresh timer
+
+                    // Recover a heartbeat that onAuthenticationFailed() stopped. Done here rather
+                    // than only in initializeConnectionState() because a failure during a token
+                    // refresh leaves m_isRefreshingToken set, and the recovering attempt would
+                    // then take the refresh branch below and never reach that call.
+                    startHeartbeatTimer();
+
                     m_authCV.notify_all();
 
                     if (normalAuthentication) {
@@ -1324,7 +1331,7 @@ task_t Net::createAuthenticateTask()
                     break;
                 } catch (const std::exception &e) {
                     ERR("Error parsing authentication reply: {}", e.what());
-                    m_status = AuthStatus::AuthenticationFailed;
+                    onAuthenticationFailed();
                     stopTokenRefreshTimer();
                     m_authCV.notify_all();
                     return;
@@ -1360,7 +1367,7 @@ task_t Net::createAuthenticateTask()
                 return;
             }
 
-            m_status = AuthStatus::AuthenticationFailed;
+            onAuthenticationFailed();
             stopTokenRefreshTimer();
             const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
                                          r.error.message);
@@ -2947,6 +2954,16 @@ void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
     pruneRetiredCentrifugoClients();
     centrifugoSetup(fetchFreshToken);
     centrifugoConnect();
+}
+
+void Net::onAuthenticationFailed()
+{
+    m_status = AuthStatus::AuthenticationFailed;
+
+    // A machine that cannot authenticate is not one we want spending power and server capacity on
+    // a keepalive it can do nothing with. The timer is restarted from the authentication success
+    // path once it recovers.
+    stopHeartbeatTimer();
 }
 
 void Net::startCentrifugoIdleTimer()
