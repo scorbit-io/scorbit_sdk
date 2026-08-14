@@ -60,7 +60,6 @@ using json = nlohmann::json;
 namespace scorbit {
 namespace detail {
 
-// constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
