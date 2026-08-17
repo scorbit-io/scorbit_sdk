@@ -22,7 +22,6 @@
 #include "game_data.h"
 #include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -74,16 +73,6 @@ bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
                                const std::string &machineUuid,
                                const std::optional<std::string> &variantUuid,
                                const std::optional<std::string> &gameSlug);
-
-/// Heartbeat v2 reply flags, packed into the single response byte from the heartbeat server.
-constexpr std::uint8_t HEARTBEAT_FLAG_ACK {0x01};
-constexpr std::uint8_t HEARTBEAT_FLAG_WAKE {0x02};
-
-/** @return true when the heartbeat reply acknowledges receipt of the datagram. */
-bool isHeartbeatAcked(std::uint8_t flags);
-
-/** @return true when the server asks the device to connect to Centrifugo for pending work. */
-bool isHeartbeatWakeRequested(std::uint8_t flags);
 
 } // namespace detail
 } // namespace scorbit

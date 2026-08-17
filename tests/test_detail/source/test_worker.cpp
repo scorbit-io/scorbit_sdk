@@ -162,18 +162,19 @@ TEST_CASE("Worker", "[timers independent]")
     Worker worker;
     worker.start();
 
-    std::atomic_bool heartbeatFired {false};
+    std::atomic_bool tokenRefreshFired {false};
     std::atomic_bool idleFired {false};
 
-    worker.startTimer(Worker::Timer::Heartbeat, 50ms, [&heartbeatFired] { heartbeatFired = true; });
+    worker.startTimer(Worker::Timer::TokenRefresh, 50ms,
+                      [&tokenRefreshFired] { tokenRefreshFired = true; });
     worker.startTimer(Worker::Timer::CentrifugoIdleDisconnect, 50ms,
                       [&idleFired] { idleFired = true; });
 
     // Cancelling one must not disturb the other
-    worker.stopTimer(Worker::Timer::Heartbeat);
+    worker.stopTimer(Worker::Timer::TokenRefresh);
 
     std::this_thread::sleep_for(150ms);
-    CHECK(!heartbeatFired);
+    CHECK(!tokenRefreshFired);
     CHECK(idleFired);
 
     worker.stop();

@@ -201,6 +201,8 @@ target_sources(
         include/scorbit_sdk/net_types.h
         source/net_util.h
         source/net_util.cpp
+        source/heartbeat.h
+        source/heartbeat.cpp
         include/scorbit_sdk/game_state_factory.h
         source/worker.h
         source/worker.cpp

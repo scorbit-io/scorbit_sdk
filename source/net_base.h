@@ -60,7 +60,6 @@ public:
     virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                                std::function<void()> onCreated) = 0;
     virtual void submitGameData(const detail::GameData &data, SessionFlags flags) = 0;
-    virtual void sendHeartbeat() = 0;
     virtual void getConfig() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;
 

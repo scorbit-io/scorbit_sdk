@@ -28,13 +28,12 @@
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
+#include "heartbeat.h"
 #include "utils/machine_fingerprint.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
-#include <boost/asio/ip/udp.hpp>
-#include <array>
 #include <cstdint>
 #include <string>
 #include <functional>
@@ -106,7 +105,6 @@ public:
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                        std::function<void()> onCreated) override;
     void submitGameData(const detail::GameData &data, SessionFlags flags) override;
-    void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;
 
@@ -157,23 +155,12 @@ private:
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
                                    std::function<void()> onCreated);
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
-    task_t createHeartbeatTask();
 
     void sessionUpdate(int sessionId, SessionFlags flags);
 
-    void startHeartbeatTimer();
-    void stopHeartbeatTimer();
+    /// Come online because the heartbeat server has work waiting. Runs on the heartbeat strand.
+    void onHeartbeatWake();
 
-    /// Resolve HEARTBEAT_HOST once and cache the endpoint. Returns false while unresolved; on
-    /// failure the next attempt is deferred with exponential backoff up to
-    /// HEARTBEAT_RESOLVE_MAX_BACKOFF. Must be called on the heartbeat strand.
-    bool resolveHeartbeatEndpoint();
-    /// Heartbeat endpoint, in precedence order: config setter, then environment, then built-in
-    /// default. The environment path exists for development against a local heartbeat server.
-    std::string heartbeatHost() const;
-    std::string heartbeatPort() const;
-    /// Handle the 1-byte heartbeat reply. Runs on the heartbeat strand.
-    void onHeartbeatResponse(const boost::system::error_code &ec, std::size_t bytes);
     void startTokenRefreshTimer();
     void stopTokenRefreshTimer();
 
@@ -324,16 +311,9 @@ private:
     std::mutex m_nfcMutex;
     mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
-    std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
-
-    // Heartbeat endpoint resolution state. Touched only on the heartbeat strand, so no
-    // synchronisation is needed.
-    std::chrono::seconds m_heartbeatResolveBackoff;
-    std::chrono::steady_clock::time_point m_heartbeatResolveNextAttempt;
-    bool m_isHeartbeatEndpointResolved {false};
 
     std::string m_hostname;
     std::string m_cfHostname;
@@ -381,13 +361,9 @@ private:
     // already destroyed member variables
     Worker m_worker;
 
-    // Heartbeat v2 UDP socket. Bound to m_worker's heartbeat strand, so it depends on m_worker and
-    // has to be created after m_worker and destroyed before m_worker. All socket operations and
-    // their completion handlers therefore run serialised on that strand.
-    boost::asio::ip::udp::socket m_heartbeatSocket;
-    boost::asio::ip::udp::endpoint m_heartbeatEndpoint;
-    boost::asio::ip::udp::endpoint m_heartbeatSenderEndpoint;
-    std::array<std::uint8_t, 1> m_heartbeatResponse {};
+    // Runs on m_worker's heartbeat strand, so it has to be created after m_worker and destroyed
+    // before m_worker
+    Heartbeat m_heartbeat;
 
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker

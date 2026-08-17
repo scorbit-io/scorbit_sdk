@@ -223,15 +223,5 @@ bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
     }
 }
 
-bool isHeartbeatAcked(std::uint8_t flags)
-{
-    return (flags & HEARTBEAT_FLAG_ACK) != 0;
-}
-
-bool isHeartbeatWakeRequested(std::uint8_t flags)
-{
-    return (flags & HEARTBEAT_FLAG_WAKE) != 0;
-}
-
 } // namespace detail
 } // namespace scorbit

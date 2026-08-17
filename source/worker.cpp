@@ -33,12 +33,6 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
     {
         std::string_view name = "unknown";
         switch (c) {
-        case Worker::Timer::Heartbeat:
-            name = "Heartbeat";
-            break;
-        case Worker::Timer::HeartbeatResponse:
-            name = "HeartbeatResponse";
-            break;
         case Worker::Timer::TokenRefresh:
             name = "TokenRefresh";
             break;
@@ -82,8 +76,6 @@ namespace detail {
 Worker::Worker(int threadNiceValue)
     : m_threadNiceValue(threadNiceValue)
     , m_timers {{
-              boost::asio::steady_timer {m_ioc},
-              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
@@ -153,11 +145,6 @@ void Worker::postSessionQueue(task_t func)
 void Worker::postGameDataQueue(task_t func)
 {
     boost::asio::post(centrifugoStrand(), std::move(func));
-}
-
-void Worker::postHeartbeatQueue(task_t func)
-{
-    boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
 void Worker::postCommitTask(task_t func)
