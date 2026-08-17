@@ -21,6 +21,10 @@ include(${MY_CMAKE_DIR}/tools.cmake)
 
 set(SCORBIT_LOGGER "callback" CACHE STRING "Logger backend to use (callback or spdlog)")
 
+# See the note in tests/CMakeLists.txt: needed here too, or `ctest` from this build root exits 0
+# without running anything.
+enable_testing()
+
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../tests ${CMAKE_BINARY_DIR}/tests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../documentation ${CMAKE_BINARY_DIR}/documentation)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../examples ${CMAKE_BINARY_DIR}/examples)
