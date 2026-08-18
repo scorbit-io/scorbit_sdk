@@ -48,6 +48,9 @@ atomic_bool gGameStartRequestedFromLobby {false};
 atomic_bool gAchievementsLoaded {false};
 std::string gActiveUserId; // Public user UUID from PlayersUpdated; empty until a slot is claimed
 
+// Previous-cycle mode state, so mode achievements can be edge-triggered. See checkModeEdge().
+bool gMultiballWasActive = false;
+
 // Global pointer to GameState for event callback (set after GameState is created)
 scorbit::GameState *gGameStatePtr = nullptr;
 
@@ -195,6 +198,38 @@ static void postMatchedAchievements(scorbit::GameState &gs, const std::vector<st
             }
         });
     }
+}
+
+// Mode achievements are edge-triggered. Call this once per cycle with whether the mode is currently
+// running; it fires only on the transitions, passing "start" when the mode begins and "complete" when
+// it ends.
+//
+// Two reasons to do it this way rather than checking every cycle the mode happens to be active:
+//
+//  1. It matches how scorbitd drives this in production — it diffs the mode set between poll cycles
+//     and only reports newly-started modes.
+//  2. A local match is not de-duplicated by the SDK. It keeps matching every cycle the condition
+//     holds, until the server's AchievementUnlocked event marks the local cache unlocked. Checking on
+//     every active cycle therefore re-posts the same unlock repeatedly while that round trip is in
+//     flight.
+//
+// Note "start" is the only mode type scorbitd currently sends, so a MODE_START rule is what will
+// actually fire in production; a MODE rule (which requires "complete") will not.
+static void checkModeEdge(scorbit::GameState &gs, const std::string &mode, bool isActive,
+                          bool &wasActive, int64_t score)
+{
+    if (isActive == wasActive) {
+        return;
+    }
+    wasActive = isActive;
+
+    if (!gAchievementsLoaded || gActiveUserId.empty()) {
+        return;
+    }
+
+    const auto matched = gs.checkModeAchievementsWithScore(mode, isActive ? "start" : "complete",
+                                                          gActiveUserId, score);
+    postMatchedAchievements(gs, matched);
 }
 
 // --------------- Example of key persistence callbacks ------------------
@@ -548,6 +583,9 @@ int main()
         if (isGameFinished(i)) {
             // Drop session-scoped local counters before closing the session.
             gs.clearAchievementProgress();
+            // Forget the mode edge state too, or a mode still running at game over leaves a stale
+            // "active", and the next game's first idle cycle reports a bogus "complete".
+            gMultiballWasActive = false;
             // This will close current active session and do commit.
             gs.setGameFinished();
         }
@@ -623,16 +661,16 @@ int main()
             gs.setCurrentBall(currentBall(i));
 
             // Add/remove game modes:
-            if (i % 10 == 0) {
+            const bool multiballActive = (i % 10 == 0);
+            if (multiballActive) {
                 gs.addMode("MB:Multiball");
-                if (gAchievementsLoaded && !gActiveUserId.empty()) {
-                    const auto matched = gs.checkModeAchievementsWithScore(
-                            "MB:Multiball", "complete", gActiveUserId, player1Score(i));
-                    postMatchedAchievements(gs, matched);
-                }
             } else {
                 gs.removeMode("MB:Multiball");
             }
+
+            // Fires "start" as the mode begins and "complete" as it ends, once per transition.
+            checkModeEdge(gs, "MB:Multiball", multiballActive, gMultiballWasActive,
+                          player1Score(i));
 
             // Expiring modes (recommended duration: 3 seconds, max 10 seconds).
             // No need to call removeMode() for this expiring mode.
