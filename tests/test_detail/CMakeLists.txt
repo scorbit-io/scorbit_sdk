@@ -98,6 +98,8 @@ target_sources(
         ../../source/achievement_manager.h
         ../../source/achievement_manager.cpp
         source/test_achievement_manager.cpp
+        ../../source/achievement_json.h
+        source/test_achievement_json.cpp
         source/test_game_state_achievements.cpp
         source/test_player_state.cpp
         ../../source/modes.h

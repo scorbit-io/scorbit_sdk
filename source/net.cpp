@@ -18,6 +18,7 @@
  */
 
 #include "net.h"
+#include "achievement_json.h"
 #include "net_util.h"
 #include "soft_key_resolver.h"
 #include "fmt_formatters.h"
@@ -753,77 +754,7 @@ void Net::fetchAchievements(AchievementsCallback callback)
                         return;
                     }
 
-                    achievements.reserve(j.size());
-                    for (const auto &item : j) {
-                        if (!item.is_object()) {
-                            continue;
-                        }
-
-                        Achievement ach;
-                        ach.key = item.value(JKEY_ACH_KEY, std::string {});
-                        ach.name = item.value(JKEY_ACH_NAME, std::string {});
-                        ach.description = item.value(JKEY_ACH_DESCRIPTION, std::string {});
-                        ach.scope = item.value(JKEY_ACH_SCOPE, std::string {});
-                        ach.imageUrl = item.value(JKEY_ACH_ICON, std::string {});
-                        ach.obscureImageUrl = item.value(JKEY_ACH_OBSCURE_IMAGE, std::string {});
-                        ach.obscure = item.value(JKEY_ACH_OBSCURE, false);
-                        ach.visible = item.value(JKEY_ACH_VISIBLE, true);
-                        ach.isTrophy = item.value(JKEY_ACH_IS_TROPHY, false);
-                        ach.notifyWhenAchieved = item.value(JKEY_ACH_NOTIFY_WHEN_ACHIEVED, false);
-                        ach.groupId = item.value(JKEY_ACH_GROUP_ID, 0);
-                        ach.level = item.value(JKEY_ACH_LEVEL, 0);
-                        // "complete before ball N" qualifier, never a counter threshold.
-                        ach.ballCount = item.value(JKEY_ACH_BALL_COUNT, 0);
-                        ach.inputTime = item.value(JKEY_ACH_IS_SINGLE_SESSION, false)
-                                ? AchievementInputTime::Limited
-                                : AchievementInputTime::Unlimited;
-
-                        if (const auto rulesIt = item.find(JKEY_ACH_RULES);
-                            rulesIt != item.end() && rulesIt->is_array()) {
-                            ach.rules.reserve(rulesIt->size());
-                            for (const auto &ruleJson : *rulesIt) {
-                                if (!ruleJson.is_object()) {
-                                    continue;
-                                }
-                                AchievementRule rule;
-                                rule.type = ruleJson.value(JKEY_ACH_RULE_TYPE, std::string {});
-                                rule.comparison =
-                                        ruleJson.value(JKEY_ACH_RULE_COMPARISON, std::string {">"});
-                                rule.target = ruleJson.value(JKEY_ACH_RULE_TARGET, 0);
-                                rule.reference =
-                                        ruleJson.value(JKEY_ACH_RULE_REFERENCE, std::string {});
-                                rule.subachievementId =
-                                        ruleJson.value(JKEY_ACH_RULE_SUBACHIEVEMENT, 0);
-                                ach.rules.push_back(std::move(rule));
-                            }
-                        }
-
-                        // Flat convenience fields are derived from rules[0] only and are therefore
-                        // lossy for multi-rule achievements; the rules array stays authoritative.
-                        if (!ach.rules.empty()) {
-                            const auto &primary = ach.rules.front();
-                            if (primary.type == "MODE") {
-                                ach.trigger = AchievementTrigger::Mode;
-                                ach.modeType = AchievementModeType::Complete;
-                                ach.modeName = primary.reference;
-                            } else if (primary.type == "MODE_START") {
-                                ach.trigger = AchievementTrigger::Mode;
-                                ach.modeType = AchievementModeType::Start;
-                                ach.modeName = primary.reference;
-                            } else if (primary.type == "MODE_STACK") {
-                                ach.trigger = AchievementTrigger::Mode;
-                                ach.modeType = AchievementModeType::Stack;
-                                ach.modeName = primary.reference;
-                            } else if (primary.type == "SCORE") {
-                                ach.trigger = AchievementTrigger::Score;
-                                ach.targetScore = primary.target;
-                            } else if (primary.type == "ACHIEVEMENT") {
-                                ach.trigger = AchievementTrigger::SubAchievement;
-                            }
-                        }
-
-                        achievements.push_back(std::move(ach));
-                    }
+                    achievements = parseAchievements(j);
 
                     INF("API fetch achievements: ok, {} definitions", achievements.size());
                 } catch (const std::exception &e) {
@@ -881,14 +812,14 @@ void Net::fetchAchievementProgress(const std::string &userId, AchievementProgres
                         AchievementProgress prog;
                         if (const auto achIt = item.find(JKEY_ACH_PROG_ACHIEVEMENT);
                             achIt != item.end() && achIt->is_object()) {
-                            prog.key = achIt->value(JKEY_ACH_KEY, std::string {});
+                            prog.key = jsonValue(*achIt, JKEY_ACH_KEY, std::string {});
                         }
                         if (prog.key.empty()) {
                             continue;
                         }
 
-                        prog.progress = item.value(JKEY_ACH_PROG_CURRENT_VALUE, 0);
-                        prog.unlocked = item.value(JKEY_ACH_PROG_ACHIEVED, false);
+                        prog.progress = jsonValue(item, JKEY_ACH_PROG_CURRENT_VALUE, 0);
+                        prog.unlocked = jsonValue(item, JKEY_ACH_PROG_ACHIEVED, false);
                         if (const auto timeIt = item.find(JKEY_ACH_PROG_ACHIEVED_TIME);
                             timeIt != item.end() && timeIt->is_string()) {
                             prog.unlockedAt = timeIt->get<std::string>();
