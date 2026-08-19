@@ -2804,6 +2804,8 @@ void Net::onAuthenticationFailed()
 
 void Net::startCentrifugoIdleTimer()
 {
+    return; // TODO: Currently CF disconnection is disabled. Revisit this when needed.
+
     m_isCentrifugoIdleTimerArmed = true;
 
     m_worker.startTimer(Worker::Timer::CentrifugoIdleDisconnect, CF_IDLE_DISCONNECT_TIME, [this] {
