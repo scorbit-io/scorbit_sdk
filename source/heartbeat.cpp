@@ -77,6 +77,7 @@ Heartbeat::Heartbeat(asio_strand strand, const std::string &host, std::uint16_t 
     , m_port(configured(port != 0 ? std::to_string(port) : std::string {}, ENV_PORT, DEFAULT_PORT))
     , m_onWake(std::move(onWake))
     , m_socket(m_strand)
+    , m_resolver(m_strand)
     , m_tickTimer(m_strand)
     , m_replyTimer(m_strand)
     , m_resolveBackoff(RESOLVE_INITIAL_BACKOFF)
@@ -119,6 +120,7 @@ void Heartbeat::stop()
     boost::asio::post(m_strand, [this] {
         m_tickTimer.cancel();
         m_replyTimer.cancel();
+        m_resolver.cancel();
 
         boost::system::error_code ignored;
         m_socket.close(ignored);
@@ -142,7 +144,12 @@ void Heartbeat::scheduleNextTick()
 
 void Heartbeat::send()
 {
-    if (m_stopped || m_isAwaitingReply || !resolveEndpoint()) {
+    if (m_stopped || m_isAwaitingReply) {
+        return;
+    }
+
+    if (!m_isEndpointResolved) {
+        resolveEndpoint(); // sends again once the endpoint lands
         return;
     }
 
@@ -223,36 +230,40 @@ void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
     }
 }
 
-bool Heartbeat::resolveEndpoint()
+void Heartbeat::resolveEndpoint()
 {
-    if (m_isEndpointResolved) {
-        return true;
+    // One lookup at a time: a tick may come around again while a slow one is still outstanding
+    if (m_isResolving || std::chrono::steady_clock::now() < m_resolveNextAttempt) {
+        return;
     }
 
-    const auto now = std::chrono::steady_clock::now();
-    if (now < m_resolveNextAttempt) {
-        return false;
-    }
+    m_isResolving = true;
+    m_resolver.async_resolve(
+            udp::v4(), m_host, m_port,
+            [this](const boost::system::error_code &ec, udp::resolver::results_type endpoints) {
+                m_isResolving = false;
 
-    boost::system::error_code ec;
-    udp::resolver resolver(m_strand);
-    const auto endpoints = resolver.resolve(udp::v4(), m_host, m_port, ec);
+                if (m_stopped || ec == boost::asio::error::operation_aborted) {
+                    return;
+                }
 
-    if (ec || endpoints.empty()) {
-        m_resolveNextAttempt = now + m_resolveBackoff;
-        WRN("API-HB can't resolve {}:{}, next attempt in {}: {}", m_host, m_port, m_resolveBackoff,
-            ec.message());
-        m_resolveBackoff =
-                std::min<std::chrono::seconds>(m_resolveBackoff * 2, RESOLVE_MAX_BACKOFF);
-        return false;
-    }
+                if (ec || endpoints.empty()) {
+                    m_resolveNextAttempt = std::chrono::steady_clock::now() + m_resolveBackoff;
+                    WRN("API-HB can't resolve {}:{}, next attempt in {}: {}", m_host, m_port,
+                        m_resolveBackoff, ec.message());
+                    m_resolveBackoff = std::min<std::chrono::seconds>(m_resolveBackoff * 2,
+                                                                      RESOLVE_MAX_BACKOFF);
+                    return;
+                }
 
-    m_endpoint = *endpoints.begin();
-    m_resolveBackoff = RESOLVE_INITIAL_BACKOFF;
-    m_isEndpointResolved = true;
+                m_endpoint = *endpoints.begin();
+                m_resolveBackoff = RESOLVE_INITIAL_BACKOFF;
+                m_isEndpointResolved = true;
 
-    INF("API-HB endpoint resolved: {}", toString(m_endpoint));
-    return true;
+                INF("API-HB endpoint resolved: {}", toString(m_endpoint));
+
+                send(); // the tick that triggered the lookup still owes a datagram
+            });
 }
 
 } // namespace detail

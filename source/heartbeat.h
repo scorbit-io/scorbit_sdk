@@ -110,12 +110,13 @@ private:
     void awaitReply();
     void onReply(const boost::system::error_code &ec, std::size_t bytes);
 
-    /// Resolve the host once and cache the endpoint. Returns false while unresolved; a failure
-    /// defers the next attempt with exponential backoff. Runs on the strand.
+    /// Start resolving the host, and send once the endpoint lands. The lookup is asynchronous so it
+    /// does not occupy a worker thread, which matters because every strand shares one thread pool.
+    /// A failure defers the next attempt with exponential backoff. Runs on the strand.
     /// ponytail: the endpoint is cached for the lifetime of the object, so a server that moves to
     /// another address is only picked up on restart. Re-resolve periodically if that becomes a
     /// problem.
-    bool resolveEndpoint();
+    void resolveEndpoint();
 
     asio_strand m_strand;
     const std::string m_host;
@@ -123,6 +124,7 @@ private:
     const WakeHandler m_onWake;
 
     boost::asio::ip::udp::socket m_socket;
+    boost::asio::ip::udp::resolver m_resolver;
     boost::asio::steady_timer m_tickTimer;
     boost::asio::steady_timer m_replyTimer;
 
@@ -132,6 +134,7 @@ private:
 
     std::string m_deviceUuid;
     bool m_isEndpointResolved {false};
+    bool m_isResolving {false};
     bool m_isAwaitingReply {false};
     std::chrono::seconds m_resolveBackoff;
     std::chrono::steady_clock::time_point m_resolveNextAttempt;
