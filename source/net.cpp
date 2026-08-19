@@ -1315,10 +1315,11 @@ task_t Net::createAuthenticateTask()
                     continue;
                 }
             } else if (r.status_code == 0) {
-                ERR("API authentication network error: {}, will retry in {}s",
-                    r.error.message, m_authRetryBackoff.count());
+                ERR("API authentication network error: {}, will retry in {}s", r.error.message,
+                    m_authRetryBackoff.count());
                 auto backoff = m_authRetryBackoff;
-                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
+                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
+                                                                    AUTH_RETRY_MAX_BACKOFF);
                 m_isRefreshingToken = false;
                 if (normalAuthentication) {
                     m_status = AuthStatus::NotAuthenticated;
