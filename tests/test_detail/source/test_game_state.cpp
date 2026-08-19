@@ -45,7 +45,6 @@ public:
     virtual ~MockNetBase() = default;
 
     AuthStatus status() const override { return AuthStatus::NotAuthenticated; };
-    void sendHeartbeat() override { };
     void requestPairCode(StringCallback) override {};
     const std::string &getMachineUuid() const override
     {

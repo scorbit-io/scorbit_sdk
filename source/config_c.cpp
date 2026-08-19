@@ -66,6 +66,20 @@ void sb_config_set_cf_hostname(sb_config_t config, const char *cf_hostname)
     }
 }
 
+void sb_config_set_heartbeat_host(sb_config_t config, const char *heartbeat_host)
+{
+    if (config) {
+        config->heartbeatHost = heartbeat_host ? heartbeat_host : std::string {};
+    }
+}
+
+void sb_config_set_heartbeat_port(sb_config_t config, uint16_t heartbeat_port)
+{
+    if (config) {
+        config->heartbeatPort = heartbeat_port;
+    }
+}
+
 void sb_config_set_uuid(sb_config_t config, const char *uuid)
 {
     if (config) {

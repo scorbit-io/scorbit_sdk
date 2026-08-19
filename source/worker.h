@@ -37,12 +37,12 @@ class Worker
 {
 public:
     enum class Timer {
-        Heartbeat,
         TokenRefresh,
         NfcCheckTag,
         GameData,
         SessionUpdate,
         CentrifugoReconnect,
+        CentrifugoIdleDisconnect,
         NfcBootReason,
         ModeExpiry,
         LeaderboardDeferred,
@@ -66,12 +66,12 @@ public:
     void postQueue(task_t func);
     void postSessionQueue(task_t func);
     void postGameDataQueue(task_t func);
-    void postHeartbeatQueue(task_t func);
     void postCommitTask(task_t func);
 
     void startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func);
     void stopTimer(Timer timerType);
 
+    auto &heartbeatStrand() { return m_heartbeatStrand; }
     auto &centrifugoStrand() { return m_centrifugoStrand; }
     auto &eventsStrand() { return m_eventsStrand; }
 

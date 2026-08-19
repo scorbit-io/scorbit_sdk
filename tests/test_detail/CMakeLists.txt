@@ -115,6 +115,9 @@ target_sources(
         ../../source/utils/thread_priority.h
         ../../source/utils/thread_priority.cpp
         source/test_worker.cpp
+        ../../source/heartbeat.h
+        ../../source/heartbeat.cpp
+        source/test_heartbeat.cpp
         ../../source/utils/mac_address.h
         ../../source/utils/mac_address.cpp
         source/test_mac_address.cpp

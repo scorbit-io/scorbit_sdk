@@ -28,6 +28,7 @@
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
+#include "heartbeat.h"
 #include "utils/machine_fingerprint.h"
 #include <centrifugo.h>
 #include <fmt/format.h>
@@ -104,7 +105,6 @@ public:
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                        std::function<void()> onCreated) override;
     void submitGameData(const detail::GameData &data, SessionFlags flags) override;
-    void sendHeartbeat() override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;
 
@@ -155,12 +155,12 @@ private:
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
                                    std::function<void()> onCreated);
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
-    task_t createHeartbeatTask();
 
     void sessionUpdate(int sessionId, SessionFlags flags);
 
-    void startHeartbeatTimer();
-    void stopHeartbeatTimer();
+    /// Come online because the heartbeat server has work waiting. Runs on the heartbeat strand.
+    void onHeartbeatWake();
+
     void startTokenRefreshTimer();
     void stopTokenRefreshTimer();
 
@@ -234,6 +234,12 @@ private:
     void retireCentrifugoClient();
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+
+    /// Arm the idle disconnect for a Centrifugo connection that a heartbeat wake just opened.
+    void startCentrifugoIdleTimer();
+    /// Give the idle window a full extension, but only when it is already armed.
+    void resetCentrifugoIdleTimerIfArmed();
+    void stopCentrifugoIdleTimer();
     void setupAndConnectCentrifugo(bool fetchFreshToken = false);
     void restartCentrifugo();
 
@@ -241,6 +247,8 @@ private:
     void emitPairingStatusEventIfChanged(bool isPaired);
     void onPaired();
     void onUnpaired();
+    /// Enter AuthenticationFailed and stop work that a non-authenticating machine should not do.
+    void onAuthenticationFailed();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
@@ -303,7 +311,6 @@ private:
     std::mutex m_nfcMutex;
     mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
-    std::atomic_bool m_isHeartbeatInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
@@ -354,6 +361,10 @@ private:
     // already destroyed member variables
     Worker m_worker;
 
+    // Runs on m_worker's heartbeat strand, so it has to be created after m_worker and destroyed
+    // before m_worker
+    Heartbeat m_heartbeat;
+
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker
     std::unique_ptr<centrifugo::Client> m_centrifugo;
@@ -365,6 +376,9 @@ private:
     // unwind safely without retaining every historical client for the rest of the process.
     std::deque<RetiredCentrifugoClient> m_retiredCentrifugoClients;
     std::atomic_bool m_restartCentrifugoPending {false};
+    // True only while a heartbeat-wake-opened connection is on its idle countdown. Gates the
+    // activity reset so a connection we did not open never acquires an idle disconnect.
+    std::atomic_bool m_isCentrifugoIdleTimerArmed {false};
 
     std::optional<bool> m_lastEmittedPairingState;
 

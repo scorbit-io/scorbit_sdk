@@ -385,6 +385,12 @@ sb_game_handle_t setup_game_state(void)
 
     // Set optional parameters
     sb_config_set_hostname(config, "staging"); // Optional, default is "production"
+
+    // Optional: point the UDP heartbeat at a staging or local server.
+    // Omit both to use heartbeat.scorbit.io:8443
+    // sb_config_set_heartbeat_host(config, "localhost");
+    // sb_config_set_heartbeat_port(config, 9443);
+
     sb_config_set_auto_download_player_pics(config, true);
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);

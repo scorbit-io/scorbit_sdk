@@ -59,7 +59,6 @@ using json = nlohmann::json;
 namespace scorbit {
 namespace detail {
 
-// constexpr auto HEARTBEAT_URL {"heartbeat/"};
 constexpr auto SESSION_CSV_URL {"session_log/"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
@@ -73,7 +72,6 @@ constexpr auto NET_CONNECT_TIMEOUT = 60s;
 constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
-constexpr auto HEARTBEAT_TIME = 10s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
@@ -92,6 +90,8 @@ constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
 constexpr auto TOP_SCORES_DEFER_RETRY = 1000ms;
 constexpr int TOP_SCORES_DEFER_MAX_ATTEMPTS = 30;
 constexpr auto CF_RETIRED_CLIENT_GRACE_PERIOD = 30s;
+/// How long a wake-triggered Centrifugo connection is kept alive without a game or a command.
+constexpr auto CF_IDLE_DISCONNECT_TIME = 5min;
 
 constexpr auto NFC_CHECK_TIME = 2000ms;    // Check NFC nonces every 1000 milliseconds
 constexpr auto NFC_BOOT_REASON_DELAY = 5s; // Check NFC boot reason every 5 seconds
@@ -189,6 +189,8 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice)
+    , m_heartbeat(m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost,
+                  m_deviceInfo.heartbeatPort, [this] { onHeartbeatWake(); })
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
@@ -294,7 +296,8 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 Net::~Net()
 {
     if (!m_stop.exchange(true)) {
-        stopHeartbeatTimer();
+        m_heartbeat.stop();
+        stopCentrifugoIdleTimer();
         stopTokenRefreshTimer();
         m_eventManager->stop();
         m_authCV.notify_all();
@@ -402,6 +405,10 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
         session.history.push_back(data);
     }
 
+    // The game session owns the Centrifugo connection from here on, so a wake-armed idle
+    // disconnect must not fire mid-game
+    stopCentrifugoIdleTimer();
+
     INF("API post create session, id: {}", data.id);
     m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
 }
@@ -430,16 +437,6 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
             sessionUpdate(sessionId, flags);
         }
     });
-}
-
-void Net::sendHeartbeat()
-{
-    return; // FIXME: disable heartbeat for now
-    // Ensure that only single task in the queue (while another can be running)
-    if (!m_isHeartbeatInQueue.exchange(true)) {
-        INF("API post heartbeat");
-        m_worker.postHeartbeatQueue(createHeartbeatTask());
-    }
 }
 
 void Net::getConfig()
@@ -1215,7 +1212,7 @@ task_t Net::createAuthenticateTask()
         // Done after obtaining server time so provisioning uses accurate timestamps.
         if (!m_signer && !m_keyResolvers.empty()) {
             if (!resolveKeys(timestamp)) {
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 ERR("API there is no functional key to authenticate");
                 m_authCV.notify_all();
                 return;
@@ -1226,7 +1223,7 @@ task_t Net::createAuthenticateTask()
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
                 ERR("Can't authenticate, signature is empty");
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 stopTokenRefreshTimer();
                 m_authCV.notify_all();
                 return;
@@ -1257,7 +1254,7 @@ task_t Net::createAuthenticateTask()
                                cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
-                m_status = AuthStatus::AuthenticationFailed;
+                onAuthenticationFailed();
                 m_isRefreshingToken = false;
                 m_authCV.notify_all();
                 return;
@@ -1279,6 +1276,13 @@ task_t Net::createAuthenticateTask()
 
                     m_authRetryBackoff = AUTH_RETRY_INITIAL_BACKOFF;
                     startTokenRefreshTimer(); // Start/restart token refresh timer
+
+                    // Recover a heartbeat that onAuthenticationFailed() stopped. Done here rather
+                    // than only in initializeConnectionState() because a failure during a token
+                    // refresh leaves m_isRefreshingToken set, and the recovering attempt would
+                    // then take the refresh branch below and never reach that call.
+                    m_heartbeat.start(m_deviceInfo.uuid);
+
                     m_authCV.notify_all();
 
                     if (normalAuthentication) {
@@ -1292,7 +1296,7 @@ task_t Net::createAuthenticateTask()
                     break;
                 } catch (const std::exception &e) {
                     ERR("Error parsing authentication reply: {}", e.what());
-                    m_status = AuthStatus::AuthenticationFailed;
+                    onAuthenticationFailed();
                     stopTokenRefreshTimer();
                     m_authCV.notify_all();
                     return;
@@ -1311,10 +1315,11 @@ task_t Net::createAuthenticateTask()
                     continue;
                 }
             } else if (r.status_code == 0) {
-                ERR("API authentication network error: {}, will retry in {}s",
-                    r.error.message, m_authRetryBackoff.count());
+                ERR("API authentication network error: {}, will retry in {}s", r.error.message,
+                    m_authRetryBackoff.count());
                 auto backoff = m_authRetryBackoff;
-                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
+                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
+                                                                    AUTH_RETRY_MAX_BACKOFF);
                 m_isRefreshingToken = false;
                 if (normalAuthentication) {
                     m_status = AuthStatus::NotAuthenticated;
@@ -1328,7 +1333,7 @@ task_t Net::createAuthenticateTask()
                 return;
             }
 
-            m_status = AuthStatus::AuthenticationFailed;
+            onAuthenticationFailed();
             stopTokenRefreshTimer();
             const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
                                          r.error.message);
@@ -1584,107 +1589,28 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
                                            true /* includeFingerprintHash */);
 }
 
-task_t Net::createHeartbeatTask()
+void Net::onHeartbeatWake()
 {
-    return noop_task; // FIXME: disable heartbeat for now, implement heatbeat v2
+    if (m_stop) {
+        return;
+    }
 
-    /*
-    return [this]() {
-        for (int i = 0; i < NUM_RETRIES; ++i) {
-            // DBG("Before waiting heartbeat");
+    // centrifugoConnect() is a no-op unless the client is disconnected, so a wake while already
+    // connected won't open a second connection. Both calls are moved off the heartbeat strand.
+    m_worker.post([this]() {
+        // Only a connection this wake actually opened may be idle-disconnected later. If we were
+        // already connected the link is not ours to tear down, and arming the timer here would
+        // drop a healthy long-lived connection.
+        const bool wasDisconnected =
+                m_centrifugo && m_centrifugo->state() == centrifugo::ConnectionState::Disconnected;
 
-            std::unique_lock lock(m_authMutex);
-            m_authCV.wait(lock, [this] {
-                switch (m_status) {
-                case AuthStatus::AuthenticatedCheckingPairing:
-                case AuthStatus::AuthenticatedUnpaired:
-                case AuthStatus::AuthenticatedPaired:
-                case AuthStatus::AuthenticationFailed:
-                    return true;
-                default:
-                    if (m_stop) {
-                        return true;
-                    }
-                    return false;
-                }
-            });
+        centrifugoConnect();
+        getConfig();
 
-            if (m_status == AuthStatus::AuthenticationFailed) {
-                break;
-            }
-
-            bool isActiveSession;
-            {
-                std::scoped_lock lockGameSession(m_gameSessionsMutex);
-                isActiveSession = !m_gameSessions.empty();
-            }
-            const auto parameters =
-                    cpr::Parameters {{"session_active", isActiveSession ? "true" : "false"}};
-
-            // TODO: sentry
-
-            INF("API sending heartbeat with session_active: {}", isActiveSession);
-
-            const auto r = cpr::Get(url(HEARTBEAT_URL), parameters, authHeader(),
-                                    cpr::Timeout {NET_TIMEOUT}, sslOptions());
-
-            if (r.status_code == 200) {
-                INF("API heartbeat: ok, {}", r.text);
-
-                try {
-                    json json = json::parse(r.text);
-                    AuthStatus status {AuthStatus::AuthenticatedPaired};
-                    if (const auto it = json.find("unpaired");
-                        it != json.end() && it->is_boolean()) {
-                        if (it->get<bool>()) {
-                            status = AuthStatus::AuthenticatedUnpaired;
-                            m_machineInfo.venuemachineId = 0;
-                            m_machineInfo.opdbId.clear();
-                        }
-                    }
-
-                    if (const auto it = json.find("venuemachine_id");
-                        it != json.end() && it->is_number()) {
-                        m_machineInfo.venuemachineId = it->get<int64_t>();
-                    }
-
-                    if (const auto configIt = json.find("config");
-                        configIt != json.end() && configIt->is_object()) {
-                        if (const auto opdbIt = configIt->find("opdb_id");
-                            opdbIt != configIt->end() && opdbIt->is_string()) {
-                            m_machineInfo.opdbId = opdbIt->get<std::string>();
-                        }
-                    }
-
-                    m_updater.checkNewVersionAndUpdate(json);
-
-                    if (m_status != status) {
-                        m_status = status;
-                        m_authCV.notify_all();
-                    }
-                } catch (const std::exception &e) {
-                    ERR("Error parsing heartbeat reply: {}", e.what());
-                }
-                break;
-            }
-
-            ERR("API hearbeat failed: code={}, {}", r.status_code, r.error.message);
-            ERR("{}", r.text);
-
-            if (r.status_code != 401) {
-                break;
-            }
-
-            m_status = AuthStatus::NotAuthenticated;
-            stopTokenRefreshTimer();
-            auto auth = createAuthenticateTask();
-            auth();
+        if (wasDisconnected) {
+            startCentrifugoIdleTimer();
         }
-
-        m_isHeartbeatInQueue = false;
-        // DBG("On quit heartbeat");
-    };
-*/
+    });
 }
 
 void Net::sessionUpdate(int sessionId, SessionFlags flags)
@@ -1714,19 +1640,6 @@ void Net::sessionUpdate(int sessionId, SessionFlags flags)
     INF("API post update session, id: {}, upload history logs: {}, player add: {}", sessionId,
         flags.has(SessionFlag::UploadHistoryLogs), flags.has(SessionFlag::PlayersAdd));
     m_worker.postSessionQueue(createSessionUpdateTask(sessionId, flags));
-}
-
-void Net::startHeartbeatTimer()
-{
-    m_worker.startTimer(Worker::Timer::Heartbeat, HEARTBEAT_TIME, [this] {
-        startHeartbeatTimer();
-        sendHeartbeat();
-    });
-}
-
-void Net::stopHeartbeatTimer()
-{
-    m_worker.stopTimer(Worker::Timer::Heartbeat);
 }
 
 void Net::startTokenRefreshTimer()
@@ -1891,8 +1804,7 @@ void Net::initializeConnectionState()
 
     getConfig(); // Get template
     requestFirmwaresList();
-    sendHeartbeat();
-    startHeartbeatTimer();
+    m_heartbeat.start(m_deviceInfo.uuid);
     restartCentrifugo();
     createNfcNonces();
 }
@@ -2131,8 +2043,7 @@ void Net::onPaired()
     requestReleaseTrackInfo();
     getConfig();
     requestFirmwaresList();
-    sendHeartbeat();
-    startHeartbeatTimer();
+    m_heartbeat.start(m_deviceInfo.uuid);
     createNfcNonces();
     restartCentrifugo();
     emitPairingStatusEventIfChanged(true);
@@ -2780,6 +2691,13 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                     pub.info->client);
             }
 
+            // Any command on a control channel counts as activity: if this connection was opened
+            // by a heartbeat wake, give it another full idle window to finish the exchange.
+            if (channel.starts_with(CF_CHN_CONTROL_MACHINE)
+                || channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
+                resetCentrifugoIdleTimerIfArmed();
+            }
+
             if (channel.starts_with(CF_CHN_CONTROL_MACHINE)) {
                 const auto &j = pub.data;
                 if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
@@ -2872,6 +2790,64 @@ void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
     pruneRetiredCentrifugoClients();
     centrifugoSetup(fetchFreshToken);
     centrifugoConnect();
+}
+
+void Net::onAuthenticationFailed()
+{
+    m_status = AuthStatus::AuthenticationFailed;
+
+    // A machine that cannot authenticate is not one we want spending power and server capacity on
+    // a keepalive it can do nothing with. It is restarted from the authentication success path
+    // once it recovers.
+    m_heartbeat.stop();
+}
+
+void Net::startCentrifugoIdleTimer()
+{
+    return; // TODO: Currently CF disconnection is disabled. Revisit this when needed.
+
+    m_isCentrifugoIdleTimerArmed = true;
+
+    m_worker.startTimer(Worker::Timer::CentrifugoIdleDisconnect, CF_IDLE_DISCONNECT_TIME, [this] {
+        m_isCentrifugoIdleTimerArmed = false;
+
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
+
+        // A game session owns the connection for its whole duration, so never cut it short.
+        // sessionCreate() already stops this timer; this is a second guard against a session
+        // that started between the timer firing and this handler running.
+        {
+            std::scoped_lock lock(m_gameSessionsMutex);
+            if (!m_gameSessions.empty()) {
+                DBG("API-CF idle disconnect skipped, game session active");
+                return;
+            }
+        }
+
+        if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+            return;
+        }
+
+        INF("API-CF idle for {}, disconnecting until next heartbeat wake", CF_IDLE_DISCONNECT_TIME);
+        m_centrifugo->disconnect();
+    });
+}
+
+void Net::resetCentrifugoIdleTimerIfArmed()
+{
+    // Deliberately does not arm a timer that isn't already running: a connection we did not open
+    // via a heartbeat wake must not acquire an idle disconnect just because a command arrived.
+    if (m_isCentrifugoIdleTimerArmed) {
+        startCentrifugoIdleTimer();
+    }
+}
+
+void Net::stopCentrifugoIdleTimer()
+{
+    m_isCentrifugoIdleTimerArmed = false;
+    m_worker.stopTimer(Worker::Timer::CentrifugoIdleDisconnect);
 }
 
 void Net::restartCentrifugo()

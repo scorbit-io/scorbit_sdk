@@ -101,6 +101,27 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_cf_hostname(sb_config_t config, const char *cf_hostname);
 
 /**
+ * @brief Set the heartbeat server hostname.
+ *
+ * @param config The configuration handle.
+ * @param heartbeat_host The hostname of the heartbeat server. Optional.
+ *                       If not set, the default "heartbeat.scorbit.io" will be used.
+ *                       Intended for testing against a staging or local heartbeat server.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_heartbeat_host(sb_config_t config, const char *heartbeat_host);
+
+/**
+ * @brief Set the heartbeat server UDP port.
+ *
+ * @param config The configuration handle.
+ * @param heartbeat_port The UDP port of the heartbeat server. Optional, set to 0 to use the
+ *                       default port 8443.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_heartbeat_port(sb_config_t config, uint16_t heartbeat_port);
+
+/**
  * @brief Set the device UUID.
  *
  * @param config The configuration handle.

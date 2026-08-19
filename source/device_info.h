@@ -45,6 +45,10 @@ struct DeviceInfo {
     std::string gameCodeVersion;
     std::string hostname;
     std::string cfHostname;
+    /// Heartbeat v2 UDP endpoint overrides. Empty host / zero port mean "use the built-in
+    /// default", so an integrator that never calls the setters keeps production behaviour.
+    std::string heartbeatHost;
+    uint16_t heartbeatPort {0};
     std::string uuid;
     uint64_t serialNumber {0};
     bool autoDownloadPlayerPics {false};

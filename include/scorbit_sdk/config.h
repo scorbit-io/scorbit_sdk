@@ -133,6 +133,28 @@ public:
     }
 
     /**
+     * @brief Set the heartbeat server hostname.
+     * @param host The hostname of the heartbeat server. Optional, defaults to
+     *             "heartbeat.scorbit.io". Intended for testing against a staging or local server.
+     */
+    Config &setHeartbeatHost(const std::string &host)
+    {
+        sb_config_set_heartbeat_host(m_handle.get(), host.c_str());
+        return *this;
+    }
+
+    /**
+     * @brief Set the heartbeat server UDP port.
+     * @param port The UDP port of the heartbeat server. Optional, set to 0 to use the default
+     *             port 8443.
+     */
+    Config &setHeartbeatPort(uint16_t port)
+    {
+        sb_config_set_heartbeat_port(m_handle.get(), port);
+        return *this;
+    }
+
+    /**
      * @brief Set the device UUID.
      * @param uuid The device's UUID. Optional.
      * @return Reference to this Config for method chaining.

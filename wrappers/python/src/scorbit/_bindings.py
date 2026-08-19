@@ -26,6 +26,7 @@ from ctypes import (
     c_size_t,
     c_uint,
     c_uint8,
+    c_uint16,
     c_uint32,
     c_uint64,
     c_void_p,
@@ -124,6 +125,14 @@ _lib.sb_config_set_hostname.argtypes = [sb_config_t, c_char_p]
 # void sb_config_set_cf_hostname(sb_config_t, const char*)
 _lib.sb_config_set_cf_hostname.restype = None
 _lib.sb_config_set_cf_hostname.argtypes = [sb_config_t, c_char_p]
+
+# void sb_config_set_heartbeat_host(sb_config_t, const char*)
+_lib.sb_config_set_heartbeat_host.restype = None
+_lib.sb_config_set_heartbeat_host.argtypes = [sb_config_t, c_char_p]
+
+# void sb_config_set_heartbeat_port(sb_config_t, uint16_t)
+_lib.sb_config_set_heartbeat_port.restype = None
+_lib.sb_config_set_heartbeat_port.argtypes = [sb_config_t, c_uint16]
 
 # void sb_config_set_uuid(sb_config_t, const char*)
 _lib.sb_config_set_uuid.restype = None

@@ -332,6 +332,12 @@ scorbit::GameState setupGameState()
             .setGameCodeVersion("0.1.0")
             .setHostname("staging")
             .setAutoDownloadPlayerPics(true)
+
+            // Optional: point the UDP heartbeat at a staging or local server. Omit both to use
+            // heartbeat.scorbit.io:8443
+            // .setHeartbeatHost("localhost")
+            // .setHeartbeatPort(9443)
+
             .setScoreFeatures(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
 
             // Optional: .setThreadsPriority(n) - omit or use 0 for no change to SDK background

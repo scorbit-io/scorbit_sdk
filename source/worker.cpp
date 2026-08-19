@@ -33,9 +33,6 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
     {
         std::string_view name = "unknown";
         switch (c) {
-        case Worker::Timer::Heartbeat:
-            name = "Heartbeat";
-            break;
         case Worker::Timer::TokenRefresh:
             name = "TokenRefresh";
             break;
@@ -50,6 +47,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
             break;
         case Worker::Timer::CentrifugoReconnect:
             name = "CentrifugoReconnect";
+            break;
+        case Worker::Timer::CentrifugoIdleDisconnect:
+            name = "CentrifugoIdleDisconnect";
             break;
         case Worker::Timer::NfcBootReason:
             name = "NfcBootReason";
@@ -145,11 +145,6 @@ void Worker::postSessionQueue(task_t func)
 void Worker::postGameDataQueue(task_t func)
 {
     boost::asio::post(centrifugoStrand(), std::move(func));
-}
-
-void Worker::postHeartbeatQueue(task_t func)
-{
-    boost::asio::post(m_heartbeatStrand, std::move(func));
 }
 
 void Worker::postCommitTask(task_t func)

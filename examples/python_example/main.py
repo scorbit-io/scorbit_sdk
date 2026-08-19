@@ -188,6 +188,11 @@ def setup_game_state():
     config.set_auto_download_player_pics(True)
     config.set_score_features(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
 
+    # Optional: point the UDP heartbeat at a staging or local server.
+    # Omit both to use heartbeat.scorbit.io:8443
+    # config.set_heartbeat_host("localhost")
+    # config.set_heartbeat_port(9443)
+
     # Optional: set_threads_priority(). If omitted or set to 0, the SDK does not change scheduling
     # for its background threads. Use a positive value (e.g. 10) on Linux to renice those threads.
     # config.set_threads_priority(10)
