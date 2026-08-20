@@ -66,7 +66,9 @@ constexpr auto SESSION_CSV_URL {"session_log/"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
-                                 "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
+                                 "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"
+                                 "&utm_medium=qr_code&utm_source=machine_pricing_card"
+                                 "&utm_campaign=machine_pairing"};
 
 constexpr auto NET_TIMEOUT = 14s;
 /// Connect-phase limit for large uploads/downloads (TLS + TCP); separate from transfer duration.

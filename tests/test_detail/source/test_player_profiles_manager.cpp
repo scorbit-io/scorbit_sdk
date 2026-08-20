@@ -140,8 +140,9 @@ TEST_CASE("PlayerProfile 2 players with unclaimed slot")
     auto p2 = pm.profile(2);
     REQUIRE(p2.has_value());
     CHECK_FALSE(p2->hasInfo());
-    CHECK(p2->claimDeeplink ==
-          "https://scorbit.link/machines/test-machine-uuid-1234/?score_id=201");
+    CHECK(p2->claimDeeplink
+          == "https://scorbit.link/machines/test-machine-uuid-1234/?score_id=201"
+             "&utm_medium=machine&utm_source=score_claim&utm_campaign=anonymous_play_claim");
 
     auto result2 = pm.setProfiles(profiles2, TEST_MACHINE_UUID);
     REQUIRE(result2.has_value());
