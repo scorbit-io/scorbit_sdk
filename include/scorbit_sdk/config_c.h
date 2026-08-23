@@ -170,6 +170,23 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_threads_priority(sb_config_t config, int priority);
 
 /**
+ * @brief Set how many threads the SDK uses for blocking work.
+ *
+ * These threads run the work that waits: HTTP requests, cryptography, firmware downloads and
+ * archive extraction. They do not run timers or the realtime connection, which have their own
+ * threads and are unaffected by this setting.
+ *
+ * Optional, defaults to 4. Values outside 1-8 are clamped. On a single-core board 2 is a better
+ * choice: it keeps one request able to make progress while another waits, without several threads
+ * competing with the host application for the only CPU.
+ *
+ * @param config The configuration handle.
+ * @param count Number of threads, clamped to 1-8. Must be set before @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_worker_thread_count(sb_config_t config, int count);
+
+/**
  * @brief Set score features.
  *
  * Score features help identify what triggered a score increase (e.g., ramp, spinner, target).

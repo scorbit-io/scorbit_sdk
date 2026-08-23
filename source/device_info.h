@@ -58,6 +58,14 @@ struct DeviceInfo {
     /// Per-thread nice for SDK worker threads (Linux SCHED_BATCH + setpriority); 0 = do not adjust.
     int threadsNice {0};
 
+    static constexpr int MIN_WORKER_THREADS = 1;
+    static constexpr int MAX_WORKER_THREADS = 8;
+    static constexpr int DEFAULT_WORKER_THREADS = 4;
+
+    /// Threads for blocking work (HTTP, crypto, downloads, archive extraction). Timers and the
+    /// realtime connection run on their own threads and are not affected by this.
+    int workerThreadCount {DEFAULT_WORKER_THREADS};
+
     // Authentication - one of these must be set
     std::string encryptedKey;
     sb_signer_callback_t signerCallback {nullptr};

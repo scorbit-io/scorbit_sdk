@@ -180,6 +180,26 @@ TEST_CASE("Worker", "[timers independent]")
     worker.stop();
 }
 
+TEST_CASE("Worker", "[blocking thread count is clamped]")
+{
+    // An out-of-range count must not leave the pool without a thread, which would silently
+    // swallow every posted task instead of running it.
+    for (const int requested : {-1, 0, 1, 4, 100}) {
+        Worker worker {0, requested};
+        worker.start();
+
+        std::atomic_bool ran {false};
+        worker.postQueue([&ran] { ran = true; });
+
+        for (int i = 0; i < 100 && !ran; ++i) {
+            std::this_thread::sleep_for(10ms);
+        }
+        CHECK(ran);
+
+        worker.stop();
+    }
+}
+
 TEST_CASE("Worker", "[blocking work does not delay timers]")
 {
     Worker worker;

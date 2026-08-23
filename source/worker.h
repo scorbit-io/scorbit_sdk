@@ -55,7 +55,8 @@ public:
 
 public:
     /// @param threadNiceValue Linux nice passed to setpriority for each worker thread; 0 disables.
-    explicit Worker(int threadNiceValue = 0);
+    /// @param blockingThreadCount Threads for blocking work; clamped to 1-8.
+    explicit Worker(int threadNiceValue = 0, int blockingThreadCount = 4);
     ~Worker();
 
     /**
@@ -106,6 +107,7 @@ private:
 
     std::atomic_bool m_running {false};
     int m_threadNiceValue {0};
+    int m_blockingThreadCount {4};
 
     // Async work only; handlers here must not block.
     boost::asio::io_context m_ioc;

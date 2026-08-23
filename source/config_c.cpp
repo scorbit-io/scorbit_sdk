@@ -18,6 +18,7 @@
  */
 
 #include "device_info.h"
+#include <algorithm>
 #include <new>
 #include <vector>
 
@@ -105,6 +106,14 @@ void sb_config_set_threads_priority(sb_config_t config, int priority)
 {
     if (config) {
         config->threadsNice = priority;
+    }
+}
+
+void sb_config_set_worker_thread_count(sb_config_t config, int count)
+{
+    if (config) {
+        config->workerThreadCount = std::clamp(count, scorbit::DeviceInfo::MIN_WORKER_THREADS,
+                                               scorbit::DeviceInfo::MAX_WORKER_THREADS);
     }
 }
 

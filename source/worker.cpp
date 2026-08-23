@@ -20,6 +20,7 @@
 #include "worker.h"
 #include "utils/thread_priority.h"
 #include <logger/logger.h>
+#include <algorithm>
 
 // Async handlers never block, so they need very few threads. Two rather than one leaves headroom
 // if some handler unexpectedly does block: with a single thread that would freeze all timers and
@@ -27,8 +28,9 @@
 constexpr auto NUM_OF_ASYNC_THREADS = 2;
 
 // Blocking work (synchronous HTTP, crypto, archive extraction) can occupy a thread for a long
-// time, so this is where concurrency is actually needed.
-constexpr auto NUM_OF_BLOCKING_THREADS = 4;
+// time, so this is where concurrency is actually needed, and where it is worth tuning per device.
+constexpr auto MIN_BLOCKING_THREADS = 1;
+constexpr auto MAX_BLOCKING_THREADS = 8;
 
 using namespace scorbit::detail;
 using namespace std::chrono_literals;
@@ -83,8 +85,10 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
 namespace scorbit {
 namespace detail {
 
-Worker::Worker(int threadNiceValue)
+Worker::Worker(int threadNiceValue, int blockingThreadCount)
     : m_threadNiceValue(threadNiceValue)
+    , m_blockingThreadCount(
+              std::clamp(blockingThreadCount, MIN_BLOCKING_THREADS, MAX_BLOCKING_THREADS))
     , m_timers {{
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
@@ -120,7 +124,7 @@ void Worker::start()
             m_ioc.run();
         });
     }
-    for (int i = 0; i < NUM_OF_BLOCKING_THREADS; ++i) {
+    for (int i = 0; i < m_blockingThreadCount; ++i) {
         m_blockingThreads.create_thread([this] {
             applySdkThreadNice(m_threadNiceValue);
             m_blockingIoc.run();

@@ -345,6 +345,10 @@ scorbit::GameState setupGameState()
             // those threads
             // .setThreadsPriority(10)
 
+            // Optional: .setWorkerThreadCount(n) - threads for blocking work (HTTP, crypto,
+            // downloads); defaults to 4, clamped to 1-8. Use 2 on single-core hardware
+            // .setWorkerThreadCount(2)
+
             // Provider's encrypted private key (generated using encrypt_tool).
             // Used for V2 provisioning authentication to prove provider identity.
             .setEncryptedKey(
