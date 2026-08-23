@@ -51,6 +51,7 @@ public:
         LeaderboardDeferred,
         AuthRetry,
         AuthGate,
+        ScorbitronRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

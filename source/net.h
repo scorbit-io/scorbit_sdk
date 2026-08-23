@@ -182,6 +182,8 @@ private:
                             SafeMultipart &&multipart);
 
     void parseScorbitronObject(Error error, const std::string &reply);
+    /// Re-send the scorbitron PATCH on a backoff while the pairing status is still unresolved.
+    void retryScorbitronObjectIfPairingUnresolved();
 
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
@@ -353,6 +355,7 @@ private:
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
+    std::chrono::seconds m_scorbitronRetryBackoff;
 
     // The Centrifugo client asks for a JWT from its own strand, through a callback that has to
     // return synchronously. Fetching it there would stall the websocket, the ping timer and every

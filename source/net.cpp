@@ -77,6 +77,9 @@ constexpr auto NUM_RETRIES = 3;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 
+constexpr auto SCORBITRON_RETRY_INITIAL_BACKOFF = 2s;
+constexpr auto SCORBITRON_RETRY_MAX_BACKOFF = 1min;
+
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
 constexpr size_t DIAG_MAX_LOGS = 5;
@@ -190,6 +193,7 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
     : m_keyResolvers(std::move(resolvers))
     , m_authRetryBackoff(AUTH_RETRY_INITIAL_BACKOFF)
+    , m_scorbitronRetryBackoff(SCORBITRON_RETRY_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
@@ -2068,9 +2072,29 @@ void Net::onUnpaired()
     restartCentrifugo();
 }
 
+void Net::retryScorbitronObjectIfPairingUnresolved()
+{
+    if (m_stop || m_status != AuthStatus::AuthenticatedCheckingPairing) {
+        return;
+    }
+
+    // This PATCH is the only request allowed to run while pairing is unresolved, and its reply is
+    // the only thing that resolves it. Without a retry the status stays here for good, and every
+    // other request waits out its deadline against a state nothing can change.
+    WRN("API pairing still unresolved, retrying Scorbitron patch in {}s",
+        m_scorbitronRetryBackoff.count());
+
+    m_worker.startTimer(Worker::Timer::ScorbitronRetry, m_scorbitronRetryBackoff,
+                        [this] { sendScorbitronObject(); });
+
+    m_scorbitronRetryBackoff = std::min<std::chrono::seconds>(m_scorbitronRetryBackoff * 2,
+                                                              SCORBITRON_RETRY_MAX_BACKOFF);
+}
+
 void Net::parseScorbitronObject(Error error, const std::string &reply)
 {
     if (error != Error::Success) {
+        retryScorbitronObjectIfPairingUnresolved();
         return;
     }
 
@@ -2121,6 +2145,8 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
 
+        m_scorbitronRetryBackoff = SCORBITRON_RETRY_INITIAL_BACKOFF;
+
         if (m_status != status) {
             m_status = status;
             notifyAuthStatusChanged();
@@ -2129,6 +2155,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
     } catch (const std::exception &e) {
         ERR("API error parsing config reply: {}", e.what());
+        retryScorbitronObjectIfPairingUnresolved();
     }
 }
 
