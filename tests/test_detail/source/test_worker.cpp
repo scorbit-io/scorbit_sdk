@@ -179,3 +179,32 @@ TEST_CASE("Worker", "[timers independent]")
 
     worker.stop();
 }
+
+TEST_CASE("Worker", "[blocking work does not delay timers]")
+{
+    Worker worker;
+    worker.start();
+
+    // Saturate every blocking thread. If timers shared that pool, the one below could not fire
+    // until these tasks returned, which is exactly the stall this split exists to prevent.
+    std::atomic_int blockersRunning {0};
+    for (int i = 0; i < 8; ++i) {
+        worker.postQueue([&blockersRunning] {
+            ++blockersRunning;
+            std::this_thread::sleep_for(400ms);
+        });
+        worker.post([&blockersRunning] {
+            ++blockersRunning;
+            std::this_thread::sleep_for(400ms);
+        });
+    }
+
+    std::atomic_bool fired {false};
+    worker.startTimer(Worker::Timer::TokenRefresh, 50ms, [&fired] { fired = true; });
+
+    std::this_thread::sleep_for(200ms);
+    CHECK(fired);
+    CHECK(blockersRunning > 0); // the blockers really were occupying threads
+
+    worker.stop();
+}

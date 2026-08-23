@@ -21,7 +21,14 @@
 #include "utils/thread_priority.h"
 #include <logger/logger.h>
 
-constexpr auto NUM_OF_THREADS = 4;
+// Async handlers never block, so they need very few threads. Two rather than one leaves headroom
+// if some handler unexpectedly does block: with a single thread that would freeze all timers and
+// the websocket at once.
+constexpr auto NUM_OF_ASYNC_THREADS = 2;
+
+// Blocking work (synchronous HTTP, crypto, archive extraction) can occupy a thread for a long
+// time, so this is where concurrency is actually needed.
+constexpr auto NUM_OF_BLOCKING_THREADS = 4;
 
 using namespace scorbit::detail;
 using namespace std::chrono_literals;
@@ -103,10 +110,16 @@ void Worker::start()
     }
 
     m_running = true;
-    for (int i = 0; i < NUM_OF_THREADS; ++i) {
+    for (int i = 0; i < NUM_OF_ASYNC_THREADS; ++i) {
         m_threads.create_thread([this] {
             applySdkThreadNice(m_threadNiceValue);
             m_ioc.run();
+        });
+    }
+    for (int i = 0; i < NUM_OF_BLOCKING_THREADS; ++i) {
+        m_blockingThreads.create_thread([this] {
+            applySdkThreadNice(m_threadNiceValue);
+            m_blockingIoc.run();
         });
     }
 }
@@ -119,6 +132,12 @@ void Worker::stop()
     INF("Worker: stopping...");
 
     stopAllTimers();
+
+    // Drain blocking work first: its reply callbacks arm timers and publish through Centrifugo,
+    // both of which live on the async executor, so that one has to outlive it.
+    m_blockingWorkGuard.reset();
+    m_blockingThreads.join_all();
+
     m_workGuard.reset();
     m_threads.join_all();
 
@@ -129,7 +148,7 @@ void Worker::stop()
 
 void Worker::post(task_t func)
 {
-    boost::asio::post(m_ioc, std::move(func));
+    boost::asio::post(m_blockingIoc, std::move(func));
 }
 
 void Worker::postQueue(task_t func)
