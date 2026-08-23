@@ -110,6 +110,9 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
+        ../../source/http_session_pool.h
+        ../../source/http_session_pool.cpp
+        source/test_http_session_pool.cpp
         ../../source/worker.cpp
         ../../source/worker.h
         ../../source/utils/thread_priority.h

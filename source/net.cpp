@@ -19,6 +19,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "http_session_pool.h"
 #include "soft_key_resolver.h"
 #include "fmt_formatters.h"
 #include <logger/logger.h>
@@ -1309,8 +1310,9 @@ task_t Net::createAuthenticateTask()
             if (!m_fingerprintHash.empty()) {
                 authHeaders[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
             }
-            auto r = cpr::Post(url(URL_SCORBITRON_TOKEN), cpr::Body {payload}, authHeaders,
-                               cpr::Timeout {NET_TIMEOUT}, sslOptions());
+            auto r = HttpSessionPool::instance().Post(url(URL_SCORBITRON_TOKEN),
+                                                      cpr::Body {payload}, authHeaders,
+                                                      cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
                 onAuthenticationFailed();
@@ -2322,14 +2324,15 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
             REST_GET, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
                    const cpr::Timeout &timeout, bool resilient) {
+                auto &pool = HttpSessionPool::instance();
                 if (resilient) {
-                    return cpr::Get(url, params, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                    return pool.Get(url, params, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
                                     cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
                                     cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
                                                    NET_TRANSFER_LOW_SPEED_STALL_TIME},
                                     sslOptions());
                 }
-                return cpr::Get(url, params, header, timeout, sslOptions());
+                return pool.Get(url, params, header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
 }
@@ -2342,14 +2345,15 @@ task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_se
             REST_POST, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                    const cpr::Timeout &timeout, bool resilient) {
+                auto &pool = HttpSessionPool::instance();
                 if (resilient) {
-                    return cpr::Post(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                    return pool.Post(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
                                      cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
                                      cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
                                                     NET_TRANSFER_LOW_SPEED_STALL_TIME},
                                      sslOptions());
                 }
-                return cpr::Post(url, body, header, timeout, sslOptions());
+                return pool.Post(url, body, header, timeout, sslOptions());
             },
             std::move(allowedStatuses), includeFingerprintHash);
 }
@@ -2384,14 +2388,15 @@ task_t Net::createPatchRequestTask(StringCallback replyCallback,
             REST_PATCH, std::move(replyCallback), std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                    const cpr::Timeout &timeout, bool resilient) {
+                auto &pool = HttpSessionPool::instance();
                 if (resilient) {
-                    return cpr::Patch(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                    return pool.Patch(url, body, header, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
                                       cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
                                       cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
                                                      NET_TRANSFER_LOW_SPEED_STALL_TIME},
                                       sslOptions());
                 }
-                return cpr::Patch(url, body, header, timeout, sslOptions());
+                return pool.Patch(url, body, header, timeout, sslOptions());
             },
             std::move(allowedStatuses));
 }
