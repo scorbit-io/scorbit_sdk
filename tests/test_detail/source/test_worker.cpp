@@ -18,6 +18,7 @@
  */
 
 #include "worker.h"
+#include <boost/asio/dispatch.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <thread>
@@ -267,6 +268,49 @@ TEST_CASE("Worker", "[blocking thread count is clamped]")
 
         worker.stop();
     }
+}
+
+TEST_CASE("Worker", "[centrifugo strand serializes work dispatched from other executors]")
+{
+    // The Centrifugo client keeps its connection state, write buffer and websocket as plain
+    // members with no locking, so everything touching it has to reach it through this strand.
+    // Blocking-executor threads and timers are where those calls come from, and posting to the
+    // enclosing io_context instead of the strand would not serialize them at all.
+    Worker worker;
+    worker.start();
+
+    std::atomic_int running {0};
+    std::atomic_int maxConcurrent {0};
+    std::atomic_int completed {0};
+
+    constexpr int TASKS = 24;
+    const auto body = [&running, &maxConcurrent, &completed] {
+        const int now = ++running;
+        int previousMax = maxConcurrent;
+        while (previousMax < now && !maxConcurrent.compare_exchange_weak(previousMax, now)) {
+        }
+        std::this_thread::sleep_for(2ms);
+        --running;
+        ++completed;
+    };
+
+    for (int i = 0; i < TASKS; ++i) {
+        // Half from blocking threads, half from timers: both are real callers today.
+        if (i % 2 == 0) {
+            worker.post([&worker, body] { boost::asio::dispatch(worker.centrifugoStrand(), body); });
+        } else {
+            boost::asio::dispatch(worker.centrifugoStrand(), body);
+        }
+    }
+
+    for (int i = 0; i < 200 && completed < TASKS; ++i) {
+        std::this_thread::sleep_for(10ms);
+    }
+
+    CHECK(completed == TASKS);
+    CHECK(maxConcurrent == 1);
+
+    worker.stop();
 }
 
 TEST_CASE("Worker", "[blocking work does not delay timers]")

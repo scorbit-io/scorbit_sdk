@@ -39,6 +39,7 @@
 #include <fmt/chrono.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
+#include <boost/asio/dispatch.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/uuid.hpp>
 #include <boost/filesystem.hpp>
@@ -320,10 +321,10 @@ Net::~Net()
     // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
     // Transport must stay alive so pending async handlers (async_close, timer cancels,
     // async_read completion) don't access freed memory.
-    if (m_worker.isRunning() && m_centrifugo) {
+    if (m_worker.isRunning()) {
         auto done = std::make_shared<std::promise<void>>();
         auto wait = done->get_future();
-        m_worker.post([this, done]() {
+        onCentrifugoStrand([this, done]() {
             if (m_centrifugo) {
                 m_centrifugo->disconnect();
             }
@@ -942,7 +943,7 @@ void Net::setCreditsDropped(int credits, const std::string &transaction, bool su
 void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const char * /*pricing*/)
 {
     m_worker.post([this, freePlay, credits, maxCredits]() {
-        if (m_stop || !m_centrifugo) {
+        if (m_stop || m_cfState != centrifugo::ConnectionState::Connected) {
             return;
         }
 
@@ -970,11 +971,7 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         INF("API-CF sending credits status: {}", j.dump());
-        const auto r = m_centrifugo->publish(m_machineChannel, j);
-        if (!r) {
-            WRN("API-CF failed to send credits status: code:{}, error: {}", r.error().ec.value(),
-                r.error().message);
-        }
+        publishToMachineChannel("credits status", std::move(j));
     });
 }
 
@@ -1031,7 +1028,7 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
                                   const std::string &createdAt)
 {
     m_worker.post([this, traceId, sequence, createdAt]() {
-        if (m_stop || !m_centrifugo) {
+        if (m_stop || m_cfState != centrifugo::ConnectionState::Connected) {
             return;
         }
         if (m_machineChannel.empty()) {
@@ -1055,11 +1052,7 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
                  }}};
 
         INF("API-CF sending diag probe: {}", j.dump());
-        const auto r = m_centrifugo->publish(m_machineChannel, j);
-        if (!r) {
-            WRN("API-CF failed to send diag probe: code:{}, error: {}", r.error().ec.value(),
-                r.error().message);
-        }
+        publishToMachineChannel("diag probe", std::move(j));
     });
 }
 
@@ -1668,7 +1661,9 @@ void Net::onHeartbeatWake()
 
     // centrifugoConnect() is a no-op unless the client is disconnected, so a wake while already
     // connected won't open a second connection. Both calls are moved off the heartbeat strand.
-    m_worker.post([this]() {
+    // Reading the state and acting on it has to happen in one step on the Centrifugo strand,
+    // otherwise the connection can change underneath the decision. getConfig() only queues a task.
+    onCentrifugoStrand([this]() {
         // Only a connection this wake actually opened may be idle-disconnected later. If we were
         // already connected the link is not ours to tear down, and arming the timer here would
         // drop a healthy long-lived connection.
@@ -1744,7 +1739,9 @@ void Net::sendLatestGameData(int sessionId)
         // Cancel timer if any
         m_worker.stopTimer(Worker::Timer::GameData);
 
-        if (m_stop || !m_centrifugo) {
+        // Deliberately not gated on the connection here: the skip path below still re-arms the
+        // timer, so a session that starts while disconnected resumes publishing once it connects.
+        if (m_stop) {
             return;
         }
 
@@ -1773,11 +1770,10 @@ void Net::sendLatestGameData(int sessionId)
         // However, if game session is finished (not active), post task anyway, because this is the
         // last task for that game session.
 
-        if (sessionUuid.empty()
-            || m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+        const bool isConnected = m_cfState == centrifugo::ConnectionState::Connected;
+        if (sessionUuid.empty() || !isConnected) {
             INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
-                !sessionUuid.empty(),
-                m_centrifugo->state() == centrifugo::ConnectionState::Connected);
+                !sessionUuid.empty(), isConnected);
         } else {
             {
                 std::scoped_lock lock(m_gameSessionsMutex);
@@ -1847,13 +1843,8 @@ void Net::sendLatestGameData(int sessionId)
                              {JKEY_SCR_UPDATED_AT, updatedAt},
                      }}};
 
-            const auto jstr = j.dump();
-            INF("API sending game data to channel: {}, data: {}", m_machineChannel, jstr);
-
-            const auto r = m_centrifugo->publish(m_machineChannel, j);
-            if (!r) {
-                WRN("API failed to send game data: {}", r.error().message);
-            }
+            INF("API sending game data to channel: {}, data: {}", m_machineChannel, j.dump());
+            publishToMachineChannel("game data", std::move(j));
         }
 
         // Set timer for the next game data send if the game is still active
@@ -2728,6 +2719,11 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 }
 
+void Net::onCentrifugoStrand(task_t task)
+{
+    boost::asio::dispatch(m_worker.centrifugoStrand(), std::move(task));
+}
+
 bool Net::isActiveCentrifugoClient(const centrifugo::Client *client) const
 {
     return client != nullptr && client == m_centrifugo.get();
@@ -2858,6 +2854,7 @@ void Net::centrifugoSetup(bool fetchFreshToken)
     const auto cfUrl = fmt::format("{}/{}", m_cfHostname, URL_CENTRIFUGO);
     INF("API-CF centrifugo url: {}", cfUrl);
     m_centrifugo = std::make_unique<centrifugo::Client>(m_worker.centrifugoStrand(), cfUrl, config);
+    m_cfState = centrifugo::ConnectionState::Disconnected;
     auto *const client = m_centrifugo.get();
     const auto withActiveClient = [this, client]<typename Callback>(Callback &&callback) {
         return [this, client, callback = std::forward<Callback>(callback)](auto &&...args) mutable {
@@ -2886,11 +2883,14 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
     }));
 
-    m_centrifugo->onConnecting(withActiveClient([](centrifugo::Error const &error) {
+    m_centrifugo->onConnecting(withActiveClient([this](centrifugo::Error const &error) {
+        m_cfState = centrifugo::ConnectionState::Connecting;
         INF("API-CF Connecting to Centrifugo server... ({}, {})", error.ec.value(), error.message);
     }));
 
     m_centrifugo->onConnected(withActiveClient([this] {
+        m_cfState = centrifugo::ConnectionState::Connected;
+
         if (m_stop) {
             return;
         }
@@ -2902,6 +2902,7 @@ void Net::centrifugoSetup(bool fetchFreshToken)
 
     m_centrifugo->onDisconnected(withActiveClient([this, withActiveClient](
                                                           centrifugo::Error const &error) {
+        m_cfState = centrifugo::ConnectionState::Disconnected;
         WRN("API-CF Disconnected from Centrifugo ({}, {})", error.ec.value(), error.message);
 
         if (m_stop) {
@@ -2914,11 +2915,15 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         if (m_restartCentrifugoPending.exchange(false)) {
             INF("API-CF rebuilding centrifugo client after disconnect");
             retireCentrifugoClient();
+            // Timers fire on an io_context thread, not on this strand, so the check on the client
+            // has to be made after hopping back onto it.
             m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this] {
-                if (m_stop || m_centrifugo) {
-                    return;
-                }
-                setupAndConnectCentrifugo(true);
+                onCentrifugoStrand([this] {
+                    if (m_stop || m_centrifugo) {
+                        return;
+                    }
+                    setupAndConnectCentrifugo(true);
+                });
             });
             return;
         }
@@ -2930,8 +2935,11 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         case 3502:
             if (!m_stop) {
                 INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
-                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY,
+                m_worker.startTimer(
+                        Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this, withActiveClient] {
+                            onCentrifugoStrand(
                                     withActiveClient([this] { setupAndConnectCentrifugo(true); }));
+                        });
                 // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset?
             }
             break;
@@ -3046,26 +3054,56 @@ void Net::centrifugoSetup(bool fetchFreshToken)
 
 void Net::centrifugoConnect()
 {
-    if (m_stop || !m_centrifugo) {
-        return;
-    }
+    onCentrifugoStrand([this] {
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
 
-    if (m_centrifugo->state() != centrifugo::ConnectionState::Disconnected) {
-        DBG("API-CF connect skipped, current state={}", static_cast<int>(m_centrifugo->state()));
-        return;
-    }
+        if (m_centrifugo->state() != centrifugo::ConnectionState::Disconnected) {
+            DBG("API-CF connect skipped, current state={}",
+                static_cast<int>(m_centrifugo->state()));
+            return;
+        }
 
-    if (auto const res = m_centrifugo->connect(); !res) {
-        ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
-            res.error().message);
-    }
+        if (auto const res = m_centrifugo->connect(); !res) {
+            ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
+                res.error().message);
+        }
+    });
+}
+
+void Net::centrifugoDisconnect()
+{
+    onCentrifugoStrand([this] {
+        if (m_centrifugo) {
+            m_centrifugo->disconnect();
+        }
+    });
+}
+
+void Net::publishToMachineChannel(std::string what, nlohmann::json payload)
+{
+    // The payload is built by the caller, off the strand, so only the publish itself lands on the
+    // io_context.
+    onCentrifugoStrand([this, what = std::move(what), payload = std::move(payload)] {
+        if (m_stop || !m_centrifugo) {
+            return;
+        }
+
+        if (const auto r = m_centrifugo->publish(m_machineChannel, payload); !r) {
+            WRN("API-CF failed to send {}: code:{}, error: {}", what, r.error().ec.value(),
+                r.error().message);
+        }
+    });
 }
 
 void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
 {
-    pruneRetiredCentrifugoClients();
-    centrifugoSetup(fetchFreshToken);
-    centrifugoConnect();
+    onCentrifugoStrand([this, fetchFreshToken] {
+        pruneRetiredCentrifugoClients();
+        centrifugoSetup(fetchFreshToken);
+        centrifugoConnect();
+    });
 }
 
 void Net::onAuthenticationFailed()
@@ -3087,7 +3125,7 @@ void Net::startCentrifugoIdleTimer()
     m_worker.startTimer(Worker::Timer::CentrifugoIdleDisconnect, CF_IDLE_DISCONNECT_TIME, [this] {
         m_isCentrifugoIdleTimerArmed = false;
 
-        if (m_stop || !m_centrifugo) {
+        if (m_stop) {
             return;
         }
 
@@ -3102,12 +3140,12 @@ void Net::startCentrifugoIdleTimer()
             }
         }
 
-        if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+        if (m_cfState == centrifugo::ConnectionState::Disconnected) {
             return;
         }
 
         INF("API-CF idle for {}, disconnecting until next heartbeat wake", CF_IDLE_DISCONNECT_TIME);
-        m_centrifugo->disconnect();
+        centrifugoDisconnect();
     });
 }
 
@@ -3128,23 +3166,25 @@ void Net::stopCentrifugoIdleTimer()
 
 void Net::restartCentrifugo()
 {
-    m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
+    onCentrifugoStrand([this] {
+        m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
 
-    if (!m_centrifugo) {
-        m_restartCentrifugoPending = false;
-        setupAndConnectCentrifugo(true);
-        return;
-    }
+        if (!m_centrifugo) {
+            m_restartCentrifugoPending = false;
+            setupAndConnectCentrifugo(true);
+            return;
+        }
 
-    if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
-        m_restartCentrifugoPending = false;
-        retireCentrifugoClient();
-        setupAndConnectCentrifugo(true);
-        return;
-    }
+        if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
+            m_restartCentrifugoPending = false;
+            retireCentrifugoClient();
+            setupAndConnectCentrifugo(true);
+            return;
+        }
 
-    m_restartCentrifugoPending = true;
-    m_centrifugo->disconnect();
+        m_restartCentrifugoPending = true;
+        m_centrifugo->disconnect();
+    });
 }
 
 std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
@@ -3262,10 +3302,10 @@ void Net::requestCreditsStatusEvent()
 
 void Net::requestCreditsStatusIfReady()
 {
-    if (m_stop || !m_centrifugo || m_machineChannel.empty()) {
+    if (m_stop || m_machineChannel.empty()) {
         return;
     }
-    if (m_centrifugo->state() != centrifugo::ConnectionState::Connected) {
+    if (m_cfState != centrifugo::ConnectionState::Connected) {
         return;
     }
     requestCreditsStatusEvent();

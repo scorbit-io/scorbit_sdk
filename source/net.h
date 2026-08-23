@@ -240,11 +240,22 @@ private:
                               LeaderboardHandleCallback callback, int deferAttempt);
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
+    /// Run @p task on the Centrifugo strand. Runs inline when the caller is already on it, so
+    /// callers reached from a client callback keep their existing ordering.
+    ///
+    /// centrifugo::Transport holds its connection state, write buffer and websocket as plain
+    /// members driven by the strand's own handlers (read loop, ping timer, flush), with no
+    /// internal locking. Every call into the client therefore has to reach it through here.
+    void onCentrifugoStrand(task_t task);
+
     bool isActiveCentrifugoClient(const centrifugo::Client *client) const;
     void pruneRetiredCentrifugoClients();
     void retireCentrifugoClient();
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+    void centrifugoDisconnect();
+    /// Publish to the machine channel. @p what names the payload for the failure log.
+    void publishToMachineChannel(std::string what, nlohmann::json payload);
 
     /// @return The Centrifugo JWT held in the cache, empty if none is ready yet.
     std::string cachedCentrifugoToken() const;
@@ -446,6 +457,10 @@ private:
     // Keep restarted clients alive for a short grace period so pending transport callbacks can
     // unwind safely without retaining every historical client for the rest of the process.
     std::deque<RetiredCentrifugoClient> m_retiredCentrifugoClients;
+    // Mirrors the active client's state, published from the strand's own connection callbacks.
+    // Lets work that only needs to decide whether publishing is worth preparing read the state
+    // without touching the client off its strand.
+    std::atomic<centrifugo::ConnectionState> m_cfState {centrifugo::ConnectionState::Disconnected};
     std::atomic_bool m_restartCentrifugoPending {false};
     // True only while a heartbeat-wake-opened connection is on its idle countdown. Gates the
     // activity reset so a connection we did not open never acquires an idle disconnect.
