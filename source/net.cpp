@@ -168,10 +168,13 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
 {
     INF("API-CF getting JWT token from: {}", url);
 
-    // Note: This is synchronous as required by centrifugo library callback
-    const auto r = cpr::Get(cpr::Url {url},
-                            cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
-                            cpr::Timeout {NET_TIMEOUT}, sslOptions);
+    // Note: This is synchronous as required by centrifugo library callback.
+    // Goes through the pool so it resumes the connection the authentication POST just opened to
+    // this origin. A bare cpr::Get here paid a full handshake instead, and on a single-core board
+    // that burn (~1s at half the core) is long enough to starve the host's audio thread.
+    const auto r = HttpSessionPool::instance().Get(
+            cpr::Url {url}, cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
+            cpr::Timeout {NET_TIMEOUT}, sslOptions);
 
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
