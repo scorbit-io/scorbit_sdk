@@ -25,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace scorbit {
 
@@ -68,6 +69,25 @@ bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string
 
 /** @return terminal error for leaderboard fetch, or nullopt if the request may proceed or defer. */
 std::optional<Error> leaderboardRequestTerminalError(AuthStatus status);
+
+/// What the authentication-status gate says about a request.
+enum class AuthGate {
+    Ready,    ///< The status is allowed; run the request now.
+    Pending,  ///< Not allowed yet, but the status may still become allowed. Wait.
+    Terminal, ///< It never will. Fail the request rather than waiting for something that
+              ///< cannot happen.
+};
+
+/**
+ * Decide whether a request restricted to @p allowedStatuses can run while the SDK is in @p status.
+ *
+ * Only the statuses that authentication is still working through count as Pending. Getting this
+ * wrong in the Pending direction is what makes a request wait forever, so anything that is not
+ * actively on its way to an allowed status is Terminal.
+ *
+ * @param stopping True once the SDK is shutting down; nothing is worth waiting for then.
+ */
+AuthGate authGate(AuthStatus status, const std::vector<AuthStatus> &allowedStatuses, bool stopping);
 
 bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
                                const std::string &machineUuid,

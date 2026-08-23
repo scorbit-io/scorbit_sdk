@@ -38,6 +38,7 @@
 #include <fmt/chrono.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
+#include <boost/asio/post.hpp>
 #include <boost/uuid.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/url/url_view.hpp>
@@ -100,6 +101,10 @@ constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
 
 constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
+
+/// How long a request waits for the authentication status to allow it before giving up. Long
+/// enough to ride out a slow start or a brief outage, bounded so a caller always gets an answer.
+constexpr auto AUTH_GATE_TIMEOUT = 2min;
 
 auto noop_task = []() { };
 
@@ -300,7 +305,7 @@ Net::~Net()
         stopCentrifugoIdleTimer();
         stopTokenRefreshTimer();
         m_eventManager->stop();
-        m_authCV.notify_all();
+        notifyAuthStatusChanged();
         m_shortCodeCV.notify_all();
     }
 
@@ -1214,7 +1219,7 @@ task_t Net::createAuthenticateTask()
             if (!resolveKeys(timestamp)) {
                 onAuthenticationFailed();
                 ERR("API there is no functional key to authenticate");
-                m_authCV.notify_all();
+                notifyAuthStatusChanged();
                 return;
             }
         }
@@ -1225,7 +1230,7 @@ task_t Net::createAuthenticateTask()
                 ERR("Can't authenticate, signature is empty");
                 onAuthenticationFailed();
                 stopTokenRefreshTimer();
-                m_authCV.notify_all();
+                notifyAuthStatusChanged();
                 return;
             }
 
@@ -1256,7 +1261,7 @@ task_t Net::createAuthenticateTask()
             if (m_stop) {
                 onAuthenticationFailed();
                 m_isRefreshingToken = false;
-                m_authCV.notify_all();
+                notifyAuthStatusChanged();
                 return;
             }
 
@@ -1288,7 +1293,7 @@ task_t Net::createAuthenticateTask()
                     // first connect racing this request and failing if it lost.
                     fetchCentrifugoTokenNow();
 
-                    m_authCV.notify_all();
+                    notifyAuthStatusChanged();
 
                     if (normalAuthentication) {
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
@@ -1303,7 +1308,7 @@ task_t Net::createAuthenticateTask()
                     ERR("Error parsing authentication reply: {}", e.what());
                     onAuthenticationFailed();
                     stopTokenRefreshTimer();
-                    m_authCV.notify_all();
+                    notifyAuthStatusChanged();
                     return;
                 }
             } else if (r.status_code == 400) {
@@ -1346,7 +1351,7 @@ task_t Net::createAuthenticateTask()
             ERR("{}", r.text);
             // TODO: Sentry
             // SentryManager::message(msg);
-            m_authCV.notify_all();
+            notifyAuthStatusChanged();
             break;
         }
     };
@@ -2058,7 +2063,7 @@ void Net::onUnpaired()
 {
     m_status = AuthStatus::AuthenticatedUnpaired;
     clearPairedMachineContext();
-    m_authCV.notify_all();
+    notifyAuthStatusChanged();
     emitPairingStatusEventIfChanged(false);
     restartCentrifugo();
 }
@@ -2118,7 +2123,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         if (m_status != status) {
             m_status = status;
-            m_authCV.notify_all();
+            notifyAuthStatusChanged();
             emitPairingStatusEventIfChanged(isPaired);
         }
 
@@ -2134,22 +2139,40 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
                                   std::vector<AuthStatus> allowedStatuses,
                                   bool includeFingerprintHash, bool resilientTransferTimeouts)
 {
-    return [this, requestType, callback = std::move(replyCallback),
+    // A request that arrives before the status allows it is parked rather than run, and needs to
+    // re-enter itself when the gate opens. The weak capture keeps the lambda from owning the
+    // shared_ptr that owns the lambda.
+    auto run = std::make_shared<task_t>();
+    const std::weak_ptr<task_t> weakRun = run;
+
+    *run = [this, weakRun, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
             allowedStatuses = std::move(allowedStatuses), includeFingerprintHash,
             resilientTransferTimeouts]() {
+        switch (authGate(m_status, allowedStatuses, m_stop)) {
+        case AuthGate::Ready:
+            break;
+
+        case AuthGate::Terminal:
+            DBG("Can't send {} request, status does not allow it", requestType);
+            if (callback) {
+                callback(authGateError(), {});
+            }
+            return;
+
+        case AuthGate::Pending:
+            // Give the thread back instead of holding it until the status settles. The whole
+            // pool would otherwise end up parked here with nothing left to authenticate with.
+            if (auto self = weakRun.lock()) {
+                parkOnAuthGate([self] { (*self)(); }, callback, allowedStatuses);
+            }
+            return;
+        }
+
         Error error {Error::ApiError};
         std::string reply;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
-            {
-                std::unique_lock lock(m_authMutex);
-                m_authCV.wait(lock, [this, &allowedStatuses] {
-                    return isAuthenticated() || m_status == AuthStatus::AuthenticationFailed
-                        || m_stop || checkAllowedStatuses(allowedStatuses);
-                });
-            }
-
             auto setupResult = deferredSetup();
             auto url = std::get<0>(setupResult);
 
@@ -2211,6 +2234,8 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             callback(error, std::move(reply));
         }
     };
+
+    return [run] { (*run)(); };
 }
 
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -2461,6 +2486,92 @@ bool Net::checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) c
 {
     return std::ranges::any_of(allowedStatuses,
                                [this](AuthStatus status) { return status == m_status; });
+}
+
+Error Net::authGateError() const
+{
+    return m_status == AuthStatus::AuthenticationFailed ? Error::AuthFailed : Error::NotPaired;
+}
+
+void Net::parkOnAuthGate(task_t resume, StringCallback callback,
+                         std::vector<AuthStatus> allowedStatuses)
+{
+    std::scoped_lock lock(m_authGateMutex);
+
+    m_authGateWaiters.push_back({
+            .resume = std::move(resume),
+            .callback = std::move(callback),
+            .allowedStatuses = std::move(allowedStatuses),
+            .deadline = steady_clock::now() + AUTH_GATE_TIMEOUT,
+            .executor = m_worker.currentStrandExecutor(),
+    });
+
+    armAuthGateTimer();
+}
+
+void Net::armAuthGateTimer()
+{
+    if (m_authGateWaiters.empty()) {
+        m_worker.stopTimer(Worker::Timer::AuthGate);
+        return;
+    }
+
+    const auto earliest =
+            std::ranges::min(m_authGateWaiters, {}, &AuthGateWaiter::deadline).deadline;
+    m_worker.startTimer(Worker::Timer::AuthGate,
+                        std::max(earliest - steady_clock::now(), steady_clock::duration::zero()),
+                        [this] { notifyAuthStatusChanged(); });
+}
+
+void Net::notifyAuthStatusChanged()
+{
+    std::vector<AuthGateWaiter> resumable;
+    std::vector<AuthGateWaiter> giveUp;
+
+    {
+        std::scoped_lock lock(m_authGateMutex);
+
+        const auto now = steady_clock::now();
+        std::vector<AuthGateWaiter> stillWaiting;
+        stillWaiting.reserve(m_authGateWaiters.size());
+
+        for (auto &waiter : m_authGateWaiters) {
+            switch (authGate(m_status, waiter.allowedStatuses, m_stop)) {
+            case AuthGate::Ready:
+                resumable.push_back(std::move(waiter));
+                break;
+            case AuthGate::Terminal:
+                giveUp.push_back(std::move(waiter));
+                break;
+            case AuthGate::Pending:
+                if (waiter.deadline <= now) {
+                    giveUp.push_back(std::move(waiter));
+                } else {
+                    stillWaiting.push_back(std::move(waiter));
+                }
+                break;
+            }
+        }
+
+        m_authGateWaiters = std::move(stillWaiting);
+        armAuthGateTimer();
+    }
+
+    // Outside the lock: these run application callbacks, which are free to issue more requests
+    // and park again.
+    for (auto &waiter : resumable) {
+        boost::asio::post(waiter.executor, std::move(waiter.resume));
+    }
+
+    for (auto &waiter : giveUp) {
+        if (!waiter.callback) {
+            continue;
+        }
+        boost::asio::post(waiter.executor,
+                          [callback = std::move(waiter.callback), error = authGateError()] {
+                              callback(error, std::string {});
+                          });
+    }
 }
 
 void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSession)

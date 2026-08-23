@@ -262,6 +262,24 @@ private:
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
+    /// @return The error to report for a request the gate will never let through.
+    Error authGateError() const;
+    /**
+     * Hold a request until the authentication status lets it run.
+     *
+     * The request is not allowed to occupy a thread while it waits: a handful of requests
+     * arriving before authentication settles would otherwise take every thread the SDK has and
+     * leave nothing to finish authenticating with. @p resume runs on @p executor once the gate
+     * opens; if it never does, @p callback is invoked with an error at the deadline, so a caller
+     * always gets an answer.
+     */
+    void parkOnAuthGate(task_t resume, StringCallback callback,
+                        std::vector<AuthStatus> allowedStatuses);
+    /// Re-evaluate every parked request. Called on every authentication status change.
+    void notifyAuthStatusChanged();
+    /// Arm the deadline timer for the earliest waiter. Caller must hold m_authGateMutex.
+    void armAuthGateTimer();
+
     void createNfcNonces();
     void startNfcCheckTimer();
     void setNfcTag();
@@ -312,8 +330,19 @@ private:
     SignerCallback m_signer;
     std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;
 
+    /// A request waiting for the authentication status to allow it.
+    struct AuthGateWaiter {
+        task_t resume;
+        StringCallback callback;
+        std::vector<AuthStatus> allowedStatuses;
+        std::chrono::steady_clock::time_point deadline;
+        /// Strand the request came from, so it resumes where its ordering guarantees hold.
+        boost::asio::any_io_executor executor;
+    };
+
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
-    std::condition_variable m_authCV;
+    std::mutex m_authGateMutex;
+    std::vector<AuthGateWaiter> m_authGateWaiters;
     std::condition_variable m_shortCodeCV;
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;

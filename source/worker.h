@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -49,6 +50,7 @@ public:
         ModeExpiry,
         LeaderboardDeferred,
         AuthRetry,
+        AuthGate,
 
         // IMPORTANT! This must be last entry!
         Count,
@@ -96,6 +98,15 @@ public:
     auto &heartbeatStrand() { return m_heartbeatStrand; }
     auto &centrifugoStrand() { return m_centrifugoStrand; }
     auto &eventsStrand() { return m_eventsStrand; }
+
+    /**
+     * @return The executor of whichever strand is running on the calling thread.
+     *
+     * Lets a task that has to be deferred come back to the strand it started on, keeping the
+     * ordering its caller relies on. Falls back to the blocking executor, unserialized, when the
+     * caller is not running on a strand.
+     */
+    boost::asio::any_io_executor currentStrandExecutor();
 
 private:
     void run();

@@ -75,6 +75,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::AuthRetry:
             name = "AuthRetry";
             break;
+        case Worker::Timer::AuthGate:
+            name = "AuthGate";
+            break;
         case Worker::Timer::Count:
             break;
         }
@@ -90,6 +93,7 @@ Worker::Worker(int threadNiceValue, int blockingThreadCount)
     , m_blockingThreadCount(
               std::clamp(blockingThreadCount, MIN_BLOCKING_THREADS, MAX_BLOCKING_THREADS))
     , m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
@@ -177,6 +181,19 @@ void Worker::postGameDataQueue(task_t func)
 void Worker::postCommitTask(task_t func)
 {
     boost::asio::post(m_commitStrand, std::move(func));
+}
+
+boost::asio::any_io_executor Worker::currentStrandExecutor()
+{
+    // ponytail: linear scan of the six strands. Trivial at this size; if the strand set grows,
+    // hand the executor down with the task instead of rediscovering it here.
+    for (auto *strand : {&m_strand, &m_sessionStrand, &m_heartbeatStrand, &m_centrifugoStrand,
+                         &m_eventsStrand, &m_commitStrand}) {
+        if (strand->running_in_this_thread()) {
+            return *strand;
+        }
+    }
+    return m_blockingIoc.get_executor();
 }
 
 void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)

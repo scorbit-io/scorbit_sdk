@@ -258,6 +258,52 @@ TEST_CASE("isLeaderboardContextReady defers until paired context exists")
                                     machineUuid, variantUuid, gameSlug));
 }
 
+TEST_CASE("Only unsettled statuses are worth waiting for", "[authGate]")
+{
+    const std::vector<AuthStatus> needsPaired {AuthStatus::AuthenticatedPaired};
+
+    CHECK(authGate(AuthStatus::AuthenticatedPaired, needsPaired, false) == AuthGate::Ready);
+
+    // Authentication is still working; the status may yet become allowed.
+    CHECK(authGate(AuthStatus::NotAuthenticated, needsPaired, false) == AuthGate::Pending);
+    CHECK(authGate(AuthStatus::Authenticating, needsPaired, false) == AuthGate::Pending);
+    CHECK(authGate(AuthStatus::AuthenticatedCheckingPairing, needsPaired, false)
+          == AuthGate::Pending);
+
+    // Settled elsewhere. Waiting here is what used to hang a request forever.
+    CHECK(authGate(AuthStatus::AuthenticationFailed, needsPaired, false) == AuthGate::Terminal);
+    CHECK(authGate(AuthStatus::AuthenticatedUnpaired, needsPaired, false) == AuthGate::Terminal);
+}
+
+TEST_CASE("Shutting down never waits", "[authGate]")
+{
+    const std::vector<AuthStatus> needsPaired {AuthStatus::AuthenticatedPaired};
+
+    for (const auto status : {AuthStatus::NotAuthenticated, AuthStatus::Authenticating,
+                              AuthStatus::AuthenticatedCheckingPairing,
+                              AuthStatus::AuthenticationFailed,
+                              AuthStatus::AuthenticatedUnpaired}) {
+        CHECK(authGate(status, needsPaired, true) == AuthGate::Terminal);
+    }
+
+    // An already-allowed request still runs; it does not need to wait for anything.
+    CHECK(authGate(AuthStatus::AuthenticatedPaired, needsPaired, true) == AuthGate::Ready);
+}
+
+TEST_CASE("A request allowed while checking pairing runs immediately", "[authGate]")
+{
+    // The scorbitron PATCH is the one request permitted in this state, and the only thing that
+    // can move the status on. It must never be parked behind the gate it exists to open.
+    const std::vector<AuthStatus> allowed {AuthStatus::AuthenticatedCheckingPairing,
+                                           AuthStatus::AuthenticatedPaired,
+                                           AuthStatus::AuthenticatedUnpaired};
+
+    CHECK(authGate(AuthStatus::AuthenticatedCheckingPairing, allowed, false) == AuthGate::Ready);
+    CHECK(authGate(AuthStatus::AuthenticatedUnpaired, allowed, false) == AuthGate::Ready);
+    CHECK(authGate(AuthStatus::Authenticating, allowed, false) == AuthGate::Pending);
+    CHECK(authGate(AuthStatus::AuthenticationFailed, allowed, false) == AuthGate::Terminal);
+}
+
 TEST_CASE("Refresh lands before the client asks", "[centrifugoTokenRefreshDelay]")
 {
     // The whole point of the cache: our refresh must complete before the Centrifugo client's
