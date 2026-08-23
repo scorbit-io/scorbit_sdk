@@ -27,6 +27,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 
 namespace scorbit {
 namespace detail {
@@ -129,6 +130,9 @@ private:
     boost::thread_group m_threads;
     boost::thread_group m_blockingThreads;
 
+    // A steady_timer is not safe to use from several threads at once, and these are armed and
+    // cancelled from whichever strand or thread happens to need them.
+    std::mutex m_timersMutex;
     std::array<boost::asio::steady_timer, static_cast<std::size_t>(Timer::Count)> m_timers;
 };
 

@@ -181,6 +181,8 @@ void Worker::postCommitTask(task_t func)
 
 void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration delay, task_t func)
 {
+    std::scoped_lock lock(m_timersMutex);
+
     auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
@@ -204,6 +206,8 @@ void Worker::startTimer(Timer timerType, std::chrono::steady_clock::duration del
 
 void Worker::stopTimer(Timer timerType)
 {
+    std::scoped_lock lock(m_timersMutex);
+
     auto *timer = getTimer(timerType);
     if (timer == nullptr) {
         return;
@@ -221,6 +225,7 @@ void Worker::stopTimer(Timer timerType)
 
 auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
 {
+    // Caller must hold m_timersMutex.
     const auto i = static_cast<std::size_t>(timerType);
     if (i >= m_timers.size()) {
         return nullptr;
@@ -230,6 +235,8 @@ auto Worker::getTimer(Timer timerType) -> boost::asio::steady_timer *
 
 void Worker::stopAllTimers()
 {
+    std::scoped_lock lock(m_timersMutex);
+
     DBG("Stopping all timers...");
 
     for (std::size_t i = 0; i < m_timers.size(); ++i) {

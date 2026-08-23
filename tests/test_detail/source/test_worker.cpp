@@ -21,6 +21,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
 #include <thread>
+#include <vector>
 #include <chrono>
 #include <math.h>
 
@@ -176,6 +177,40 @@ TEST_CASE("Worker", "[timers independent]")
     std::this_thread::sleep_for(150ms);
     CHECK(!tokenRefreshFired);
     CHECK(idleFired);
+
+    worker.stop();
+}
+
+TEST_CASE("Worker", "[timers survive concurrent arming]")
+{
+    // Timers are armed and cancelled from whichever strand needs them, so the same steady_timer
+    // gets touched from several threads at once. Run under a thread sanitizer to see the race
+    // this guards against; unsanitized, this still catches a crash or a wedged timer.
+    Worker worker;
+    worker.start();
+
+    std::atomic_bool stop {false};
+    std::vector<std::thread> hammers;
+    for (int i = 0; i < 4; ++i) {
+        hammers.emplace_back([&worker, &stop] {
+            while (!stop) {
+                worker.startTimer(Worker::Timer::GameData, 5ms, [] { });
+                worker.stopTimer(Worker::Timer::GameData);
+            }
+        });
+    }
+
+    std::this_thread::sleep_for(200ms);
+    stop = true;
+    for (auto &hammer : hammers) {
+        hammer.join();
+    }
+
+    // An unrelated timer must still work after all that
+    std::atomic_bool fired {false};
+    worker.startTimer(Worker::Timer::AuthRetry, 20ms, [&fired] { fired = true; });
+    std::this_thread::sleep_for(150ms);
+    CHECK(fired);
 
     worker.stop();
 }
