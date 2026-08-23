@@ -181,6 +181,40 @@ TEST_CASE("Worker", "[timers independent]")
     worker.stop();
 }
 
+TEST_CASE("Worker", "[startup queue runs one at a time]")
+{
+    // Startup posts several HTTP requests at once. Run concurrently they are a burst of TLS
+    // handshakes competing for the only core on an embedded board, so the queue must serialize
+    // them however many threads the pool has.
+    Worker worker {0, 4};
+    worker.start();
+
+    std::atomic_int running {0};
+    std::atomic_int maxConcurrent {0};
+    std::atomic_int completed {0};
+
+    for (int i = 0; i < 8; ++i) {
+        worker.postStartupQueue([&running, &maxConcurrent, &completed] {
+            const int now = ++running;
+            int previousMax = maxConcurrent;
+            while (previousMax < now && !maxConcurrent.compare_exchange_weak(previousMax, now)) {
+            }
+            std::this_thread::sleep_for(5ms);
+            --running;
+            ++completed;
+        });
+    }
+
+    for (int i = 0; i < 100 && completed < 8; ++i) {
+        std::this_thread::sleep_for(10ms);
+    }
+
+    CHECK(completed == 8);
+    CHECK(maxConcurrent == 1);
+
+    worker.stop();
+}
+
 TEST_CASE("Worker", "[timers survive concurrent arming]")
 {
     // Timers are armed and cancelled from whichever strand needs them, so the same steady_timer

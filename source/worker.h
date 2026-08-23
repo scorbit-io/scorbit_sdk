@@ -89,6 +89,8 @@ public:
     void postQueue(task_t func);
     /// Blocking executor, serialized on the session queue.
     void postSessionQueue(task_t func);
+    /// Blocking executor, serialized on the post-authentication startup queue.
+    void postStartupQueue(task_t func);
     /// Async executor, serialized on the Centrifugo strand.
     void postGameDataQueue(task_t func);
     /// Async executor, serialized on the commit strand (publishes through Centrifugo).
@@ -135,6 +137,7 @@ private:
 
     asio_strand m_strand {m_blockingIoc.get_executor()};
     asio_strand m_sessionStrand {m_blockingIoc.get_executor()};
+    asio_strand m_startupStrand {m_blockingIoc.get_executor()};
     asio_strand m_heartbeatStrand {m_ioc.get_executor()};
     asio_strand m_centrifugoStrand {m_ioc.get_executor()};
     asio_strand m_eventsStrand {m_ioc.get_executor()};

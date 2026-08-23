@@ -184,6 +184,16 @@ private:
     /// Re-send the scorbitron PATCH on a backoff while the pairing status is still unresolved.
     void retryScorbitronObjectIfPairingUnresolved();
 
+    // The post-authentication startup requests, as tasks, so they can be queued on one strand
+    // instead of racing each other. The two that depend on device capability or provider return
+    // an empty task when they do not apply.
+    task_t createSendScorbitronObjectTask();
+    task_t createRequestReleaseTrackInfoTask();
+    task_t createGetConfigTask();
+    task_t createRequestFirmwaresListTask();
+    task_t createNfcNoncesTask();
+    task_t createRequestMachineObjectTask();
+
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
     task_t createHttpRequestTask(

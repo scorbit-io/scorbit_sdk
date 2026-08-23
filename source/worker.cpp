@@ -181,6 +181,11 @@ void Worker::postSessionQueue(task_t func)
     boost::asio::post(m_sessionStrand, std::move(func));
 }
 
+void Worker::postStartupQueue(task_t func)
+{
+    boost::asio::post(m_startupStrand, std::move(func));
+}
+
 void Worker::postGameDataQueue(task_t func)
 {
     boost::asio::post(centrifugoStrand(), std::move(func));
@@ -195,8 +200,8 @@ boost::asio::any_io_executor Worker::currentStrandExecutor()
 {
     // ponytail: linear scan of the six strands. Trivial at this size; if the strand set grows,
     // hand the executor down with the task instead of rediscovering it here.
-    for (auto *strand : {&m_strand, &m_sessionStrand, &m_heartbeatStrand, &m_centrifugoStrand,
-                         &m_eventsStrand, &m_commitStrand}) {
+    for (auto *strand : {&m_strand, &m_sessionStrand, &m_startupStrand, &m_heartbeatStrand,
+                         &m_centrifugoStrand, &m_eventsStrand, &m_commitStrand}) {
         if (strand->running_in_this_thread()) {
             return *strand;
         }

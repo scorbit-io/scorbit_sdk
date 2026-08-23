@@ -454,8 +454,12 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 
 void Net::getConfig()
 {
-    INF("API get config");
-    m_worker.post(createGetRequestTask(
+    m_worker.post(createGetConfigTask());
+}
+
+task_t Net::createGetConfigTask()
+{
+    return createGetRequestTask(
             [this](Error error, const std::string &reply) {
                 if (error != Error::Success) {
                     WRN("API get config error: {}", static_cast<int>(error));
@@ -501,6 +505,7 @@ void Net::getConfig()
                 }
             },
             [this]() {
+                INF("API get config");
                 const auto endpoint = url(URL_SCORBITRON_CONFIG);
                 cpr::Parameters parameters;
                 return make_tuple(endpoint, parameters);
@@ -508,7 +513,7 @@ void Net::getConfig()
             {
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
-            }));
+            });
 }
 
 void Net::requestPairCode(StringCallback callback)
@@ -1864,15 +1869,23 @@ void Net::sendLatestGameData(int sessionId)
 
 void Net::initializeConnectionState()
 {
-    // set authentication info and pair status
-    sendScorbitronObject();
-    requestReleaseTrackInfo();
+    // Posted together these are five requests racing each other, so up to a whole pool's worth of
+    // TLS handshakes at once. On a single-core board that burst is what starves the host's game
+    // loop. A dedicated strand runs them one at a time, in order, and keeps a slow one from
+    // holding up leaderboard or session work on the other queues.
+    m_worker.postStartupQueue(createSendScorbitronObjectTask());
+    m_worker.postStartupQueue(createRequestReleaseTrackInfoTask());
+    m_worker.postStartupQueue(createGetConfigTask()); // Get template
+    if (auto task = createRequestFirmwaresListTask()) {
+        m_worker.postStartupQueue(std::move(task));
+    }
+    if (auto task = createNfcNoncesTask()) {
+        m_worker.postStartupQueue(std::move(task));
+    }
 
-    getConfig(); // Get template
-    requestFirmwaresList();
+    // Outside the queue: neither should wait for the startup burst to drain.
     m_heartbeat.start(m_deviceInfo.uuid);
     restartCentrifugo();
-    createNfcNonces();
 }
 
 void Net::initScorbitronObject()
@@ -1901,7 +1914,12 @@ void Net::initScorbitronObject()
 
 void Net::sendScorbitronObject()
 {
-    m_worker.post(createPatchRequestTask(
+    m_worker.postStartupQueue(createSendScorbitronObjectTask());
+}
+
+task_t Net::createSendScorbitronObjectTask()
+{
+    return createPatchRequestTask(
             [this](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API initial Scorbitron object sent: ok, {}", reply);
@@ -1927,13 +1945,16 @@ void Net::sendScorbitronObject()
                     AuthStatus::AuthenticatedCheckingPairing,
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
-            }));
+            });
 }
 
 void Net::requestReleaseTrackInfo()
 {
-    INF("API request release track info using {}...", m_releaseTrackUrl);
+    m_worker.post(createRequestReleaseTrackInfoTask());
+}
 
+task_t Net::createRequestReleaseTrackInfoTask()
+{
     auto callback = [this](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API get release track info: ok, {}", reply);
@@ -1950,19 +1971,25 @@ void Net::requestReleaseTrackInfo()
         }
     };
 
-    m_worker.post(createGetRequestTask(
+    return createGetRequestTask(
             std::move(callback),
-            [this]() { return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {}); },
+            [this]() {
+                INF("API request release track info using {}...", m_releaseTrackUrl);
+                return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {});
+            },
             {
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
-            }));
+            });
 }
 
 void Net::requestMachineObject()
 {
-    INF("API request machine object...");
+    m_worker.postStartupQueue(createRequestMachineObjectTask());
+}
 
+task_t Net::createRequestMachineObjectTask()
+{
     auto callback = [this](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API request machine object: ok, {}", reply);
@@ -1994,9 +2021,10 @@ void Net::requestMachineObject()
         }
     };
 
-    m_worker.post(createGetRequestTask(std::move(callback), [this]() {
+    return createGetRequestTask(std::move(callback), [this]() {
+        INF("API request machine object...");
         return make_tuple(url(URL_MACHINE_OBJECT), cpr::Parameters {});
-    }));
+    });
 }
 
 void Net::requestSessionData(const std::string &sessionUuid)
@@ -2105,13 +2133,8 @@ void Net::emitPairingStatusEventIfChanged(bool isPaired)
 void Net::onPaired()
 {
     m_status = AuthStatus::AuthenticatedPaired;
-    sendScorbitronObject();
-    requestReleaseTrackInfo();
-    getConfig();
-    requestFirmwaresList();
-    m_heartbeat.start(m_deviceInfo.uuid);
-    createNfcNonces();
-    restartCentrifugo();
+    notifyAuthStatusChanged();
+    initializeConnectionState();
     emitPairingStatusEventIfChanged(true);
 }
 
@@ -3132,11 +3155,18 @@ std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
 
 void Net::createNfcNonces()
 {
+    if (auto task = createNfcNoncesTask()) {
+        m_worker.post(std::move(task));
+    }
+}
+
+task_t Net::createNfcNoncesTask()
+{
     if (!m_isNfcCapable) {
-        return;
+        return {};
     }
 
-    m_worker.post(createPostRequestTask(
+    return createPostRequestTask(
             [this](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API create NFC nonces: ok");
@@ -3169,7 +3199,7 @@ void Net::createNfcNonces()
             {
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
-            }));
+            });
 }
 
 void Net::startNfcCheckTimer()
@@ -3243,11 +3273,18 @@ void Net::requestCreditsStatusIfReady()
 
 void Net::requestFirmwaresList()
 {
+    if (auto task = createRequestFirmwaresListTask()) {
+        m_worker.postQueue(std::move(task));
+    }
+}
+
+task_t Net::createRequestFirmwaresListTask()
+{
     if (m_deviceInfo.provider != PROVIDER_SCORBITRON
         && m_deviceInfo.provider != PROVIDER_VSCORBITRON)
-        return;
+        return {};
 
-    m_worker.postQueue(createGetRequestTask(
+    return createGetRequestTask(
             [this](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API request firmwares list: ok, {}", reply);
@@ -3262,7 +3299,7 @@ void Net::requestFirmwaresList()
                 INF("API request firmwares list...");
 
                 return make_tuple(endpoint, cpr::Parameters {{"per_page", "100"}});
-            }));
+            });
 }
 void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 {
