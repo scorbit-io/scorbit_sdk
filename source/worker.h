@@ -52,6 +52,7 @@ public:
         AuthRetry,
         AuthGate,
         ScorbitronRetry,
+        PairCode,
 
         // IMPORTANT! This must be last entry!
         Count,

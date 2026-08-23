@@ -38,7 +38,6 @@
 #include <string>
 #include <functional>
 #include <chrono>
-#include <condition_variable>
 #include <deque>
 #include <shared_mutex>
 #include <unordered_map>
@@ -282,6 +281,11 @@ private:
     /// Arm the deadline timer for the earliest waiter. Caller must hold m_authGateMutex.
     void armAuthGateTimer();
 
+    /// Hand the pair code to everyone waiting for it, or fail those whose deadline has passed.
+    void notifyShortCodeChanged();
+    /// Arm the deadline timer for the earliest waiter. Caller must hold m_shortCodeMutex.
+    void armPairCodeTimer();
+
     void createNfcNonces();
     void startNfcCheckTimer();
     void setNfcTag();
@@ -342,10 +346,17 @@ private:
         boost::asio::any_io_executor executor;
     };
 
+    /// A caller waiting for the pair code to arrive with the scorbitron reply.
+    struct ShortCodeWaiter {
+        StringCallback callback;
+        std::chrono::steady_clock::time_point deadline;
+        boost::asio::any_io_executor executor;
+    };
+
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
     std::mutex m_authGateMutex;
     std::vector<AuthGateWaiter> m_authGateWaiters;
-    std::condition_variable m_shortCodeCV;
+    std::vector<ShortCodeWaiter> m_shortCodeWaiters; // guarded by m_shortCodeMutex
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;

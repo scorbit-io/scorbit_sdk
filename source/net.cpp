@@ -109,6 +109,9 @@ constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
 /// enough to ride out a slow start or a brief outage, bounded so a caller always gets an answer.
 constexpr auto AUTH_GATE_TIMEOUT = 2min;
 
+/// How long a pair-code request waits for the code to arrive with the scorbitron reply.
+constexpr auto PAIR_CODE_TIMEOUT = 2min;
+
 auto noop_task = []() { };
 
 std::optional<std::string_view> leaderboardPeriodParam(LeaderboardPeriod period)
@@ -310,7 +313,7 @@ Net::~Net()
         stopTokenRefreshTimer();
         m_eventManager->stop();
         notifyAuthStatusChanged();
-        m_shortCodeCV.notify_all();
+        notifyShortCodeChanged();
     }
 
     // Disconnect centrifugo on its strand to stop new I/O but do NOT destroy it here.
@@ -509,33 +512,80 @@ void Net::getConfig()
 
 void Net::requestPairCode(StringCallback callback)
 {
-    std::string shortCodeCopy;
+    std::string shortCode;
     {
         std::scoped_lock lock(m_shortCodeMutex);
-        shortCodeCopy = m_cachedShortCode;
-    }
 
-    if (!shortCodeCopy.empty()) {
-        callback(Error::Success, shortCodeCopy);
-        return;
-    }
-
-    // If shortcode is not cached, wait for it to be received
-    m_worker.postQueue([this, callback = std::move(callback)]() {
-        std::unique_lock lock(m_shortCodeMutex);
-        m_shortCodeCV.wait(lock, [this] { return !m_cachedShortCode.empty() || m_stop; });
-
-        if (m_stop) {
-            callback(Error::ApiError, "");
+        if (m_cachedShortCode.empty()) {
+            // The pair code arrives with the scorbitron reply, which may not have landed yet.
+            // Register for it instead of waiting: this runs on a strand, and a strand parked on
+            // a code that never arrives is parked for the life of the process.
+            m_shortCodeWaiters.push_back({
+                    .callback = std::move(callback),
+                    .deadline = steady_clock::now() + PAIR_CODE_TIMEOUT,
+                    .executor = m_worker.currentStrandExecutor(),
+            });
+            armPairCodeTimer();
             return;
         }
 
-        if (!m_cachedShortCode.empty()) {
-            callback(Error::Success, m_cachedShortCode);
+        shortCode = m_cachedShortCode;
+    }
+
+    callback(Error::Success, shortCode);
+}
+
+void Net::armPairCodeTimer()
+{
+    if (m_shortCodeWaiters.empty()) {
+        m_worker.stopTimer(Worker::Timer::PairCode);
+        return;
+    }
+
+    const auto earliest =
+            std::ranges::min(m_shortCodeWaiters, {}, &ShortCodeWaiter::deadline).deadline;
+    m_worker.startTimer(Worker::Timer::PairCode,
+                        std::max(earliest - steady_clock::now(), steady_clock::duration::zero()),
+                        [this] { notifyShortCodeChanged(); });
+}
+
+void Net::notifyShortCodeChanged()
+{
+    std::vector<ShortCodeWaiter> completed;
+    std::string shortCode;
+
+    {
+        std::scoped_lock lock(m_shortCodeMutex);
+        shortCode = m_cachedShortCode;
+
+        if (!shortCode.empty() || m_stop) {
+            completed = std::move(m_shortCodeWaiters);
+            m_shortCodeWaiters.clear();
         } else {
-            callback(Error::ApiError, "");
+            // Nothing to hand out yet; drop only the callers that ran out of time.
+            const auto now = steady_clock::now();
+            std::vector<ShortCodeWaiter> stillWaiting;
+            stillWaiting.reserve(m_shortCodeWaiters.size());
+
+            for (auto &waiter : m_shortCodeWaiters) {
+                (waiter.deadline <= now ? completed : stillWaiting).push_back(std::move(waiter));
+            }
+            m_shortCodeWaiters = std::move(stillWaiting);
         }
-    });
+
+        armPairCodeTimer();
+    }
+
+    if (m_stop || shortCode.empty()) {
+        shortCode.clear();
+    }
+    const auto error = shortCode.empty() ? Error::ApiError : Error::Success;
+
+    // Outside the lock: these are application callbacks and may call straight back in.
+    for (auto &waiter : completed) {
+        boost::asio::post(waiter.executor, [callback = std::move(waiter.callback), error,
+                                            shortCode] { callback(error, shortCode); });
+    }
 }
 
 const string &Net::getMachineUuid() const
@@ -2107,7 +2157,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
                 std::scoped_lock lock(m_shortCodeMutex);
                 it->get_to(m_cachedShortCode);
             }
-            m_shortCodeCV.notify_all();
+            notifyShortCodeChanged();
         }
 
         bool isPaired {false};
