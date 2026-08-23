@@ -58,6 +58,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::CentrifugoIdleDisconnect:
             name = "CentrifugoIdleDisconnect";
             break;
+        case Worker::Timer::CentrifugoTokenRefresh:
+            name = "CentrifugoTokenRefresh";
+            break;
         case Worker::Timer::NfcBootReason:
             name = "NfcBootReason";
             break;
@@ -83,6 +86,7 @@ namespace detail {
 Worker::Worker(int threadNiceValue)
     : m_threadNiceValue(threadNiceValue)
     , m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},

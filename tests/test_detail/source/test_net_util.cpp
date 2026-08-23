@@ -257,3 +257,28 @@ TEST_CASE("isLeaderboardContextReady defers until paired context exists")
     CHECK(isLeaderboardContextReady(AuthStatus::AuthenticatedPaired, LeaderboardScope::Variant,
                                     machineUuid, variantUuid, gameSlug));
 }
+
+TEST_CASE("Refresh lands before the client asks", "[centrifugoTokenRefreshDelay]")
+{
+    // The whole point of the cache: our refresh must complete before the Centrifugo client's
+    // synchronous token callback runs, otherwise it finds a stale token and has to fetch one
+    // itself, on its own strand.
+    for (const std::chrono::seconds expiresIn : {5min, 10min, 30min, 60min, 1440min}) {
+        const auto delay = centrifugoTokenRefreshDelay(expiresIn);
+        const auto clientAsksAt = expiresIn - CF_CLIENT_REFRESH_BEFORE_EXPIRY;
+        CHECK(delay < clientAsksAt);
+        CHECK(delay >= CF_TOKEN_REFRESH_MIN_DELAY);
+    }
+}
+
+TEST_CASE("Short-lived tokens do not spin the timer", "[centrifugoTokenRefreshDelay]")
+{
+    // A token that expires sooner than the client's own refresh window leaves no room to stay
+    // ahead of it; the delay must still be bounded away from zero so the timer can't busy-loop.
+    CHECK(centrifugoTokenRefreshDelay(0s) == CF_TOKEN_REFRESH_MIN_DELAY);
+    CHECK(centrifugoTokenRefreshDelay(30s) == CF_TOKEN_REFRESH_MIN_DELAY);
+    CHECK(centrifugoTokenRefreshDelay(3min) == CF_TOKEN_REFRESH_MIN_DELAY);
+
+    // Negative can arrive from an already-expired token.
+    CHECK(centrifugoTokenRefreshDelay(-1h) == CF_TOKEN_REFRESH_MIN_DELAY);
+}

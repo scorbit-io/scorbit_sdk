@@ -223,5 +223,14 @@ bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
     }
 }
 
+std::chrono::seconds centrifugoTokenRefreshDelay(std::chrono::seconds expiresIn)
+{
+    // One extra minute of headroom: refreshing exactly when the client asks would still leave it
+    // reading a token that is about to expire.
+    constexpr auto headroom = std::chrono::minutes {1};
+    return std::max<std::chrono::seconds>(expiresIn - CF_CLIENT_REFRESH_BEFORE_EXPIRY - headroom,
+                                          CF_TOKEN_REFRESH_MIN_DELAY);
+}
+
 } // namespace detail
 } // namespace scorbit

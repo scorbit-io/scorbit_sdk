@@ -43,6 +43,7 @@ public:
         SessionUpdate,
         CentrifugoReconnect,
         CentrifugoIdleDisconnect,
+        CentrifugoTokenRefresh,
         NfcBootReason,
         ModeExpiry,
         LeaderboardDeferred,

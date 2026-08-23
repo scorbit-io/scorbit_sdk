@@ -74,5 +74,19 @@ bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
                                const std::optional<std::string> &variantUuid,
                                const std::optional<std::string> &gameSlug);
 
+/// The Centrifugo client asks for a new token this long before the current one expires.
+constexpr auto CF_CLIENT_REFRESH_BEFORE_EXPIRY = std::chrono::minutes {3};
+/// Floor for the refresh delay, so a short-lived or malformed token can't spin the timer.
+constexpr auto CF_TOKEN_REFRESH_MIN_DELAY = std::chrono::seconds {10};
+
+/**
+ * How long to wait before refreshing a cached Centrifugo JWT that expires in @p expiresIn.
+ *
+ * The result stays ahead of CF_CLIENT_REFRESH_BEFORE_EXPIRY whenever there is room for it, so the
+ * client's synchronous token callback finds a usable token already in the cache instead of having
+ * to fetch one on its own strand. Never returns less than CF_TOKEN_REFRESH_MIN_DELAY.
+ */
+std::chrono::seconds centrifugoTokenRefreshDelay(std::chrono::seconds expiresIn);
+
 } // namespace detail
 } // namespace scorbit

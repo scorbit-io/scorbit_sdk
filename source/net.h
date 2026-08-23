@@ -235,6 +235,16 @@ private:
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
 
+    /// @return The Centrifugo JWT held in the cache, empty if none is ready yet.
+    std::string cachedCentrifugoToken() const;
+    /// Fetch a Centrifugo JWT and store it in the cache. Blocks; call only on the blocking
+    /// executor, never on the Centrifugo strand.
+    void fetchCentrifugoTokenNow();
+    /// Ask for a cache refresh without blocking the caller. At most one fetch is in flight.
+    void refreshCentrifugoToken();
+    /// Arm the next refresh from the token's own expiry, staying ahead of the client's request.
+    void scheduleCentrifugoTokenRefresh(const std::string &token);
+
     /// Arm the idle disconnect for a Centrifugo connection that a heartbeat wake just opened.
     void startCentrifugoIdleTimer();
     /// Give the idle window a full extension, but only when it is already armed.
@@ -314,6 +324,14 @@ private:
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
+
+    // The Centrifugo client asks for a JWT from its own strand, through a callback that has to
+    // return synchronously. Fetching it there would stall the websocket, the ping timer and every
+    // subscription for the length of an HTTP request, so the token is kept ready here instead and
+    // refreshed ahead of when the client will ask.
+    mutable std::mutex m_cfTokenMutex;
+    std::string m_cfToken;
+    std::atomic_bool m_cfTokenFetchInFlight {false};
 
     std::string m_hostname;
     std::string m_cfHostname;

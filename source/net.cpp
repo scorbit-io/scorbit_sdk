@@ -1283,6 +1283,11 @@ task_t Net::createAuthenticateTask()
                     // then take the refresh branch below and never reach that call.
                     m_heartbeat.start(m_deviceInfo.uuid);
 
+                    // Prime the Centrifugo JWT while we are already on the blocking executor, so
+                    // the connect below finds one waiting. Fetching it lazily would leave the
+                    // first connect racing this request and failing if it lost.
+                    fetchCentrifugoTokenNow();
+
                     m_authCV.notify_all();
 
                     if (normalAuthentication) {
@@ -2532,40 +2537,95 @@ void Net::retireCentrifugoClient()
             {.retiredAt = steady_clock::now(), .client = std::move(m_centrifugo)});
 }
 
+std::string Net::cachedCentrifugoToken() const
+{
+    std::scoped_lock lock(m_cfTokenMutex);
+    return m_cfToken;
+}
+
+void Net::fetchCentrifugoTokenNow()
+{
+    if (m_stop) {
+        return;
+    }
+
+    std::string authToken;
+    {
+        // Copy the API token out rather than holding the lock across the request below.
+        std::shared_lock lock(m_tokenMutex);
+        authToken = m_stoken;
+    }
+
+    std::string token;
+    if (!authToken.empty()) {
+        token = getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), authToken, sslOptions());
+    }
+
+    {
+        std::scoped_lock lock(m_cfTokenMutex);
+        m_cfToken = token;
+    }
+
+    if (!token.empty()) {
+        scheduleCentrifugoTokenRefresh(token);
+    }
+}
+
+void Net::refreshCentrifugoToken()
+{
+    if (m_stop) {
+        return;
+    }
+
+    // A reconnect storm would otherwise queue one identical request per attempt.
+    if (m_cfTokenFetchInFlight.exchange(true)) {
+        return;
+    }
+
+    m_worker.post([this] {
+        fetchCentrifugoTokenNow();
+        m_cfTokenFetchInFlight = false;
+    });
+}
+
+void Net::scheduleCentrifugoTokenRefresh(const std::string &token)
+{
+    const auto expiresIn = getJwtTokenTimeUntilExpiration(token);
+    if (!expiresIn) {
+        WRN("API-CF can't read JWT expiry, refresh will happen on the client's next request");
+        return;
+    }
+
+    m_worker.startTimer(Worker::Timer::CentrifugoTokenRefresh,
+                        centrifugoTokenRefreshDelay(*expiresIn),
+                        [this] { refreshCentrifugoToken(); });
+}
+
 void Net::centrifugoSetup(bool fetchFreshToken)
 {
     // Create centrifugo client
     centrifugo::ClientConfig config;
     config.name = "scorbit_sdk";
     config.version = SCORBIT_SDK_VERSION;
-    config.refreshTokenBeforeExpiry = 3min;
-    auto initialCfToken = std::make_shared<std::string>();
+    config.refreshTokenBeforeExpiry = CF_CLIENT_REFRESH_BEFORE_EXPIRY;
 
     if (fetchFreshToken) {
-        std::string authToken;
-        {
-            std::shared_lock lock(m_tokenMutex);
-            authToken = m_stoken;
-        }
-        if (!authToken.empty()) {
-            *initialCfToken =
-                    getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), authToken, sslOptions());
-        }
+        refreshCentrifugoToken();
     }
 
-    config.getToken = [this, initialCfToken]() -> std::string {
+    config.getToken = [this]() -> std::string {
         if (m_stop) {
             return {};
         }
 
-        if (!initialCfToken->empty()) {
-            auto token = std::move(*initialCfToken);
-            initialCfToken->clear();
-            return token;
+        auto token = cachedCentrifugoToken();
+        if (token.empty()) {
+            // Nothing ready: let the client fail and fall back on its reconnect backoff rather
+            // than fetching here, which would block this strand.
+            WRN("API-CF no cached JWT available, requesting one for the next attempt");
+            refreshCentrifugoToken();
         }
-
-        std::shared_lock lock(m_tokenMutex);
-        return getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), m_stoken, sslOptions());
+        return token;
     };
 
     config.logHandler = [](centrifugo::LogEntry entry) {
