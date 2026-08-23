@@ -153,9 +153,11 @@ void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
  * @brief Set scheduling priority for SDK-owned background threads (worker and C API queue).
  *
  * On Linux this is the value passed to setpriority(2) for each of those threads (higher means
- * lower CPU priority relative to the process baseline). The default is 0, which leaves thread
- * scheduling unchanged (legacy behavior). Set a positive value (for example 10) to deprioritize
- * SDK work versus latency-sensitive threads such as audio callbacks.
+ * lower CPU priority relative to the process baseline), and a non-zero value additionally puts
+ * those threads on the SCHED_BATCH policy so the scheduler stops treating them as interactive.
+ * The default is 0, which leaves thread scheduling unchanged (legacy behavior). Set a positive
+ * value (for example 10) to deprioritize SDK work versus latency-sensitive threads such as audio
+ * callbacks or a tight game loop on a single-core board.
  *
  * On macOS, any non-zero value requests QOS_CLASS_BACKGROUND for those threads; 0 leaves them
  * unchanged.

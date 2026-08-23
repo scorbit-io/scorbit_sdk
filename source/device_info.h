@@ -55,7 +55,7 @@ struct DeviceInfo {
     std::vector<std::string> scoreFeatures;
     int scoreFeaturesVersion {0};
 
-    /// Per-thread nice for SDK worker threads (Linux setpriority); 0 = do not adjust.
+    /// Per-thread nice for SDK worker threads (Linux SCHED_BATCH + setpriority); 0 = do not adjust.
     int threadsNice {0};
 
     // Authentication - one of these must be set

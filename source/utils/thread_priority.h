@@ -23,8 +23,9 @@ namespace scorbit {
 namespace detail {
 
 // Adjusts the calling thread's scheduling priority for SDK background work.
-// @param niceValue On Linux, passed to setpriority(2) for this thread only; higher values mean
-//        lower CPU priority. If 0, scheduling is left unchanged (default).
+// @param niceValue On Linux, puts this thread on SCHED_BATCH and passes the value to
+//        setpriority(2) for this thread only; higher values mean lower CPU priority.
+//        If 0, scheduling is left unchanged (default).
 //        On macOS, any non-zero value selects QOS_CLASS_BACKGROUND for this thread; 0 leaves it
 //        unchanged. Unsupported platforms ignore this call.
 void applySdkThreadNice(int niceValue);
