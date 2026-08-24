@@ -400,6 +400,10 @@ sb_game_handle_t setup_game_state(void)
     // Linux to renice those threads lower.
     // sb_config_set_threads_priority(config, 10);
 
+    // Optional: sb_config_set_worker_thread_count(). Threads for blocking work (HTTP, crypto,
+    // downloads); defaults to 4, clamped to 1-8. Use 2 on single-core hardware.
+    // sb_config_set_worker_thread_count(config, 2);
+
     // Provider's encrypted private key (generated using encrypt_tool).
     // Used for V2 provisioning authentication to prove provider identity.
     sb_config_set_encrypted_key(

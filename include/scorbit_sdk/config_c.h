@@ -153,9 +153,11 @@ void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
  * @brief Set scheduling priority for SDK-owned background threads (worker and C API queue).
  *
  * On Linux this is the value passed to setpriority(2) for each of those threads (higher means
- * lower CPU priority relative to the process baseline). The default is 0, which leaves thread
- * scheduling unchanged (legacy behavior). Set a positive value (for example 10) to deprioritize
- * SDK work versus latency-sensitive threads such as audio callbacks.
+ * lower CPU priority relative to the process baseline), and a non-zero value additionally puts
+ * those threads on the SCHED_BATCH policy so the scheduler stops treating them as interactive.
+ * The default is 0, which leaves thread scheduling unchanged (legacy behavior). Set a positive
+ * value (for example 10) to deprioritize SDK work versus latency-sensitive threads such as audio
+ * callbacks or a tight game loop on a single-core board.
  *
  * On macOS, any non-zero value requests QOS_CLASS_BACKGROUND for those threads; 0 leaves them
  * unchanged.
@@ -166,6 +168,23 @@ void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
  */
 SCORBIT_SDK_EXPORT
 void sb_config_set_threads_priority(sb_config_t config, int priority);
+
+/**
+ * @brief Set how many threads the SDK uses for blocking work.
+ *
+ * These threads run the work that waits: HTTP requests, cryptography, firmware downloads and
+ * archive extraction. They do not run timers or the realtime connection, which have their own
+ * threads and are unaffected by this setting.
+ *
+ * Optional, defaults to 4. Values outside 1-8 are clamped. On a single-core board 2 is a better
+ * choice: it keeps one request able to make progress while another waits, without several threads
+ * competing with the host application for the only CPU.
+ *
+ * @param config The configuration handle.
+ * @param count Number of threads, clamped to 1-8. Must be set before @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_worker_thread_count(sb_config_t config, int count);
 
 /**
  * @brief Set score features.

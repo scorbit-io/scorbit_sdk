@@ -197,6 +197,18 @@ public:
     }
 
     /**
+     * @brief Set how many threads the SDK uses for blocking work (see @ref
+     *        sb_config_set_worker_thread_count).
+     * @param count Number of threads, clamped to 1-8. Optional, defaults to 4; use 2 on
+     *              single-core hardware.
+     */
+    Config &setWorkerThreadCount(int count)
+    {
+        sb_config_set_worker_thread_count(m_handle.get(), count);
+        return *this;
+    }
+
+    /**
      * @brief Set score features.
      * @param features Vector of feature strings.
      * @param version The version number for the score features.

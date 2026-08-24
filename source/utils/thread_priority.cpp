@@ -20,6 +20,7 @@
 #include "thread_priority.h"
 
 #if defined(__linux__)
+#    include <sched.h>
 #    include <sys/resource.h>
 #    include <sys/syscall.h>
 #    include <unistd.h>
@@ -41,6 +42,17 @@ void applySdkThreadNice(int niceValue)
     // some glibc versions.  Use the raw syscall with the Linux thread-id instead
     // so only the calling thread is re-niced.
     const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
+
+    // SCHED_BATCH marks the thread as CPU-bound background work: the scheduler stops treating it
+    // as interactive, so it no longer gets the wakeup preemption bonus that lets it repeatedly
+    // cut ahead of a running thread.  On a single-core board that bonus is what allows a burst of
+    // SDK work (TLS handshakes, JSON parsing) to keep preempting the host's game loop.  nice
+    // below then sets how much CPU share it gets when both are runnable.
+    // sched_priority must be 0 for SCHED_BATCH.
+    struct sched_param param = {};
+    param.sched_priority = 0;
+    sched_setscheduler(tid, SCHED_BATCH, &param); // best-effort: containers may forbid it
+
     if (setpriority(PRIO_PROCESS, static_cast<id_t>(tid), niceValue) != 0) {
         // Best-effort; ignore EACCES (may lack CAP_SYS_NICE)
     }

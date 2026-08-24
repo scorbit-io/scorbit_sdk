@@ -208,6 +208,18 @@ class Config(object):
         _lib.sb_config_set_threads_priority(self._handle, priority)
         return self
 
+    def set_worker_thread_count(self, count):
+        # type: (int) -> Config
+        """Set how many threads the SDK uses for blocking work.
+
+        These run HTTP requests, cryptography, downloads and archive extraction.
+        Timers and the realtime connection have their own threads and are not
+        affected. Optional, defaults to 4, clamped to 1-8. Use ``2`` on
+        single-core hardware.
+        """
+        _lib.sb_config_set_worker_thread_count(self._handle, count)
+        return self
+
     def set_score_features(self, features, version=1):
         # type: (list, int) -> Config
         """Set score features that identify what triggered a score increase.

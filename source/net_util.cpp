@@ -223,5 +223,43 @@ bool isLeaderboardContextReady(AuthStatus status, LeaderboardScope scope,
     }
 }
 
+AuthGate authGate(AuthStatus status, const std::vector<AuthStatus> &allowedStatuses, bool stopping)
+{
+    if (std::ranges::find(allowedStatuses, status) != allowedStatuses.end()) {
+        return AuthGate::Ready;
+    }
+
+    if (stopping) {
+        return AuthGate::Terminal;
+    }
+
+    switch (status) {
+    case AuthStatus::NotAuthenticated:
+    case AuthStatus::Authenticating:
+    case AuthStatus::AuthenticatedCheckingPairing:
+        // Authentication is still in progress, so an allowed status may yet arrive.
+        return AuthGate::Pending;
+
+    case AuthStatus::AuthenticationFailed:
+    case AuthStatus::AuthenticatedPaired:
+    case AuthStatus::AuthenticatedUnpaired:
+        // Settled on something this request does not allow. Waiting would achieve nothing: an
+        // unpaired machine only becomes paired through a status change, which re-evaluates the
+        // gate anyway.
+        return AuthGate::Terminal;
+    }
+
+    return AuthGate::Terminal;
+}
+
+std::chrono::seconds centrifugoTokenRefreshDelay(std::chrono::seconds expiresIn)
+{
+    // One extra minute of headroom: refreshing exactly when the client asks would still leave it
+    // reading a token that is about to expire.
+    constexpr auto headroom = std::chrono::minutes {1};
+    return std::max<std::chrono::seconds>(expiresIn - CF_CLIENT_REFRESH_BEFORE_EXPIRY - headroom,
+                                          CF_TOKEN_REFRESH_MIN_DELAY);
+}
+
 } // namespace detail
 } // namespace scorbit

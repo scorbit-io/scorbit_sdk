@@ -197,6 +197,10 @@ def setup_game_state():
     # for its background threads. Use a positive value (e.g. 10) on Linux to renice those threads.
     # config.set_threads_priority(10)
 
+    # Optional: set_worker_thread_count(). Threads for blocking work (HTTP, crypto, downloads);
+    # defaults to 4, clamped to 1-8. Use 2 on single-core hardware.
+    # config.set_worker_thread_count(2)
+
     config.set_encrypted_key('8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==')
 
     config.set_save_key_callback(save_key_callback)

@@ -38,7 +38,6 @@
 #include <string>
 #include <functional>
 #include <chrono>
-#include <condition_variable>
 #include <deque>
 #include <shared_mutex>
 #include <unordered_map>
@@ -182,6 +181,18 @@ private:
                             SafeMultipart &&multipart);
 
     void parseScorbitronObject(Error error, const std::string &reply);
+    /// Re-send the scorbitron PATCH on a backoff while the pairing status is still unresolved.
+    void retryScorbitronObjectIfPairingUnresolved();
+
+    // The post-authentication startup requests, as tasks, so they can be queued on one strand
+    // instead of racing each other. The two that depend on device capability or provider return
+    // an empty task when they do not apply.
+    task_t createSendScorbitronObjectTask();
+    task_t createRequestReleaseTrackInfoTask();
+    task_t createGetConfigTask();
+    task_t createRequestFirmwaresListTask();
+    task_t createNfcNoncesTask();
+    task_t createRequestMachineObjectTask();
 
     // Generic HTTP request task creator
     template<typename DeferredSetupT, typename HttpMethodT>
@@ -229,11 +240,32 @@ private:
                               LeaderboardHandleCallback callback, int deferAttempt);
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
 
+    /// Run @p task on the Centrifugo strand. Runs inline when the caller is already on it, so
+    /// callers reached from a client callback keep their existing ordering.
+    ///
+    /// centrifugo::Transport holds its connection state, write buffer and websocket as plain
+    /// members driven by the strand's own handlers (read loop, ping timer, flush), with no
+    /// internal locking. Every call into the client therefore has to reach it through here.
+    void onCentrifugoStrand(task_t task);
+
     bool isActiveCentrifugoClient(const centrifugo::Client *client) const;
     void pruneRetiredCentrifugoClients();
     void retireCentrifugoClient();
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+    void centrifugoDisconnect();
+    /// Publish to the machine channel. @p what names the payload for the failure log.
+    void publishToMachineChannel(std::string what, nlohmann::json payload);
+
+    /// @return The Centrifugo JWT held in the cache, empty if none is ready yet.
+    std::string cachedCentrifugoToken() const;
+    /// Fetch a Centrifugo JWT and store it in the cache. Blocks; call only on the blocking
+    /// executor, never on the Centrifugo strand.
+    void fetchCentrifugoTokenNow();
+    /// Ask for a cache refresh without blocking the caller. At most one fetch is in flight.
+    void refreshCentrifugoToken();
+    /// Arm the next refresh from the token's own expiry, staying ahead of the client's request.
+    void scheduleCentrifugoTokenRefresh(const std::string &token);
 
     /// Arm the idle disconnect for a Centrifugo connection that a heartbeat wake just opened.
     void startCentrifugoIdleTimer();
@@ -251,6 +283,29 @@ private:
     void onAuthenticationFailed();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
+
+    /// @return The error to report for a request the gate will never let through.
+    Error authGateError() const;
+    /**
+     * Hold a request until the authentication status lets it run.
+     *
+     * The request is not allowed to occupy a thread while it waits: a handful of requests
+     * arriving before authentication settles would otherwise take every thread the SDK has and
+     * leave nothing to finish authenticating with. @p resume runs on @p executor once the gate
+     * opens; if it never does, @p callback is invoked with an error at the deadline, so a caller
+     * always gets an answer.
+     */
+    void parkOnAuthGate(task_t resume, StringCallback callback,
+                        std::vector<AuthStatus> allowedStatuses);
+    /// Re-evaluate every parked request. Called on every authentication status change.
+    void notifyAuthStatusChanged();
+    /// Arm the deadline timer for the earliest waiter. Caller must hold m_authGateMutex.
+    void armAuthGateTimer();
+
+    /// Hand the pair code to everyone waiting for it, or fail those whose deadline has passed.
+    void notifyShortCodeChanged();
+    /// Arm the deadline timer for the earliest waiter. Caller must hold m_shortCodeMutex.
+    void armPairCodeTimer();
 
     void createNfcNonces();
     void startNfcCheckTimer();
@@ -302,9 +357,27 @@ private:
     SignerCallback m_signer;
     std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;
 
+    /// A request waiting for the authentication status to allow it.
+    struct AuthGateWaiter {
+        task_t resume;
+        StringCallback callback;
+        std::vector<AuthStatus> allowedStatuses;
+        std::chrono::steady_clock::time_point deadline;
+        /// Strand the request came from, so it resumes where its ordering guarantees hold.
+        boost::asio::any_io_executor executor;
+    };
+
+    /// A caller waiting for the pair code to arrive with the scorbitron reply.
+    struct ShortCodeWaiter {
+        StringCallback callback;
+        std::chrono::steady_clock::time_point deadline;
+        boost::asio::any_io_executor executor;
+    };
+
     std::atomic<AuthStatus> m_status {AuthStatus::NotAuthenticated};
-    std::condition_variable m_authCV;
-    std::condition_variable m_shortCodeCV;
+    std::mutex m_authGateMutex;
+    std::vector<AuthGateWaiter> m_authGateWaiters;
+    std::vector<ShortCodeWaiter> m_shortCodeWaiters; // guarded by m_shortCodeMutex
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;
@@ -314,6 +387,15 @@ private:
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
     std::chrono::seconds m_authRetryBackoff;
+    std::chrono::seconds m_scorbitronRetryBackoff;
+
+    // The Centrifugo client asks for a JWT from its own strand, through a callback that has to
+    // return synchronously. Fetching it there would stall the websocket, the ping timer and every
+    // subscription for the length of an HTTP request, so the token is kept ready here instead and
+    // refreshed ahead of when the client will ask.
+    mutable std::mutex m_cfTokenMutex;
+    std::string m_cfToken;
+    std::atomic_bool m_cfTokenFetchInFlight {false};
 
     std::string m_hostname;
     std::string m_cfHostname;
@@ -375,6 +457,10 @@ private:
     // Keep restarted clients alive for a short grace period so pending transport callbacks can
     // unwind safely without retaining every historical client for the rest of the process.
     std::deque<RetiredCentrifugoClient> m_retiredCentrifugoClients;
+    // Mirrors the active client's state, published from the strand's own connection callbacks.
+    // Lets work that only needs to decide whether publishing is worth preparing read the state
+    // without touching the client off its strand.
+    std::atomic<centrifugo::ConnectionState> m_cfState {centrifugo::ConnectionState::Disconnected};
     std::atomic_bool m_restartCentrifugoPending {false};
     // True only while a heartbeat-wake-opened connection is on its idle countdown. Gates the
     // activity reset so a connection we did not open never acquires an idle disconnect.

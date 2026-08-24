@@ -24,6 +24,7 @@
 #include "identifiers.h"
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
+#include <atomic>
 #include <string>
 #include <functional>
 #include <optional>
@@ -70,12 +71,15 @@ private:
     EventType m_type;
 
     EventPriority m_priority;
-    size_t m_order {++s_orderCounter}; // Incremental order to maintain FIFO for same priority
+    // Incremental order to maintain FIFO for same priority. Events are constructed from whichever
+    // thread reports them, so the counter has to be atomic; relaxed is enough because only the
+    // uniqueness and monotonicity of the value matter, not ordering against other memory.
+    size_t m_order {s_orderCounter.fetch_add(1, std::memory_order_relaxed) + 1};
 
-    static size_t s_orderCounter;
+    static std::atomic<size_t> s_orderCounter;
 };
 
-inline size_t EventBase::s_orderCounter {0};
+inline std::atomic<size_t> EventBase::s_orderCounter {0};
 
 using EventCallback = std::function<void(const EventBase &event)>;
 

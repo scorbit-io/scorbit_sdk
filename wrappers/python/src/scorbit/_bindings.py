@@ -150,6 +150,10 @@ _lib.sb_config_set_auto_download_player_pics.argtypes = [sb_config_t, c_bool]
 _lib.sb_config_set_threads_priority.restype = None
 _lib.sb_config_set_threads_priority.argtypes = [sb_config_t, c_int]
 
+# void sb_config_set_worker_thread_count(sb_config_t, int)
+_lib.sb_config_set_worker_thread_count.restype = None
+_lib.sb_config_set_worker_thread_count.argtypes = [sb_config_t, c_int]
+
 # void sb_config_set_score_features(sb_config_t, const char**, size_t, int)
 _lib.sb_config_set_score_features.restype = None
 _lib.sb_config_set_score_features.argtypes = [
