@@ -113,6 +113,8 @@ target_sources(
         ../../source/http_session_pool.h
         ../../source/http_session_pool.cpp
         source/test_http_session_pool.cpp
+        ../../source/identifiers.h
+        source/test_identifiers.cpp
         ../../source/worker.cpp
         ../../source/worker.h
         ../../source/utils/thread_priority.h

@@ -64,9 +64,9 @@ namespace detail {
 
 constexpr auto SESSION_CSV_URL {"session_log/"};
 
-constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
-                                 "qrcode?$deeplink_path={manufacturer_prefix}"
-                                 "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"};
+/// Upper bound for an NFC tag URI. ProbeNFC::SetUri() writes the length as a uint8_t
+/// (libs/nfc/include/nfc/Probe.h), so anything longer wraps and silently corrupts the tag.
+constexpr std::size_t MAX_NFC_TAG_URI_LENGTH = 255;
 
 constexpr auto NET_TIMEOUT = 14s;
 /// Connect-phase limit for large uploads/downloads (TLS + TCP); separate from transfer duration.
@@ -3267,6 +3267,14 @@ void Net::setNfcTag()
 {
     const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
                                  fmt::arg("nonce", consumeNonce()));
+
+    // The probe stores the URI length in a single byte, so a longer URI is truncated on the
+    // wire with no error signal. Skip programming rather than write a corrupt tag.
+    if (tag.size() > MAX_NFC_TAG_URI_LENGTH) {
+        ERR("NFC tag URI is {} bytes, exceeds the {} byte limit; skipping: {}", tag.size(),
+            MAX_NFC_TAG_URI_LENGTH, tag);
+        return;
+    }
 
     const auto ok = std::invoke([this, &tag]() {
         std::scoped_lock lock {m_nfcMutex};

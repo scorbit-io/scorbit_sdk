@@ -40,9 +40,18 @@ constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
-constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"};
+constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
+                                 "qrcode?$deeplink_path={manufacturer_prefix}"
+                                 "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"
+                                 "&utm_medium=qr_code&utm_source=machine_pricing_card"
+                                 "&utm_campaign=machine_pairing"};
+
+constexpr auto URL_NFC_TAG {"https://scorbit.link/machines/{machine_uuid}?n={nonce}"
+                            "&utm_medium=nfc&utm_source=machine_nfc_tag"
+                            "&utm_campaign=anonymous_play_claim"};
 constexpr auto URL_CLAIM_DEEPLINK {
-        "https://scorbit.link/machines/{machine_uuid}/?score_id={score_id}"};
+        "https://scorbit.link/machines/{machine_uuid}/?score_id={score_id}"
+        "&utm_medium=machine&utm_source=score_claim&utm_campaign=anonymous_play_claim"};
 
 constexpr auto URL_SESSIONS_ID {"sessions"};
 
