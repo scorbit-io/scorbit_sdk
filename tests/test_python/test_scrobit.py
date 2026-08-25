@@ -1,6 +1,6 @@
 # Scorbit SDK
 #
-# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+# (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
 #
 # MIT License
 #
