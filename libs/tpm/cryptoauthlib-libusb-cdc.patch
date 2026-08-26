@@ -1,0 +1,852 @@
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -10,6 +10,7 @@
+ option(ATCA_HAL_SPI "Include the SPI HAL Driver - Linux & MCU only")
+ option(ATCA_HAL_CUSTOM "Include support for Custom/Plug-in Hal Driver")
+ option(ATCA_HAL_KIT_UART "Include the UART HAL Driver")
++option(ATCA_HAL_KIT_UART_LIBUSB "Allow the Linux UART HAL to use USB CDC directly")
+ option(ATCA_HAL_SWI_UART "Include the SWI using UART Driver")
+ 
+ # Library Options
+@@ -224,6 +225,22 @@
+ 
+ endif(LINUX AND NEED_USB)
+ 
++if(LINUX AND ATCA_HAL_KIT_UART AND ATCA_HAL_KIT_UART_LIBUSB)
++if(NOT HAS_LIBUSB)
++find_library(HAS_LIBUSB usb-1.0)
++endif()
++if(NOT LIBUSB_INCLUDE_DIR)
++find_path(LIBUSB_INCLUDE_DIR NAMES libusb.h PATH_SUFFIXES "include" "libusb" "libusb-1.0")
++endif()
++
++if(HAS_LIBUSB AND LIBUSB_INCLUDE_DIR)
++set(USE_CDC_LIBUSB TRUE)
++message(STATUS "CryptoAuthLib: enabling direct libusb CDC transport")
++else()
++message(WARNING "CryptoAuthLib: libusb not found; direct CDC fallback is disabled")
++endif()
++endif()
++
+ if(USE_UDEV)
+ set(USB_INCLUDE_DIR ${LIBUDEV_INCLUDE_DIR})
+ set(HID_SRC ../third_party/hidapi/linux/hid.c)
+@@ -248,6 +265,11 @@
+ elseif(LINUX OR APPLE)
+ set(CRYPTOAUTH_SRC ${CRYPTOAUTH_SRC} hal/hal_linux_uart_userspace.c)
+ endif()
++endif()
++
++if(USE_CDC_LIBUSB)
++set(CRYPTOAUTH_SRC ${CRYPTOAUTH_SRC} hal/hal_linux_cdc_libusb.c)
++set(HAL_INC ${HAL_INC} hal/hal_linux_cdc_libusb.h)
+ endif()
+ 
+ if(ATCA_HAL_I2C)
+@@ -291,6 +313,10 @@
+ endif(ATCA_BUILD_SHARED_LIBS)
+ 
+ add_library(cryptoauth ${CRYPTOAUTH_SRC} ${ATCACERT_DEF_SRC})
++if(USE_CDC_LIBUSB)
++target_compile_definitions(cryptoauth PUBLIC ATCA_HAL_KIT_UART_LIBUSB)
++target_include_directories(cryptoauth PRIVATE ${LIBUSB_INCLUDE_DIR})
++endif()
+ if (ATCA_TA_SUPPORT)
+ add_subdirectory(talib)
+ endif()
+@@ -362,6 +388,9 @@
+ target_link_libraries(cryptoauth usb-1.0)
+ elseif(USE_UDEV)
+ target_link_libraries(cryptoauth udev)
++endif()
++if(USE_CDC_LIBUSB AND NOT USE_LIBUSB)
++target_link_libraries(cryptoauth ${HAS_LIBUSB})
+ endif()
+ target_link_libraries(cryptoauth rt)
+ endif(LINUX)
+--- a/lib/hal/hal_linux_cdc_libusb.c
++++ b/lib/hal/hal_linux_cdc_libusb.c
+@@ -0,0 +1,515 @@
++/**
++ * \file
++ * \brief USB CDC ACM transport over libusb, for Linux hosts without the
++ *        cdc-acm (ttyACM) or hidraw kernel drivers.
++ *
++ * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
++ * SPDX-License-Identifier: MIT
++ */
++
++#include "hal_linux_cdc_libusb.h"
++
++#include <libusb.h>
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++/** Vendor of the Scorbit probe firmware; its TinyUSB product id is 0x4000 | <cdc count> */
++#define CDC_USB_VID             (0xCAFEu)
++#define CDC_USB_PID_BASE        (0x4000u)
++
++/** Mirrors the 0.5s read timeout the tty HAL configures through VTIME */
++#define CDC_READ_TIMEOUT_MS     (500)
++#define CDC_WRITE_TIMEOUT_MS    (1000)
++#define CDC_FLUSH_TIMEOUT_MS    (1)
++#define CDC_FLUSH_MAX_PACKETS   (64)
++
++/* ponytail: a fixed staging buffer covers full and high speed bulk endpoints
++   (64 and 512 bytes); a heap buffer sized from wMaxPacketSize would be needed
++   for hypothetical larger endpoints. */
++#define CDC_RX_BUF_SIZE         (512u)
++
++#define CDC_REQ_TYPE_CLASS_OUT  (0x21u)
++#define CDC_REQ_SET_LINE_CODING (0x20u)
++#define CDC_REQ_SET_LINE_STATE  (0x22u)
++#define CDC_LINE_STATE_DTR_RTS  (0x0003u)
++
++/** Interface numbers are -1 until the interface has been claimed, so that
++    hal_cdc_libusb_close() releases exactly what was acquired. */
++struct atca_cdc_libusb_s
++{
++    libusb_context *       ctx;
++    libusb_device_handle * handle;
++    int                    if_data;
++    int                    if_comm;
++    unsigned char          ep_in;
++    unsigned char          ep_out;
++    uint16_t               max_packet;
++    uint8_t                rx_buf[CDC_RX_BUF_SIZE];
++    size_t                 rx_len;
++    size_t                 rx_pos;
++};
++
++static bool cdc_is_supported_device(const struct libusb_device_descriptor * desc)
++{
++    return (CDC_USB_VID == desc->idVendor)
++           && (CDC_USB_PID_BASE == (desc->idProduct & 0xFFF0u))
++           && (0u != (desc->idProduct & 0x000Fu));
++}
++
++/** \brief Collect the bulk endpoints of the data interface \p if_data.
++ *  \return true when both an IN and an OUT endpoint were found.
++ */
++static bool cdc_find_endpoints(const struct libusb_interface_descriptor * alt, unsigned char * ep_in,
++                               unsigned char * ep_out, uint16_t * max_packet)
++{
++    *ep_in = 0;
++    *ep_out = 0;
++
++    for (int e = 0; e < alt->bNumEndpoints; e++)
++    {
++        const struct libusb_endpoint_descriptor * ep = &alt->endpoint[e];
++
++        if (LIBUSB_TRANSFER_TYPE_BULK != (ep->bmAttributes & LIBUSB_TRANSFER_TYPE_MASK))
++        {
++            continue;
++        }
++
++        if (0u != (ep->bEndpointAddress & LIBUSB_ENDPOINT_IN))
++        {
++            *ep_in = ep->bEndpointAddress;
++            *max_packet = ep->wMaxPacketSize & 0x7FFu;
++        }
++        else
++        {
++            *ep_out = ep->bEndpointAddress;
++        }
++    }
++
++    return (0u != *ep_in) && (0u != *ep_out) && (0u < *max_packet)
++           && (CDC_RX_BUF_SIZE >= *max_packet);
++}
++
++size_t hal_cdc_libusb_find(char paths[][ATCA_CDC_LIBUSB_PATH_SIZE], size_t max_paths)
++{
++    libusb_context * ctx = NULL;
++    libusb_device ** list = NULL;
++    ssize_t count;
++    size_t found = 0;
++
++    if ((NULL == paths) || (0u == max_paths) || (0 > libusb_init(&ctx)))
++    {
++        return 0;
++    }
++
++    count = libusb_get_device_list(ctx, &list);
++    if (0 > count)
++    {
++        libusb_exit(ctx);
++        return 0;
++    }
++
++    for (ssize_t i = 0; (i < count) && (found < max_paths); i++)
++    {
++        struct libusb_device_descriptor desc;
++        struct libusb_config_descriptor * cfg = NULL;
++
++        if ((0 != libusb_get_device_descriptor(list[i], &desc)) || !cdc_is_supported_device(&desc))
++        {
++            continue;
++        }
++
++        if (0 != libusb_get_active_config_descriptor(list[i], &cfg))
++        {
++            continue;
++        }
++
++        for (int ifn = 0; (ifn < cfg->bNumInterfaces) && (found < max_paths); ifn++)
++        {
++            const struct libusb_interface_descriptor * alt;
++            unsigned char ep_in;
++            unsigned char ep_out;
++            uint16_t max_packet = 0;
++
++            if (1 > cfg->interface[ifn].num_altsetting)
++            {
++                continue;
++            }
++
++            alt = &cfg->interface[ifn].altsetting[0];
++            if ((LIBUSB_CLASS_DATA != alt->bInterfaceClass)
++                || !cdc_find_endpoints(alt, &ep_in, &ep_out, &max_packet))
++            {
++                continue;
++            }
++
++            (void)snprintf(paths[found], ATCA_CDC_LIBUSB_PATH_SIZE, "usb:%03u:%03u:%u",
++                           (unsigned)libusb_get_bus_number(list[i]),
++                           (unsigned)libusb_get_device_address(list[i]),
++                           (unsigned)alt->bInterfaceNumber);
++            found++;
++        }
++
++        libusb_free_config_descriptor(cfg);
++    }
++
++    libusb_free_device_list(list, 1);
++    libusb_exit(ctx);
++    return found;
++}
++
++static bool cdc_parse_path(const char * path, unsigned * bus, unsigned * address, unsigned * if_data)
++{
++    unsigned * values[3] = { bus, address, if_data };
++    const char * cursor = path;
++
++    if ((NULL == path) || (0 != strncmp(path, "usb:", 4u)))
++    {
++        return false;
++    }
++    cursor += 4;
++
++    for (size_t i = 0; i < 3u; i++)
++    {
++        char * end = NULL;
++        unsigned long value;
++
++        if ((*cursor < '0') || (*cursor > '9'))
++        {
++            return false;
++        }
++
++        errno = 0;
++        value = strtoul(cursor, &end, 10);
++        if ((0 != errno) || (cursor == end) || (0xFFu < value))
++        {
++            return false;
++        }
++        if (((i < 2u) && (':' != *end)) || ((2u == i) && ('\0' != *end)))
++        {
++            return false;
++        }
++
++        if (NULL != values[i])
++        {
++            *values[i] = (unsigned)value;
++        }
++        cursor = end + 1;
++    }
++
++    return true;
++}
++
++bool hal_cdc_libusb_is_path(const char * path)
++{
++    return cdc_parse_path(path, NULL, NULL, NULL);
++}
++
++/** \brief Locate the device of \p bus / \p address, adding a reference to it. */
++static libusb_device * cdc_find_device(libusb_context * ctx, unsigned bus, unsigned address)
++{
++    libusb_device ** list = NULL;
++    libusb_device * found = NULL;
++    ssize_t count = libusb_get_device_list(ctx, &list);
++
++    for (ssize_t i = 0; (i < count) && (NULL == found); i++)
++    {
++        struct libusb_device_descriptor desc;
++
++        if ((bus != (unsigned)libusb_get_bus_number(list[i]))
++            || (address != (unsigned)libusb_get_device_address(list[i])))
++        {
++            continue;
++        }
++
++        if ((0 == libusb_get_device_descriptor(list[i], &desc)) && cdc_is_supported_device(&desc))
++        {
++            found = libusb_ref_device(list[i]);
++        }
++    }
++
++    if (0 <= count)
++    {
++        libusb_free_device_list(list, 1);
++    }
++    return found;
++}
++
++/** \brief Read the endpoints of the data interface and the number of its comm interface.
++ *
++ * The comm interface preceding the data interface is preferred, since that is how
++ * composite devices pair them, and any comm interface is used as a fallback.
++ */
++static ATCA_STATUS cdc_describe_interfaces(libusb_device * device, unsigned if_data,
++                                           atca_cdc_libusb_t * cdc, int * comm_iface)
++{
++    struct libusb_config_descriptor * cfg = NULL;
++    ATCA_STATUS status = ATCA_COMM_FAIL;
++    int comm_prefer = -1;
++    int comm_any = -1;
++
++    if (0 != libusb_get_active_config_descriptor(device, &cfg))
++    {
++        return ATCA_COMM_FAIL;
++    }
++
++    for (int ifn = 0; ifn < cfg->bNumInterfaces; ifn++)
++    {
++        const struct libusb_interface_descriptor * alt;
++
++        if (1 > cfg->interface[ifn].num_altsetting)
++        {
++            continue;
++        }
++
++        alt = &cfg->interface[ifn].altsetting[0];
++
++        if ((LIBUSB_CLASS_COMM == alt->bInterfaceClass) && (2u == alt->bInterfaceSubClass))
++        {
++            comm_any = alt->bInterfaceNumber;
++            if ((unsigned)(alt->bInterfaceNumber + 1) == if_data)
++            {
++                comm_prefer = alt->bInterfaceNumber;
++            }
++        }
++
++        if ((if_data == (unsigned)alt->bInterfaceNumber) && (LIBUSB_CLASS_DATA == alt->bInterfaceClass)
++            && cdc_find_endpoints(alt, &cdc->ep_in, &cdc->ep_out, &cdc->max_packet))
++        {
++            status = ATCA_SUCCESS;
++        }
++    }
++
++    *comm_iface = (0 <= comm_prefer) ? comm_prefer : comm_any;
++    libusb_free_config_descriptor(cfg);
++    return status;
++}
++
++/** \brief Apply the line coding and raise DTR/RTS on the comm interface. */
++static void cdc_configure_line(atca_cdc_libusb_t * cdc, uint32_t baud)
++{
++    uint8_t line_coding[7] = { (uint8_t)baud,         (uint8_t)(baud >> 8), (uint8_t)(baud >> 16),
++                               (uint8_t)(baud >> 24), 0u,                   0u,
++                               8u };
++
++    (void)libusb_control_transfer(cdc->handle, CDC_REQ_TYPE_CLASS_OUT, CDC_REQ_SET_LINE_CODING, 0,
++                                  (uint16_t)cdc->if_comm, line_coding, sizeof(line_coding), 1000);
++    (void)libusb_control_transfer(cdc->handle, CDC_REQ_TYPE_CLASS_OUT, CDC_REQ_SET_LINE_STATE,
++                                  CDC_LINE_STATE_DTR_RTS, (uint16_t)cdc->if_comm, NULL, 0, 1000);
++}
++
++ATCA_STATUS hal_cdc_libusb_open(const char * path, uint32_t baud, atca_cdc_libusb_t ** cdc_out)
++{
++    libusb_device * device;
++    atca_cdc_libusb_t * cdc;
++    unsigned bus;
++    unsigned address;
++    unsigned if_data;
++    int comm_iface = -1;
++    ATCA_STATUS status;
++
++    if ((NULL == path) || (NULL == cdc_out))
++    {
++        return ATCA_BAD_PARAM;
++    }
++    *cdc_out = NULL;
++
++    if (!cdc_parse_path(path, &bus, &address, &if_data))
++    {
++        return ATCA_BAD_PARAM;
++    }
++
++    cdc = calloc(1u, sizeof(*cdc));
++    if (NULL == cdc)
++    {
++        return ATCA_ALLOC_FAILURE;
++    }
++
++    cdc->if_data = -1;
++    cdc->if_comm = -1;
++    if (0 > libusb_init(&cdc->ctx))
++    {
++        free(cdc);
++        return ATCA_COMM_FAIL;
++    }
++
++    device = cdc_find_device(cdc->ctx, bus, address);
++    if (NULL == device)
++    {
++        hal_cdc_libusb_close(cdc);
++        return ATCA_COMM_FAIL;
++    }
++
++    status = cdc_describe_interfaces(device, if_data, cdc, &comm_iface);
++    if ((ATCA_SUCCESS == status) && (0 != libusb_open(device, &cdc->handle)))
++    {
++        status = ATCA_COMM_FAIL;
++    }
++    libusb_unref_device(device);
++
++    if (ATCA_SUCCESS != status)
++    {
++        hal_cdc_libusb_close(cdc);
++        return status;
++    }
++
++    /* The kernel cdc-acm driver is deliberately not detached: this transport is
++       only a fallback for hosts where that driver is absent. */
++    if ((0 <= comm_iface) && ((unsigned)comm_iface != if_data))
++    {
++        if (0 != libusb_claim_interface(cdc->handle, comm_iface))
++        {
++            /* A control interface was found but something else holds it (e.g. a
++               stray driver probe). Without it we cannot raise DTR/RTS, and
++               firmware that gates transmission on that signal would otherwise
++               hang silently despite a "successful" open. */
++            hal_cdc_libusb_close(cdc);
++            return ATCA_COMM_FAIL;
++        }
++        cdc->if_comm = comm_iface;
++    }
++
++    if (0 != libusb_claim_interface(cdc->handle, (int)if_data))
++    {
++        hal_cdc_libusb_close(cdc);
++        return ATCA_COMM_FAIL;
++    }
++    cdc->if_data = (int)if_data;
++    if (0 <= cdc->if_comm)
++    {
++        cdc_configure_line(cdc, baud);
++    }
++
++    *cdc_out = cdc;
++    return ATCA_SUCCESS;
++}
++
++void hal_cdc_libusb_close(atca_cdc_libusb_t * cdc)
++{
++    if (NULL == cdc)
++    {
++        return;
++    }
++
++    if (NULL != cdc->handle)
++    {
++        if (0 <= cdc->if_data)
++        {
++            (void)libusb_release_interface(cdc->handle, cdc->if_data);
++        }
++        if (0 <= cdc->if_comm)
++        {
++            (void)libusb_release_interface(cdc->handle, cdc->if_comm);
++        }
++        libusb_close(cdc->handle);
++    }
++    if (NULL != cdc->ctx)
++    {
++        libusb_exit(cdc->ctx);
++    }
++
++    free(cdc);
++}
++
++ATCA_STATUS hal_cdc_libusb_send(atca_cdc_libusb_t * cdc, uint8_t * txdata, int txlength)
++{
++    uint8_t * data = txdata;
++    int remaining = txlength;
++
++    if ((NULL == cdc) || (NULL == txdata) || (0 >= txlength))
++    {
++        return ATCA_BAD_PARAM;
++    }
++
++    while (0 < remaining)
++    {
++        int transferred = 0;
++        int result;
++
++        result = libusb_bulk_transfer(cdc->handle, cdc->ep_out, data, remaining, &transferred,
++                                      CDC_WRITE_TIMEOUT_MS);
++        if ((0 >= transferred) || ((0 != result) && (LIBUSB_ERROR_TIMEOUT != result)))
++        {
++            return ATCA_COMM_FAIL;
++        }
++
++        data += transferred;
++        remaining -= transferred;
++    }
++
++    return ATCA_SUCCESS;
++}
++
++/** \brief Refill the staging buffer with one bulk transfer.
++ *
++ * A whole multiple of wMaxPacketSize is always requested, because libusb
++ * discards the remainder of a packet that does not fit the host buffer.
++ */
++static ATCA_STATUS cdc_fill_rx_buffer(atca_cdc_libusb_t * cdc)
++{
++    int length = (int)(CDC_RX_BUF_SIZE - (CDC_RX_BUF_SIZE % cdc->max_packet));
++    int transferred = 0;
++    int result;
++
++    cdc->rx_len = 0;
++    cdc->rx_pos = 0;
++
++    result = libusb_bulk_transfer(cdc->handle, cdc->ep_in, cdc->rx_buf, length, &transferred,
++                                  CDC_READ_TIMEOUT_MS);
++    if ((0 != result) && (0 >= transferred))
++    {
++        return ATCA_COMM_FAIL;
++    }
++
++    cdc->rx_len = (size_t)transferred;
++    return (0 < transferred) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
++}
++
++ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength)
++{
++    if ((NULL == cdc) || (NULL == rxdata) || (NULL == rxlength) || (0u == *rxlength))
++    {
++        return ATCA_BAD_PARAM;
++    }
++
++    /* One byte at a time, as the tty HAL does, so that the kit protocol keeps
++       framing responses itself; the remainder stays in the staging buffer. */
++    *rxlength = 1u;
++
++    if ((cdc->rx_pos >= cdc->rx_len) && (ATCA_SUCCESS != cdc_fill_rx_buffer(cdc)))
++    {
++        return ATCA_COMM_FAIL;
++    }
++
++    *rxdata = cdc->rx_buf[cdc->rx_pos];
++    cdc->rx_pos++;
++    return ATCA_SUCCESS;
++}
++
++ATCA_STATUS hal_cdc_libusb_flush(atca_cdc_libusb_t * cdc)
++{
++    uint8_t discard[CDC_RX_BUF_SIZE];
++
++    if (NULL == cdc)
++    {
++        return ATCA_BAD_PARAM;
++    }
++
++    cdc->rx_len = 0;
++    cdc->rx_pos = 0;
++
++    for (int i = 0; i < CDC_FLUSH_MAX_PACKETS; i++)
++    {
++        int transferred = 0;
++
++        if ((0 != libusb_bulk_transfer(cdc->handle, cdc->ep_in, discard, (int)cdc->max_packet,
++                                       &transferred, CDC_FLUSH_TIMEOUT_MS))
++            || (0 >= transferred))
++        {
++            break;
++        }
++    }
++
++    return ATCA_SUCCESS;
++}
+--- a/lib/hal/hal_linux_cdc_libusb.h
++++ b/lib/hal/hal_linux_cdc_libusb.h
+@@ -0,0 +1,67 @@
++/**
++ * \file
++ * \brief USB CDC ACM transport over libusb, for Linux hosts without the
++ *        cdc-acm (ttyACM) or hidraw kernel drivers.
++ *
++ * Devices are addressed by the synthetic path "usb:<bus>:<address>:<interface>"
++ * where <interface> is the CDC data interface number.
++ *
++ * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
++ * SPDX-License-Identifier: MIT
++ */
++
++#ifndef HAL_LINUX_CDC_LIBUSB_H
++#define HAL_LINUX_CDC_LIBUSB_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "atca_status.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** \brief Size of the buffer needed to hold a device path, terminator included */
++#define ATCA_CDC_LIBUSB_PATH_SIZE   (24u)
++
++/** \brief Maximum number of devices reported by hal_cdc_libusb_find().
++ *
++ * ponytail: eight CDC interfaces cover current probe hardware; replace the
++ * fixed array API with a visitor if a probe ever exposes more interfaces.
++ */
++#define ATCA_CDC_LIBUSB_MAX_PATHS   (8u)
++
++typedef struct atca_cdc_libusb_s atca_cdc_libusb_t;
++
++/** \brief List the CDC data interfaces reachable through libusb.
++ *  \param[out] paths      Receives one path per interface found.
++ *  \param[in]  max_paths  Capacity of \p paths.
++ *  \return Number of paths written.
++ */
++size_t hal_cdc_libusb_find(char paths[][ATCA_CDC_LIBUSB_PATH_SIZE], size_t max_paths);
++
++/** \brief Check whether \p path addresses a libusb CDC device rather than a tty. */
++bool hal_cdc_libusb_is_path(const char * path);
++
++/** \brief Claim the CDC interfaces of \p path and configure them for \p baud. */
++ATCA_STATUS hal_cdc_libusb_open(const char * path, uint32_t baud, atca_cdc_libusb_t ** cdc);
++
++/** \brief Release every resource claimed by hal_cdc_libusb_open(). */
++void hal_cdc_libusb_close(atca_cdc_libusb_t * cdc);
++
++/** \brief Send \p txlength bytes, retrying until all of them are transferred. */
++ATCA_STATUS hal_cdc_libusb_send(atca_cdc_libusb_t * cdc, uint8_t * txdata, int txlength);
++
++/** \brief Receive up to \p rxlength bytes, updating \p rxlength with the count read. */
++ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength);
++
++/** \brief Discard buffered and in-flight data. */
++ATCA_STATUS hal_cdc_libusb_flush(atca_cdc_libusb_t * cdc);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* HAL_LINUX_CDC_LIBUSB_H */
+--- a/lib/hal/hal_linux_uart_userspace.c
++++ b/lib/hal/hal_linux_uart_userspace.c
+@@ -27,6 +27,9 @@
+ 
+ #include "cryptoauthlib.h"
+ #include "atca_hal.h"
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++#include "hal_linux_cdc_libusb.h"
++#endif
+ 
+ #include <unistd.h>
+ #include <fcntl.h>
+@@ -38,6 +41,9 @@
+     char uart_file[64];
+     int  fd_uart;
+     int  ref_ct;
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++    atca_cdc_libusb_t * cdc;
++#endif
+ } atca_uart_host_t;
+ 
+ #ifdef __COVERITY__
+@@ -114,6 +120,14 @@
+ {
+     atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
+ 
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++    if ((NULL != hal_data) && (NULL != hal_data->cdc))
++    {
++        /* The line coding was set while opening the CDC interface. */
++        return ATCA_SUCCESS;
++    }
++#endif
++
+     if ((NULL != hal_data) && (0 < hal_data->fd_uart))
+     {
+         struct termios tty;
+@@ -245,6 +259,19 @@
+     return status;
+ }
+ 
++/** \brief Open either the native tty or the libusb CDC transport selected by cfg_data. */
++static ATCA_STATUS hal_uart_open(atca_uart_host_t * hal_data, ATCAIfaceCfg * cfg)
++{
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++    if (hal_cdc_libusb_is_path(hal_data->uart_file))
++    {
++        return hal_cdc_libusb_open(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
++                                   &hal_data->cdc);
++    }
++#endif
++    return hal_uart_open_file(hal_data, cfg);
++}
++
+ /** \brief HAL implementation of UART init
+  *
+  * this implementation assumes UART SERIAL PORT peripheral has been enabled by user . It only initialize an
+@@ -276,6 +303,7 @@
+             {
+                 atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
+                 (void)memset(iface->hal_data, 0, sizeof(atca_uart_host_t));
++                hal_data->fd_uart = -1;
+ 
+                 if (NULL != cfg->cfg_data)
+                 {
+@@ -288,7 +316,7 @@
+                                    "/dev/ttyS%d", (uint8_t)ATCA_IFACECFG_VALUE(cfg, atcauart.port));
+                 }
+ 
+-                if (ATCA_SUCCESS == (status = hal_uart_open_file(hal_data, cfg)))
++                if (ATCA_SUCCESS == (status = hal_uart_open(hal_data, cfg)))
+                 {
+                     /* Driver is configured - increment the ref count for usage */
+                     hal_data->ref_ct = 1;
+@@ -320,6 +348,16 @@
+             atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
+             hal_data->ref_ct++;
+             status = ATCA_SUCCESS;
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++            if ((NULL == hal_data->cdc) && hal_cdc_libusb_is_path(hal_data->uart_file))
++            {
++                /* The transport was closed after a previous communication
++                   error (or the initial open failed): re-open it so that a
++                   repeated init recovers the device instead of leaving it
++                   permanently dead. */
++                status = hal_uart_open(hal_data, cfg);
++            }
++#endif
+         }
+ 
+     }
+@@ -353,6 +391,37 @@
+     {
+         atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
+ 
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++        if ((NULL != hal_data) && hal_cdc_libusb_is_path(hal_data->uart_file))
++        {
++            if (NULL == hal_data->cdc)
++            {
++                /* The transport was closed after a previous communication
++                   error (or the initial open failed): re-open it so that a
++                   transient failure is retried against a fresh handle instead
++                   of a permanently dead transport. */
++                status = (NULL != iface->mIfaceCFG)
++                         ? hal_uart_open(hal_data, iface->mIfaceCFG)
++                         : ATCA_BAD_PARAM;
++            }
++            else
++            {
++                status = ATCA_SUCCESS;
++            }
++            if (ATCA_SUCCESS == status)
++            {
++                status = hal_cdc_libusb_send(hal_data->cdc, txdata, txlength);
++                if (ATCA_SUCCESS != status)
++                {
++                    /* Isolate the failed transport; the next retry re-opens. */
++                    hal_cdc_libusb_close(hal_data->cdc);
++                    hal_data->cdc = NULL;
++                }
++            }
++            return status;
++        }
++#endif
++
+         if ((NULL != hal_data) && (0 < hal_data->fd_uart))
+         {
+             if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
+@@ -392,6 +461,37 @@
+     {
+         atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
+ 
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++        if ((NULL != hal_data) && hal_cdc_libusb_is_path(hal_data->uart_file))
++        {
++            if (NULL == hal_data->cdc)
++            {
++                /* The transport was closed after a previous communication
++                   error (or the initial open failed): re-open it so that a
++                   transient failure is retried against a fresh handle instead
++                   of a permanently dead transport. */
++                status = (NULL != iface->mIfaceCFG)
++                         ? hal_uart_open(hal_data, iface->mIfaceCFG)
++                         : ATCA_BAD_PARAM;
++            }
++            else
++            {
++                status = ATCA_SUCCESS;
++            }
++            if (ATCA_SUCCESS == status)
++            {
++                status = hal_cdc_libusb_receive(hal_data->cdc, rxdata, rxlength);
++                if (ATCA_SUCCESS != status)
++                {
++                    /* Isolate the failed transport; the next retry re-opens. */
++                    hal_cdc_libusb_close(hal_data->cdc);
++                    hal_data->cdc = NULL;
++                }
++            }
++            return status;
++        }
++#endif
++
+         if ((NULL != hal_data) && (0 < hal_data->fd_uart))
+         {
+             if (1U < *rxlength)
+@@ -441,6 +541,16 @@
+             status = hal_uart_set_baudrate(iface, *(uint32_t*)param);
+             break;
+         case ATCA_HAL_FLUSH_BUFFER:
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++            {
++                atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
++                if ((NULL != hal_data) && (NULL != hal_data->cdc))
++                {
++                    status = hal_cdc_libusb_flush(hal_data->cdc);
++                    break;
++                }
++            }
++#endif
+             /* Using non-canonical mode so there should be no buffering */
+             status = ATCA_SUCCESS;
+             break;
+@@ -467,6 +577,12 @@
+     if (NULL != hal_data)
+     {
+         atca_uart_host_t *hal = (atca_uart_host_t*)hal_data;
++#ifdef ATCA_HAL_KIT_UART_LIBUSB
++        hal_cdc_libusb_close(hal->cdc);
++#endif
+-        (void)close(hal->fd_uart);
++        if (0 <= hal->fd_uart)
++        {
++            (void)close(hal->fd_uart);
++        }
+         /* coverity[misra_c_2012_rule_21_3_violation] Intentional as it is required for the linux environment */
+         free(hal);
