@@ -65,13 +65,17 @@ ATCA_STATUS atcaRetry(std::function<ATCA_STATUS()> func)
 
         if (i + 1 < MAX_RETRY_TIMES) {
             const auto retryDelay = retryDelayForStatus(status);
-            WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
-                retryDelay.count());
+            if (status != ATCA_COMM_FAIL) {
+                WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
+                    retryDelay.count());
+            }
             std::this_thread::sleep_for(retryDelay);
         }
     }
-    ERR("{}: error {}, giving up after {} retries...", __func__, static_cast<int>(status),
-        MAX_RETRY_TIMES);
+    if (status != ATCA_COMM_FAIL) {
+        WRN("{}: status code {}, giving up after {} retries...", __func__, static_cast<int>(status),
+            MAX_RETRY_TIMES);
+    }
     return status;
 }
 
@@ -125,6 +129,7 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     }
 
     if (found) {
+        INF("TPM found!");
         readIdentity();
     } else {
         WRN("Coudn't initialize HSM device");
@@ -143,6 +148,7 @@ Tpm::Tpm(const TpmDevice &device)
     }
 
     if (found) {
+        INF("TPM found!");
         readIdentity();
     } else {
         WRN("Coudn't initialize cached HSM device");
@@ -445,9 +451,10 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
     };
 
     const auto initialize = [this, p, &releaseDevice](const std::string &path) {
-        if (auto status = atcab_init_ext(&p->atcaDevice, &p->atcaConfig);
-            status != ATCA_SUCCESS) {
-            ERR("atca_init_ext failed: {}", static_cast<int>(status));
+        if (auto status = atcab_init_ext(&p->atcaDevice, &p->atcaConfig); status != ATCA_SUCCESS) {
+            if (status != ATCA_GEN_FAIL) {
+                WRN("atca_init_ext failed: {}", static_cast<int>(status));
+            }
             releaseDevice();
             return false;
         }
