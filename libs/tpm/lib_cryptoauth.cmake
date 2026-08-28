@@ -2,11 +2,14 @@ cpmaddpackage(
     NAME cryptoauth
     URL https://github.com/MicrochipTech/cryptoauthlib/archive/refs/tags/v3.7.9.tar.gz
     URL_HASH SHA256=8923ef8de3371e3d55c03bbdb1b83272e38dc4d674dea5bf5afc1874f7044596
-    PATCHES "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-build-fixes.patch"
+    PATCHES
+        "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-build-fixes.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-libusb-cdc.patch"
     OPTIONS
         "ATCA_HAL_I2C ON"
         "ATCA_HAL_KIT_HID ON"
         "ATCA_HAL_KIT_UART ON"
+        "ATCA_HAL_KIT_UART_LIBUSB ON"
         "ATCA_BUILD_SHARED_LIBS OFF"
         "ATCA_ATECC508A_SUPPORT ON"
         "ATCA_ATSHA204A_SUPPORT OFF"

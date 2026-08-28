@@ -11,6 +11,9 @@
 #include <cryptoauthlib.h>
 #include <atca_device.h>
 #include <host/atca_host.h>
+#if defined(__linux__) && defined(ATCA_HAL_KIT_UART_LIBUSB)
+#    include <hal/hal_linux_cdc_libusb.h>
+#endif
 #include <assert.h>
 #include <cstring>
 #include <functional>
@@ -62,13 +65,17 @@ ATCA_STATUS atcaRetry(std::function<ATCA_STATUS()> func)
 
         if (i + 1 < MAX_RETRY_TIMES) {
             const auto retryDelay = retryDelayForStatus(status);
-            WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
-                retryDelay.count());
+            if (status != ATCA_COMM_FAIL) {
+                WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
+                    retryDelay.count());
+            }
             std::this_thread::sleep_for(retryDelay);
         }
     }
-    ERR("{}: error {}, giving up after {} retries...", __func__, static_cast<int>(status),
-        MAX_RETRY_TIMES);
+    if (status != ATCA_COMM_FAIL) {
+        WRN("{}: status code {}, giving up after {} retries...", __func__, static_cast<int>(status),
+            MAX_RETRY_TIMES);
+    }
     return status;
 }
 
@@ -122,6 +129,7 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     }
 
     if (found) {
+        INF("TPM found!");
         readIdentity();
     } else {
         WRN("Coudn't initialize HSM device");
@@ -140,6 +148,7 @@ Tpm::Tpm(const TpmDevice &device)
     }
 
     if (found) {
+        INF("TPM found!");
         readIdentity();
     } else {
         WRN("Coudn't initialize cached HSM device");
@@ -432,19 +441,40 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet)
 
 bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
 {
-    // Re-initialize the atcaDevice and atcaConfig
-    if (p->atcaDevice) {
-        atcab_release_ext(&p->atcaDevice);
-    }
-    p->atcaDevice = nullptr;
-    p->atcaConfig = ATCAIfaceCfg();
-
-    if (!devicePath.empty()) {
-        // USB CDC path: use ATCA_UART_IFACE with the discovered serial device
-        if (!quiet) {
-            INF("Trying USB CDC TPM at {}", devicePath);
+    const auto releaseDevice = [p] {
+        if (p->atcaDevice) {
+            atcab_release_ext(&p->atcaDevice);
         }
-        p->usbDevicePath = devicePath;
+        p->atcaDevice = nullptr;
+        p->atcaConfig = ATCAIfaceCfg();
+        p->infoResult.clear();
+    };
+
+    const auto initialize = [this, p, &releaseDevice](const std::string &path) {
+        if (auto status = atcab_init_ext(&p->atcaDevice, &p->atcaConfig); status != ATCA_SUCCESS) {
+            if (status != ATCA_GEN_FAIL) {
+                WRN("atca_init_ext failed: {}", static_cast<int>(status));
+            }
+            releaseDevice();
+            return false;
+        }
+
+        p->infoResult = info();
+        if (!ok()) {
+            releaseDevice();
+            return false;
+        }
+
+        p->device = TpmDevice {TpmBus::USB, 0, path};
+        return true;
+    };
+
+    const auto tryCdc = [p, quiet, &releaseDevice, &initialize](const std::string &path) {
+        releaseDevice();
+        if (!quiet) {
+            INF("Trying USB CDC TPM at {}", path);
+        }
+        p->usbDevicePath = path;
         p->atcaConfig.iface_type = ATCA_UART_IFACE;
         p->atcaConfig.devtype = ATECC508A;
         p->atcaConfig.atcauart.dev_interface = ATCA_KIT_AUTO_IFACE;
@@ -454,8 +484,13 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
         p->atcaConfig.atcauart.parity = 2; // none
         p->atcaConfig.atcauart.stopbits = 1;
         p->atcaConfig.cfg_data = const_cast<char *>(p->usbDevicePath.c_str());
-    } else {
-        // Legacy HID path (fallback when no CDC device path is provided)
+        p->atcaConfig.wake_delay = 1500;
+        p->atcaConfig.rx_retries = 20;
+        return initialize(path);
+    };
+
+    const auto tryHid = [p, quiet, &releaseDevice, &initialize] {
+        releaseDevice();
         if (!quiet) {
             INF("Trying USB HID TPM");
         }
@@ -474,19 +509,31 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
         p->atcaConfig.atcahid.pid = 0x4005;
         p->atcaConfig.atcahid.packetsize = 64;
 #endif
+        p->atcaConfig.wake_delay = 1500;
+        p->atcaConfig.rx_retries = 20;
+        return initialize({});
+    };
+
+    // A discovered tty or cached synthetic path is always the first choice.
+    if (!devicePath.empty() && tryCdc(devicePath)) {
+        return true;
     }
 
-    p->atcaConfig.wake_delay = 1500;
-    p->atcaConfig.rx_retries = 20;
+    // Try CDC-capable devices found via libusb before falling back to HID.
+#if defined(__linux__) && defined(ATCA_HAL_KIT_UART_LIBUSB)
+    char paths[ATCA_CDC_LIBUSB_MAX_PATHS][ATCA_CDC_LIBUSB_PATH_SIZE] {};
+    const auto pathCount = hal_cdc_libusb_find(paths, ATCA_CDC_LIBUSB_MAX_PATHS);
+    for (size_t i = 0; i < pathCount; ++i) {
+        if (devicePath != paths[i] && tryCdc(paths[i])) {
+            return true;
+        }
+    }
+#endif
 
-    if (auto status = atcab_init_ext(&p->atcaDevice, &p->atcaConfig); status != ATCA_SUCCESS) {
-        ERR("atca_init_ext failed: {}", static_cast<int>(status));
-        return false;
+    if (tryHid()) {
+        return true;
     }
 
-    p->infoResult = info();
-    if (ok()) {
-        p->device = TpmDevice {TpmBus::USB, 0, devicePath};
-    }
-    return ok();
+    releaseDevice();
+    return false;
 }
