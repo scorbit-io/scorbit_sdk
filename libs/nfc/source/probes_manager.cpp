@@ -10,7 +10,7 @@
 
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
-#include "list_usb_devices.h"
+#include "nfc/ListUsbDevices.h"
 
 #include <fmt/format.h>
 
