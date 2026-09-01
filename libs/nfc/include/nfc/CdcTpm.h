@@ -34,6 +34,9 @@
 
 #include "Util.h"
 #include "ListUsbDevices.h"
+#if defined(__linux__)
+#include "LinuxCdcBulk.h"
+#endif
 
 class CdcTpm
 {
@@ -43,6 +46,9 @@ class CdcTpm
     HANDLE hSerial = INVALID_HANDLE_VALUE;
     #else
     int fd_serial = -1;
+    #endif
+    #if defined(__linux__)
+    LinuxCdcBulk m_cdc;
     #endif
 
     std::string m_devicePath;
@@ -72,6 +78,10 @@ class CdcTpm
         DWORD written;
         return WriteFile(hSerial, data, (DWORD)len, &written, NULL) && written == len;
         #else
+        #if defined(__linux__)
+        if (m_cdc.isOpen())
+            return m_cdc.write(data, (int)len);
+        #endif
         if (fd_serial < 0) return false;
         return write(fd_serial, data, len) == (ssize_t)len;
         #endif
@@ -89,6 +99,10 @@ class CdcTpm
         if (!ReadFile(hSerial, buf, (DWORD)maxLen, &bytesRead, NULL)) return -1;
         return (int)bytesRead;
         #else
+        #if defined(__linux__)
+        if (m_cdc.isOpen())
+            return m_cdc.readSome(buf, (int)maxLen, timeoutMs);
+        #endif
         if (fd_serial < 0) return -1;
         fd_set fds;
         FD_ZERO(&fds);
@@ -113,12 +127,19 @@ class CdcTpm
         #ifdef _WIN32
         if (hSerial != INVALID_HANDLE_VALUE) { CloseHandle(hSerial); hSerial = INVALID_HANDLE_VALUE; }
         #else
+        #if defined(__linux__)
+        m_cdc.close();
+        #endif
         if (fd_serial >= 0) { close(fd_serial); fd_serial = -1; }
         #endif
     }
 
     bool SerialOpen(const std::string &path)
     {
+        if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Using device %s for CDC TPM\n", path.c_str());
+
+        SerialClose();
+
         #ifdef _WIN32
         std::string winPath = "\\\\.\\" + path;
         hSerial = CreateFileA(winPath.c_str(), GENERIC_READ | GENERIC_WRITE,
@@ -135,6 +156,10 @@ class CdcTpm
         SetCommState(hSerial, &dcb);
         return true;
         #else
+        #if defined(__linux__)
+        if (path.rfind("usb:", 0) == 0)
+            return m_cdc.open(path, 115200);
+        #endif
         fd_serial = open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (fd_serial < 0) return false;
         int flags = fcntl(fd_serial, F_GETFL, 0);
@@ -187,6 +212,9 @@ class CdcTpm
 
     bool SendReceive(const char *Cmd, char *Response, size_t SizeofResponse)
     {
+        if (Cmd == nullptr) return false;
+        if (Response && SizeofResponse == 0) return false;
+
         SerialFlush();
 
         size_t CmdLength = strlen(Cmd);
@@ -204,8 +232,11 @@ class CdcTpm
 
             for (int i = 0; i < n && !bCompleted; i++)
             {
-                if (nReceived >= SizeofResponse - 1) { bCompleted = true; break; }
-                if (Response) Response[nReceived] = buf[i];
+                if (Response && SizeofResponse > 0)
+                {
+                    if (nReceived >= SizeofResponse - 1) { bCompleted = true; break; }
+                    Response[nReceived] = buf[i];
+                }
                 nReceived++;
                 if (buf[i] == '\n' || buf[i] == '\r' || buf[i] == '\0')
                     bCompleted = true;
@@ -312,6 +343,19 @@ class CdcTpm
                 memcpy(Signature64, resp+1, 64);
                 return true;
             }
+        }
+        return false;
+    }
+
+    bool ReadPublicKey(uint16_t iSlot, uint8_t(&PublicKey64)[64])
+    {
+        uint8_t resp[256];
+        int respLen = 0;
+        std::vector<uint8_t> pkt = { 0x07, 0x40, 0x00, (uint8_t)(iSlot & 0xFF), (uint8_t)(iSlot >> 8) };
+        if (SendPacket(pkt, resp, sizeof(resp), &respLen) && respLen == 64+3)
+        {
+            memcpy(PublicKey64, resp+1, 64);
+            return true;
         }
         return false;
     }
