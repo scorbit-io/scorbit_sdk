@@ -11,6 +11,4 @@ set(headers
 
 set(sources
     source/probes_manager.cpp
-    source/list_usb_devices.h
-    source/list_usb_devices.cpp
 )
