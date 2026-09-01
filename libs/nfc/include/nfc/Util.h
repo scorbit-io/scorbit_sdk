@@ -24,11 +24,21 @@
 #include <cstring>
 #include <limits>
 #ifdef __linux__
+#include <cerrno>
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/file.h>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
+#include <sys/syscall.h>
+    // On glibc 2.13 (Debian 7) there is no wrapper for process_vm_readv; ARM kernel 3.2+ still has the syscalls.
+    #if defined(__arm__) && !defined(SYS_process_vm_readv)
+    #define SYS_process_vm_readv 376
+    #define SYS_process_vm_writev 377
+    #endif
+#include <sys/mman.h>
+#include <elf.h>
 #elif defined(__APPLE__)
 #include <unistd.h>
 #include <sys/fcntl.h>
@@ -52,6 +62,24 @@
 #ifndef ERR
 #define ERR(...) std::cerr << Util::Format(__VA_ARGS__)
 #endif
+
+class HardwareDebug
+{
+	public:
+	enum : uint32_t
+	{
+		DebugNone = 0x0,
+		DebugCable = 0x1,
+		DebugProbe = 0x2,
+		DebugSLB = 0x04,
+		DebugAll = 0xffffffff
+	};
+
+    inline static uint32_t DebugFlags = HardwareDebug::DebugNone;
+    static uint32_t SetFlags(uint32_t f) { uint32_t OldFlags = DebugFlags; DebugFlags = f; return OldFlags; }
+    static uint32_t GetFlags() { return DebugFlags; }
+    static bool IsFlagSet(uint32_t f);
+};
 
 class Util
 {
@@ -175,6 +203,7 @@ class Util
         return std::string(reinterpret_cast<const char*>(start), realLen);
     }
 	static std::string ReadString(const std::vector<uint8_t>& data, size_t Pos, size_t MaxLen) { return ReadString(data.data(), data.size(), Pos, MaxLen); }
+    // Little Endian
     static uint16_t ReadUInt16LE(const uint8_t *data, size_t dataLen, size_t Pos)
     {
         if (Pos + 2 > dataLen) return 0;
@@ -197,7 +226,7 @@ class Util
     static uint64_t ReadUInt64LE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt64LE(data.data(), data.size(), Pos); }
     static bool WriteLE(uint8_t* data, size_t dataLen, size_t Pos, uint16_t value)
     {
-		if (Pos + 2 > dataLen) return false;
+        if (Pos + 2 > dataLen) return false;
         data[Pos + 0] = static_cast<uint8_t>(value);
         data[Pos + 1] = static_cast<uint8_t>(value >> 8);
         return true;
@@ -216,6 +245,27 @@ class Util
         WriteLE(data, dataLen, Pos + 4, static_cast<uint32_t>(value >> 32));
         return true;
     }
+    // Big Endian
+    static uint16_t ReadUInt16BE(const uint8_t* data, size_t dataLen, size_t Pos)
+    {
+        if (Pos + 2 > dataLen) return 0;
+        return static_cast<uint16_t>(data[Pos + 1]) | static_cast<uint16_t>(data[Pos + 0] << 8);
+    }
+    static uint16_t ReadUInt16BE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt16BE(data.data(), data.size(), Pos); }
+    static uint32_t ReadUInt32BE(const uint8_t* data, size_t dataLen, size_t Pos)
+    {
+        if (Pos + 4 > dataLen) return 0;
+        return static_cast<uint32_t>(ReadUInt16BE(data, dataLen, Pos + 2)) |
+            (static_cast<uint32_t>(ReadUInt16BE(data, dataLen, Pos + 0)) << 16);
+    }
+    static uint32_t ReadUInt32BE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt32BE(data.data(), data.size(), Pos); }
+    static uint64_t ReadUInt64BE(const uint8_t* data, size_t dataLen, size_t Pos)
+    {
+        if (Pos + 8 > dataLen) return 0;
+        return static_cast<uint64_t>(ReadUInt32BE(data, dataLen, Pos + 4)) |
+            (static_cast<uint64_t>(ReadUInt32BE(data, dataLen, Pos + 0)) << 32);
+    }
+    static uint64_t ReadUInt64BE(const std::vector<uint8_t>& data, size_t Pos) { return ReadUInt64BE(data.data(), data.size(), Pos); }
     static std::string ToHexString(const std::uint8_t* Data, std::size_t Size)
     {
         if (Data == nullptr || Size == 0) return std::string();
@@ -354,40 +404,59 @@ class Util
     }
 };
 
-class HardwareDebug
+inline std::string GetLockFile(const std::string& LockName)
 {
-	public:
-	enum : uint32_t
-	{
-		DebugNone = 0x0,
-		DebugCable = 0x1,
-		DebugProbe = 0x2,
-		DebugSLB = 0x04,
-		DebugAll = 0xffffffff
-	};
+    std::string path;
+    std::error_code ec;
 
-    inline static uint32_t DebugFlags = HardwareDebug::DebugNone;
-    static void SetFlags(uint32_t f) { DebugFlags = f; }
-	static bool IsFlagSet(uint32_t f) 
-    { 
-        // Are the flags forced by en environment variable (only done once) ?
-		static bool bReadEnv = false;
-        if (!bReadEnv)
+#ifdef __linux__
+    {
+        std::string candidate = "/var/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
+        std::string fallback = "/run/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
         {
-			bReadEnv = true;
-            const char *s = getenv("HARDWARE_DEBUG");
-            if (s != NULL)
-            {
-                uint32_t v = 0;
-                if (Util::FromString(s, v))
-                    DebugFlags = v;
-            }
+            if (!std::filesystem::exists("/var/lock", ec) || !std::filesystem::is_directory("/var/lock", ec))
+                path = fallback;
+            else
+                path = candidate;
         }
-        // Read the flag
-        return (DebugFlags & f) != 0; 
     }
-};
 
+    // Ensure parent directory exists; fallback to /tmp/ if it can't be created
+    std::filesystem::path parentDir = std::filesystem::path(path).parent_path();
+    if (!std::filesystem::exists(parentDir, ec))
+    {
+        std::filesystem::create_directories(parentDir, ec);
+        if (ec)
+        {
+            WRN("Can't create lock directory %s: %s, falling back to /tmp/\n", parentDir.c_str(), ec.message().c_str());
+            path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
+        }
+    }
+#else
+    path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
+#endif
+
+    return path;
+}
+
+inline bool HardwareDebug::IsFlagSet(uint32_t f)
+{
+    // Are the flags forced by en environment variable (only done once) ?
+    static bool bReadEnv = false;
+    if (!bReadEnv)
+    {
+        bReadEnv = true;
+        const char* s = getenv("HARDWARE_DEBUG");
+        if (s != NULL)
+        {
+            uint32_t v = 0;
+            if (Util::FromString(s, v))
+                DebugFlags = v;
+        }
+    }
+    // Read the flag
+    return (DebugFlags & f) != 0;
+}
 
 class InterprocessLock
 {
@@ -417,11 +486,7 @@ class InterprocessLock
 
         #else
         
-        #ifdef __linux__
-        std::string path = "/var/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
-        #else
-        std::string path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
-        #endif // __linux__
+        std::string path = GetLockFile(LockName);
 
         // Try to create the lock file
         m_fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);

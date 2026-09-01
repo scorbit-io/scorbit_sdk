@@ -22,8 +22,14 @@
 #include <fcntl.h>
 #include "Cable.h"
 #include "Util.h"
+#include "ListUsbDevices.h"
+#if defined(__linux__)
+#include "LinuxCdcBulk.h"
+#endif
 
 #if defined(__linux__)
+#include <algorithm>
+#include <cstdio>
 #include <termios.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -82,6 +88,9 @@ class SerialCable : public ProbeCable
         HANDLE hSerial = INVALID_HANDLE_VALUE;
     #else
     int hSerial = -1;
+    #endif
+    #if defined(__linux__)
+    LinuxCdcBulk usbCdc;
     #endif
 
     public:
@@ -178,31 +187,39 @@ class SerialCable : public ProbeCable
             if (tcflush(hSerial, TCIOFLUSH) < 0) { close(hSerial); hSerial = -1; return false; }
 
         #elif defined(__linux__)
-            // Open serial port
-            if (hSerial >= 0) Close();
-            hSerial = open(sDevice.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-            if (hSerial < 0)
+            Close();
+            if (sDevice.rfind("usb:", 0) == 0)
             {
-                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Can't open port %s - Err:%d\n", sDevice.c_str(), (int)hSerial);
-                return false;
+                if (!usbCdc.open(sDevice))
+                    return false;
             }
+            else
+            {
+                // Open serial port
+                hSerial = open(sDevice.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+                if (hSerial < 0)
+                {
+                    if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) ERR("Can't open port %s - Err:%d\n", sDevice.c_str(), (int)hSerial);
+                    return false;
+                }
 
-            // Ensure exclusivity
-            //if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
+                // Ensure exclusivity
+                //if (ioctl(hSerial, TIOCEXCL) != 0) { close(hSerial); hSerial = -1; return false; }
 
-		    // Initialize the serial port
-		    struct termios options;
-		    tcgetattr(hSerial, &options);
-		    cfsetispeed(&options, B921600);
-		    cfsetospeed(&options, B921600);
-		    options.c_cflag &= ~(CSIZE | PARODD | PARENB | CSTOPB); // 1 stop bit, no parity
-		    options.c_cflag |= (CLOCAL | CREAD | CS8 );				// 8 bits
-		    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-		    options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
-		    options.c_iflag &= ~(INPCK | ISTRIP);
-		    options.c_oflag &= ~OPOST;
-		    tcflush(hSerial, TCIOFLUSH);
-		    tcsetattr(hSerial, TCSANOW, &options);
+                // Initialize the serial port
+                struct termios options;
+                tcgetattr(hSerial, &options);
+                cfsetispeed(&options, B921600);
+                cfsetospeed(&options, B921600);
+                options.c_cflag &= ~(CSIZE | PARODD | PARENB | CSTOPB); // 1 stop bit, no parity
+                options.c_cflag |= (CLOCAL | CREAD | CS8 );				// 8 bits
+                options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+                options.c_iflag &= ~(IXON | IXOFF | IXANY | ICRNL);
+                options.c_iflag &= ~(INPCK | ISTRIP);
+                options.c_oflag &= ~OPOST;
+                tcflush(hSerial, TCIOFLUSH);
+                tcsetattr(hSerial, TCSANOW, &options);
+            }
         #else
             #error "Platform not supported !"
         #endif  
@@ -257,9 +274,25 @@ class SerialCable : public ProbeCable
             }
             return false;
         #elif defined(__linux__)
-            // Linux device enumeration
+            // Linux device enumeration (ttyACM, then libusb CDC if the kernel has no cdc-acm)
             if (iDevice >= 0)
-                return Initialize("/dev/ttyACM" + std::to_string(iDevice));
+            {
+                if (Initialize("/dev/ttyACM" + std::to_string(iDevice)))
+                    return true;
+                int usbIndex = 0;
+                for (const auto& device : listUsbDevices())
+                {
+                    if (device.rfind("usb:", 0) != 0)
+                        continue;
+                    if (usbIndex++ != iDevice)
+                        continue;
+                    if (!Initialize(device))
+                        return false;
+                    DeviceIndex = iDevice;
+                    return true;
+                }
+                return false;
+            }
             for (int i = iFirstDevice; i < iLastDevice; i++)
             {
                 if (!Initialize("/dev/ttyACM" + std::to_string(i))) 
@@ -267,16 +300,35 @@ class SerialCable : public ProbeCable
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Autodetection : port /dev/ttyACM%d\n", i);
                 return true;
             }
+            int usbIndex = 0;
+            for (const auto& device : listUsbDevices())
+            {
+                if (device.rfind("usb:", 0) != 0)
+                    continue;
+                if (!Initialize(device))
+                {
+                    usbIndex++;
+                    continue;
+                }
+                DeviceIndex = usbIndex;
+                if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) INF("Autodetection : port %s\n", device.c_str());
+                return true;
+            }
             return false;
         #else
             #error "Platform not supported !"
         #endif
     }
-    virtual bool IsOpen() 
+
+    virtual bool IsOpen()
     { 
         #if defined(_WIN32)
         return (hSerial != INVALID_HANDLE_VALUE);
         #elif defined(__linux__) || defined(__APPLE__)
+        #if defined(__linux__)
+        if (usbCdc.isOpen())
+            return true;
+        #endif
         return (hSerial >= 0);
         #else
             #error "Platform not supported !"
@@ -292,6 +344,9 @@ class SerialCable : public ProbeCable
                 hSerial = INVALID_HANDLE_VALUE;
             }
         #elif defined(__linux__) || defined(__APPLE__)
+            #if defined(__linux__)
+            usbCdc.close();
+            #endif
             if (hSerial >= 0)
             {
                 if (HardwareDebug::IsFlagSet(HardwareDebug::DebugCable)) { INF("Closing port\n"); }
@@ -360,7 +415,14 @@ class SerialCable : public ProbeCable
         // Flush any pending char
         // Due to a bug in the cdc driver, the whole system crashes when closing a non-empty channel from a probe with a composite USB device
         // This can only happen during a "--spb detect" with probes compiles with a debug log (2nd cdc)
-        char c; while (read(hSerial, &c, 1) > 0) /* Do nothing */;
+        if (hSerial >= 0)
+        {
+            char c; while (read(hSerial, &c, 1) > 0) /* Do nothing */;
+        }
+        #if defined(__linux__)
+        else
+            usbCdc.flush();
+        #endif
         #endif
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -396,6 +458,15 @@ class SerialCable : public ProbeCable
 
         #else
 
+        #if defined(__linux__)
+        if (usbCdc.isOpen())
+        {
+            std::vector<uint8_t> buffer = usbCdc.readExact(count, TimeoutMs);
+            if (buffer.size() != (size_t)count)
+                return {};
+            return buffer;
+        }
+        #endif
         if (hSerial < 0) return {};
         std::vector<uint8_t> buffer(count);
         int offset = 0;
@@ -424,6 +495,7 @@ class SerialCable : public ProbeCable
 
         return buffer;
     }
+
     virtual bool _DataWrite(const std::vector<uint8_t>& buffer, bool bEndTransaction = true)
     {
 
@@ -433,6 +505,10 @@ class SerialCable : public ProbeCable
         WriteFile(hSerial, buffer.data(), (DWORD)buffer.size(), &bytesWritten, nullptr);
         return bytesWritten == buffer.size();
         #else
+        #if defined(__linux__)
+        if (usbCdc.isOpen())
+            return usbCdc.write(buffer);
+        #endif
         return hSerial >= 0 && write(hSerial, buffer.data(), (int)buffer.size()) == buffer.size();
         #endif
     }
@@ -447,6 +523,7 @@ class SerialCable : public ProbeCable
         data.push_back((uint8_t)(Crc >> 8));
         return data;
     }
+
     bool WaitForReply(std::vector<uint8_t>& Data, int Count)
     {
         // Receive and verify header
