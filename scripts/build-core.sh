@@ -28,13 +28,18 @@ export SOURCE_DATE_EPOCH
 export TZ=UTC
 export LC_ALL=C
 export LANG=C
+
+# BSD touch (macOS) does not understand -d @epoch; -t is portable across GNU and BSD.
+if ! TOUCH_STAMP="$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S 2>/dev/null)"; then
+    TOUCH_STAMP="$(date -u -r "${SOURCE_DATE_EPOCH}" +%Y%m%d%H%M.%S)"
+fi
 umask 022
 
 touch_reproducible_tree() {
     local path=$1
 
     if [[ -e "$path" ]]; then
-        find "$path" -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+        find "$path" -exec touch -h -t "$TOUCH_STAMP" {} +
     fi
 }
 
@@ -99,7 +104,7 @@ rebuild_deb_root_owner_group() {
         "$tmp_dir/root" "$tmp_dir/rebuilt.deb" >/dev/null
     mv "$tmp_dir/rebuilt.deb" "$deb"
     rm -rf "$tmp_dir"
-    touch -h -d "@${SOURCE_DATE_EPOCH}" "$deb"
+    touch -h -t "$TOUCH_STAMP" "$deb"
 }
 
 normalize_debs() {
@@ -107,7 +112,7 @@ normalize_debs() {
     local debs=(*.deb)
     shopt -u nullglob
 
-    for deb in "${debs[@]}"; do
+    for deb in ${debs[@]+"${debs[@]}"}; do
         rebuild_deb_root_owner_group "$deb"
     done
 }
@@ -131,7 +136,7 @@ if [[ -n "${CMAKE_TOOLCHAIN_FILE:-}" ]]; then
 fi
 
 cmake \
-    "${CMAKE_TOOLCHAIN_ARGS[@]}" \
+    ${CMAKE_TOOLCHAIN_ARGS[@]+"${CMAKE_TOOLCHAIN_ARGS[@]}"} \
     -D SCORBIT_SDK_PRODUCTION=ON \
     -D SCORBIT_SDK_ABI="$ABI" \
     -D CMAKE_BUILD_TYPE=Release \
@@ -145,7 +150,7 @@ cmake \
     && popd; } \
 \
 && cmake \
-    "${CMAKE_TOOLCHAIN_ARGS[@]}" \
+    ${CMAKE_TOOLCHAIN_ARGS[@]+"${CMAKE_TOOLCHAIN_ARGS[@]}"} \
     -D SCORBIT_SDK_PRODUCTION=ON \
     -D CMAKE_BUILD_TYPE=Release \
     -G Ninja \
