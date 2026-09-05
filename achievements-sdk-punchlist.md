@@ -33,7 +33,7 @@ correction notes on P2 and K5.
 | P5 | **High** | Counter unlock threshold has no server-side counterpart | **New, found on re-verification** |
 | P3 | **Medium** | `check*` entry points mis-handle mixed mode+score rules | New |
 | P4 | **Medium** | Triggered callback invoked while holding `m_progressMutex` | New |
-| P2 | ~~High~~ **Low** | `rule.target` is 32-bit | **Downgraded — my premise was wrong** |
+| P2 | ~~High~~ **Low** | `rule.target` is 32-bit | **Fixed** — widened to `int64_t`; server side still 32-bit |
 | K1 | — | `groupid` vs `group_id` | **Fixed** on this branch |
 | K2 | **High** | Zero SDK achievement test coverage (server has 3,016 lines) | Confirmed live |
 | K3 | **Medium** | Achievements are C-only | Confirmed live |
@@ -312,7 +312,19 @@ method has nothing telling them the order. Add a comment on the member declarati
 
 ---
 
-## P2 — `rule.target` is 32-bit — **DOWNGRADED to Low; original premise was wrong**
+## P2 — `rule.target` is 32-bit — **FIXED on the SDK side** (was downgraded to Low; original premise was wrong)
+
+> **Resolution.** `target` is now `int64_t` in `AchievementRule` and `sb_achievement_rule_t`,
+> parsed as `int64_t` in both `parseAchievements()` and the debug-seed path, and compared as
+> `int64_t` by `satisfies()` — so the value is never narrowed anywhere in the SDK. The decision
+> was deliberate despite the C ABI break below: a `"SCORE"` rule's target *is* a pinball score,
+> and the type should say so rather than encode today's server limit. Regression tests cover a
+> ten-billion target through both the parser and the matcher.
+>
+> The remaining ceiling is entirely server-side: `Rule.target` is still a 32-bit
+> `PositiveIntegerField`, so nothing above 2,147,483,647 can be authored yet. That is the API
+> team's item; the SDK will no longer need touching when it lands.
+
 
 > **Correction.** This item was filed as High severity on the premise that "the server accepts
 > targets the SDK cannot represent," and asserted that Django's `PositiveIntegerField` is
@@ -354,15 +366,11 @@ on the first ten-billion-point target someone authors.
 **Verified server-side:** `Rule.target = models.PositiveIntegerField()` —
 `api/core/models/rule.py:65`. Ceiling 2,147,483,647, matching the SDK exactly.
 
-**Fix (optional, low value).** Widening `target` to `int64_t` in `achievements.h:153` and
-`achievements_c.h:112` would future-proof the SDK against a later server-side widening, but
-it is an **ABI break** on the C API and buys nothing until the API widens first. **Do not
-lead with this.** If the platform ceiling is ever raised, do both sides together; the API
-change is the prerequisite.
-
-Worth doing regardless, because it is free: drop the pointless `int64_t targetScore`
-narrowing at `net.cpp:2247` or make the field an `int` to match reality, so the type stops
-implying a range it cannot hold.
+**Fix as applied.** `target` widened to `int64_t` in `achievements.h` and `achievements_c.h`,
+with the JSON fallbacks changed to `int64_t {0}` so `nlohmann` deduces the wide type instead of
+`get<int>()`. This *is* an **ABI break** on the C API — the struct's layout changes — so C
+consumers must be rebuilt against the new header. `ach.targetScore` no longer narrows on its way
+in, which resolves the second half of this item.
 
 ---
 
@@ -409,7 +417,8 @@ Minimum useful suite:
   also the regression test K1 never had.
 - **Comparison matrix** — every rule type × `>` / `<` / `=` × below/at/above target. This is
   the P1 test.
-- **Boundary values** — targets at and beyond `INT32_MAX`. This is the P2 test.
+- **Boundary values** — targets at and beyond `INT32_MAX`. This is the P2 test. **Done:**
+  `test_achievement_json.cpp` and `test_achievement_manager.cpp` both carry a ten-billion case.
 - **Context isolation** — mode-only, score-only and mode+score achievements through each of
   the three `check*` entry points. This is the P3 test.
 - **Skip semantics** — that `ACHIEVEMENT` / `PROGRESS` rules are skipped rather than failed,
@@ -617,9 +626,9 @@ P1 without it widens the hole).
    misleading integrators today.
 9. **K6 / K8** — field-naming and dead-key pass. Delete the 15 dead constants once K2's
    parsing tests can prove the deletions are inert. `JKEY_ACH_COUNT` goes with them.
-10. **P2** — leave alone unless the API widens `Rule.target` first. If it ever does, change
-    both sides together. The only free part is dropping the misleading `int64_t targetScore`
-    narrowing.
+10. **P2** — **done.** The SDK side was widened ahead of the API rather than waiting, so only
+    the server's `Rule.target` field remains 32-bit. The `int64_t targetScore` narrowing is gone
+    with it.
 
 Items 5 and 6 are unambiguous corrections in `achievement_manager.cpp` and could share a PR.
 Items 3 and 4 each carry a decision — a design question and a cross-repo coordination — so

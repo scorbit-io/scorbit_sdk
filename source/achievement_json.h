@@ -95,7 +95,7 @@ inline std::vector<Achievement> parseAchievements(const nlohmann::json &j)
                 AchievementRule rule;
                 rule.type = jsonValue(ruleJson, JKEY_ACH_RULE_TYPE, std::string {});
                 rule.comparison = jsonValue(ruleJson, JKEY_ACH_RULE_COMPARISON, std::string {">"});
-                rule.target = jsonValue(ruleJson, JKEY_ACH_RULE_TARGET, 0);
+                rule.target = jsonValue(ruleJson, JKEY_ACH_RULE_TARGET, int64_t {0});
                 rule.reference = jsonValue(ruleJson, JKEY_ACH_RULE_REFERENCE, std::string {});
                 rule.subachievementId = jsonValue(ruleJson, JKEY_ACH_RULE_SUBACHIEVEMENT, 0);
                 ach.rules.push_back(std::move(rule));

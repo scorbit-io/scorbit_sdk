@@ -254,7 +254,7 @@ bool sb_debug_seed_achievements(sb_game_handle_t handle, const char *json)
                     AchievementRule rule;
                     rule.type = ruleJson.value(JKEY_ACH_RULE_TYPE, std::string {});
                     rule.comparison = ruleJson.value(JKEY_ACH_RULE_COMPARISON, std::string {">"});
-                    rule.target = ruleJson.value(JKEY_ACH_RULE_TARGET, 0);
+                    rule.target = ruleJson.value(JKEY_ACH_RULE_TARGET, int64_t {0});
                     rule.reference = ruleJson.value(JKEY_ACH_RULE_REFERENCE, std::string {});
                     ach.rules.push_back(std::move(rule));
                 }

@@ -35,7 +35,7 @@ namespace {
 
 const std::string kUser = "4242"; // a user id is a UUID string; any opaque string works in tests
 
-AchievementRule rule(std::string type, std::string comparison, int target,
+AchievementRule rule(std::string type, std::string comparison, int64_t target,
                      std::string reference = {})
 {
     AchievementRule r;
@@ -131,12 +131,30 @@ TEST_CASE("SCORE rule comparison matrix", "[achievements]")
     }
 }
 
+TEST_CASE("SCORE rule targets above INT32_MAX survive", "[achievements]")
+{
+    // AchievementRule::target is int64_t precisely so a target authored as a real pinball score
+    // is not truncated. With a 32-bit target, 10,000,000,000 would wrap to 1,410,065,408 and a
+    // 5-billion-point score would match an achievement it has not earned.
+    constexpr int64_t kTarget = 10'000'000'000; // ten billion
+
+    AchievementManager mgr;
+    mgr.setAchievements({achievement("big-score", {rule("SCORE", ">", kTarget, "score")})});
+
+    REQUIRE(mgr.getAchievement("big-score").has_value());
+    CHECK(mgr.getAchievement("big-score")->rules.at(0).target == kTarget);
+
+    CHECK_FALSE(contains(mgr.checkScoreAchievements(5'000'000'000, kUser), "big-score"));
+    CHECK_FALSE(contains(mgr.checkScoreAchievements(kTarget, kUser), "big-score")); // strict ">"
+    CHECK(contains(mgr.checkScoreAchievements(kTarget + 1, kUser), "big-score"));
+}
+
 TEST_CASE("MODE rule comparison matrix", "[achievements]")
 {
     // A mode event is one occurrence, so the live value the rule sees is 1.
     struct Case {
         const char *comparison;
-        int target;
+        int64_t target;
         bool expected;
     };
 

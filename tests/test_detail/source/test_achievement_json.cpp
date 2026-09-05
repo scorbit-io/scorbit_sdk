@@ -161,6 +161,27 @@ TEST_CASE("Null handling matches absent-key handling exactly", "[achievements][j
     CHECK(a.front().targetScore == b.front().targetScore);
 }
 
+TEST_CASE("A rule target beyond INT32_MAX parses without truncating", "[achievements][json]")
+{
+    // A "SCORE" rule's target is a pinball score, so it is parsed as int64_t. Parsed as int it
+    // would wrap: 10,000,000,000 becomes 1,410,065,408, silently arming the achievement roughly
+    // seven times too early. The server's Rule.target is still a 32-bit PositiveIntegerField, so
+    // this payload does not occur in production yet - the test pins the SDK side so it stays
+    // correct when the API widens the field, and so debug-seeded definitions behave.
+    const auto j = nlohmann::json::parse(R"([
+        {"key":"big","name":"Ten Billion","scope":"game",
+         "rules":[{"type":"SCORE","comparison":">","target":10000000000,"reference":"score"}]}
+    ])");
+
+    const auto parsed = parseAchievements(j);
+    REQUIRE(parsed.size() == 1);
+    REQUIRE(parsed.front().rules.size() == 1);
+    CHECK(parsed.front().rules.front().target == 10'000'000'000);
+
+    // The flat convenience field is derived from the same value and must not narrow either.
+    CHECK(parsed.front().targetScore == 10'000'000'000);
+}
+
 TEST_CASE("A genuine type mismatch still throws", "[achievements][json]")
 {
     // Null tolerance must not become "swallow anything". A string where a number belongs is real

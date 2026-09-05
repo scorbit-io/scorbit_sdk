@@ -138,11 +138,13 @@ typedef struct {
     /**
      * Target value the live value is compared against.
      *
-     * `int` to match the server's `PositiveIntegerField`, whose documented range is
-     * 0..2,147,483,647 - the same ceiling. No target above that is expressible anywhere in the
-     * platform.
+     * `int64_t` because a `"SCORE"` rule's target is a pinball score, and scores routinely run
+     * past 2,147,483,647. The server's `Rule.target` is still a 32-bit
+     * `PositiveIntegerField`, so today nothing above that ceiling reaches the device - the wider
+     * type is here so that when the API widens the field the SDK does not silently truncate, and
+     * so that locally seeded definitions can express a real score target.
      */
-    int target;
+    int64_t target;
 
     /**
      * Context-dependent reference: the mode name for `"MODE"` / `"MODE_START"` / `"MODE_STACK"`,
