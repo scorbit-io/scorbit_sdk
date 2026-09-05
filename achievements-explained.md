@@ -371,14 +371,13 @@ Two field mappings worth knowing, both **[verified]**:
 - `ach.achievementId` is read from the API's **`level`** (:2206), in a field documented as
   "achievement ID within group". Functional but mislabelled.
 
-> **Rule targets cap at 2,147,483,647 — platform-wide, not just on-device.**
-> `AchievementRule::target` is a plain `int` (`achievements.h:153`, mirrored at
-> `achievements_c.h:112`). The server's `Rule.target` is a Django `PositiveIntegerField`
-> (`api/core/models/rule.py:65`), documented as safe for 0–2,147,483,647 across supported
-> backends — **the same ceiling**. So there is no truncation risk on data the server sends;
-> the two sides agree. What it does mean is that **no score target above ~2.1 billion is
-> expressible anywhere in the system**, which is below what modern machines reach. That is a
-> platform limitation for the API team, not an SDK bug. See punch-list P2.
+> **Rule targets cap at 2,147,483,647 on the server — the SDK side is now 64-bit.**
+> `AchievementRule::target` is `int64_t` (`achievements.h`, mirrored in `achievements_c.h`),
+> parsed as `int64_t` and compared as `int64_t` end to end. The server's `Rule.target` is still
+> a Django `PositiveIntegerField` (`api/core/models/rule.py:65`), documented as safe for
+> 0–2,147,483,647, so **that** is where the remaining ceiling lives — below what modern machines
+> reach. Widening the SDK first means nothing truncates on the device when the API widens the
+> field, and debug-seeded definitions can already express a real score target. See punch-list P2.
 
 ## 7. How the server calculates
 
@@ -562,8 +561,9 @@ Consolidating the traps, **[verified]** unless marked:
 6. **Counter achievements unlock on the first increment.** The threshold the SDK compares
    against (`ach.count`, from `ball_count`) is not where v2 stores it — that's the `PROGRESS`
    rule's `target`. Ignore `incrementProgress`'s return value and wait for the server. (P5)
-7. **No score target above 2,147,483,647 is expressible** anywhere in the platform — SDK and
-   server share that ceiling. Not a truncation risk, just a limit to design around. (P2)
+7. **Score targets above 2,147,483,647 are fine in the SDK but not yet on the server.** The
+   SDK carries `target` as `int64_t` throughout; the server's `Rule.target` is still a 32-bit
+   `PositiveIntegerField`, so that is the limit to design around today. (P2)
 8. **Don't trust the flat convenience fields** (`trigger`, `modeName`, `modeType`,
    `targetScore`) for multi-rule achievements — they are derived from `rules[0]` only.
    Read `rules`.
