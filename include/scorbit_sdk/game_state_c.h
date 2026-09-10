@@ -198,6 +198,43 @@ SCORBIT_SDK_EXPORT
 void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t duration_seconds);
 
 /**
+ * @brief Mark a mode as completed.
+ *
+ * Reports that the player has *completed* (achieved, finished, beaten) a mode, as opposed to
+ * merely being in it. Regular modes added with @ref sb_add_mode or @ref sb_add_mode_expiring
+ * describe what is happening right now; a completed mode is a one-shot event telling what the
+ * player accomplished, e.g. the multiball was won rather than just started.
+ *
+ * Completed modes are meant to be used by achievements: the game marks the moments it considers
+ * noteworthy, and those marks are matched against achievement conditions.
+ *
+ * A completed mode is not a regular mode: it is not added to the active mode list, it is not
+ * affected by @ref sb_remove_mode or @ref sb_clear_modes, and it is not published as a current
+ * game mode.
+ *
+ * @note Being events and not a state, completed modes are reported only in the update which
+ * follows the call, i.e. in a single history row, and are not repeated in the subsequent ones. If
+ * several modes are marked as completed before the next update, they are all reported together in
+ * that one row. Marking a mode as completed makes the game state changed, so the next
+ * @ref sb_commit sends an update even if nothing else has changed.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param mode The completed mode (e.g., "NA:The Tale of the Forty Thieves").
+ *
+ * Example:
+ * @code
+ * sb_add_mode(handle, "NA:The Tale of the Forty Thieves");     // the mode started
+ * sb_commit(handle);
+ * // ... player beats the mode ...
+ * sb_set_mode_completed(handle, "NA:The Tale of the Forty Thieves");
+ * sb_remove_mode(handle, "NA:The Tale of the Forty Thieves");  // the mode is over
+ * sb_commit(handle);
+ * @endcode
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_mode_completed(sb_game_handle_t handle, const char *mode);
+
+/**
  * @brief Remove a mode from the game.
  *
  * Removes a mode from the game's active mode list. If the mode does not exist, the function skips

@@ -58,6 +58,12 @@ public:
      */
     void addModeExpiring(std::string mode, uint32_t duration_seconds);
 
+    /**
+     * Mark a mode as completed (achievements input). Completed modes are not part of the active
+     * mode list and are never sent to the cloud except as in CSV history logs.
+     */
+    void setModeCompleted(std::string mode);
+
     /** Called from C API thread when the worker timer fires. */
     void tickModeExpiries();
 
@@ -77,8 +83,8 @@ public:
     void setCreditsDropped(int credits, const std::string &transaction, bool success);
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);
 
-    void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period, const std::string &since,
-                          LeaderboardVpinFilter vpinFilter,
+    void requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
+                          const std::string &since, LeaderboardVpinFilter vpinFilter,
                           LeaderboardHandleCallback callback);
 
     void requestPairCode(StringCallback callback) const;

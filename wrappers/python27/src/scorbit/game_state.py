@@ -161,6 +161,31 @@ class GameState(object):
         """
         _lib.sb_add_mode_expiring(self._handle, _encode(mode), duration_seconds)
 
+    def set_mode_completed(self, mode):
+        # type: (str) -> None
+        """Mark a mode as completed (achieved, finished, beaten).
+
+        Unlike :meth:`add_mode`, which tells what is happening right now,
+        this reports a one-shot event: what the player accomplished.  It is
+        meant to be used by achievements.
+
+        A completed mode is not a regular mode: it is not added to the
+        active mode list, it is not affected by :meth:`remove_mode` or
+        :meth:`clear_modes`, and it is not published as a current game
+        mode.  It is recorded in the game session history, in the
+        ``completed_modes`` column, next to the ``game_modes`` column which
+        holds the active modes.
+
+        Being an event and not a state, it is reported only in the update
+        which follows the call and is not repeated in the subsequent ones.
+        Marking a mode as completed makes the game state changed, so the
+        next :meth:`commit` sends an update even if nothing else changed.
+
+        Args:
+            mode: e.g. ``"NA:The Tale of the Forty Thieves"``.
+        """
+        _lib.sb_set_mode_completed(self._handle, _encode(mode))
+
     def remove_mode(self, mode):
         # type: (str) -> None
         """Remove a mode from the active list (no-op if absent)."""

@@ -108,6 +108,11 @@ struct JobAddModeExpiring {
     uint32_t duration_seconds;
 };
 
+struct JobSetModeCompleted {
+    sb_game_state_struct *h;
+    std::string mode;
+};
+
 struct JobTickModeExpiries {
     sb_game_state_struct *h;
 };
@@ -203,10 +208,10 @@ struct JobUploadDiagnostics {
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                     JobTickModeExpiries, JobRemoveMode, JobClearModes, JobCommit,
-                     JobRequestTopScores, JobRequestPairCode, JobRequestUnpair, JobSetCapabilities,
-                     JobPairMachine, JobCreditsDropped, JobCreditsStatus, JobDownload,
-                     JobDownloadBuffer, JobUploadDiagnostics>;
+                     JobSetModeCompleted, JobTickModeExpiries, JobRemoveMode, JobClearModes,
+                     JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
+                     JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
+                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -272,7 +277,7 @@ void dispatchApiJob(ApiQueueItem &&item)
 {
     std::visit(
             Overloaded {
-                    [](Poison) {},
+                    [](Poison) { },
                     [](JobSetGameStarted &&j) {
                         j.h->gameState.setGameStarted(static_cast<GameStartOrigin>(j.origin));
                     },
@@ -283,6 +288,9 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobAddMode &&j) { j.h->gameState.addMode(std::move(j.mode)); },
                     [](JobAddModeExpiring &&j) {
                         j.h->gameState.addModeExpiring(std::move(j.mode), j.duration_seconds);
+                    },
+                    [](JobSetModeCompleted &&j) {
+                        j.h->gameState.setModeCompleted(std::move(j.mode));
                     },
                     [](JobTickModeExpiries &&j) { j.h->gameState.tickModeExpiries(); },
                     [](JobRemoveMode &&j) { j.h->gameState.removeMode(j.mode); },
@@ -468,6 +476,11 @@ void sb_add_mode(sb_game_handle_t handle, const char *mode)
 void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t duration_seconds)
 {
     handle->postApiJob(JobAddModeExpiring {handle, copyCStr(mode), duration_seconds});
+}
+
+void sb_set_mode_completed(sb_game_handle_t handle, const char *mode)
+{
+    handle->postApiJob(JobSetModeCompleted {handle, copyCStr(mode)});
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)

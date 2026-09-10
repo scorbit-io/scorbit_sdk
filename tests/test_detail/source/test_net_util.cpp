@@ -161,11 +161,19 @@ TEST_CASE("Game history to csv", "[gameHistoryToCsv]")
     data.modes.addMode("MB:Multiball2");
     history.push_back(data);
 
+    // Completed modes are events, they are reported in a single row only
+    data.timestamp = std::chrono::system_clock::time_point(25s);
+    data.completedModes.addMode("MB:Multiball");
+    data.completedModes.addMode("NA:SomeMode");
+    history.push_back(data);
+
     std::string csv = gameHistoryToCsv(history);
-    std::string expectedCsv = "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes\n"
-                              "10,100,,,,,,1,1,\n"
-                              "15,200,,,,,,1,1,\n"
-                              "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\"\n";
+    std::string expectedCsv =
+            "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes,completed_modes\n"
+            "10,100,,,,,,1,1,,\n"
+            "15,200,,,,,,1,1,,\n"
+            "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",\n"
+            "25,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",\"MB:Multiball;NA:SomeMode\"\n";
     CHECK(csv == expectedCsv);
 }
 
@@ -279,10 +287,10 @@ TEST_CASE("Shutting down never waits", "[authGate]")
 {
     const std::vector<AuthStatus> needsPaired {AuthStatus::AuthenticatedPaired};
 
-    for (const auto status : {AuthStatus::NotAuthenticated, AuthStatus::Authenticating,
-                              AuthStatus::AuthenticatedCheckingPairing,
-                              AuthStatus::AuthenticationFailed,
-                              AuthStatus::AuthenticatedUnpaired}) {
+    for (const auto status :
+         {AuthStatus::NotAuthenticated, AuthStatus::Authenticating,
+          AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticationFailed,
+          AuthStatus::AuthenticatedUnpaired}) {
         CHECK(authGate(status, needsPaired, true) == AuthGate::Terminal);
     }
 

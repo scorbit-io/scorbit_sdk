@@ -37,6 +37,13 @@ struct GameData {
     std::map<sb_player_t, PlayerState> players;
     Modes modes;
 
+    /**
+     * Modes marked as completed since the previous update. Unlike @ref modes, this is not a state
+     * but a one-shot list of events: it is recorded in the session history CSV
+     * (`completed_modes` column) of this very update and cleared afterwards.
+     */
+    Modes completedModes;
+
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 };
 
@@ -44,7 +51,7 @@ inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::deta
 {
     return lhs.isGameActive == rhs.isGameActive && lhs.ball == rhs.ball
         && lhs.activePlayer == rhs.activePlayer && lhs.modes == rhs.modes
-        && lhs.players == rhs.players;
+        && lhs.completedModes == rhs.completedModes && lhs.players == rhs.players;
 }
 
 inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
