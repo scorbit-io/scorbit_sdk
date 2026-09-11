@@ -154,6 +154,15 @@ void GameStateImpl::addModeExpiring(std::string mode, uint32_t duration_seconds)
     rescheduleModeExpiryTimer();
 }
 
+void GameStateImpl::setModeCompleted(std::string mode)
+{
+    if (!m_data.isGameActive) {
+        return;
+    }
+
+    m_data.completedModes.addMode(std::move(mode));
+}
+
 void GameStateImpl::tickModeExpiries()
 {
     if (!m_data.isGameActive) {
@@ -257,8 +266,7 @@ void GameStateImpl::setCreditsStatus(bool freePlay, int credits, int maxCredits,
 }
 
 void GameStateImpl::requestTopScores(LeaderboardScope scope, LeaderboardPeriod period,
-                                     const std::string &since,
-                                     LeaderboardVpinFilter vpinFilter,
+                                     const std::string &since, LeaderboardVpinFilter vpinFilter,
                                      LeaderboardHandleCallback callback)
 {
     m_net->requestTopScores(scope, period, since, vpinFilter, std::move(callback));
@@ -342,6 +350,9 @@ void GameStateImpl::submitGameData(bool forceSending)
                     // Use previous active player as current active player and prev ball
                     tempData.activePlayer = prevActivePlayer;
                     tempData.ball = m_prevData.ball;
+                    // Completed modes belong to the real update below, not to this synthetic
+                    // bonus score row, otherwise they would be reported twice.
+                    tempData.completedModes.clear();
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
@@ -381,6 +392,12 @@ void GameStateImpl::submitGameData(bool forceSending)
         m_net->submitGameData(m_data, flags);
 
         m_prevData = m_data;
+
+        // Completed modes are one-shot events: they are reported in the update just published and
+        // must not be repeated in the following ones. Clearing both keeps isChanged() false, so an
+        // otherwise unchanged game state doesn't produce an extra update.
+        m_data.completedModes.clear();
+        m_prevData.completedModes.clear();
     }
 }
 

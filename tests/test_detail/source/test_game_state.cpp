@@ -64,10 +64,7 @@ public:
         return info;
     };
     void requestTopScores(LeaderboardScope, LeaderboardPeriod, const std::string &,
-                          LeaderboardVpinFilter,
-                          LeaderboardHandleCallback) override
-    {
-    };
+                          LeaderboardVpinFilter, LeaderboardHandleCallback) override { };
     void requestUnpair(StringCallback) override {};
     MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
     MAKE_MOCK0(authenticate, void(), override);
@@ -582,6 +579,105 @@ TEST_CASE("addMode functionality")
         // Act: Try to add the same mode "MB:Multiball"
         gameState.addMode("MB:Multiball");
         gameState.setCurrentBall(2); // to make some change, so it will be commited
+        gameState.commit();
+    }
+}
+
+TEST_CASE("setModeCompleted functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+
+    // Create GameState object with mocked NetBase
+    GameStateImpl gameState(std::move(mockNet));
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
+    gameState.commit();
+
+    SECTION("Completed mode is reported and is not added to the active modes list")
+    {
+        // Assert: completed mode is reported, but is not an active mode
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.completedModes.contains("MB:Multiball")
+                      && !_1.modes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: mark mode "MB:Multiball" as completed
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.commit();
+    }
+
+    SECTION("Completed mode is reported once and isn't repeated in the following updates")
+    {
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.completedModes.contains("MB:Multiball"))
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.commit();
+
+        // Assert: nothing else changed, so the next commit produces no update at all
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
+        gameState.commit();
+    }
+
+    SECTION("Completed modes accumulated before the update are reported together")
+    {
+        // Assert: both completed modes are reported in the same update
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.completedModes.str() == "MB:Multiball;SP:SuperPlay")
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: mark two modes as completed before committing
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.setModeCompleted("SP:SuperPlay");
+        gameState.commit();
+    }
+
+    SECTION("Completed mode is not affected by removeMode and clearModes")
+    {
+        // Assert: the completed mode survives removeMode() and clearModes()
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.completedModes.contains("MB:Multiball") && _1.modes.isEmpty())
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        // Act: mark the mode as completed, then drop the active modes
+        gameState.addMode("MB:Multiball");
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.removeMode("MB:Multiball");
+        gameState.clearModes();
+        gameState.commit();
+    }
+
+    SECTION("Marking the same mode as completed twice is reported once")
+    {
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(_1.completedModes.str() == "MB:Multiball")
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.setModeCompleted("MB:Multiball");
+        gameState.commit();
+    }
+
+    SECTION("Completed mode is ignored when the game is not active")
+    {
+        // Assert: no update, the mode completion is dropped along with the finished game
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+        gameState.setGameFinished();
+
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
+        gameState.setModeCompleted("MB:Multiball");
         gameState.commit();
     }
 }

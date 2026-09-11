@@ -511,6 +511,14 @@ int main()
             gs.addMode("NA:SomeMode");
             gs.removeMode("NA:AnotherMode");
 
+            // Mark a mode as completed when the player has beaten it. Unlike the modes above,
+            // this is not a state but a one-shot event: it doesn't become an active mode, it's
+            // reported once in the game session history (completed_modes column) and is used by
+            // achievements.
+            if (i % 10 == 3) {
+                gs.setModeCompleted("NA:The Tale of the Forty Thieves");
+            }
+
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {
                 gs.clearModes();

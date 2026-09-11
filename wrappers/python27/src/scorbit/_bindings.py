@@ -241,6 +241,10 @@ _lib.sb_add_mode.argtypes = [sb_game_handle_t, c_char_p]
 _lib.sb_add_mode_expiring.restype = None
 _lib.sb_add_mode_expiring.argtypes = [sb_game_handle_t, c_char_p, c_uint32]
 
+# void sb_set_mode_completed(sb_game_handle_t, const char*)
+_lib.sb_set_mode_completed.restype = None
+_lib.sb_set_mode_completed.argtypes = [sb_game_handle_t, c_char_p]
+
 # void sb_remove_mode(sb_game_handle_t, const char*)
 _lib.sb_remove_mode.restype = None
 _lib.sb_remove_mode.argtypes = [sb_game_handle_t, c_char_p]

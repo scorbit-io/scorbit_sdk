@@ -313,6 +313,13 @@ def main():
             gs.add_mode("NA:SomeMode")
             gs.remove_mode("NA:AnotherMode")
 
+            # Mark a mode as completed when the player has beaten it. Unlike the modes above,
+            # this is not a state but a one-shot event: it doesn't become an active mode, it's
+            # reported once in the game session history (completed_modes column) and is used by
+            # achievements.
+            if i % 10 == 3:
+                gs.set_mode_completed("NA:The Tale of the Forty Thieves")
+
             if time_to_clear_modes():
                 gs.clear_modes()
 

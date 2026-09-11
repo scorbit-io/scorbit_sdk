@@ -152,6 +152,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `set_score(player, score, feature=0)` | Set score. |
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
+| `set_mode_completed(mode)` | Mark a mode as completed (used as condition for achievements). |
 | `remove_mode(mode)` | Remove mode. |
 | `clear_modes()` | Clear all modes. |
 | `commit()` | Push updates to the cloud. |

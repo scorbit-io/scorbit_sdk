@@ -100,12 +100,12 @@ std::string gameHistoryToCsv(const GameHistory &history)
     std::string rv;
     rv.reserve(50 * 1024);
 
-    // CSV header: "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes\n";
+    // CSV header: "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes,completed_modes\n";
     rv.append("time");
     for (sb_player_t playerNum = 1; playerNum <= ABSOLUTE_MAX_PLAYERS_NUM; ++playerNum) {
         rv.append(fmt::format(",p{}", playerNum));
     }
-    rv.append(",player,ball,game_modes\n");
+    rv.append(",player,ball,game_modes,completed_modes\n");
 
     // CSV body
     for (const auto &data : history) {
@@ -126,8 +126,15 @@ std::string gameHistoryToCsv(const GameHistory &history)
             modes = fmt::format("\"{}\"", data.modes.str());
         }
 
-        rv.append(fmt::format("{},{}{},{},{}\n", timestamp, scores, data.activePlayer, data.ball,
-                              modes));
+        // Modes completed at this very update; unlike game_modes it's not a state, but a one-shot
+        // list of events, so it is normally empty.
+        std::string completedModes;
+        if (!data.completedModes.isEmpty()) {
+            completedModes = fmt::format("\"{}\"", data.completedModes.str());
+        }
+
+        rv.append(fmt::format("{},{}{},{},{},{}\n", timestamp, scores, data.activePlayer, data.ball,
+                              modes, completedModes));
     }
 
     return rv;
