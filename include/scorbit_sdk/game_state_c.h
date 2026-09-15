@@ -475,6 +475,54 @@ void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size
                            const char **recording_paths, size_t recording_count,
                            const char *log_string);
 
+/**
+ * @brief Upload diagnostics, echoing back the request generation that asked for them.
+ *
+ * Identical to @ref sb_upload_diagnostics, but also sends @p request_generation so the API can
+ * tell which request this upload answers.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param log_paths Array of file paths to log files. Pass NULL if no log files.
+ * @param log_count Number of entries in log_paths.
+ * @param recording_paths Array of file paths to recording files. Pass NULL if no recordings.
+ * @param recording_count Number of entries in recording_paths.
+ * @param log_string Arbitrary log text to include. Pass NULL or empty if not needed.
+ * @param request_generation Pointer to the generation this upload answers, or NULL when the
+ * caller has none. When NULL the field is omitted from the upload entirely — the SDK never
+ * invents a value.
+ */
+SCORBIT_SDK_EXPORT
+void sb_upload_diagnostics_ex(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+                              const char **recording_paths, size_t recording_count,
+                              const char *log_string, const uint64_t *request_generation);
+
+/**
+ * @brief Report a typed config update for this device to the Scorbit API.
+ *
+ * Sends `{"type": ..., "version": ..., "installed": ..., "log": ...}` to the device's config
+ * endpoint. The SDK does not interpret @p type or @p version: any type the API understands can be
+ * reported through this call, and @p version is sent verbatim as a JSON string.
+ *
+ * @note A blank @p version is sent as `"version": ""` rather than omitted. That is meaningful —
+ * it is how a caller withdraws a report it made earlier.
+ *
+ * @note The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry of their own; a
+ * re-send should be a fresh report of current state, not a retry of a failed message.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param type The update type, e.g. "sdk". Passed through unchanged.
+ * @param version The version being reported. Pass an empty string to withdraw a prior report.
+ * @param installed Whether the reported item is installed. Ignored by types that do not read it.
+ * @param log Optional log text to attach, or NULL to omit the field.
+ * @param callback Optional callback receiving the error, the HTTP status of the final attempt
+ * (0 when no HTTP response was received) and the raw reply. Pass NULL if not needed.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_update_config(sb_game_handle_t handle, const char *type, const char *version,
+                      bool installed, const char *log, sb_http_status_callback_t callback,
+                      void *user_data);
+
 // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 
 SCORBIT_SDK_EXPORT

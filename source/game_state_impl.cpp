@@ -302,9 +302,18 @@ void GameStateImpl::downloadBuffer(VectorCallback callback, const std::string &u
 
 void GameStateImpl::uploadDiagnostics(std::vector<std::string> logPaths,
                                       std::vector<std::string> recordingPaths,
-                                      std::string logString)
+                                      std::string logString,
+                                      std::optional<std::uint64_t> requestGeneration)
 {
-    m_net->uploadDiagnostics(std::move(logPaths), std::move(recordingPaths), std::move(logString));
+    m_net->uploadDiagnostics(std::move(logPaths), std::move(recordingPaths), std::move(logString),
+                             requestGeneration);
+}
+
+void GameStateImpl::updateConfig(const std::string &type, const std::string &version,
+                                 bool installed, std::optional<std::string> log,
+                                 HttpStatusCallback callback)
+{
+    m_net->updateConfig(type, version, installed, std::move(log), std::move(callback));
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)

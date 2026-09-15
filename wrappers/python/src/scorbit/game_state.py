@@ -24,6 +24,7 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c
 from ._bindings import (
     _lib,
     sb_buffer_callback_t,
+    sb_http_status_callback_t,
     sb_leaderboard_callback_t,
     sb_string_callback_t,
 )
@@ -265,6 +266,24 @@ class GameState(object):
         self._async_callbacks.append(_trampoline)
         return _trampoline
 
+    def _make_http_status_cb(self, callback):
+        """Wrap a Python ``(error, http_status, reply)`` callback in a C trampoline."""
+
+        @sb_http_status_callback_t
+        def _trampoline(error_code, http_status, reply, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                reply_str = reply
+                if isinstance(reply_str, bytes):
+                    reply_str = reply_str.decode("utf-8", errors="replace")
+                callback(Error(error_code), http_status, reply_str or "")
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        return _trampoline
+
     def _make_buffer_cb(self, callback):
         """Wrap a Python ``(error, data_bytes)`` callback in a C trampoline."""
 
@@ -500,8 +519,9 @@ class GameState(object):
     # Diagnostics
     # ------------------------------------------------------------------
 
-    def upload_diagnostics(self, log_paths=None, recording_paths=None, log_string=""):
-        # type: (list[str] | None, list[str] | None, str) -> None
+    def upload_diagnostics(self, log_paths=None, recording_paths=None, log_string="",
+                           request_generation=None):
+        # type: (list[str] | None, list[str] | None, str, int | None) -> None
         """Upload diagnostics (logs, recordings, arbitrary text) to the API.
 
         The SDK enforces limits: max 5 log files (each <= 10 MB), max 2
@@ -513,6 +533,9 @@ class GameState(object):
             log_paths: List of file paths to log files.
             recording_paths: List of file paths to recording files.
             log_string: Arbitrary log text to include.
+            request_generation: The generation this upload answers, or None when
+                there is no such request. When None the field is omitted entirely
+                -- the SDK never invents a value.
         """
         log_list = log_paths or []
         rec_list = recording_paths or []
@@ -524,11 +547,47 @@ class GameState(object):
             *[_encode(p) for p in rec_list]
         ) if rec_list else None
 
-        _lib.sb_upload_diagnostics(
+        gen_ptr = byref(c_uint64(request_generation)) \
+            if request_generation is not None else None
+
+        _lib.sb_upload_diagnostics_ex(
             self._handle,
             log_arr, len(log_list),
             rec_arr, len(rec_list),
             _encode(log_string or ""),
+            gen_ptr,
+        )
+
+    def update_config(self, type, version, installed=True, log=None, callback=None):
+        # type: (str, str, bool, str, ...) -> None
+        """Report a typed config update for this device to the API.
+
+        The SDK does not interpret ``type`` or ``version``: any type the API
+        understands can be reported, and ``version`` is sent verbatim as a JSON
+        string. A blank ``version`` is sent as ``"version": ""`` rather than
+        omitted -- that is how a caller withdraws an earlier report.
+
+        The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry
+        of their own; a re-send should be a fresh report of current state, not a
+        retry of a failed message.
+
+        Args:
+            type: The update type, e.g. ``"sdk"``. Passed through unchanged.
+            version: The version being reported. Empty withdraws a prior report.
+            installed: Whether the reported item is installed.
+            log: Optional log text to attach, or None to omit the field.
+            callback: ``(error: Error, http_status: int, reply: str) -> None``.
+                ``http_status`` is 0 when no HTTP response was received.
+        """
+        cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
+        _lib.sb_update_config(
+            self._handle,
+            _encode(type),
+            _encode(version),
+            bool(installed),
+            _encode(log) if log is not None else None,
+            cb,
+            None,
         )
 
     # ------------------------------------------------------------------

@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace scorbit {
@@ -99,7 +100,11 @@ public:
                         const HttpHeaders &headers = {});
 
     void uploadDiagnostics(std::vector<std::string> logPaths,
-                           std::vector<std::string> recordingPaths, std::string logString);
+                           std::vector<std::string> recordingPaths, std::string logString,
+                           std::optional<std::uint64_t> requestGeneration = std::nullopt);
+
+    void updateConfig(const std::string &type, const std::string &version, bool installed,
+                      std::optional<std::string> log, HttpStatusCallback callback);
 
 private:
     void addNewPlayer(sb_player_t player);

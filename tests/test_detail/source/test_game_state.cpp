@@ -64,27 +64,28 @@ public:
         return info;
     };
     void requestTopScores(LeaderboardScope, LeaderboardPeriod, const std::string &,
-                          LeaderboardVpinFilter, LeaderboardHandleCallback) override { };
+                          LeaderboardVpinFilter, LeaderboardHandleCallback) override {};
     void requestUnpair(StringCallback) override {};
     MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
-                       std::function<void()>) override { };
-    void getConfig() override { };
-    MAKE_MOCK4(updateConfig,
-               void(const std::string &, const std::string &, bool, std::optional<std::string>),
+                       std::function<void()>) override {};
+    void getConfig() override {};
+    MAKE_MOCK5(updateConfig,
+               void(const std::string &, const std::string &, bool, std::optional<std::string>,
+                    HttpStatusCallback),
                override);
     void download(bool isAsync, StringCallback, const std::string &, const std::string &,
-                  const HttpHeaders &) override { };
+                  const HttpHeaders &) override {};
     void downloadBuffer(bool isAsync, VectorCallback, const std::string &, size_t,
-                        const HttpHeaders &) override { };
+                        const HttpHeaders &) override {};
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
-    void requestPairMachine(const std::string &, const std::string &, StringCallback) override { };
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
     void setCapabilities(Capabilities) override {};
-    void setCreditsDropped(int, const std::string &, bool) override { };
-    void setCreditsStatus(bool, int, int, const char *) override { };
+    void setCreditsDropped(int, const std::string &, bool) override {};
+    void setCreditsStatus(bool, int, int, const char *) override {};
 
     void scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
                                  std::function<void()> fn) override
@@ -152,7 +153,7 @@ TEST_CASE("setGameStarted functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -214,7 +215,7 @@ TEST_CASE("setGameFinished functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -287,7 +288,7 @@ TEST_CASE("setCurrentBall functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -337,7 +338,7 @@ TEST_CASE("setActivePlayer functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     // Create GameState object with mocked NetBase
     GameStateImpl gameState(std::move(mockNet));
@@ -420,7 +421,7 @@ TEST_CASE("setScore functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _))
             .WITH(_1.players.at(1).score() == 0)
@@ -532,7 +533,7 @@ TEST_CASE("addMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -590,7 +591,7 @@ TEST_CASE("setModeCompleted functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -689,7 +690,7 @@ TEST_CASE("removeMode functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -739,7 +740,7 @@ TEST_CASE("clearModes functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -790,7 +791,7 @@ TEST_CASE("commit functionality")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
 
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
@@ -905,7 +906,7 @@ TEST_CASE("addModeExpiring - duration normalization and scheduling")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     GameStateImpl gameState(std::move(mockNet));
@@ -946,7 +947,7 @@ TEST_CASE("addModeExpiring - promote to front on repeat add")
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     GameStateImpl gameState(std::move(mockNet));
@@ -979,7 +980,7 @@ TEST_CASE("addModeExpiring - tick removes mode after delay; clearModes cancels t
     sequence seq;
 
     ALLOW_CALL(mockNetRef, authenticate());
-    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _));
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
     REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
 
     GameStateImpl gameState(std::move(mockNet));

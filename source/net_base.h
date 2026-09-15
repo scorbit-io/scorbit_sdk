@@ -55,8 +55,16 @@ public:
 
     virtual void authenticate() = 0;
 
+    /**
+     * Reports a typed config update to the API.
+     *
+     * @p callback, when set, receives the SDK-level error, the HTTP status of the final attempt
+     * (0 when no HTTP response was received) and the raw reply body. The SDK does not retry a 4xx
+     * or 5xx, so the reported status is final.
+     */
     virtual void updateConfig(const std::string &type, const std::string &version, bool installed,
-                              std::optional<std::string> log = std::nullopt) = 0;
+                              std::optional<std::string> log = std::nullopt,
+                              HttpStatusCallback callback = {}) = 0;
     virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                                std::function<void()> onCreated) = 0;
     virtual void submitGameData(const detail::GameData &data, SessionFlags flags) = 0;
@@ -106,12 +114,18 @@ public:
 
     virtual void cancelModeExpiryTimer() { }
 
+    /**
+     * Uploads diagnostics. @p requestGeneration, when set, is echoed back to the API so it can
+     * tell which request this upload answers; when unset the field is omitted entirely.
+     */
     virtual void uploadDiagnostics(std::vector<std::string> logPaths,
-                                   std::vector<std::string> recordingPaths, std::string logString)
+                                   std::vector<std::string> recordingPaths, std::string logString,
+                                   std::optional<std::uint64_t> requestGeneration = std::nullopt)
     {
         (void)logPaths;
         (void)recordingPaths;
         (void)logString;
+        (void)requestGeneration;
     }
 
     // ---------------------------------------------------------------------------------

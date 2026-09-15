@@ -86,6 +86,18 @@ using Capabilities = sb_capabilities_t;
 using StringCallback = std::function<void(Error error, const std::string &reply)>;
 using VectorCallback = std::function<void(Error error, const std::vector<uint8_t> &data)>;
 
+/**
+ * Reply callback that also reports the HTTP status of the request.
+ *
+ * Like @ref StringCallback, but additionally carries the status code of the **final** attempt the
+ * SDK made. @p httpStatus is 0 when no HTTP response was received at all — a transport failure, or
+ * a request short-circuited before it was sent (@ref Error::AuthFailed, @ref Error::NotPaired).
+ *
+ * @note The SDK does not retry a 4xx or 5xx response; the status reported here is final.
+ */
+using HttpStatusCallback =
+        std::function<void(Error error, int httpStatus, const std::string &reply)>;
+
 /// HTTP header list for download functions.
 using HttpHeaders = std::vector<std::pair<std::string, std::string>>;
 

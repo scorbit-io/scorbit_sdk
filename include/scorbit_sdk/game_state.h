@@ -437,22 +437,74 @@ public:
                            const std::vector<std::string> &recordingPaths = {},
                            const std::string &logString = {})
     {
-        std::vector<const char *> logArr;
-        logArr.reserve(logPaths.size());
-        for (const auto &p : logPaths) {
-            logArr.push_back(p.c_str());
-        }
+        uploadDiagnosticsImpl(logPaths, recordingPaths, logString, nullptr);
+    }
 
-        std::vector<const char *> recArr;
-        recArr.reserve(recordingPaths.size());
-        for (const auto &p : recordingPaths) {
-            recArr.push_back(p.c_str());
-        }
+    /**
+     * @brief Upload diagnostics, echoing back the request generation that asked for them.
+     *
+     * As @ref uploadDiagnostics, but also sends @p requestGeneration so the API can tell which
+     * request this upload answers. Use the overload without it when there is no such request —
+     * the SDK never invents a value.
+     *
+     * @param logPaths List of file paths to log files.
+     * @param recordingPaths List of file paths to recording files.
+     * @param logString Arbitrary log text to include.
+     * @param requestGeneration The generation this upload answers.
+     */
+    void uploadDiagnostics(const std::vector<std::string> &logPaths,
+                           const std::vector<std::string> &recordingPaths,
+                           const std::string &logString, uint64_t requestGeneration)
+    {
+        uploadDiagnosticsImpl(logPaths, recordingPaths, logString, &requestGeneration);
+    }
 
-        sb_upload_diagnostics(
-                m_handle.get(), logArr.empty() ? nullptr : const_cast<const char **>(logArr.data()),
-                logArr.size(), recArr.empty() ? nullptr : const_cast<const char **>(recArr.data()),
-                recArr.size(), logString.c_str());
+    /**
+     * @brief Report a typed config update for this device to the Scorbit API.
+     *
+     * Sends `{"type": ..., "version": ..., "installed": ..., "log": ...}` to the device's config
+     * endpoint. The SDK does not interpret @p type or @p version: any type the API understands can
+     * be reported through this call, and @p version is sent verbatim as a JSON string.
+     *
+     * @note A blank @p version is sent as `"version": ""` rather than omitted. That is meaningful —
+     * it is how a caller withdraws a report it made earlier.
+     *
+     * @note The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry of their own;
+     * a re-send should be a fresh report of current state, not a retry of a failed message.
+     *
+     * @note The callback is invoked asynchronously when the operation completes, running in a
+     * separate thread from the main calling thread. It is recommended to use appropriate locks
+     * (e.g., a mutex) when accessing shared data.
+     *
+     * @param type The update type, e.g. "sdk". Passed through unchanged.
+     * @param version The version being reported. Pass an empty string to withdraw a prior report.
+     * @param installed Whether the reported item is installed. Ignored by types that do not read
+     * it.
+     * @param callback Optional callback of @ref HttpStatusCallback receiving the error, the HTTP
+     * status of the final attempt (0 when no HTTP response was received) and the raw reply.
+     */
+    void updateConfig(const std::string &type, const std::string &version, bool installed = true,
+                      HttpStatusCallback callback = {})
+    {
+        updateConfigImpl(type, version, installed, nullptr, std::move(callback));
+    }
+
+    /**
+     * @brief Report a typed config update, attaching a log.
+     *
+     * As @ref updateConfig, but also sends @p log. An empty @p log is still sent as a field; use
+     * the overload without it to omit the field entirely.
+     *
+     * @param type The update type, e.g. "sdk". Passed through unchanged.
+     * @param version The version being reported. Pass an empty string to withdraw a prior report.
+     * @param installed Whether the reported item is installed.
+     * @param log Log text to attach.
+     * @param callback Optional callback of @ref HttpStatusCallback.
+     */
+    void updateConfig(const std::string &type, const std::string &version, bool installed,
+                      const std::string &log, HttpStatusCallback callback = {})
+    {
+        updateConfigImpl(type, version, installed, log.c_str(), std::move(callback));
     }
 
     // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
@@ -538,6 +590,55 @@ private:
     {
         auto *userData = new StringCallback(std::move(callback));
         return std::make_pair(&GameState::string_callback_c, userData);
+    }
+
+    /// @p log and @p requestGeneration are NULL when the field is to be omitted entirely.
+    void updateConfigImpl(const std::string &type, const std::string &version, bool installed,
+                          const char *log, HttpStatusCallback callback)
+    {
+        auto cbPair = prepareHttpStatusCallback(std::move(callback));
+        sb_update_config(m_handle.get(), type.c_str(), version.c_str(), installed, log,
+                         cbPair.first, cbPair.second);
+    }
+
+    void uploadDiagnosticsImpl(const std::vector<std::string> &logPaths,
+                               const std::vector<std::string> &recordingPaths,
+                               const std::string &logString, const uint64_t *requestGeneration)
+    {
+        std::vector<const char *> logArr;
+        logArr.reserve(logPaths.size());
+        for (const auto &p : logPaths) {
+            logArr.push_back(p.c_str());
+        }
+
+        std::vector<const char *> recArr;
+        recArr.reserve(recordingPaths.size());
+        for (const auto &p : recordingPaths) {
+            recArr.push_back(p.c_str());
+        }
+
+        sb_upload_diagnostics_ex(
+                m_handle.get(), logArr.empty() ? nullptr : const_cast<const char **>(logArr.data()),
+                logArr.size(), recArr.empty() ? nullptr : const_cast<const char **>(recArr.data()),
+                recArr.size(), logString.c_str(), requestGeneration);
+    }
+
+    static void http_status_callback_c(sb_error_t error, int http_status, const char *reply,
+                                       void *user_data)
+    {
+        auto *cb = static_cast<HttpStatusCallback *>(user_data);
+        if (*cb) {
+            (*cb)(static_cast<Error>(error), http_status,
+                  reply ? std::string(reply) : std::string {});
+        }
+        delete cb;
+    }
+
+    static std::pair<sb_http_status_callback_t, void *>
+    prepareHttpStatusCallback(HttpStatusCallback callback)
+    {
+        auto *userData = new HttpStatusCallback(std::move(callback));
+        return std::make_pair(&GameState::http_status_callback_c, userData);
     }
 
     static void buffer_callback_c(sb_error_t error, const uint8_t *data, size_t size,

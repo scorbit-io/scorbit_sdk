@@ -321,6 +321,11 @@ void eventsCallback(const sb_event_t *event, void *user_data)
                 // const char *logs[] = {"path/to/log1.txt", "path/to/log2.txt"};
                 // sb_upload_diagnostics(gGameStatePtr, logs, sizeof(logs) / sizeof(logs[0]),
                 //                       NULL, 0, "extra string log message");
+                // When the upload answers a specific request, echo that request's generation
+                // back so the service can tell which request this upload answers:
+                // const uint64_t generation = 7;
+                // sb_upload_diagnostics_ex(gGameStatePtr, NULL, 0, NULL, 0,
+                //                          "extra string log message", &generation);
             }
         }
     } break;
@@ -513,6 +518,14 @@ void download_buffer_callback(sb_error_t error, const uint8_t *data, size_t size
     }
 }
 
+void config_update_callback(sb_error_t error, int http_status, const char *reply, void *user_data)
+{
+    (void)user_data;
+    // http_status is the status of the final attempt; 0 means no HTTP response was received.
+    printf("Config update finished: error=%d, http=%d, reply=%s\n", (int)error, http_status,
+           reply ? reply : "");
+}
+
 int main(void)
 {
     // Allocate memory for player names
@@ -535,6 +548,14 @@ int main(void)
 
     // Set capabilities. Here we set both start game and credit drop capabilities
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
+
+    // Report a typed piece of device state. The type is passed through unchanged, so any type the
+    // service understands can be reported. The SDK does not retry a 4xx or 5xx, so do not add a
+    // retry here -- send current state again on your next trigger instead.
+    sb_update_config(gs, "sdk", SCORBIT_SDK_VERSION, true, NULL, config_update_callback, NULL);
+
+    // Passing an empty version withdraws a report made earlier:
+    // sb_update_config(gs, "sdk", "", true, NULL, NULL, NULL);
 
     // Short code for pairing (6 alphanumeric chars); alternative to QR deeplink
     sb_request_pair_code(gs, &shortcode_callback, NULL);

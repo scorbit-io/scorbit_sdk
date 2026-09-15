@@ -57,19 +57,17 @@ public:
         return info;
     };
     void requestTopScores(LeaderboardScope, LeaderboardPeriod, const std::string &,
-                          LeaderboardVpinFilter,
-                          LeaderboardHandleCallback) override
-    {
-    };
+                          LeaderboardVpinFilter, LeaderboardHandleCallback) override {};
     void requestUnpair(StringCallback) override {};
-    void authenticate() override { };
+    void authenticate() override {};
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
-                       std::function<void()>) override { };
-    void submitGameData(const GameData &, SessionFlags) override { };
-    void getConfig() override { };
+                       std::function<void()>) override {};
+    void submitGameData(const GameData &, SessionFlags) override {};
+    void getConfig() override {};
 
-    MAKE_MOCK4(updateConfig,
-               void(const std::string &, const std::string &, bool, std::optional<std::string>),
+    MAKE_MOCK5(updateConfig,
+               void(const std::string &, const std::string &, bool, std::optional<std::string>,
+                    HttpStatusCallback),
                override);
     MAKE_MOCK5(download,
                void(bool isAsync, StringCallback, const std::string &, const std::string &,
@@ -77,14 +75,14 @@ public:
                override);
 
     void downloadBuffer(bool isAsync, VectorCallback, const std::string &, size_t,
-                        const HttpHeaders &) override { };
+                        const HttpHeaders &) override {};
     PlayerProfilesManager &playersManager() override { return m_playersManager; };
     void patchScorbitron(std::string, StringCallback, std::vector<AuthStatus>) override {};
     std::string consumeNonce() override { return {}; };
-    void requestPairMachine(const std::string &, const std::string &, StringCallback) override { };
-    void setCapabilities(Capabilities capabilities) override { };
-    void setCreditsDropped(int, const std::string &, bool) override { };
-    void setCreditsStatus(bool, int, int, const char *) override { };
+    void requestPairMachine(const std::string &, const std::string &, StringCallback) override {};
+    void setCapabilities(Capabilities capabilities) override {};
+    void setCreditsDropped(int, const std::string &, bool) override {};
+    void setCreditsStatus(bool, int, int, const char *) override {};
 
 private:
     PlayerProfilesManager m_playersManager;
@@ -148,7 +146,7 @@ TEST_CASE("Updater")
                 .LR_SIDE_EFFECT(_2(Error::ApiError, "some_temp_file.tar.gz");)
                 .TIMES(1);
 
-        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq("1.0.1"), eq(false), _))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq("1.0.1"), eq(false), _, _))
                 .WITH(_4.has_value()
                       && _4->find("Updater: download failed: 4, some_temp_file.tar.gz")
                                  != std::string::npos)
@@ -161,7 +159,7 @@ TEST_CASE("Updater")
     {
         json["sdk"]["version"] = "1.0.0";
         REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false),
-                                              ANY(std::optional<std::string>)))
+                                              ANY(std::optional<std::string>), _))
                 .TIMES(1);
 
         updater.checkNewVersionAndUpdate(json, nullptr);
@@ -170,7 +168,7 @@ TEST_CASE("Updater")
     SECTION("empty assets")
     {
         json["sdk"]["assets_json"].clear();
-        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _, _))
                 .WITH(_4.has_value()
                       && _4->find("Couldn't find update file in assets") != std::string::npos)
                 .TIMES(1);
@@ -199,7 +197,7 @@ TEST_CASE("Updater major.minor version mismatch")
     // Create Updater object with mocked NetBase
     TestableUpdater updater(*mockNet, false, "1.99.30", "test_platform");
 
-    REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+    REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _, _))
             .WITH(_4.has_value()
                   && _4->find("Version mismatch: can only update by 1.0.x, found: 1.1.0")
                              != std::string::npos)
@@ -230,7 +228,7 @@ TEST_CASE("Updater prod key hash check")
         // Create Updater object with mocked NetBase
         TestableUpdater updater(*mockNet, true, "1.99.30", "test_platform");
 
-        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _))
+        REQUIRE_CALL(mockNetRef, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _, _))
                 .WITH(_4.has_value()
                       && _4->find("Using encrypted key, production key hash mismatch: "
                                   "expected unknown1, found unknown2")

@@ -59,6 +59,9 @@ sb_event_callback_t = CFUNCTYPE(None, c_void_p, c_void_p)
 # void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data)
 sb_string_callback_t = CFUNCTYPE(None, c_int, c_char_p, c_void_p)
 
+# void (*sb_http_status_callback_t)(sb_error_t, int http_status, const char*, void*)
+sb_http_status_callback_t = CFUNCTYPE(None, c_int, c_int, c_char_p, c_void_p)
+
 # void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size, void *user_data)
 sb_buffer_callback_t = CFUNCTYPE(None, c_int, POINTER(c_uint8), c_size_t, c_void_p)
 
@@ -495,6 +498,22 @@ _lib.sb_upload_diagnostics.restype = None
 _lib.sb_upload_diagnostics.argtypes = [
     sb_game_handle_t, POINTER(c_char_p), c_size_t,
     POINTER(c_char_p), c_size_t, c_char_p
+]
+
+# void sb_upload_diagnostics_ex(sb_game_handle_t, const char**, size_t,
+#                               const char**, size_t, const char*, const uint64_t*)
+_lib.sb_upload_diagnostics_ex.restype = None
+_lib.sb_upload_diagnostics_ex.argtypes = [
+    sb_game_handle_t, POINTER(c_char_p), c_size_t,
+    POINTER(c_char_p), c_size_t, c_char_p, POINTER(c_uint64)
+]
+
+# void sb_update_config(sb_game_handle_t, const char*, const char*, bool,
+#                       const char*, sb_http_status_callback_t, void*)
+_lib.sb_update_config.restype = None
+_lib.sb_update_config.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, c_bool,
+    c_char_p, sb_http_status_callback_t, c_void_p
 ]
 
 # ---------------------------------------------------------------------------

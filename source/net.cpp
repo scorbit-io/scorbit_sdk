@@ -116,6 +116,57 @@ constexpr auto PAIR_CODE_TIMEOUT = 2min;
 
 auto noop_task = []() { };
 
+/// True when @p CallbackT wants the HTTP status alongside the reply (@ref HttpStatusCallback),
+/// false for a plain @ref StringCallback.
+template<typename CallbackT>
+inline constexpr bool wantsHttpStatus =
+        std::is_invocable_v<const CallbackT &, Error, int, const std::string &>;
+
+/// True when @p callback can be empty and is. A std::function can be; a bare lambda cannot, and is
+/// always safe to call.
+template<typename CallbackT>
+bool isUnset(const CallbackT &callback)
+{
+    if constexpr (requires { static_cast<bool>(callback); }) {
+        return !callback;
+    } else {
+        return false;
+    }
+}
+
+/// Invokes a reply callback, passing the HTTP status only to callbacks that take one. This is what
+/// lets a status-carrying callback share createHttpRequestTask with every StringCallback caller.
+template<typename CallbackT>
+void invokeReply(const CallbackT &callback, Error error, std::string reply, int httpStatus)
+{
+    if (isUnset(callback)) {
+        return;
+    }
+    if constexpr (wantsHttpStatus<CallbackT>) {
+        callback(error, httpStatus, reply);
+    } else {
+        callback(error, std::move(reply));
+    }
+}
+
+/// Adapts a reply callback to the StringCallback that the auth gate parks. A status-carrying
+/// callback is reported a status of 0: a request parked on the gate never produced an HTTP
+/// response.
+template<typename CallbackT>
+StringCallback asStringCallback(CallbackT callback)
+{
+    if constexpr (wantsHttpStatus<CallbackT>) {
+        if (isUnset(callback)) {
+            return {};
+        }
+        return [cb = std::move(callback)](Error error, const std::string &reply) {
+            cb(error, 0, reply);
+        };
+    } else {
+        return callback;
+    }
+}
+
 std::optional<std::string_view> leaderboardPeriodParam(LeaderboardPeriod period)
 {
     switch (period) {
@@ -142,6 +193,40 @@ std::string elideUrl(const std::string &url, size_t keep = 20)
         return url;
     }
     return url.substr(0, keep) + "..." + url.substr(url.size() - keep);
+}
+
+std::string buildConfigUpdatePayload(const std::string &type, const std::string &version,
+                                     bool installed, const std::optional<std::string> &log)
+{
+    // `version` is serialised as a JSON string in every case, so a blank one goes out verbatim as
+    // "version": "" — that is how a caller withdraws a previous report. Nothing here inspects
+    // `type`: any type the API understands passes through unchanged.
+    json j {
+            {JKEY_SCFG_VERSION, version},
+            {JKEY_SCFG_TYPE, type},
+            {JKEY_SCFG_INSTALLED, installed},
+    };
+    if (log) {
+        j[JKEY_SCFG_LOG] = *log;
+    }
+    return j.dump();
+}
+
+cpr::Multipart buildDiagnosticsMultipart(const std::string &archivePath,
+                                         const std::optional<std::uint64_t> &requestGeneration)
+{
+    // Streamed from disk by CPR; the whole archive is never loaded into memory.
+    cpr::Multipart parts {
+            {MPART_DIAG_FILE, cpr::Files {cpr::File {archivePath, "diagnostics.tar.gz"}}},
+    };
+
+    // Only sent when the caller supplied one. An absent field means "this upload does not answer
+    // a specific request"; the SDK never invents a value.
+    if (requestGeneration) {
+        parts.parts.emplace_back(MPART_DIAG_REQUEST_GENERATION, std::to_string(*requestGeneration));
+    }
+
+    return parts;
 }
 
 string getSignature(const SignerCallback &signer, const std::string &uuid,
@@ -406,10 +491,14 @@ void Net::authenticate()
 }
 
 void Net::updateConfig(const std::string &type, const std::string &version, bool installed,
-                       std::optional<string> log)
+                       std::optional<string> log, HttpStatusCallback callback)
 {
     INF("API post queue installed, type: {}, version: {}", type, version);
-    m_worker.postQueue(updateConfigTask(type, version, std::move(installed), std::move(log)));
+    // Serialised per type rather than posted straight to the queue: see SerialTaskQueue. Two
+    // updates for one type must reach the API in the order the caller made them, and posting both
+    // to the same strand does not guarantee that once the auth gate parks one of them.
+    m_configUpdates.submit(type, updateConfigTask(type, version, std::move(installed),
+                                                  std::move(log), std::move(callback)));
 }
 
 void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
@@ -1099,10 +1188,11 @@ void Net::cancelModeExpiryTimer()
 }
 
 void Net::uploadDiagnostics(std::vector<std::string> logPaths,
-                            std::vector<std::string> recordingPaths, std::string logString)
+                            std::vector<std::string> recordingPaths, std::string logString,
+                            std::optional<std::uint64_t> requestGeneration)
 {
     m_worker.post([this, logPaths = std::move(logPaths), recordingPaths = std::move(recordingPaths),
-                   logString = std::move(logString)]() mutable {
+                   logString = std::move(logString), requestGeneration]() mutable {
         INF("API diagnostics upload: starting");
 
         std::vector<ArchiveFileEntry> archiveFiles;
@@ -1201,10 +1291,7 @@ void Net::uploadDiagnostics(std::vector<std::string> logPaths,
             return;
         }
 
-        // Stream from disk via CPR (do not load the whole archive into memory).
-        SafeMultipart multipart {cpr::Multipart {
-                {"file", cpr::Files {cpr::File {archivePath, "diagnostics.tar.gz"}}},
-        }};
+        SafeMultipart multipart {buildDiagnosticsMultipart(archivePath, requestGeneration)};
 
         auto callback = [this, archivePath](Error error, std::string reply) {
             fs::remove(archivePath);
@@ -1415,33 +1502,40 @@ task_t Net::createAuthenticateTask()
 }
 
 task_t Net::updateConfigTask(const std::string &type, const std::string &version, bool installed,
-                             std::optional<std::string> log)
+                             std::optional<std::string> log, HttpStatusCallback callback)
 {
-    // Create json string
-    json j {
-            {JKEY_SCFG_VERSION, version},
-            {JKEY_SCFG_TYPE, type},
-            {JKEY_SCFG_INSTALLED, installed},
-    };
-    if (log) {
-        j[JKEY_SCFG_LOG] = *log;
-    }
+    // Wrapped as an HttpStatusCallback, not left as a bare lambda: that is what selects the
+    // status-carrying path through createHttpRequestTask.
+    HttpStatusCallback replyCallback = [this, type,
+                                        callback = std::move(callback)](Error error, int httpStatus,
+                                                                        const std::string &reply) {
+        // createHttpRequestTask invokes this exactly once on every terminal path — success,
+        // API error, and the auth gate giving up — which makes it the one place that can
+        // reliably release the type's slot. Released through a guard so that a caller whose
+        // callback throws stalls nothing: the next update for this type still goes out.
+        struct SlotGuard {
+            Net *net;
+            const std::string &type;
+            ~SlotGuard() { net->m_configUpdates.finish(type); }
+        } guard {this, type};
 
-    auto callback = [](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API update config: ok, {}", reply);
         } else {
-            ERR("API update config: failed, error code: {}, reply: {}", static_cast<int>(error),
-                reply);
+            ERR("API update config: failed, error code: {}, http status: {}, reply: {}",
+                static_cast<int>(error), httpStatus, reply);
+        }
+        if (callback) {
+            callback(error, httpStatus, reply);
         }
     };
 
-    auto deferredSetup = [this, payload = j.dump()]() {
+    auto deferredSetup = [this, payload = buildConfigUpdatePayload(type, version, installed, log)] {
         INF("API sending update config: {}", payload);
         return std::make_tuple(url(URL_SCORBITRON_CONFIG), cpr::Body {payload});
     };
 
-    return createPatchRequestTask(std::move(callback), std::move(deferredSetup),
+    return createPatchRequestTask(std::move(replyCallback), std::move(deferredSetup),
                                   {
                                           AuthStatus::AuthenticatedUnpaired,
                                           AuthStatus::AuthenticatedPaired,
@@ -2229,8 +2323,8 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 }
 
 // Template implementation for generic HTTP request task
-template<typename DeferredSetupT, typename HttpMethodT>
-task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyCallback,
+template<typename DeferredSetupT, typename HttpMethodT, typename CallbackT>
+task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
                                   std::vector<AuthStatus> allowedStatuses,
                                   bool includeFingerprintHash, bool resilientTransferTimeouts)
@@ -2251,22 +2345,23 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
 
         case AuthGate::Terminal:
             DBG("Can't send {} request, status does not allow it", requestType);
-            if (callback) {
-                callback(authGateError(), {});
-            }
+            invokeReply(callback, authGateError(), {}, 0);
             return;
 
         case AuthGate::Pending:
             // Give the thread back instead of holding it until the status settles. The whole
             // pool would otherwise end up parked here with nothing left to authenticate with.
             if (auto self = weakRun.lock()) {
-                parkOnAuthGate([self] { (*self)(); }, callback, allowedStatuses);
+                parkOnAuthGate([self] { (*self)(); }, asStringCallback(callback), allowedStatuses);
             }
             return;
         }
 
         Error error {Error::ApiError};
         std::string reply;
+        // Status of the final attempt. Hoisted alongside `reply` because `r` below is scoped to
+        // the retry loop; 0 means no HTTP response was ever received.
+        int httpStatus = 0;
 
         for (int i = 0; i < NUM_RETRIES; ++i) {
             auto setupResult = deferredSetup();
@@ -2293,6 +2388,7 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             auto r = httpMethod(url, std::get<1>(setupResult), hdrs, cpr::Timeout {NET_TIMEOUT},
                                 resilientTransferTimeouts);
             reply = std::move(r.text);
+            httpStatus = r.status_code;
 
             if (r.status_code >= 200 && r.status_code < 300) {
                 DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
@@ -2326,12 +2422,44 @@ task_t Net::createHttpRequestTask(const char *requestType, StringCallback replyC
             auth();
         }
 
-        if (callback) {
-            callback(error, std::move(reply));
-        }
+        invokeReply(callback, error, std::move(reply), httpStatus);
     };
 
     return [run] { (*run)(); };
+}
+
+// Test seam; see NetTestAccess in net.h. Instantiated here because createHttpRequestTask is
+// defined in this translation unit.
+template<typename CallbackT>
+task_t NetTestAccess::make(Net &net, CallbackT callback, TestTransport transport,
+                           std::string payload)
+{
+    return net.createHttpRequestTask(
+            "TEST", std::move(callback),
+            [payload = std::move(payload)] {
+                return std::make_tuple(cpr::Url {"https://example.invalid/test/"},
+                                       cpr::Body {payload});
+            },
+            [transport = std::move(transport)](const cpr::Url &url, const cpr::Body &body,
+                                               const cpr::Header &header,
+                                               const cpr::Timeout &timeout, bool resilient) {
+                return transport(url, body, header, timeout, resilient);
+            },
+            // The status a freshly-constructed Net already has, so the auth gate opens without
+            // authenticating.
+            std::vector<AuthStatus> {AuthStatus::NotAuthenticated});
+}
+
+task_t NetTestAccess::request(Net &net, HttpStatusCallback callback, TestTransport transport,
+                              std::string payload)
+{
+    return make(net, std::move(callback), std::move(transport), std::move(payload));
+}
+
+task_t NetTestAccess::request(Net &net, StringCallback callback, TestTransport transport,
+                              std::string payload)
+{
+    return make(net, std::move(callback), std::move(transport), std::move(payload));
 }
 
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -2397,8 +2525,8 @@ task_t Net::createPostMultipartRequestTask(StringCallback replyCallback,
             std::move(allowedStatuses), false, true);
 }
 
-task_t Net::createPatchRequestTask(StringCallback replyCallback,
-                                   deferred_patch_setup_t deferredSetup,
+template<typename CallbackT>
+task_t Net::createPatchRequestTask(CallbackT replyCallback, deferred_patch_setup_t deferredSetup,
                                    std::vector<AuthStatus> allowedStatuses)
 {
     return createHttpRequestTask(
