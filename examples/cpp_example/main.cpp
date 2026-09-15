@@ -388,8 +388,9 @@ int main()
 
     // Report a typed piece of device state. The type is passed through unchanged, so any type the
     // service understands can be reported. The callback also receives the HTTP status of the final
-    // attempt; 0 means no HTTP response was received at all. The SDK does not retry a 4xx or 5xx,
-    // so do not add a retry here -- send current state again on your next trigger instead.
+    // attempt; 0 means no HTTP response was received at all. The SDK does not retry a 4xx or 5xx
+    // (a 401 is the one exception -- it re-authenticates and tries again), so do not add a retry
+    // here: send current state again on your next trigger instead.
     gs.updateConfig("sdk", SCORBIT_SDK_VERSION, true,
                     [](scorbit::Error error, int httpStatus, const std::string &reply) {
                         cout << "Config update finished: error=" << static_cast<int>(error)

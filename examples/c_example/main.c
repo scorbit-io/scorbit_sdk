@@ -550,8 +550,9 @@ int main(void)
     sb_set_capabilities(gs, SB_CAPABILITY_START_GAME | SB_CAPABILITY_CREDIT_DROP);
 
     // Report a typed piece of device state. The type is passed through unchanged, so any type the
-    // service understands can be reported. The SDK does not retry a 4xx or 5xx, so do not add a
-    // retry here -- send current state again on your next trigger instead.
+    // service understands can be reported. The SDK does not retry a 4xx or 5xx (a 401 is the one
+    // exception -- it re-authenticates and tries again), so do not add a retry here: send current
+    // state again on your next trigger instead.
     sb_update_config(gs, "sdk", SCORBIT_SDK_VERSION, true, NULL, config_update_callback, NULL);
 
     // Passing an empty version withdraws a report made earlier:

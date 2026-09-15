@@ -191,7 +191,9 @@ typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *
  * - **reply**: The raw response body, or an empty string when there was none.
  * - **user_data**: The user data passed when making the request.
  *
- * @note The SDK does not retry a 4xx or 5xx response; the status reported here is final.
+ * @note The SDK does not retry a 4xx or 5xx, with one exception: it owns authentication, so a
+ * 401 is answered by re-authenticating and trying again, bounded by the SDK's own retry limit.
+ * Either way the status reported here is that of the final attempt.
  */
 typedef void (*sb_http_status_callback_t)(sb_error_t error, int http_status, const char *reply,
                                           void *user_data);

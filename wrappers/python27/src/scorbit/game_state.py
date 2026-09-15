@@ -276,7 +276,9 @@ class GameState(object):
             try:
                 reply_str = reply
                 if isinstance(reply_str, bytes):
-                    reply_str = reply_str.decode("utf-8", errors="replace")
+                    # Positional, not errors=: Python 2's str.decode takes no keyword
+                    # arguments, and here bytes is str so every reply reaches this branch.
+                    reply_str = reply_str.decode("utf-8", "replace")
                 callback(Error(error_code), http_status, reply_str or "")
             except Exception:
                 traceback.print_exc()
@@ -563,9 +565,11 @@ class GameState(object):
         string. A blank ``version`` is sent as ``"version": ""`` rather than
         omitted -- that is how a caller withdraws an earlier report.
 
-        The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry
-        of their own; a re-send should be a fresh report of current state, not a
-        retry of a failed message.
+        The SDK does not retry a 4xx or 5xx, with one exception: a 401 is
+        answered by re-authenticating and trying again, because the SDK owns
+        authentication. Callers must not add a retry of their own; a re-send
+        should be a fresh report of current state, not a retry of a failed
+        message.
 
         Args:
             type: The update type, e.g. ``"sdk"``. Passed through unchanged.

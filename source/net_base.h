@@ -60,7 +60,8 @@ public:
      *
      * @p callback, when set, receives the SDK-level error, the HTTP status of the final attempt
      * (0 when no HTTP response was received) and the raw reply body. The SDK does not retry a 4xx
-     * or 5xx, so the reported status is final.
+     * or 5xx, apart from a 401, which it answers by re-authenticating and trying again; the
+     * reported status is that of the final attempt.
      */
     virtual void updateConfig(const std::string &type, const std::string &version, bool installed,
                               std::optional<std::string> log = std::nullopt,

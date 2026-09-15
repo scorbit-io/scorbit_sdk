@@ -276,6 +276,49 @@ TEST_CASE("A 4xx is reported and not retried")
     CHECK(transport.calls == 1); // the SDK must not retry a 4xx
 }
 
+TEST_CASE("A 401 is retried unlike every other 4xx")
+{
+    DeviceInfo info;
+    Net net {std::move(info), {}};
+
+    // 401 is the documented exception to "a 4xx is not retried": the SDK owns authentication, so
+    // it re-authenticates and tries again rather than handing the status back. The caller sees the
+    // status of the attempt that followed.
+    ScriptedTransport transport {{makeResponse(401), makeResponse(400, "still no")}};
+
+    int seenStatus = -1;
+    HttpStatusCallback callback = [&](Error, int httpStatus, const std::string &) {
+        seenStatus = httpStatus;
+    };
+
+    NetTestAccess::request(net, std::move(callback), std::ref(transport), "{}")();
+
+    CHECK(transport.calls == 2); // retried, where a 400 or 500 would have stopped at 1
+    CHECK(seenStatus == 400);
+}
+
+TEST_CASE("A 401 that never clears stops at the retry limit")
+{
+    DeviceInfo info;
+    Net net {std::move(info), {}};
+
+    // The 401 retry is bounded by NUM_RETRIES; it does not spin.
+    ScriptedTransport transport {{makeResponse(401)}};
+
+    int seenStatus = -1;
+    Error seenError {Error::Success};
+    HttpStatusCallback callback = [&](Error error, int httpStatus, const std::string &) {
+        seenError = error;
+        seenStatus = httpStatus;
+    };
+
+    NetTestAccess::request(net, std::move(callback), std::ref(transport), "{}")();
+
+    CHECK(transport.calls == 3);
+    CHECK(seenStatus == 401);
+    CHECK(seenError == Error::ApiError);
+}
+
 TEST_CASE("A 5xx is reported and not retried")
 {
     DeviceInfo info;

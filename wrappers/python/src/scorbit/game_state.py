@@ -567,9 +567,11 @@ class GameState(object):
         string. A blank ``version`` is sent as ``"version": ""`` rather than
         omitted -- that is how a caller withdraws an earlier report.
 
-        The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry
-        of their own; a re-send should be a fresh report of current state, not a
-        retry of a failed message.
+        The SDK does not retry a 4xx or 5xx, with one exception: a 401 is
+        answered by re-authenticating and trying again, because the SDK owns
+        authentication. Callers must not add a retry of their own; a re-send
+        should be a fresh report of current state, not a retry of a failed
+        message.
 
         Args:
             type: The update type, e.g. ``"sdk"``. Passed through unchanged.

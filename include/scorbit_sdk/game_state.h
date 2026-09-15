@@ -469,8 +469,11 @@ public:
      * @note A blank @p version is sent as `"version": ""` rather than omitted. That is meaningful —
      * it is how a caller withdraws a report it made earlier.
      *
-     * @note The SDK does not retry a 4xx or 5xx reply. Callers must not add a retry of their own;
-     * a re-send should be a fresh report of current state, not a retry of a failed message.
+     * @note The SDK does not retry a 4xx or 5xx, with one exception: a 401 is answered by
+     * re-authenticating and trying again, because the SDK owns authentication. If that still
+     * fails the result is @ref Error::AuthFailed rather than a status. Callers must not add a
+     * retry of their own; a re-send should be a fresh report of current state, not a retry of a
+     * failed message.
      *
      * @note The callback is invoked asynchronously when the operation completes, running in a
      * separate thread from the main calling thread. It is recommended to use appropriate locks
