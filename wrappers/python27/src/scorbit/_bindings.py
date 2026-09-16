@@ -510,10 +510,10 @@ _lib.sb_upload_diagnostics_ex.argtypes = [
     POINTER(c_char_p), c_size_t, c_char_p, POINTER(c_uint64)
 ]
 
-# void sb_update_config(sb_game_handle_t, const char*, const char*, bool,
+# void sb_report_device_state(sb_game_handle_t, const char*, const char*, bool,
 #                       const char*, sb_http_status_callback_t, void*)
-_lib.sb_update_config.restype = None
-_lib.sb_update_config.argtypes = [
+_lib.sb_report_device_state.restype = None
+_lib.sb_report_device_state.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, c_bool,
     c_char_p, sb_http_status_callback_t, c_void_p
 ]

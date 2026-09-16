@@ -207,7 +207,7 @@ struct JobUploadDiagnostics {
     std::optional<std::uint64_t> requestGeneration;
 };
 
-struct JobUpdateConfig {
+struct JobReportDeviceState {
     sb_game_state_struct *h;
     std::string type;
     std::string version;
@@ -223,7 +223,7 @@ using ApiQueueItem =
                      JobSetModeCompleted, JobTickModeExpiries, JobRemoveMode, JobClearModes,
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
-                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobUpdateConfig>;
+                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -360,8 +360,8 @@ void dispatchApiJob(ApiQueueItem &&item)
                                 std::move(j.logPaths), std::move(j.recordingPaths),
                                 std::move(j.logString), j.requestGeneration);
                     },
-                    [](JobUpdateConfig &&j) {
-                        j.h->gameState.updateConfig(
+                    [](JobReportDeviceState &&j) {
+                        j.h->gameState.reportDeviceState(
                                 j.type, j.version, j.installed, std::move(j.log),
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
                     },
@@ -652,12 +652,12 @@ void sb_upload_diagnostics_ex(sb_game_handle_t handle, const char **log_paths, s
             request_generation ? std::optional<std::uint64_t> {*request_generation} : std::nullopt);
 }
 
-void sb_update_config(sb_game_handle_t handle, const char *type, const char *version,
-                      bool installed, const char *log, sb_http_status_callback_t callback,
-                      void *user_data)
+void sb_report_device_state(sb_game_handle_t handle, const char *type, const char *version,
+                            bool installed, const char *log, sb_http_status_callback_t callback,
+                            void *user_data)
 {
     // A NULL log omits the field; an empty string is a caller-supplied empty log and is kept.
-    handle->postApiJob(JobUpdateConfig {handle, copyCStr(type), copyCStr(version), installed,
-                                        log ? std::optional<std::string> {log} : std::nullopt,
-                                        callback, user_data});
+    handle->postApiJob(JobReportDeviceState {handle, copyCStr(type), copyCStr(version), installed,
+                                             log ? std::optional<std::string> {log} : std::nullopt,
+                                             callback, user_data});
 }

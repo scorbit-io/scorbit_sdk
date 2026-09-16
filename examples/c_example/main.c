@@ -553,10 +553,11 @@ int main(void)
     // service understands can be reported. The SDK does not retry a 4xx or 5xx (a 401 is the one
     // exception -- it re-authenticates and tries again), so do not add a retry here: send current
     // state again on your next trigger instead.
-    sb_update_config(gs, "sdk", SCORBIT_SDK_VERSION, true, NULL, config_update_callback, NULL);
+    sb_report_device_state(gs, "sdk", SCORBIT_SDK_VERSION, true, NULL, config_update_callback,
+                           NULL);
 
     // Passing an empty version withdraws a report made earlier:
-    // sb_update_config(gs, "sdk", "", true, NULL, NULL, NULL);
+    // sb_report_device_state(gs, "sdk", "", true, NULL, NULL, NULL);
 
     // Short code for pairing (6 alphanumeric chars); alternative to QR deeplink
     sb_request_pair_code(gs, &shortcode_callback, NULL);

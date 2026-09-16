@@ -497,7 +497,12 @@ void sb_upload_diagnostics_ex(sb_game_handle_t handle, const char **log_paths, s
                               const char *log_string, const uint64_t *request_generation);
 
 /**
- * @brief Report a typed config update for this device to the Scorbit API.
+ * @brief Report a typed piece of this device's own state to the Scorbit API.
+ *
+ * @note Unrelated to @ref sb_config_t and the sb_config_* functions, which configure the SDK
+ * locally before startup. This reports a runtime fact about the device to the service. The
+ * endpoint it happens to use is named config on the wire, which is why the JSON keys below
+ * look the way they do.
  *
  * Sends `{"type": ..., "version": ..., "installed": ..., "log": ...}` to the device's config
  * endpoint. The SDK does not interpret @p type or @p version: any type the API understands can be
@@ -522,9 +527,9 @@ void sb_upload_diagnostics_ex(sb_game_handle_t handle, const char **log_paths, s
  * @param user_data User data passed back to @p callback.
  */
 SCORBIT_SDK_EXPORT
-void sb_update_config(sb_game_handle_t handle, const char *type, const char *version,
-                      bool installed, const char *log, sb_http_status_callback_t callback,
-                      void *user_data);
+void sb_report_device_state(sb_game_handle_t handle, const char *type, const char *version,
+                            bool installed, const char *log, sb_http_status_callback_t callback,
+                            void *user_data);
 
 // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
 

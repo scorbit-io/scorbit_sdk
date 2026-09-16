@@ -103,8 +103,8 @@ public:
                            std::vector<std::string> recordingPaths, std::string logString,
                            std::optional<std::uint64_t> requestGeneration = std::nullopt);
 
-    void updateConfig(const std::string &type, const std::string &version, bool installed,
-                      std::optional<std::string> log, HttpStatusCallback callback);
+    void reportDeviceState(const std::string &type, const std::string &version, bool installed,
+                           std::optional<std::string> log, HttpStatusCallback callback);
 
 private:
     void addNewPlayer(sb_player_t player);

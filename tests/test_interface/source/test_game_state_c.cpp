@@ -171,7 +171,8 @@ sb_config_t makeSignerConfig()
 
 } // namespace
 
-TEST_CASE("sb_update_config accepts an absent log and an absent callback", "[GameState][Config]")
+TEST_CASE("sb_report_device_state accepts an absent log and an absent callback",
+          "[GameState][Config]")
 {
     sb_config_t cfg = makeSignerConfig();
     sb_game_handle_t h = sb_create_game_state(cfg);
@@ -179,14 +180,14 @@ TEST_CASE("sb_update_config accepts an absent log and an absent callback", "[Gam
 
     // A NULL log omits the field; a NULL callback means the caller wants no result. Neither may
     // crash, and an unknown type must be accepted rather than rejected locally.
-    sb_update_config(h, "capture_retained", "2026-09-15T00:00:00Z", true, nullptr, nullptr,
-                     nullptr);
+    sb_report_device_state(h, "capture_retained", "2026-09-15T00:00:00Z", true, nullptr, nullptr,
+                           nullptr);
 
     // A blank version is the documented way to withdraw a previous report.
-    sb_update_config(h, "capture_retained", "", true, nullptr, nullptr, nullptr);
+    sb_report_device_state(h, "capture_retained", "", true, nullptr, nullptr, nullptr);
 
     // With a log attached.
-    sb_update_config(h, "sdk", "1.2.3", false, "some log text", nullptr, nullptr);
+    sb_report_device_state(h, "sdk", "1.2.3", false, "some log text", nullptr, nullptr);
 
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);

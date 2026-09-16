@@ -460,7 +460,11 @@ public:
     }
 
     /**
-     * @brief Report a typed config update for this device to the Scorbit API.
+     * @brief Report a typed piece of this device's own state to the Scorbit API.
+     *
+     * @note Unrelated to @ref scorbit::Config, which configures the SDK locally before startup.
+     * This reports a runtime fact about the device to the service. The endpoint it happens to
+     * use is named config on the wire, which is why the JSON keys below look the way they do.
      *
      * Sends `{"type": ..., "version": ..., "installed": ..., "log": ...}` to the device's config
      * endpoint. The SDK does not interpret @p type or @p version: any type the API understands can
@@ -486,17 +490,17 @@ public:
      * @param callback Optional callback of @ref HttpStatusCallback receiving the error, the HTTP
      * status of the final attempt (0 when no HTTP response was received) and the raw reply.
      */
-    void updateConfig(const std::string &type, const std::string &version, bool installed = true,
-                      HttpStatusCallback callback = {})
+    void reportDeviceState(const std::string &type, const std::string &version,
+                           bool installed = true, HttpStatusCallback callback = {})
     {
-        updateConfigImpl(type, version, installed, nullptr, std::move(callback));
+        reportDeviceStateImpl(type, version, installed, nullptr, std::move(callback));
     }
 
     /**
-     * @brief Report a typed config update, attaching a log.
+     * @brief Report a typed piece of device state, attaching a log.
      *
-     * As @ref updateConfig, but also sends @p log. An empty @p log is still sent as a field; use
-     * the overload without it to omit the field entirely.
+     * As @ref reportDeviceState, but also sends @p log. An empty @p log is still sent as a field;
+     * use the overload without it to omit the field entirely.
      *
      * @param type The update type, e.g. "sdk". Passed through unchanged.
      * @param version The version being reported. Pass an empty string to withdraw a prior report.
@@ -504,10 +508,10 @@ public:
      * @param log Log text to attach.
      * @param callback Optional callback of @ref HttpStatusCallback.
      */
-    void updateConfig(const std::string &type, const std::string &version, bool installed,
-                      const std::string &log, HttpStatusCallback callback = {})
+    void reportDeviceState(const std::string &type, const std::string &version, bool installed,
+                           const std::string &log, HttpStatusCallback callback = {})
     {
-        updateConfigImpl(type, version, installed, log.c_str(), std::move(callback));
+        reportDeviceStateImpl(type, version, installed, log.c_str(), std::move(callback));
     }
 
     // -------------------------- INTERNAL FOR SCORBIT  --------------------------------------
@@ -596,12 +600,12 @@ private:
     }
 
     /// @p log and @p requestGeneration are NULL when the field is to be omitted entirely.
-    void updateConfigImpl(const std::string &type, const std::string &version, bool installed,
-                          const char *log, HttpStatusCallback callback)
+    void reportDeviceStateImpl(const std::string &type, const std::string &version, bool installed,
+                               const char *log, HttpStatusCallback callback)
     {
         auto cbPair = prepareHttpStatusCallback(std::move(callback));
-        sb_update_config(m_handle.get(), type.c_str(), version.c_str(), installed, log,
-                         cbPair.first, cbPair.second);
+        sb_report_device_state(m_handle.get(), type.c_str(), version.c_str(), installed, log,
+                               cbPair.first, cbPair.second);
     }
 
     void uploadDiagnosticsImpl(const std::vector<std::string> &logPaths,

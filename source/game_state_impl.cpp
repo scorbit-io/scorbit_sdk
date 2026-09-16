@@ -309,9 +309,9 @@ void GameStateImpl::uploadDiagnostics(std::vector<std::string> logPaths,
                              requestGeneration);
 }
 
-void GameStateImpl::updateConfig(const std::string &type, const std::string &version,
-                                 bool installed, std::optional<std::string> log,
-                                 HttpStatusCallback callback)
+void GameStateImpl::reportDeviceState(const std::string &type, const std::string &version,
+                                      bool installed, std::optional<std::string> log,
+                                      HttpStatusCallback callback)
 {
     m_net->updateConfig(type, version, installed, std::move(log), std::move(callback));
 }

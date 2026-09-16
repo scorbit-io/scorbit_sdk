@@ -556,9 +556,9 @@ class GameState(object):
             gen_ptr,
         )
 
-    def update_config(self, type, version, installed=True, log=None, callback=None):
+    def report_device_state(self, type, version, installed=True, log=None, callback=None):
         # type: (str, str, bool, str, ...) -> None
-        """Report a typed config update for this device to the API.
+        """Report a typed piece of device state to the API.
 
         The SDK does not interpret ``type`` or ``version``: any type the API
         understands can be reported, and ``version`` is sent verbatim as a JSON
@@ -580,7 +580,7 @@ class GameState(object):
                 ``http_status`` is 0 when no HTTP response was received.
         """
         cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
-        _lib.sb_update_config(
+        _lib.sb_report_device_state(
             self._handle,
             _encode(type),
             _encode(version),

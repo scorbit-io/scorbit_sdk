@@ -391,14 +391,14 @@ int main()
     // attempt; 0 means no HTTP response was received at all. The SDK does not retry a 4xx or 5xx
     // (a 401 is the one exception -- it re-authenticates and tries again), so do not add a retry
     // here: send current state again on your next trigger instead.
-    gs.updateConfig("sdk", SCORBIT_SDK_VERSION, true,
-                    [](scorbit::Error error, int httpStatus, const std::string &reply) {
-                        cout << "Config update finished: error=" << static_cast<int>(error)
-                             << ", http=" << httpStatus << ", reply=" << reply << endl;
-                    });
+    gs.reportDeviceState("sdk", SCORBIT_SDK_VERSION, true,
+                         [](scorbit::Error error, int httpStatus, const std::string &reply) {
+                             cout << "Config update finished: error=" << static_cast<int>(error)
+                                  << ", http=" << httpStatus << ", reply=" << reply << endl;
+                         });
 
     // Passing an empty version withdraws a report made earlier:
-    // gs.updateConfig("sdk", "");
+    // gs.reportDeviceState("sdk", "");
 
     gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
         if (error == scorbit::Error::Success) {
