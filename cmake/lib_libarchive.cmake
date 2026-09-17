@@ -86,8 +86,22 @@ CPMAddPackage(
 # have given them. An INTERFACE target rather than a bare alias to archive_static,
 # because the static libarchive does not carry zlib as a link dependency and the
 # consumer would fail to link without it.
-if(NOT TARGET LibArchive::LibArchive)
+# Guarded on OUR target, not on LibArchive::LibArchive. This module really is
+# included twice in one configure -- tests/test_detail includes it, and then
+# pulls in the SDK root, which includes it again -- so without a guard the second
+# pass fails on a duplicate target. Keying that guard to our own name means it
+# does not depend on what libarchive does or does not export, now or later.
+#
+# libarchive exports neither name today: LibArchive::LibArchive comes from
+# CMake's own FindLibArchive module, which only runs on the system path, and the
+# system path returns above before reaching here.
+if(NOT TARGET scorbit_libarchive)
     add_library(scorbit_libarchive INTERFACE)
     target_link_libraries(scorbit_libarchive INTERFACE archive_static zlibstatic)
+endif()
+
+# Claim the canonical name only if nothing else has, so a future libarchive that
+# does export it wins rather than colliding.
+if(NOT TARGET LibArchive::LibArchive)
     add_library(LibArchive::LibArchive ALIAS scorbit_libarchive)
 endif()
