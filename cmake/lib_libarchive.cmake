@@ -23,36 +23,41 @@ endif()
 
 message(STATUS "libarchive: not found on this host, building from source")
 
-# zlib comes first and is not optional: it is what the gzip filter needs, and
-# gzip is the only filter the SDK writes with.
-CPMAddPackage(
-    NAME ZLIB
-    GITHUB_REPOSITORY madler/zlib
-    GIT_TAG v1.3.1
-    EXCLUDE_FROM_ALL YES
-    SYSTEM YES
-    OPTIONS "ZLIB_BUILD_EXAMPLES OFF"
-)
+# libarchive needs a zlib for the gzip filter, and this is the part that bites
+# quietly: with no zlib it configures happily, leaves HAVE_ZLIB_H undefined and
+# builds a libarchive that CANNOT WRITE GZIP -- the one filter this SDK uses.
+# Nothing fails until a diagnostics upload produces an unreadable archive.
+# Reproduced deliberately: configure with no system zlib and libarchive's
+# generated config.h carries "/* #undef HAVE_ZLIB_H */" and exit code 0.
+#
+# Do NOT add a zlib here. By this point lib_cpr.cmake has configured cpr, which
+# fetches zlib-ng (ZLIB_COMPAT) whenever curl needs zlib and the host has none --
+# exactly the case this module exists for. Adding a second one collides on the
+# shared _deps/zlib-build directory, and forcing ZLIB_LIBRARY at a zlib curl did
+# not build leaves curl linking a ZLIB::ZLIB that nothing created.
+#
+# So: use the system copy if there is one, otherwise the one cpr already brought.
+find_package(ZLIB QUIET)
 
-# Point libarchive's own find_package(ZLIB) at the copy just added, rather than
-# letting it search the host. Without this it finds whatever zlib the host
-# happens to have -- the system one on macOS, NONE on Windows -- and the two
-# failure modes are different and both bad: on macOS it compiles the zlib code
-# paths and then fails to link (undefined _inflateInit_, _uncompress, ...),
-# and on Windows it would quietly build with NO gzip support at all, which is
-# the one filter this SDK writes with. That second one would not fail until a
-# diagnostics upload produced an unreadable archive at runtime.
-# BOTH directories. zlib's own CMakeLists RENAMES the shipped zconf.h to
-# zconf.h.included and generates the real one into the BINARY dir, so the source
-# dir alone does not contain the header libarchive needs:
-#
-#   file(RENAME ${CMAKE_CURRENT_SOURCE_DIR}/zconf.h
-#               ${CMAKE_CURRENT_SOURCE_DIR}/zconf.h.included)
-#
-# Pointing only at the source dir builds anyway on a host that happens to have a
-# system zconf.h to fall back on -- macOS does -- and fails on one that does not.
-set(ZLIB_INCLUDE_DIR "${ZLIB_SOURCE_DIR};${ZLIB_BINARY_DIR}" CACHE PATH "" FORCE)
-set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
+if(ZLIB_FOUND)
+    message(STATUS "libarchive: gzip via the system zlib")
+    set(_scorbit_zlib_target "")
+elseif(TARGET zlibstatic AND DEFINED zlib_BINARY_DIR)
+    # zlib-ng in compat mode generates zlib.h and zconf.h into its BINARY dir,
+    # not the source tree, so both are needed on the include path.
+    message(STATUS "libarchive: gzip via the zlib cpr already fetched (${zlib_BINARY_DIR})")
+    set(ZLIB_INCLUDE_DIR "${zlib_BINARY_DIR};${zlib_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
+    set(_scorbit_zlib_target zlibstatic)
+else()
+    # Loud, not silent. Everything above exists because the quiet version of
+    # this ships a library that fails at upload time instead of at build time.
+    message(FATAL_ERROR
+        "libarchive needs a zlib for gzip and none is available: no system zlib, "
+        "and cpr did not bring one (no zlibstatic target). Without it libarchive "
+        "would build without gzip support and diagnostics archives would be "
+        "unreadable, with nothing failing until runtime. See SB-4853.")
+endif()
 
 # 3.8 or later, deliberately. libarchive 3.7.x declares
 # CMAKE_MINIMUM_REQUIRED(VERSION 2.8.12), and CMake 4 removed compatibility
@@ -97,7 +102,7 @@ CPMAddPackage(
 # system path returns above before reaching here.
 if(NOT TARGET scorbit_libarchive)
     add_library(scorbit_libarchive INTERFACE)
-    target_link_libraries(scorbit_libarchive INTERFACE archive_static zlibstatic)
+    target_link_libraries(scorbit_libarchive INTERFACE archive_static ${_scorbit_zlib_target})
 endif()
 
 # Claim the canonical name only if nothing else has, so a future libarchive that
