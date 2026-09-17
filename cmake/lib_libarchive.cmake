@@ -42,7 +42,16 @@ CPMAddPackage(
 # and on Windows it would quietly build with NO gzip support at all, which is
 # the one filter this SDK writes with. That second one would not fail until a
 # diagnostics upload produced an unreadable archive at runtime.
-set(ZLIB_INCLUDE_DIR "${ZLIB_SOURCE_DIR}" CACHE PATH "" FORCE)
+# BOTH directories. zlib's own CMakeLists RENAMES the shipped zconf.h to
+# zconf.h.included and generates the real one into the BINARY dir, so the source
+# dir alone does not contain the header libarchive needs:
+#
+#   file(RENAME ${CMAKE_CURRENT_SOURCE_DIR}/zconf.h
+#               ${CMAKE_CURRENT_SOURCE_DIR}/zconf.h.included)
+#
+# Pointing only at the source dir builds anyway on a host that happens to have a
+# system zconf.h to fall back on -- macOS does -- and fails on one that does not.
+set(ZLIB_INCLUDE_DIR "${ZLIB_SOURCE_DIR};${ZLIB_BINARY_DIR}" CACHE PATH "" FORCE)
 set(ZLIB_LIBRARY zlibstatic CACHE STRING "" FORCE)
 
 # 3.8 or later, deliberately. libarchive 3.7.x declares
