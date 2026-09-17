@@ -17,10 +17,16 @@ else()
     # that builds today. Turning it off everywhere to satisfy the one host that
     # cannot build it would weaken the platforms that can.
     #
-    # What is lost on this path is curl's public-suffix-list awareness for cookie
-    # domain policy. This SDK talks to one known API rather than acting as a
-    # general-purpose browser-like client, so the exposure is small -- but it is
-    # a real reduction and is recorded here rather than left to be discovered.
+    # Nothing is actually lost. libpsl serves ONE purpose in curl: deciding
+    # whether a server may set a cookie for a given domain, so that a host under
+    # a public suffix cannot set one scoped to the suffix itself. This SDK has no
+    # cookie engine -- there is not a single reference to cookies anywhere in
+    # source/ or include/, and libcurl parses and stores none unless a cookie
+    # file, jar or header is set. The setting is therefore inert here, and the
+    # option is off on this path only because building it is what requires meson.
+    #
+    # If this SDK ever does enable cookies, revisit: at that point libpsl stops
+    # being dead weight and the choice above stops being free.
     list(APPEND CPR_OPTIONS "CPR_CURL_USE_LIBPSL OFF")
 endif()
 
