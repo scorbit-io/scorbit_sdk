@@ -47,7 +47,6 @@ CPMAddPackage(
     OPTIONS "TROMPELOEIL_INSTALL_DOCS OFF"
 )
 
-include(${MY_CMAKE_DIR}/lib_libarchive.cmake)
 
 # Boost -----------
 
@@ -65,6 +64,14 @@ if(TEST_INSTALLED_VERSION)
 else()
     CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 endif()
+
+# AFTER scorbit_sdk, deliberately. This module resolves the zlib libarchive
+# needs for gzip, and the only zlib available on a host without a system one is
+# the zlib-ng cpr fetches -- which does not exist until the SDK above has been
+# configured. Included before it, the module has nothing to resolve and stops
+# the build, which is exactly what it did on Windows once it started refusing
+# to produce a libarchive with no gzip support.
+include(${MY_CMAKE_DIR}/lib_libarchive.cmake)
 
 find_package(OpenSSL REQUIRED)
 
