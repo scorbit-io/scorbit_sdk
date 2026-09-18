@@ -186,6 +186,9 @@ constexpr auto JKEY_DIAG_SSID {"ssid"};
 constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
 constexpr auto JKEY_DIAG_CHANNEL {"channel"};
 constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};
+// SPEC-0007: 410 on capture ingest means the server has CLOSED this run. It is terminal for
+// the run -- the device stops rather than retrying, because there is nothing to retry into.
+constexpr int HTTP_STATUS_GONE {410};
 constexpr auto JKEY_DIAG_DEPENDENCY_CHECKS {"dependency_checks"};
 constexpr auto JKEY_DIAG_SOURCE {"source"};
 // Closed server-side enum (WifiCaptureSampleSource): anything else is a 400.

@@ -266,8 +266,12 @@ private:
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                 std::vector<AuthStatus> allowedStatuses = {
                                         AuthStatus::AuthenticatedPaired});
+    /// Accepts a StringCallback or an HttpStatusCallback; see @ref createHttpRequestTask.
+    /// Templated for the same reason createPatchRequestTask is: the capture-ingest callbacks need
+    /// the HTTP status to recognise a 410, which SPEC-0007 makes terminal for a capture run.
+    template<typename CallbackT = StringCallback>
     task_t createPostRequestTask(
-            StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+            CallbackT replyCallback, deferred_post_setup_t deferredSetup,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
             bool includeFingerprintHash = false);
     task_t createPostMultipartRequestTask(StringCallback replyCallback,
@@ -395,8 +399,16 @@ private:
                            std::optional<std::chrono::steady_clock::time_point> deadline);
     void handleDiagnosticCaptureStart(const nlohmann::json &payload);
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
-    void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample);
-    void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event);
+    /**
+     * POST a capture sample. @p runClosed is the run's shared closed-flag: a 410 from ingest sets
+     * it, which is how the sampler learns the server has ended this run (SPEC-0007: 410 is
+     * terminal). Passed per call rather than held as a member so it is scoped to its own run and
+     * needs no synchronisation against a capture that has since been replaced.
+     */
+    void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample,
+                               std::shared_ptr<std::atomic_bool> runClosed);
+    void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event,
+                              std::shared_ptr<std::atomic_bool> runClosed);
     void recoverNetworkMonitorState();
     /**
      * Record that a REST call just succeeded, and what the server thinks the time is.

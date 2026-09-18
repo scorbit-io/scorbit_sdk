@@ -137,7 +137,22 @@ void NetworkMonitor::run()
     // class used to emit was rejected with a 400. Run lifecycle is already server-side state
     // (WifiCaptureRun.end_reason + the is_final sample), so these events carried nothing the
     // server did not already have. Do not reintroduce them under a different name.
+    bool runClosed = false;
+
     while (m_active) {
+        // The server has closed this run, so everything after this point would be posted into a
+        // 410. Retire immediately rather than finishing the round: the whole point of the 410
+        // contract is that the device stops talking to a run the server has already ended.
+        if (m_options.runClosed && m_options.runClosed->load(std::memory_order_acquire)) {
+            std::scoped_lock lock(m_mutex);
+            if (m_active) {
+                m_stopReason = "run_closed";
+                m_active = false;
+            }
+            runClosed = true;
+            break;
+        }
+
         const auto now = clock::now();
         if (now >= deadline) {
             {
@@ -184,7 +199,11 @@ void NetworkMonitor::run()
         m_cv.wait_for(lock, std::chrono::seconds {1}, [this] { return !m_active.load(); });
     }
 
-    emitFinalSample();
+    // No final sample when the run is closed -- there is nothing left server-side to accept it,
+    // and posting one is exactly the behaviour the 410 is telling us to stop.
+    if (!runClosed) {
+        emitFinalSample();
+    }
     // No end-of-run event either: "capture_stopped" / "expired" / "manual_stop" / "shutdown"
     // are all rejected by the closed kind enum (see the note at the top of the loop). Note
     // that `expired` and `manual_stop` ARE valid WifiCaptureRun.end_reason values -- end_reason

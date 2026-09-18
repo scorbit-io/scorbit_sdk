@@ -37,6 +37,17 @@ public:
         /// Supplies passive connection liveness for dependency_checks. Optional: without it the
         /// rest443/wss443/clock chips stay "unknown" rather than being guessed.
         DependencyProvider dependencyProvider;
+        /**
+         * Set by the owner when the server reports this run is closed (HTTP 410 on ingest).
+         *
+         * A shared flag rather than a call back into the monitor, deliberately. The 410 is observed
+         * on a worker thread completing a POST, and having that thread reach into the monitor to
+         * stop it would add a third writer to an object already touched by the Centrifugo
+         * dispatcher and the shutdown path -- the ownership problem SB-3461 still has to solve.
+         * The sampler polls this instead and retires itself, so no new cross-thread edge exists and
+         * the shared_ptr keeps the flag alive regardless of which outlives which.
+         */
+        std::shared_ptr<std::atomic_bool> runClosed;
         /// Cadence of the ACTIVE dependency probe (DNS). Deliberately far coarser than the sample
         /// interval -- SPEC-0007 §137 calls running active probes every sample needlessly
         /// intrusive, and this one leaves the venue's resolver alone between rounds.

@@ -7,6 +7,11 @@
  */
 
 #include <diagnostics/wifi/wifi_diagnostics.h>
+#include <diagnostics/wifi/network_monitor.h>
+#include <atomic>
+#include <filesystem>
+#include <memory>
+#include <thread>
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 #include <string>
@@ -335,4 +340,51 @@ TEST_CASE("A measured link that is down still reports blocked", "[wifi][dependen
     down.connected = false;
 
     CHECK(buildDependencyChecks(down, std::nullopt, {}, std::nullopt).at("link") == "blocked");
+}
+
+// --- 410 is terminal for a run ---------------------------------------------
+
+TEST_CASE("A run the server has closed retires without a final sample", "[wifi][runclosed]")
+{
+    // SPEC-0007 makes 410 terminal: the server has ended this run, so anything further the device
+    // posts lands in another 410. Before this, the sampler had no way to learn that and kept
+    // posting for the rest of the requested duration.
+    //
+    // The flag is set before start() so the assertion is deterministic -- the retirement check is
+    // the first thing the loop does, which also keeps this test off the network (the DNS probe
+    // would otherwise be due immediately on the first iteration).
+    auto runClosed = std::make_shared<std::atomic_bool>(true);
+
+    NetworkMonitor::Options options;
+    options.runId = "run-closed-test";
+    options.requestedDuration = std::chrono::seconds {300};
+    options.runClosed = runClosed;
+    options.stateFilePath =
+            (std::filesystem::temp_directory_path() / "scorbit_run_closed_test.state").string();
+    options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
+        return CommandResult {0, ""};
+    };
+
+    std::atomic_int samples {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&samples](const Sample &) { ++samples; };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    // Wait for the condition rather than sleeping a fixed span: this repo already has timing
+    // flakiness under -j8 (SB-4875) and a fixed sleep would add to it.
+    for (int i = 0; i < 400 && monitor.isActive(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+
+    CHECK_FALSE(monitor.isActive());
+
+    // Joins. The reason guard means this does not relabel the retirement.
+    monitor.stop("shutdown");
+
+    CHECK(monitor.endReason() == "run_closed");
+    // The point of the whole exercise: nothing was posted into the closed run, not even the final
+    // sample that a normal stop emits.
+    CHECK(samples.load() == 0);
 }
