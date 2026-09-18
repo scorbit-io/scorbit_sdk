@@ -196,6 +196,10 @@ LinkInfo connectedLink()
     LinkInfo link;
     link.kind = InterfaceKind::Wifi;
     link.connected = true;
+    // Set by whichever parser produced the info. buildDependencyChecks() treats an empty backend
+    // as "nothing measured this" and omits the link key, so a fixture without it is not a
+    // connected link -- it is an absent one.
+    link.backend = "iw";
     return link;
 }
 
@@ -262,15 +266,6 @@ TEST_CASE("Gateway loss grades into the three statuses", "[wifi][dependency]")
     CHECK(statusFor(100.0) == "blocked");
 }
 
-TEST_CASE("A disconnected link reports blocked", "[wifi][dependency]")
-{
-    LinkInfo link;
-    link.kind = InterfaceKind::Wifi;
-    link.connected = false;
-
-    CHECK(buildDependencyChecks(link, std::nullopt, {}, std::nullopt).at("link") == "blocked");
-}
-
 TEST_CASE("rest443 grades quiet separately from broken", "[wifi][dependency]")
 {
     // The SDK only calls the API when it has something to say, so a gap is not itself a failure.
@@ -317,4 +312,27 @@ TEST_CASE("wss443 and dns are straight booleans", "[wifi][dependency]")
     CHECK(buildDependencyChecks(connectedLink(), std::nullopt, {}, true).at("dns") == "ok");
     CHECK(buildDependencyChecks(connectedLink(), std::nullopt, {}, false).at("dns")
           == "blocked");
+}
+
+TEST_CASE("An unmeasured link omits the key rather than reporting blocked", "[wifi][dependency]")
+{
+    // collectLinkInfo() returning nothing leaves a default LinkInfo: connected == false, backend
+    // empty. Reporting that as "blocked" would invent a link failure on any platform without a
+    // collector -- the panel's "unknown" is the truthful rendering.
+    LinkInfo unmeasured;
+
+    const auto checks = buildDependencyChecks(unmeasured, std::nullopt, {}, std::nullopt);
+    CHECK(checks.find("link") == checks.end());
+    CHECK(checks.empty());
+}
+
+TEST_CASE("A measured link that is down still reports blocked", "[wifi][dependency]")
+{
+    // The flip side: evidence of a down link is not the same as absence of evidence.
+    LinkInfo down;
+    down.kind = InterfaceKind::Wifi;
+    down.backend = "iw";
+    down.connected = false;
+
+    CHECK(buildDependencyChecks(down, std::nullopt, {}, std::nullopt).at("link") == "blocked");
 }

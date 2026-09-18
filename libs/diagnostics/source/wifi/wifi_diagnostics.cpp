@@ -626,6 +626,10 @@ std::optional<int> plausibleNoiseDbm(int noise)
     return noise;
 }
 
+/// Ceiling on the one active probe. Long enough for a slow-but-working resolver, short
+/// enough that a dead one cannot stall the sampler for a meaningful slice of a capture.
+constexpr std::chrono::seconds DNS_RESOLVE_TIMEOUT {5};
+
 bool resolveHost(const std::string &host)
 {
     if (host.empty()) {
@@ -635,12 +639,38 @@ bool resolveHost(const std::string &host)
     // Asio rather than raw getaddrinfo: it is already a dependency of this file (the TCP-connect
     // fallback probe uses it) and it hides the POSIX/Winsock split, which matters because this
     // library builds on all three platforms.
+    //
+    // ASYNC WITH A DEADLINE, not resolver::resolve(). The synchronous form has no timeout and
+    // blocks on the OS resolver for as long as it likes. This runs on the sampler thread, which
+    // stop() joins -- so a stalled resolver would stop all further samples AND hang shutdown,
+    // making both the capture deadline and teardown unbounded. It would do that precisely on the
+    // broken venue networks this feature exists to diagnose.
     try {
         boost::asio::io_context io;
         boost::asio::ip::tcp::resolver resolver {io};
-        boost::system::error_code ec;
-        const auto results = resolver.resolve(host, "443", ec);
-        return !ec && !results.empty();
+
+        bool done = false;
+        bool ok = false;
+        resolver.async_resolve(
+                host, "443",
+                [&done, &ok](const boost::system::error_code &ec,
+                             const boost::asio::ip::tcp::resolver::results_type &results) {
+                    done = true;
+                    ok = !ec && !results.empty();
+                });
+
+        io.run_for(DNS_RESOLVE_TIMEOUT);
+
+        if (!done) {
+            // Timed out. Cancel and drain so the handler is not left holding dangling references
+            // to our stack when io_context is destroyed.
+            resolver.cancel();
+            io.restart();
+            io.run();
+            return false;
+        }
+
+        return ok;
     } catch (...) {
         // A resolver failure is a "no", never a crash: this runs on the sampler thread.
         return false;
@@ -655,7 +685,14 @@ std::map<std::string, std::string> buildDependencyChecks(const LinkInfo &link,
     using namespace dependency;
     std::map<std::string, std::string> checks;
 
-    checks[KEY_LINK] = link.connected ? STATUS_OK : STATUS_BLOCKED;
+    // Only when something actually measured the link. collectLinkInfo() returning nothing leaves
+    // a default-constructed LinkInfo whose `connected` is false, and reporting that as "blocked"
+    // would manufacture a failure out of an absent measurement -- on a platform with no collector,
+    // every capture would claim the link was down. `backend` is set by whichever parser produced
+    // the info, so an empty one means nothing did.
+    if (!link.backend.empty()) {
+        checks[KEY_LINK] = link.connected ? STATUS_OK : STATUS_BLOCKED;
+    }
 
     // The gateway chip is free: the 60s ICMP triplet already measures exactly this. Loss is the
     // signal rather than RTT -- a slow gateway still works, a lossy one is what breaks a venue.

@@ -1249,7 +1249,9 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
             snapshot.sinceLastRestSuccess = nowSteady - seconds {last};
         }
 
-        if (m_haveClockDelta.load(std::memory_order_relaxed)) {
+        // ACQUIRE, paired with the release in noteRestSuccess(): seeing the flag set guarantees
+        // the delta store that preceded it is visible.
+        if (m_haveClockDelta.load(std::memory_order_acquire)) {
             snapshot.clockDelta = seconds {m_clockDeltaSeconds.load(std::memory_order_relaxed)};
         }
 
@@ -1367,7 +1369,11 @@ void Net::noteRestSuccess(const cpr::Header &header)
 
     const auto localEpoch = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     m_clockDeltaSeconds.store(serverEpoch - localEpoch, std::memory_order_relaxed);
-    m_haveClockDelta.store(true, std::memory_order_relaxed);
+    // RELEASE, paired with the acquire in the provider. These are two separate atomics and the
+    // flag publishes the value, so relaxed on both would let the sampler observe the flag set
+    // while still reading a stale or zero delta -- and report a synchronised clock on a device
+    // whose clock is wrong. Not theoretical on the Scorbitron: ARM is weakly ordered.
+    m_haveClockDelta.store(true, std::memory_order_release);
 }
 
 void Net::recoverNetworkMonitorState()
@@ -1559,6 +1565,13 @@ task_t Net::createAuthenticateTask()
             output += fmt::format("\nHEADER: [Date: {}]", noopReply.header["Date"]);
             const auto timestampUtc = parseHttpDateToUnixTimestamp(noopReply.header["Date"]);
             INF("API noop timestamp: {}, output {}", timestampUtc, output);
+            if (noopReply.status_code >= 200 && noopReply.status_code < 300) {
+                // This request does NOT go through createHttpRequestTask(), so the central hook
+                // never sees it. Without this call a capture overlapping a token refresh could
+                // age rest443 to intermittent while REST was demonstrably working.
+                noteRestSuccess(noopReply.header);
+            }
+
             if (timestampUtc > 1770153380) { // Some viable timestamp (2026-02-03)
                 timestamp = std::to_string(timestampUtc);
                 checkSystemTimeAccuracy(timestampUtc);
@@ -1634,6 +1647,8 @@ task_t Net::createAuthenticateTask()
             }
 
             if (r.status_code == 200) {
+                // Also outside createHttpRequestTask() -- see the noop above.
+                noteRestSuccess(r.header);
                 try {
                     const auto json = json::parse(r.text);
                     {

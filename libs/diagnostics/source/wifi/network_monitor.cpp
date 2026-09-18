@@ -328,6 +328,17 @@ void NetworkMonitor::emitFinalSample()
         sample.gateway = m_lastSample->gateway;
         sample.publicInternet = m_lastSample->publicInternet;
         sample.scorbit = m_lastSample->scorbit;
+
+        // The fallback just replaced the very inputs collectSample() built dependencyChecks from,
+        // so rebuild it. Otherwise the final sample ships a connected link alongside a
+        // dependency_checks saying link:blocked -- one payload contradicting itself, on the row
+        // that closes the run.
+        DependencySnapshot snapshot;
+        if (m_options.dependencyProvider) {
+            snapshot = m_options.dependencyProvider();
+        }
+        sample.dependencyChecks =
+                buildDependencyChecks(sample.link, sample.gateway, snapshot, m_lastDnsOk);
     }
 
     if (m_callbacks.onSample) {
