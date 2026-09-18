@@ -1,4 +1,4 @@
-name: Windows (configure)
+name: Windows
 
 on:
   push:
@@ -14,32 +14,87 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
+  # x64-windows-static-md, NOT x64-windows-static. cmake/tools.cmake sets
+  # CMAKE_MSVC_RUNTIME_LIBRARY to the DYNAMIC CRT, and the -md triplet is static
+  # libraries against that dynamic runtime. Plain -static mismatches and the
+  # LNK2038 errors it produces read nothing like a triplet problem.
+  VCPKG_TARGET_TRIPLET: x64-windows-static-md
+
+  # Binary caching, without which every run pays vcpkg's full build cost --
+  # roughly 17 minutes, against 35-45 seconds for the compile that follows it.
+  # The `files` provider is used rather than `x-gha` so the cache is handled by
+  # actions/cache like everything else here, instead of vcpkg talking to the
+  # Actions cache service directly.
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_cache
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg_cache,readwrite"
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: create the vcpkg binary cache directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg_cache"
+
+      # Keyed on vcpkg.json, which carries builtin-baseline, so a port list or
+      # baseline change invalidates the cache and nothing else does.
+      - name: cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
-      # CONFIGURE ONLY, deliberately, and the job is named for it.
+      # No generator is specified, so this uses the Visual Studio generator,
+      # which locates MSVC unaided. That is a deliberate deviation from the
+      # recorded known-good invocation, which used -GNinja: Ninja with MSVC needs
+      # a developer environment set up first, and the VS generator is what this
+      # repo's Windows job has already been passing with. They differ in setup,
+      # not in outcome. If this moves to Ninja, a vcvars step has to come with it.
       #
-      # This verifies the thing that was actually broken: the dependency chain
-      # on Windows. cpr, curl without libpsl, the zlib curl brings, and
-      # libarchive resolving gzip against it. None of that resolved before
-      # SB-4853, and a regression in it is silent -- libarchive will happily
-      # configure with no gzip support and fail only at upload time.
-      #
-      # Compiling is a separate, unfinished job. The SDK's own sources have
-      # never been built for _WIN32 and currently fail on min/max macro
-      # collisions in libs/nfc, a POSIX-only <sys/resource.h> in libs/utils,
-      # and GCC warning flags reaching cl in centrifugo-cpp. Widening this job
-      # to build and test belongs with that work, not here -- a job that must
-      # stay red until an open-ended port finishes teaches everyone to ignore
-      # it, and a green one that skipped the failure would be worse.
-      - name: configure
-        run: cmake -Stests -Bbuild
+      # SCORBIT_SDK_PRODUCTION stays OFF: production requires
+      # SCORBIT_SDK_ENCRYPT_SECRET in the environment (cmake/encrypt.cmake) and
+      # fails configure without it. SCORBIT_SDK_ABI is set anyway, because it is
+      # the established tag for this toolchain and CMakeLists.txt rejects
+      # "unknown" the moment production is ever switched on.
+      - name: configure the SDK
+        run: >
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}
+          -DSCORBIT_SDK_PRODUCTION=OFF
+          -DSCORBIT_SDK_ABI=msvc2022
+        shell: pwsh
+
+      - name: build the SDK
+        run: cmake --build build --config Release
+
+      # VCPKG_MANIFEST_DIR is required here and easy to miss: in manifest mode
+      # vcpkg looks for vcpkg.json beside the -S directory, so configuring the
+      # tests project would look for tests/vcpkg.json and install nothing.
+      - name: configure the tests
+        run: >
+          cmake -S tests -B build-tests
+          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}
+          -DVCPKG_MANIFEST_DIR=${{ github.workspace }}
+        shell: pwsh
+
+      - name: build the tests
+        run: cmake --build build-tests --config Release
+
+      # Run from the build root that actually registered the tests. `ctest` in a
+      # directory with no registered tests reports "Total Tests: 0" and exits 0 --
+      # a pass that ran nothing. --no-tests=error turns that into a failure.
+      - name: test
+        run: ctest --test-dir build-tests -C Release --no-tests=error --output-on-failure
