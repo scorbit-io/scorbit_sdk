@@ -82,6 +82,35 @@ jobs:
           Write-Output "toolchain: $toolchain"
           "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
 
+      # The runner's vcpkg clone does not necessarily contain the commit that
+      # vcpkg.json pins as builtin-baseline, and when it does not, every port
+      # fails with "failed to `git show` versions/baseline.json" -- once per
+      # dependency, which buries the one line that matters.
+      #
+      # Fetching it is the fix rather than dropping the pin. An unpinned baseline
+      # resolves against whatever each machine's own vcpkg happens to be at,
+      # which is the class of problem the manifest exists to end.
+      - name: make the pinned vcpkg baseline available
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
+          Write-Output "baseline: $baseline"
+          git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "$baseline^{commit}" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              Write-Output "already present in the runner's vcpkg clone"
+          } else {
+              Write-Output "not present; fetching it"
+              git -C $env:VCPKG_INSTALLATION_ROOT fetch --depth=1 origin $baseline
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Output "targeted fetch failed; falling back to a full fetch"
+                  git -C $env:VCPKG_INSTALLATION_ROOT fetch origin
+                  if ($LASTEXITCODE -ne 0) { throw "could not fetch vcpkg baseline $baseline" }
+              }
+              git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "$baseline^{commit}"
+              if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline $baseline still missing after fetch" }
+          }
+
       - name: configure the SDK
         shell: pwsh
         run: |
