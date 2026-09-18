@@ -8,6 +8,8 @@
 
 #include <diagnostics/wifi/wifi_diagnostics.h>
 #include <catch2/catch_test_macros.hpp>
+#include <set>
+#include <string>
 
 using namespace scorbit::detail::wifi;
 
@@ -180,3 +182,157 @@ TEST_CASE("runCommand reports a child's real exit code", "[wifi]")
 }
 #endif
 
+
+// --- dependency_checks -----------------------------------------------------
+//
+// Both the keys and the statuses are unvalidated end to end: the server stores the dict as a bare
+// DictField and the panel does `checks[key] || "unknown"`. So a typo in either renders as
+// "unknown" with no error anywhere. These tests are the only enforcement that exists.
+
+namespace {
+
+LinkInfo connectedLink()
+{
+    LinkInfo link;
+    link.kind = InterfaceKind::Wifi;
+    link.connected = true;
+    // Set by whichever parser produced the info. buildDependencyChecks() treats an empty backend
+    // as "nothing measured this" and omits the link key, so a fixture without it is not a
+    // connected link -- it is an absent one.
+    link.backend = "iw";
+    return link;
+}
+
+ProbeResult gatewayWithLoss(double lossPct)
+{
+    ProbeResult probe;
+    probe.target = "192.168.1.1";
+    probe.rttMs = 3;
+    probe.lossPct = lossPct;
+    return probe;
+}
+
+} // namespace
+
+TEST_CASE("dependency_checks uses only the six keys the panel renders", "[wifi][dependency]")
+{
+    DependencySnapshot snapshot;
+    snapshot.realtimeConnected = true;
+    snapshot.sinceLastRestSuccess = std::chrono::seconds {10};
+    snapshot.clockDelta = std::chrono::seconds {1};
+
+    const auto checks =
+            buildDependencyChecks(connectedLink(), gatewayWithLoss(0.0), snapshot, true);
+
+    // Exactly NetworkDiagnosticsLive.vue's DEP_KEYS. Note tls443 is deliberately absent: the spec
+    // names it, nothing renders it, and producing it would cost an active TLS handshake.
+    const std::set<std::string> expected {"link",  "dhcp_gateway", "dns",
+                                          "clock", "rest443",      "wss443"};
+    std::set<std::string> actual;
+    for (const auto &[key, value] : checks) {
+        actual.insert(key);
+    }
+    CHECK(actual == expected);
+
+    // And every value is one the panel knows how to colour.
+    const std::set<std::string> legal {"ok", "blocked", "intermittent"};
+    for (const auto &[key, value] : checks) {
+        INFO("key=" << key << " value=" << value);
+        CHECK(legal.count(value) == 1);
+    }
+}
+
+TEST_CASE("A key with no evidence is omitted rather than guessed", "[wifi][dependency]")
+{
+    // An owner that supplies no provider, on a round where the gateway was not probed and DNS has
+    // not run yet. Only `link` is knowable, so only `link` is reported -- the rest render as
+    // "unknown", which is the honest answer. Emitting "ok" here would be the -256 mistake again.
+    const auto checks =
+            buildDependencyChecks(connectedLink(), std::nullopt, {}, std::nullopt);
+
+    CHECK(checks.size() == 1);
+    CHECK(checks.at("link") == "ok");
+}
+
+TEST_CASE("Gateway loss grades into the three statuses", "[wifi][dependency]")
+{
+    const auto statusFor = [](double loss) {
+        return buildDependencyChecks(connectedLink(), gatewayWithLoss(loss), {}, std::nullopt)
+                .at("dhcp_gateway");
+    };
+
+    CHECK(statusFor(0.0) == "ok");
+    CHECK(statusFor(40.0) == "intermittent");
+    CHECK(statusFor(100.0) == "blocked");
+}
+
+TEST_CASE("rest443 grades quiet separately from broken", "[wifi][dependency]")
+{
+    // The SDK only calls the API when it has something to say, so a gap is not itself a failure.
+    const auto statusFor = [](std::chrono::seconds age) {
+        DependencySnapshot snapshot;
+        snapshot.sinceLastRestSuccess = age;
+        return buildDependencyChecks(connectedLink(), std::nullopt, snapshot, std::nullopt)
+                .at("rest443");
+    };
+
+    CHECK(statusFor(std::chrono::seconds {5}) == "ok");
+    CHECK(statusFor(std::chrono::minutes {5}) == "intermittent");
+    CHECK(statusFor(std::chrono::hours {1}) == "blocked");
+}
+
+TEST_CASE("clock drift is judged on magnitude, either direction", "[wifi][dependency]")
+{
+    const auto statusFor = [](std::chrono::seconds delta) {
+        DependencySnapshot snapshot;
+        snapshot.clockDelta = delta;
+        return buildDependencyChecks(connectedLink(), std::nullopt, snapshot, std::nullopt)
+                .at("clock");
+    };
+
+    CHECK(statusFor(std::chrono::seconds {2}) == "ok");
+    CHECK(statusFor(std::chrono::seconds {-2}) == "ok");
+    // A device running an hour behind is as broken as one an hour ahead.
+    CHECK(statusFor(std::chrono::hours {1}) == "blocked");
+    CHECK(statusFor(-std::chrono::hours {1}) == "blocked");
+}
+
+TEST_CASE("wss443 and dns are straight booleans", "[wifi][dependency]")
+{
+    DependencySnapshot up;
+    up.realtimeConnected = true;
+    DependencySnapshot down;
+    down.realtimeConnected = false;
+
+    CHECK(buildDependencyChecks(connectedLink(), std::nullopt, up, std::nullopt).at("wss443")
+          == "ok");
+    CHECK(buildDependencyChecks(connectedLink(), std::nullopt, down, std::nullopt).at("wss443")
+          == "blocked");
+
+    CHECK(buildDependencyChecks(connectedLink(), std::nullopt, {}, true).at("dns") == "ok");
+    CHECK(buildDependencyChecks(connectedLink(), std::nullopt, {}, false).at("dns")
+          == "blocked");
+}
+
+TEST_CASE("An unmeasured link omits the key rather than reporting blocked", "[wifi][dependency]")
+{
+    // collectLinkInfo() returning nothing leaves a default LinkInfo: connected == false, backend
+    // empty. Reporting that as "blocked" would invent a link failure on any platform without a
+    // collector -- the panel's "unknown" is the truthful rendering.
+    LinkInfo unmeasured;
+
+    const auto checks = buildDependencyChecks(unmeasured, std::nullopt, {}, std::nullopt);
+    CHECK(checks.find("link") == checks.end());
+    CHECK(checks.empty());
+}
+
+TEST_CASE("A measured link that is down still reports blocked", "[wifi][dependency]")
+{
+    // The flip side: evidence of a down link is not the same as absence of evidence.
+    LinkInfo down;
+    down.kind = InterfaceKind::Wifi;
+    down.backend = "iw";
+    down.connected = false;
+
+    CHECK(buildDependencyChecks(down, std::nullopt, {}, std::nullopt).at("link") == "blocked");
+}

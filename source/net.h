@@ -398,6 +398,14 @@ private:
     void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample);
     void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event);
     void recoverNetworkMonitorState();
+    /**
+     * Record that a REST call just succeeded, and what the server thinks the time is.
+     *
+     * Called from the single point in createHttpRequestTask() where a 2xx is recognised, so every
+     * REST call feeds it without touching any call site. Feeds the rest443 and clock chips of
+     * dependency_checks passively -- SPEC-0007 forbids fresh handshakes for those.
+     */
+    void noteRestSuccess(const cpr::Header &header);
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
     void updateDiscoveryDescription();
@@ -539,6 +547,12 @@ private:
     // Lets work that only needs to decide whether publishing is worth preparing read the state
     // without touching the client off its strand.
     std::atomic<centrifugo::ConnectionState> m_cfState {centrifugo::ConnectionState::Disconnected};
+    /// steady_clock seconds at the last REST 2xx; 0 means none has succeeded yet. Written from
+    /// whichever worker thread ran the request, read from the capture sampler thread.
+    std::atomic<int64_t> m_lastRestSuccessSteady {0};
+    /// Server time minus local time, in seconds, from the most recent REST response's Date header.
+    std::atomic<int64_t> m_clockDeltaSeconds {0};
+    std::atomic<bool> m_haveClockDelta {false};
     std::atomic_bool m_restartCentrifugoPending {false};
     // True only while a heartbeat-wake-opened connection is on its idle countdown. Gates the
     // activity reset so a connection we did not open never acquires an idle disconnect.

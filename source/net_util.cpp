@@ -329,6 +329,12 @@ nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
     addProbe(j, sample.scorbit, JKEY_DIAG_SCORBIT_RTT_MS, JKEY_DIAG_SCORBIT_LOSS_PCT);
     addProbe(j, sample.publicInternet, JKEY_DIAG_PUBLIC_RTT_MS, JKEY_DIAG_PUBLIC_LOSS_PCT);
 
+    // Omitted entirely when empty: the serializer defaults it to {} and the panel renders every
+    // missing key as "unknown", so an empty dict and an absent one mean the same thing.
+    if (!sample.dependencyChecks.empty()) {
+        j[JKEY_DIAG_DEPENDENCY_CHECKS] = sample.dependencyChecks;
+    }
+
     return j;
 }
 

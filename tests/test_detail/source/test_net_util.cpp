@@ -490,3 +490,32 @@ TEST_CASE("Unmeasured metrics are omitted, not sent as null", "[buildWifiSampleP
     CHECK(j.contains("source"));
     CHECK(j.contains("is_final"));
 }
+
+TEST_CASE("dependency_checks is serialised as a nested object", "[buildWifiSamplePayload]")
+{
+    // The exact-key test above uses a sample with no dependency checks, so it would pass whether
+    // this branch worked or was misspelled. This is the case that actually covers it.
+    auto sample = makeFullSample();
+    sample.dependencyChecks = {
+            {"link", "ok"},   {"dhcp_gateway", "ok"},         {"dns", "ok"},
+            {"clock", "ok"},  {"rest443", "intermittent"},    {"wss443", "blocked"},
+    };
+
+    const auto j = buildWifiSamplePayload(sample);
+
+    REQUIRE(j.contains("dependency_checks"));
+    REQUIRE(j["dependency_checks"].is_object());
+    CHECK(j["dependency_checks"].size() == 6);
+    CHECK(j["dependency_checks"]["wss443"].get<std::string>() == "blocked");
+    CHECK(j["dependency_checks"]["rest443"].get<std::string>() == "intermittent");
+}
+
+TEST_CASE("An empty dependency map omits the key entirely", "[buildWifiSamplePayload]")
+{
+    // The serializer defaults it to {} and the panel renders every missing key as "unknown", so
+    // an absent dict and an empty one mean the same thing -- send the shorter one.
+    auto sample = makeFullSample();
+    sample.dependencyChecks.clear();
+
+    CHECK_FALSE(buildWifiSamplePayload(sample).contains("dependency_checks"));
+}

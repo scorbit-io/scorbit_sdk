@@ -34,6 +34,13 @@ public:
         bool scanEnabled {true};
         std::string stateFilePath {defaultStateFilePath()};
         std::string preferredInterface;
+        /// Supplies passive connection liveness for dependency_checks. Optional: without it the
+        /// rest443/wss443/clock chips stay "unknown" rather than being guessed.
+        DependencyProvider dependencyProvider;
+        /// Cadence of the ACTIVE dependency probe (DNS). Deliberately far coarser than the sample
+        /// interval -- SPEC-0007 §137 calls running active probes every sample needlessly
+        /// intrusive, and this one leaves the venue's resolver alone between rounds.
+        std::chrono::seconds dependencyInterval {std::chrono::minutes {5}};
         std::string publicProbeTarget {"1.1.1.1"};
         std::string scorbitProbeTarget {"sws.scorbit.io"};
         CommandRunner commandRunner {runCommand};
@@ -92,6 +99,13 @@ private:
     std::condition_variable m_cv;
     std::thread m_thread;
     std::string m_stopReason;
+    /// Last ACTIVE DNS result, carried forward between dependency rounds.
+    ///
+    /// SPEC-0007 §137 says to leave active keys absent between re-checks and let the server carry
+    /// the last result forward. The panel does not work that way -- it reads only the newest
+    /// sample's dict and renders a missing key as "unknown" -- so omitting would make the dns chip
+    /// blink to "unknown" for nine samples out of ten. Carried here instead, so the chip is stable.
+    std::optional<bool> m_lastDnsOk;
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
     std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;

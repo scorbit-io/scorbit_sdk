@@ -626,6 +626,113 @@ std::optional<int> plausibleNoiseDbm(int noise)
     return noise;
 }
 
+/// Ceiling on the one active probe. Long enough for a slow-but-working resolver, short
+/// enough that a dead one cannot stall the sampler for a meaningful slice of a capture.
+constexpr std::chrono::seconds DNS_RESOLVE_TIMEOUT {5};
+
+bool resolveHost(const std::string &host)
+{
+    if (host.empty()) {
+        return false;
+    }
+
+    // Asio rather than raw getaddrinfo: it is already a dependency of this file (the TCP-connect
+    // fallback probe uses it) and it hides the POSIX/Winsock split, which matters because this
+    // library builds on all three platforms.
+    //
+    // ASYNC WITH A DEADLINE, not resolver::resolve(). The synchronous form has no timeout and
+    // blocks on the OS resolver for as long as it likes. This runs on the sampler thread, which
+    // stop() joins -- so a stalled resolver would stop all further samples AND hang shutdown,
+    // making both the capture deadline and teardown unbounded. It would do that precisely on the
+    // broken venue networks this feature exists to diagnose.
+    try {
+        boost::asio::io_context io;
+        boost::asio::ip::tcp::resolver resolver {io};
+
+        bool done = false;
+        bool ok = false;
+        resolver.async_resolve(
+                host, "443",
+                [&done, &ok](const boost::system::error_code &ec,
+                             const boost::asio::ip::tcp::resolver::results_type &results) {
+                    done = true;
+                    ok = !ec && !results.empty();
+                });
+
+        io.run_for(DNS_RESOLVE_TIMEOUT);
+
+        if (!done) {
+            // Timed out. Cancel and drain so the handler is not left holding dangling references
+            // to our stack when io_context is destroyed.
+            resolver.cancel();
+            io.restart();
+            io.run();
+            return false;
+        }
+
+        return ok;
+    } catch (...) {
+        // A resolver failure is a "no", never a crash: this runs on the sampler thread.
+        return false;
+    }
+}
+
+std::map<std::string, std::string> buildDependencyChecks(const LinkInfo &link,
+                                                         const std::optional<ProbeResult> &gateway,
+                                                         const DependencySnapshot &snapshot,
+                                                         std::optional<bool> dnsOk)
+{
+    using namespace dependency;
+    std::map<std::string, std::string> checks;
+
+    // Only when something actually measured the link. collectLinkInfo() returning nothing leaves
+    // a default-constructed LinkInfo whose `connected` is false, and reporting that as "blocked"
+    // would manufacture a failure out of an absent measurement -- on a platform with no collector,
+    // every capture would claim the link was down. `backend` is set by whichever parser produced
+    // the info, so an empty one means nothing did.
+    if (!link.backend.empty()) {
+        checks[KEY_LINK] = link.connected ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    // The gateway chip is free: the 60s ICMP triplet already measures exactly this. Loss is the
+    // signal rather than RTT -- a slow gateway still works, a lossy one is what breaks a venue.
+    if (gateway && gateway->lossPct) {
+        const auto loss = *gateway->lossPct;
+        checks[KEY_DHCP_GATEWAY] = loss <= 0.0    ? STATUS_OK
+                                   : loss >= 100.0 ? STATUS_BLOCKED
+                                                   : STATUS_INTERMITTENT;
+    } else if (gateway && gateway->rttMs) {
+        // A reply with no loss figure parsed still proves reachability.
+        checks[KEY_DHCP_GATEWAY] = STATUS_OK;
+    }
+
+    if (snapshot.realtimeConnected) {
+        checks[KEY_WSS443] = *snapshot.realtimeConnected ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    // "Quiet" and "broken" are not the same thing for REST: the SDK only calls the API when it has
+    // something to say, so a gap is graded rather than treated as failure the moment it appears.
+    if (snapshot.sinceLastRestSuccess) {
+        const auto age = *snapshot.sinceLastRestSuccess;
+        checks[KEY_REST443] = age <= REST_OK_WITHIN         ? STATUS_OK
+                              : age <= REST_BLOCKED_BEYOND ? STATUS_INTERMITTENT
+                                                           : STATUS_BLOCKED;
+    }
+
+    if (snapshot.clockDelta) {
+        const auto drift = snapshot.clockDelta->count() < 0 ? -snapshot.clockDelta->count()
+                                                            : snapshot.clockDelta->count();
+        checks[KEY_CLOCK] =
+                drift <= CLOCK_OK_WITHIN.count() ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    if (dnsOk) {
+        checks[KEY_DNS] = *dnsOk ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    return checks;
+}
+
 std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::string interfaceName)
 {
     for (const auto &line : lines(output)) {
