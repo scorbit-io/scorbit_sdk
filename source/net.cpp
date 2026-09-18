@@ -1278,40 +1278,8 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                 }
             },
             [this, runId, sample]() {
-                auto addInt = [](json &j, const char *key, const std::optional<int> &value) {
-                    if (value) {
-                        j[key] = *value;
-                    }
-                };
-                auto addDouble = [](json &j, const char *key, const std::optional<double> &value) {
-                    if (value) {
-                        j[key] = *value;
-                    }
-                };
-                auto addProbe = [&](json &j, const std::optional<wifi::ProbeResult> &probe,
-                                    const char *rttKey, const char *lossKey) {
-                    if (!probe) {
-                        return;
-                    }
-                    addInt(j, rttKey, probe->rttMs);
-                    addDouble(j, lossKey, probe->lossPct);
-                };
-
-                json j {{JKEY_DIAG_TS, to_iso8601(sample.ts)},
-                        {JKEY_DIAG_SSID, sample.link.ssid},
-                        {JKEY_DIAG_BSSID, sample.link.bssid},
-                        {JKEY_DIAG_IS_FINAL, sample.isFinal}};
-
-                addInt(j, JKEY_DIAG_RSSI_DBM, sample.link.rssiDbm);
-                addInt(j, JKEY_DIAG_LINK_RATE_MBPS, sample.link.linkRateMbps);
-                addDouble(j, JKEY_DIAG_TX_RETRY_PCT, sample.link.txRetryPct);
-                addInt(j, JKEY_DIAG_BEACON_LOSS_COUNT, sample.link.beaconLossCount);
-                addInt(j, JKEY_DIAG_FREQ_MHZ, sample.link.freqMhz);
-                addInt(j, JKEY_DIAG_CHANNEL, sample.link.channel);
-                addProbe(j, sample.gateway, JKEY_DIAG_GATEWAY_RTT_MS, JKEY_DIAG_GATEWAY_LOSS_PCT);
-                addProbe(j, sample.scorbit, JKEY_DIAG_SCORBIT_RTT_MS, JKEY_DIAG_SCORBIT_LOSS_PCT);
-                addProbe(j, sample.publicInternet, JKEY_DIAG_PUBLIC_RTT_MS,
-                         JKEY_DIAG_PUBLIC_LOSS_PCT);
+                // Shape lives in net_util so it can be tested; see buildWifiSamplePayload().
+                const auto j = buildWifiSamplePayload(sample);
 
                 const auto endpoint = url(URL_DIAGNOSTICS_WIFI_SAMPLE_PATH, fmt::arg(ARG_RUN_ID, runId));
                 INF("API sending wifi capture sample: run_id={}, final={}", runId, sample.isFinal);

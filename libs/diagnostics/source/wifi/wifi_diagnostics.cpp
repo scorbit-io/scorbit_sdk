@@ -263,6 +263,9 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
             if (!info.rssiDbm) {
                 info.rssiDbm = parsed->rssiDbm;
             }
+            if (!info.noiseDbm) {
+                info.noiseDbm = parsed->noiseDbm;
+            }
             if (info.interfaceName.empty()) {
                 info.interfaceName = parsed->interfaceName;
             }
@@ -604,6 +607,25 @@ std::optional<LinkInfo> parseIwStationDump(std::string_view output, LinkInfo bas
     return base;
 }
 
+/**
+ * Accept @p noise only if it could be a real noise floor, in dBm.
+ *
+ * /proc/net/wireless reports -256 when the driver supplies no noise figure, and some drivers
+ * report 0 instead; brcmfmac -- what the Scorbitron runs -- commonly does exactly this. Those
+ * are sentinels, not measurements. Forwarding one would be worse than sending nothing, because
+ * the server derives SNR as rssi_dbm - noise_dbm, so a sentinel yields a confident, wrong SNR
+ * in the panel Support reads.
+ */
+std::optional<int> plausibleNoiseDbm(int noise)
+{
+    constexpr int NOISE_MIN_DBM = -120;
+    constexpr int NOISE_MAX_DBM = -20;
+    if (noise < NOISE_MIN_DBM || noise > NOISE_MAX_DBM) {
+        return std::nullopt;
+    }
+    return noise;
+}
+
 std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::string interfaceName)
 {
     for (const auto &line : lines(output)) {
@@ -621,7 +643,10 @@ std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::strin
         std::string status;
         double link = 0.0;
         double level = 0.0;
-        stream >> status >> link >> level;
+        double noise = 0.0;
+        // The noise floor is the very next column -- it was always in the line we already
+        // read, the parser simply stopped one field short of it.
+        stream >> status >> link >> level >> noise;
 
         LinkInfo info;
         info.kind = InterfaceKind::Wifi;
@@ -629,6 +654,7 @@ std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::strin
         info.interfaceName = std::move(interfaceName);
         info.connected = true;
         info.rssiDbm = static_cast<int>(level);
+        info.noiseDbm = plausibleNoiseDbm(static_cast<int>(noise));
         return info;
     }
 
@@ -726,6 +752,11 @@ std::optional<LinkInfo> parseAirportInfo(std::string_view output)
     info.bssid = matchString(output, std::regex {R"((^|\n)\s*BSSID:\s*([0-9a-fA-F:]{17}))"}, 2)
                          .value_or("");
     info.rssiDbm = matchInt(output, std::regex {R"((^|\n)\s*agrCtlRSSI:\s*(-?\d+))"}, 2);
+    if (const auto noise =
+                matchInt(output, std::regex {R"((^|\n)\s*agrCtlNoise:\s*(-?\d+))"}, 2);
+        noise) {
+        info.noiseDbm = plausibleNoiseDbm(*noise);
+    }
     info.linkRateMbps = matchInt(output, std::regex {R"((^|\n)\s*lastTxRate:\s*(\d+))"}, 2);
 
     if (auto channel = matchInt(output, std::regex {R"((^|\n)\s*channel:\s*(\d+))"}, 2); channel) {

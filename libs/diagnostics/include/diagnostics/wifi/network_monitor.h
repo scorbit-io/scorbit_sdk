@@ -56,6 +56,15 @@ public:
     bool isActive() const;
     const std::string &runId() const;
 
+    /**
+     * Why the run ended -- "expired", "manual_stop", "shutdown" -- or empty while still running.
+     *
+     * These are WifiCaptureRun.end_reason values, NOT WifiCaptureEvent.kind values; the monitor
+     * deliberately emits no lifecycle event for them. Exposed so the owner can log or report the
+     * reason, since this library has no logger of its own.
+     */
+    const std::string &endReason() const;
+
     static std::optional<State>
     recoverState(const std::string &stateFilePath = defaultStateFilePath());
 

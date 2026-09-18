@@ -22,6 +22,8 @@
 #include "game_data.h"
 #include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
+#include <diagnostics/wifi/wifi_diagnostics.h>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -125,6 +127,19 @@ diagProbeDeadline(int deadlineSeconds, std::chrono::steady_clock::time_point rec
  */
 bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time_point> &deadline,
                              std::chrono::steady_clock::time_point now);
+
+/**
+ * Build the wifi-sample ingest body for @p sample.
+ *
+ * Extracted from Net purely so the payload SHAPE can be tested. The server's serializer silently
+ * DROPS unknown keys -- a misspelled field is stored as NULL behind a 202, with no error on
+ * either side. That is how noise_dbm went unsent for four months while every test passed, so the
+ * key set is asserted in test_net_util rather than trusted.
+ *
+ * Optional metrics are omitted rather than sent as null: the serializer treats absent and null
+ * alike, and omitting keeps the body under the 4 KiB cap.
+ */
+nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample);
 
 } // namespace detail
 } // namespace scorbit

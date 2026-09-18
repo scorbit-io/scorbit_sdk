@@ -19,6 +19,7 @@
 
 #include "net_util.h"
 #include "device_info.h"
+#include "identifiers.h"
 #include "fmt/format.h"
 #include <logger/logger.h>
 #include <boost/uuid.hpp>
@@ -281,6 +282,54 @@ bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time
                              std::chrono::steady_clock::time_point now)
 {
     return deadline.has_value() && now >= *deadline;
+}
+
+nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
+{
+    using nlohmann::json;
+
+    const auto addInt = [](json &j, const char *key, const std::optional<int> &value) {
+        if (value) {
+            j[key] = *value;
+        }
+    };
+    const auto addDouble = [](json &j, const char *key, const std::optional<double> &value) {
+        if (value) {
+            j[key] = *value;
+        }
+    };
+    const auto addProbe = [&](json &j, const std::optional<wifi::ProbeResult> &probe,
+                              const char *rttKey, const char *lossKey) {
+        if (!probe) {
+            return;
+        }
+        addInt(j, rttKey, probe->rttMs);
+        addDouble(j, lossKey, probe->lossPct);
+    };
+
+    // `source` is a closed ChoiceField server-side and defaults to "wifi" when absent. Sending it
+    // explicitly is what lets SB-3465's Ethernet sampler be distinguishable at all -- until this
+    // field was sent, every sample was recorded as wifi regardless of the interface it came from.
+    json j {{JKEY_DIAG_TS, to_iso8601(sample.ts)},
+            {JKEY_DIAG_SSID, sample.link.ssid},
+            {JKEY_DIAG_BSSID, sample.link.bssid},
+            {JKEY_DIAG_IS_FINAL, sample.isFinal},
+            {JKEY_DIAG_SOURCE, sample.link.kind == wifi::InterfaceKind::Ethernet
+                                       ? JVAL_DIAG_SOURCE_ETHERNET
+                                       : JVAL_DIAG_SOURCE_WIFI}};
+
+    addInt(j, JKEY_DIAG_RSSI_DBM, sample.link.rssiDbm);
+    addInt(j, JKEY_DIAG_NOISE_DBM, sample.link.noiseDbm);
+    addInt(j, JKEY_DIAG_LINK_RATE_MBPS, sample.link.linkRateMbps);
+    addDouble(j, JKEY_DIAG_TX_RETRY_PCT, sample.link.txRetryPct);
+    addInt(j, JKEY_DIAG_BEACON_LOSS_COUNT, sample.link.beaconLossCount);
+    addInt(j, JKEY_DIAG_FREQ_MHZ, sample.link.freqMhz);
+    addInt(j, JKEY_DIAG_CHANNEL, sample.link.channel);
+    addProbe(j, sample.gateway, JKEY_DIAG_GATEWAY_RTT_MS, JKEY_DIAG_GATEWAY_LOSS_PCT);
+    addProbe(j, sample.scorbit, JKEY_DIAG_SCORBIT_RTT_MS, JKEY_DIAG_SCORBIT_LOSS_PCT);
+    addProbe(j, sample.publicInternet, JKEY_DIAG_PUBLIC_RTT_MS, JKEY_DIAG_PUBLIC_LOSS_PCT);
+
+    return j;
 }
 
 } // namespace detail
