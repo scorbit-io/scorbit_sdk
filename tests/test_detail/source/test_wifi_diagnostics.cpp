@@ -11,6 +11,7 @@
 #include <atomic>
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <thread>
 #include <catch2/catch_test_macros.hpp>
 #include <set>
@@ -344,6 +345,25 @@ TEST_CASE("A measured link that is down still reports blocked", "[wifi][dependen
 
 // --- 410 is terminal for a run ---------------------------------------------
 
+namespace {
+
+/// A state-file path unique to this call.
+///
+/// NetworkMonitor writes a real file, and a fixed name is not safe here: the suite runs under
+/// `ctest -j8`, and several worktrees of this repo share one system temp directory, so two runs
+/// could delete or overwrite each other's state and fail for reasons that have nothing to do with
+/// what is under test. That is exactly the kind of flakiness SB-4875 already tracks.
+std::string uniqueStateFilePath()
+{
+    static std::atomic_uint64_t counter {0};
+    std::random_device rd;
+    const auto name = "scorbit_capture_test_" + std::to_string(rd()) + "_"
+                    + std::to_string(counter.fetch_add(1)) + ".state";
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
+} // namespace
+
 TEST_CASE("A run the server has closed retires without a final sample", "[wifi][runclosed]")
 {
     // SPEC-0007 makes 410 terminal: the server has ended this run, so anything further the device
@@ -359,8 +379,8 @@ TEST_CASE("A run the server has closed retires without a final sample", "[wifi][
     options.runId = "run-closed-test";
     options.requestedDuration = std::chrono::seconds {300};
     options.runClosed = runClosed;
-    options.stateFilePath =
-            (std::filesystem::temp_directory_path() / "scorbit_run_closed_test.state").string();
+    const auto stateFilePath = uniqueStateFilePath();
+    options.stateFilePath = stateFilePath;
     options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
         return CommandResult {0, ""};
     };
@@ -387,4 +407,9 @@ TEST_CASE("A run the server has closed retires without a final sample", "[wifi][
     // The point of the whole exercise: nothing was posted into the closed run, not even the final
     // sample that a normal stop emits.
     CHECK(samples.load() == 0);
+
+    // run() removes the state file itself, so this only matters when an assertion above failed --
+    // but a failing test should not also leave litter behind for the next one to trip over.
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
 }
