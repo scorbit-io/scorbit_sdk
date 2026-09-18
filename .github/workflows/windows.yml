@@ -67,49 +67,45 @@ jobs:
       # fails configure without it. SCORBIT_SDK_ABI is set anyway, because it is
       # the established tag for this toolchain and CMakeLists.txt rejects
       # "unknown" the moment production is ever switched on.
-      # Resolved in its own step so that a missing or moved vcpkg says so here,
-      # in one line, rather than as a CMake toolchain error several frames deep.
-      # The value has to be read from the runner's environment at run time --
-      # VCPKG_INSTALLATION_ROOT is set by the image, so it is not visible to a
-      # ${{ }} expression, which is evaluated before the shell starts.
-      - name: locate the vcpkg toolchain
-        shell: pwsh
-        run: |
-          $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-          if (-not (Test-Path $toolchain)) {
-              throw "vcpkg toolchain not found at $toolchain (VCPKG_INSTALLATION_ROOT='$env:VCPKG_INSTALLATION_ROOT')"
-          }
-          Write-Output "toolchain: $toolchain"
-          "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
-
-      # The runner's vcpkg clone does not necessarily contain the commit that
-      # vcpkg.json pins as builtin-baseline, and when it does not, every port
-      # fails with "failed to `git show` versions/baseline.json" -- once per
-      # dependency, which buries the one line that matters.
+      # vcpkg is checked out AT the pinned baseline rather than using the one
+      # bundled with the runner image, because mixing the two does not work.
       #
-      # Fetching it is the fix rather than dropping the pin. An unpinned baseline
-      # resolves against whatever each machine's own vcpkg happens to be at,
-      # which is the class of problem the manifest exists to end.
-      - name: make the pinned vcpkg baseline available
+      # The image's vcpkg sits at its own commit. Pointing its toolchain at a
+      # different builtin-baseline makes vcpkg resolve the version database from
+      # the pinned commit while the ports tree on disk is from another, and the
+      # two disagree:
+      #
+      #   error: no version database entry for curl at 8.22.0#1
+      #   error: no version database entry for liblzma at 5.8.4
+      #
+      # When the checkout IS the baseline, there is no cross-commit resolution to
+      # get wrong -- ports, version database and baseline are one tree. That also
+      # makes --depth=1 sufficient, since no historical trees are ever consulted.
+      - name: check out vcpkg at the pinned baseline
         shell: pwsh
         run: |
           $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
           if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
           Write-Output "baseline: $baseline"
-          git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "$baseline^{commit}" 2>$null
-          if ($LASTEXITCODE -eq 0) {
-              Write-Output "already present in the runner's vcpkg clone"
-          } else {
-              Write-Output "not present; fetching it"
-              git -C $env:VCPKG_INSTALLATION_ROOT fetch --depth=1 origin $baseline
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Output "targeted fetch failed; falling back to a full fetch"
-                  git -C $env:VCPKG_INSTALLATION_ROOT fetch origin
-                  if ($LASTEXITCODE -ne 0) { throw "could not fetch vcpkg baseline $baseline" }
-              }
-              git -C $env:VCPKG_INSTALLATION_ROOT cat-file -e "$baseline^{commit}"
-              if ($LASTEXITCODE -ne 0) { throw "vcpkg baseline $baseline still missing after fetch" }
-          }
+
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git init --quiet $root
+          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $root fetch --quiet --depth=1 origin $baseline
+          if ($LASTEXITCODE -ne 0) { throw "could not fetch vcpkg at $baseline" }
+          git -C $root checkout --quiet FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "could not check out vcpkg at $baseline" }
+
+          $head = git -C $root rev-parse HEAD
+          if ($head -ne $baseline) { throw "vcpkg checkout is at $head, expected $baseline" }
+
+          & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+
+          $toolchain = Join-Path $root "scripts/buildsystems/vcpkg.cmake"
+          if (-not (Test-Path $toolchain)) { throw "toolchain missing at $toolchain" }
+          Write-Output "toolchain: $toolchain"
+          "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
 
       - name: configure the SDK
         shell: pwsh
