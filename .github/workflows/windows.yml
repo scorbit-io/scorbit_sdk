@@ -67,14 +67,29 @@ jobs:
       # fails configure without it. SCORBIT_SDK_ABI is set anyway, because it is
       # the established tag for this toolchain and CMakeLists.txt rejects
       # "unknown" the moment production is ever switched on.
-      - name: configure the SDK
-        run: >
-          cmake -S . -B build
-          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}
-          -DSCORBIT_SDK_PRODUCTION=OFF
-          -DSCORBIT_SDK_ABI=msvc2022
+      # Resolved in its own step so that a missing or moved vcpkg says so here,
+      # in one line, rather than as a CMake toolchain error several frames deep.
+      # The value has to be read from the runner's environment at run time --
+      # VCPKG_INSTALLATION_ROOT is set by the image, so it is not visible to a
+      # ${{ }} expression, which is evaluated before the shell starts.
+      - name: locate the vcpkg toolchain
         shell: pwsh
+        run: |
+          $toolchain = "$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          if (-not (Test-Path $toolchain)) {
+              throw "vcpkg toolchain not found at $toolchain (VCPKG_INSTALLATION_ROOT='$env:VCPKG_INSTALLATION_ROOT')"
+          }
+          Write-Output "toolchain: $toolchain"
+          "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
+
+      - name: configure the SDK
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }}" `
+            "-DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}" `
+            -DSCORBIT_SDK_PRODUCTION=OFF `
+            -DSCORBIT_SDK_ABI=msvc2022
 
       - name: build the SDK
         run: cmake --build build --config Release
@@ -83,12 +98,12 @@ jobs:
       # vcpkg looks for vcpkg.json beside the -S directory, so configuring the
       # tests project would look for tests/vcpkg.json and install nothing.
       - name: configure the tests
-        run: >
-          cmake -S tests -B build-tests
-          -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
-          -DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}
-          -DVCPKG_MANIFEST_DIR=${{ github.workspace }}
         shell: pwsh
+        run: |
+          cmake -S tests -B build-tests `
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }}" `
+            "-DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}" `
+            "-DVCPKG_MANIFEST_DIR=${{ github.workspace }}"
 
       - name: build the tests
         run: cmake --build build-tests --config Release
