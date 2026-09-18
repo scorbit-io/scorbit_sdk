@@ -130,9 +130,16 @@ void NetworkMonitor::run()
         const auto now = clock::now();
         if (now >= deadline) {
             {
+                // Symmetric with stop(): only claim the reason if we are the one
+                // ending the capture. A stop() that lands between this loop's
+                // m_active check and this lock has already recorded its own
+                // reason -- "manual_stop" or "shutdown" -- and relabelling it
+                // "expired" would report the wrong end_reason for the run.
                 std::scoped_lock lock(m_mutex);
-                m_stopReason = "expired";
-                m_active = false;
+                if (m_active) {
+                    m_stopReason = "expired";
+                    m_active = false;
+                }
             }
             break;
         }
