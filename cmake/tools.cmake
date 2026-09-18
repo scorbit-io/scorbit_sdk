@@ -17,6 +17,20 @@ endif()
 
 if(MSVC)
     add_definitions(-D_WIN32_WINNT=0x0601)
+
+    # <windows.h> defines min and max as macros, which breaks any call spelled
+    # std::numeric_limits<T>::max() -- the parenthesis after the macro name is
+    # read as the macro's argument list:
+    #
+    #   nfc/Util.h(111,53): error C2589: '(': illegal token on right side of '::'
+    #
+    # Defined here rather than per-target because it has to hold everywhere
+    # <windows.h> is reached, and because a target that forgets it fails with an
+    # error that names the standard library rather than the macro. This is the
+    # top-level project (see the guard above), so it inherits into every
+    # subdirectory added after this point, including the libs CPM adds by
+    # SOURCE_DIR.
+    add_definitions(-DNOMINMAX)
 endif()
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
