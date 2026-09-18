@@ -108,9 +108,9 @@ target_sources(
         ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
-        # ../../source/net.h
-        # ../../source/net.cpp
-        # source/test_net.cpp
+        ../../source/net.h
+        ../../source/net.cpp
+        source/test_net.cpp
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
@@ -121,6 +121,8 @@ target_sources(
         source/test_identifiers.cpp
         ../../source/worker.cpp
         ../../source/worker.h
+        ../../source/serial_task_queue.h
+        source/test_serial_task_queue.cpp
         ../../source/utils/thread_priority.h
         ../../source/utils/thread_priority.cpp
         source/test_worker.cpp

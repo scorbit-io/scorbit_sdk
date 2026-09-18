@@ -25,6 +25,7 @@
 #include "key_resolver.h"
 #include "game_data.h"
 #include "worker.h"
+#include "serial_task_queue.h"
 #include "updater.h"
 #include "identifiers.h"
 #include "event_manager.h"
@@ -51,6 +52,51 @@ std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 
 class SafeMultipart;
+
+/**
+ * Builds the JSON body of a typed config update.
+ *
+ * Split out from the request task because the exact wire format is a contract with the API and is
+ * worth pinning directly: @p version is always serialised as a JSON string, so a blank one goes
+ * out as `"version": ""` rather than being omitted, and @p type is never validated against a list.
+ */
+std::string buildConfigUpdatePayload(const std::string &type, const std::string &version,
+                                     bool installed, const std::optional<std::string> &log);
+
+/**
+ * Builds the multipart body of a diagnostics upload.
+ *
+ * Split out for the same reason: the `request_generation` field must be absent, not empty or
+ * zero, when the caller supplied no generation.
+ */
+cpr::Multipart buildDiagnosticsMultipart(const std::string &archivePath,
+                                         const std::optional<std::uint64_t> &requestGeneration);
+
+class Net;
+
+/**
+ * Test seam for Net's request plumbing.
+ *
+ * createHttpRequestTask's retry loop and HTTP-status reporting have no other observable seam: the
+ * transport is reached through non-virtual HttpSessionPool templates, so the only way to drive a
+ * specific status or a transport failure is to supply httpMethod directly. The template is defined
+ * in net.cpp, so these overloads take concrete std::function types and are instantiated there.
+ * Tests are the only caller.
+ */
+struct NetTestAccess {
+    using TestTransport = std::function<cpr::Response(
+            const cpr::Url &, const cpr::Body &, const cpr::Header &, const cpr::Timeout &, bool)>;
+
+    /// Builds a PATCH-shaped request task that reaches @p transport instead of the network.
+    static task_t request(Net &net, HttpStatusCallback callback, TestTransport transport,
+                          std::string payload);
+    static task_t request(Net &net, StringCallback callback, TestTransport transport,
+                          std::string payload);
+
+private:
+    template<typename CallbackT>
+    static task_t make(Net &net, CallbackT callback, TestTransport transport, std::string payload);
+};
 
 class Net : public NetBase
 {
@@ -87,6 +133,12 @@ class Net : public NetBase
         std::string title;
     };
 
+    // Test seam. createHttpRequestTask's retry loop and HTTP-status reporting have no other
+    // observable seam: the transport is reached through non-virtual HttpSessionPool templates,
+    // so the only way to drive a 400 or a transport failure is to supply the httpMethod directly.
+    // Declared unconditionally so the shipping build and the test build share one class layout.
+    friend struct NetTestAccess;
+
 public:
     Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers);
     ~Net() override;
@@ -100,7 +152,8 @@ public:
 
     void authenticate() override;
     void updateConfig(const std::string &type, const std::string &version, bool installed,
-                      std::optional<std::string> log = std::nullopt) override;
+                      std::optional<std::string> log = std::nullopt,
+                      HttpStatusCallback callback = {}) override;
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
                        std::function<void()> onCreated) override;
     void submitGameData(const detail::GameData &data, SessionFlags flags) override;
@@ -145,12 +198,13 @@ public:
     void cancelModeExpiryTimer() override;
 
     void uploadDiagnostics(std::vector<std::string> logPaths,
-                           std::vector<std::string> recordingPaths, std::string logString) override;
+                           std::vector<std::string> recordingPaths, std::string logString,
+                           std::optional<std::uint64_t> requestGeneration = std::nullopt) override;
 
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
-                            std::optional<std::string> log);
+                            std::optional<std::string> log, HttpStatusCallback callback);
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
                                    std::function<void()> onCreated);
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
@@ -194,10 +248,14 @@ private:
     task_t createNfcNoncesTask();
     task_t createRequestMachineObjectTask();
 
-    // Generic HTTP request task creator
-    template<typename DeferredSetupT, typename HttpMethodT>
+    // Generic HTTP request task creator.
+    //
+    // @p replyCallback is either a StringCallback or an HttpStatusCallback; the latter also
+    // receives the HTTP status of the final attempt. Callers passing a StringCallback are
+    // unaffected — the status is simply discarded for them.
+    template<typename DeferredSetupT, typename HttpMethodT, typename CallbackT = StringCallback>
     task_t createHttpRequestTask(
-            const char *requestType, StringCallback replyCallback, DeferredSetupT deferredSetup,
+            const char *requestType, CallbackT replyCallback, DeferredSetupT deferredSetup,
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
             bool includeFingerprintHash = false, bool resilientTransferTimeouts = false);
@@ -214,8 +272,9 @@ private:
                                           deferred_post_multipart_setup_t deferredSetup,
                                           std::vector<AuthStatus> allowedStatuses = {
                                                   AuthStatus::AuthenticatedPaired});
-    task_t createPatchRequestTask(StringCallback replyCallback,
-                                  deferred_patch_setup_t deferredSetup,
+    /// Accepts a StringCallback or an HttpStatusCallback; see @ref createHttpRequestTask.
+    template<typename CallbackT = StringCallback>
+    task_t createPatchRequestTask(CallbackT replyCallback, deferred_patch_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses = {
                                           AuthStatus::AuthenticatedPaired});
     task_t createPatchMultipartRequestTask(
@@ -446,6 +505,12 @@ private:
     // Runs on m_worker's heartbeat strand, so it has to be created after m_worker and destroyed
     // before m_worker
     Heartbeat m_heartbeat;
+
+    // Keeps config updates for one type in order across an auth-gate park, which would otherwise
+    // let a later update overtake a parked one and re-assert state the caller already withdrew.
+    // Dispatches through m_worker, so like m_heartbeat it is created after m_worker and destroyed
+    // before it.
+    SerialTaskQueue m_configUpdates {[this](task_t task) { m_worker.postQueue(std::move(task)); }};
 
     // Centrifugo client for real-time updates, it depends on m_worker's strand and has to be
     // created after m_worker and destroyed before m_worker

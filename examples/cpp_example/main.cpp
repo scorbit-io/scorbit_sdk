@@ -272,6 +272,9 @@ void eventsCallback(const scorbit::Event &event)
                 // In a real implementation, you may send log files:
                 // gGameStatePtr->uploadDiagnostics({"path/to/log1.txt", "path/to/log2.txt"}, {},
                 //                                  "extra string log message");
+                // When the upload answers a specific request, echo that request's generation
+                // back so the service can tell which request this upload answers:
+                // gGameStatePtr->uploadDiagnostics({}, {}, "extra string log message", 7);
             }
         }
     } break;
@@ -382,6 +385,20 @@ int main()
 
     // Set capabilities. Here we set both start game and credit drop capabilities
     gs.setCapabilities(scorbit::Capability::StartGame | scorbit::Capability::CreditDrop);
+
+    // Report a typed piece of device state. The type is passed through unchanged, so any type the
+    // service understands can be reported. The callback also receives the HTTP status of the final
+    // attempt; 0 means no HTTP response was received at all. The SDK does not retry a 4xx or 5xx
+    // (a 401 is the one exception -- it re-authenticates and tries again), so do not add a retry
+    // here: send current state again on your next trigger instead.
+    gs.reportDeviceState("sdk", SCORBIT_SDK_VERSION, true,
+                         [](scorbit::Error error, int httpStatus, const std::string &reply) {
+                             cout << "Config update finished: error=" << static_cast<int>(error)
+                                  << ", http=" << httpStatus << ", reply=" << reply << endl;
+                         });
+
+    // Passing an empty version withdraws a report made earlier:
+    // gs.reportDeviceState("sdk", "");
 
     gs.requestPairCode([](scorbit::Error error, const std::string &shortCode) {
         if (error == scorbit::Error::Success) {

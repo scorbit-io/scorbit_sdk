@@ -39,6 +39,7 @@
 #include <vector>
 #include <atomic>
 #include <exception>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -203,6 +204,17 @@ struct JobUploadDiagnostics {
     std::vector<std::string> logPaths;
     std::vector<std::string> recordingPaths;
     std::string logString;
+    std::optional<std::uint64_t> requestGeneration;
+};
+
+struct JobReportDeviceState {
+    sb_game_state_struct *h;
+    std::string type;
+    std::string version;
+    bool installed;
+    std::optional<std::string> log;
+    sb_http_status_callback_t callback;
+    void *user_data;
 };
 
 using ApiQueueItem =
@@ -211,7 +223,7 @@ using ApiQueueItem =
                      JobSetModeCompleted, JobTickModeExpiries, JobRemoveMode, JobClearModes,
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
-                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics>;
+                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -228,6 +240,15 @@ inline auto makeCStringReplyBridge(sb_string_callback_t cb, void *user_data)
     return [cb, user_data](Error error, const std::string &reply) {
         if (cb) {
             cb(static_cast<sb_error_t>(error), reply.c_str(), user_data);
+        }
+    };
+}
+
+inline auto makeCHttpStatusReplyBridge(sb_http_status_callback_t cb, void *user_data)
+{
+    return [cb, user_data](Error error, int httpStatus, const std::string &reply) {
+        if (cb) {
+            cb(static_cast<sb_error_t>(error), httpStatus, reply.c_str(), user_data);
         }
     };
 }
@@ -335,9 +356,14 @@ void dispatchApiJob(ApiQueueItem &&item)
                                 j.reserve_buffer_size, std::move(j.headers));
                     },
                     [](JobUploadDiagnostics &&j) {
-                        j.h->gameState.uploadDiagnostics(std::move(j.logPaths),
-                                                         std::move(j.recordingPaths),
-                                                         std::move(j.logString));
+                        j.h->gameState.uploadDiagnostics(
+                                std::move(j.logPaths), std::move(j.recordingPaths),
+                                std::move(j.logString), j.requestGeneration);
+                    },
+                    [](JobReportDeviceState &&j) {
+                        j.h->gameState.reportDeviceState(
+                                j.type, j.version, j.installed, std::move(j.log),
+                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
                     },
             },
             std::move(item));
@@ -581,9 +607,11 @@ void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve
                                           user_data});
 }
 
-void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+namespace {
+
+void postUploadDiagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
                            const char **recording_paths, size_t recording_count,
-                           const char *log_string)
+                           const char *log_string, std::optional<std::uint64_t> request_generation)
 {
     std::vector<std::string> logs;
     logs.reserve(log_count);
@@ -602,5 +630,34 @@ void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size
     }
 
     handle->postApiJob(JobUploadDiagnostics {handle, std::move(logs), std::move(recordings),
-                                             copyCStr(log_string)});
+                                             copyCStr(log_string), request_generation});
+}
+
+} // namespace
+
+void sb_upload_diagnostics(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+                           const char **recording_paths, size_t recording_count,
+                           const char *log_string)
+{
+    postUploadDiagnostics(handle, log_paths, log_count, recording_paths, recording_count,
+                          log_string, std::nullopt);
+}
+
+void sb_upload_diagnostics_ex(sb_game_handle_t handle, const char **log_paths, size_t log_count,
+                              const char **recording_paths, size_t recording_count,
+                              const char *log_string, const uint64_t *request_generation)
+{
+    postUploadDiagnostics(
+            handle, log_paths, log_count, recording_paths, recording_count, log_string,
+            request_generation ? std::optional<std::uint64_t> {*request_generation} : std::nullopt);
+}
+
+void sb_report_device_state(sb_game_handle_t handle, const char *type, const char *version,
+                            bool installed, const char *log, sb_http_status_callback_t callback,
+                            void *user_data)
+{
+    // A NULL log omits the field; an empty string is a caller-supplied empty log and is kept.
+    handle->postApiJob(JobReportDeviceState {handle, copyCStr(type), copyCStr(version), installed,
+                                             log ? std::optional<std::string> {log} : std::nullopt,
+                                             callback, user_data});
 }

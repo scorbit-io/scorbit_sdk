@@ -172,6 +172,10 @@ constexpr auto JKEY_SCFG_SCORBITRON_MACHINE {"machine"};
 constexpr auto JKEY_SCFG_OWNER {"owner"};
 constexpr auto JKEY_SCFG_PRICING {"pricing"};
 
+// Multipart field names for the diagnostics upload.
+constexpr auto MPART_DIAG_FILE {"file"};
+constexpr auto MPART_DIAG_REQUEST_GENERATION {"request_generation"};
+
 constexpr auto JKEY_SCFG_VERSION {"version"};
 constexpr auto JKEY_SCFG_TYPE {"type"};
 constexpr auto JKEY_SCFG_INSTALLED {"installed"};

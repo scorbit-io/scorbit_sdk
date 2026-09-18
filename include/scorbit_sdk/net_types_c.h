@@ -178,6 +178,26 @@ typedef struct {
 
 typedef void (*sb_string_callback_t)(sb_error_t error, const char *reply, void *user_data);
 
+/**
+ * Reply callback that also reports the HTTP status of the request.
+ *
+ * Behaves like @ref sb_string_callback_t, but additionally carries the status code of the
+ * **final** attempt the SDK made.
+ *
+ * - **error**: The SDK-level result, as for @ref sb_string_callback_t.
+ * - **http_status**: The HTTP status code of the final attempt, or `0` when no HTTP response was
+ *   received at all — a transport failure, or a request the SDK short-circuited before sending
+ *   (for example @ref SB_EC_AUTH_FAILED or @ref SB_EC_NOT_PAIRED).
+ * - **reply**: The raw response body, or an empty string when there was none.
+ * - **user_data**: The user data passed when making the request.
+ *
+ * @note The SDK does not retry a 4xx or 5xx, with one exception: it owns authentication, so a
+ * 401 is answered by re-authenticating and trying again, bounded by the SDK's own retry limit.
+ * Either way the status reported here is that of the final attempt.
+ */
+typedef void (*sb_http_status_callback_t)(sb_error_t error, int http_status, const char *reply,
+                                          void *user_data);
+
 typedef void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size,
                                      void *user_data);
 

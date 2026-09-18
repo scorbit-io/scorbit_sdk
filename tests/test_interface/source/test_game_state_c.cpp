@@ -143,9 +143,67 @@ TEST_CASE("Create game state with soft key when load callback returns empty (fir
     sb_config_set_save_key_callback(cfg, testSaveKeyCallback, nullptr);
     sb_config_set_load_key_callback(cfg, testEmptyLoadKeyCallback, nullptr);
 
-    // No saved key yet: provisioning is attempted asynchronously after create; handle is still valid.
+    // No saved key yet: provisioning is attempted asynchronously after create; handle is still
+    // valid.
     sb_game_handle_t h = sb_create_game_state(cfg);
     REQUIRE(h != nullptr);
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}
+
+// SB-4795: the typed config update and the diagnostics request-generation echo. These cases run
+// against the built shared library, so they also prove the new entry points are actually exported
+// and that the C ABI's optional arguments are null-safe.
+
+namespace {
+
+sb_config_t makeSignerConfig()
+{
+    sb_config_t cfg = sb_config_create();
+    sb_config_set_provider(cfg, "vscorbitron");
+    sb_config_set_machine_id(cfg, 4419);
+    sb_config_set_game_code_version(cfg, "0.1.0");
+    sb_config_set_signer(cfg, dummySigner, nullptr);
+    sb_config_set_serial_number(cfg, 9876543210ULL);
+    return cfg;
+}
+
+} // namespace
+
+TEST_CASE("sb_report_device_state accepts an absent log and an absent callback",
+          "[GameState][Config]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    // A NULL log omits the field; a NULL callback means the caller wants no result. Neither may
+    // crash, and an unknown type must be accepted rather than rejected locally.
+    sb_report_device_state(h, "capture_retained", "2026-09-15T00:00:00Z", true, nullptr, nullptr,
+                           nullptr);
+
+    // A blank version is the documented way to withdraw a previous report.
+    sb_report_device_state(h, "capture_retained", "", true, nullptr, nullptr, nullptr);
+
+    // With a log attached.
+    sb_report_device_state(h, "sdk", "1.2.3", false, "some log text", nullptr, nullptr);
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}
+
+TEST_CASE("sb_upload_diagnostics_ex accepts an absent request generation", "[GameState][Config]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    // NULL means "this upload answers no particular request" and must be accepted as such.
+    sb_upload_diagnostics_ex(h, nullptr, 0, nullptr, 0, "", nullptr);
+
+    const uint64_t generation = 7;
+    sb_upload_diagnostics_ex(h, nullptr, 0, nullptr, 0, "", &generation);
 
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);
