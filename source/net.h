@@ -385,10 +385,14 @@ private:
     // duplicate trace_ids, and hands the publish + ack work off to the worker
     // strand via the two helpers below.
     void handleDiagnosticProbe(const nlohmann::json &payload);
+    // deadline is the probe's budget, resolved to a monotonic instant at receipt and re-checked
+    // when the worker actually runs each task -- the delay being guarded against is the queue.
     void publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
-                                 const std::string &createdAt);
+                                 const std::string &createdAt,
+                                 std::optional<std::chrono::steady_clock::time_point> deadline);
     void postDiagnosticAck(const std::string &traceId, uint64_t sequence,
-                           const std::string &createdAt);
+                           const std::string &createdAt,
+                           std::optional<std::chrono::steady_clock::time_point> deadline);
     void handleDiagnosticCaptureStart(const nlohmann::json &payload);
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
     void postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample);

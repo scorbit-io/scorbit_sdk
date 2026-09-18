@@ -268,5 +268,20 @@ std::chrono::seconds centrifugoTokenRefreshDelay(std::chrono::seconds expiresIn)
                                           CF_TOKEN_REFRESH_MIN_DELAY);
 }
 
+std::optional<std::chrono::steady_clock::time_point>
+diagProbeDeadline(int deadlineSeconds, std::chrono::steady_clock::time_point receivedAt)
+{
+    if (deadlineSeconds <= 0) {
+        return std::nullopt;
+    }
+    return receivedAt + std::chrono::seconds {deadlineSeconds};
+}
+
+bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                             std::chrono::steady_clock::time_point now)
+{
+    return deadline.has_value() && now >= *deadline;
+}
+
 } // namespace detail
 } // namespace scorbit

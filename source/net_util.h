@@ -108,5 +108,23 @@ constexpr auto CF_TOKEN_REFRESH_MIN_DELAY = std::chrono::seconds {10};
  */
 std::chrono::seconds centrifugoTokenRefreshDelay(std::chrono::seconds expiresIn);
 
+/**
+ * Turn a diag_probe's @p deadlineSeconds into an absolute monotonic deadline measured from
+ * @p receivedAt, or nullopt when the probe carries no deadline.
+ *
+ * The API sends deadline_seconds as a BUDGET (1..60), not an instant -- the payload has no send
+ * timestamp. Measuring it from receipt on steady_clock is what makes device clock skew irrelevant
+ * here: nothing is ever compared against a server wall-clock value. Zero, negative or absent means
+ * "no deadline", so a device keeps working against an API build that does not send the field.
+ */
+std::optional<std::chrono::steady_clock::time_point>
+diagProbeDeadline(int deadlineSeconds, std::chrono::steady_clock::time_point receivedAt);
+
+/**
+ * Whether @p deadline has elapsed by @p now. A probe with no deadline never expires.
+ */
+bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time_point> &deadline,
+                             std::chrono::steady_clock::time_point now);
+
 } // namespace detail
 } // namespace scorbit
