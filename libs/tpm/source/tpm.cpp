@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <cstring>
 #include <functional>
+#include <chrono>
 #include <random>
 #include <thread>
 

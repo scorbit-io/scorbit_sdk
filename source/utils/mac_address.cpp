@@ -21,7 +21,7 @@
 #include <boost/predef.h>
 
 #if BOOST_OS_WINDOWS
-#include "../logger.h"
+#include <logger/logger.h>
 
 #    ifndef WIN32_LEAN_AND_MEAN
 #        define WIN32_LEAN_AND_MEAN

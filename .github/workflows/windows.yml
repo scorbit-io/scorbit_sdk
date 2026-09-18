@@ -1,4 +1,4 @@
-name: Windows (configure)
+name: Windows
 
 on:
   push:
@@ -10,36 +10,160 @@ on:
       - master
       - main
 
+# A Windows round costs ~15 minutes, so a push that supersedes an in-flight run
+# should stop it rather than race it. Not applied to main: a push there should
+# always produce a complete result.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
+  # x64-windows-static-md, NOT x64-windows-static. cmake/tools.cmake sets
+  # CMAKE_MSVC_RUNTIME_LIBRARY to the DYNAMIC CRT, and the -md triplet is static
+  # libraries against that dynamic runtime. Plain -static mismatches and the
+  # LNK2038 errors it produces read nothing like a triplet problem.
+  VCPKG_TARGET_TRIPLET: x64-windows-static-md
+
+  # Binary caching, without which every run pays vcpkg's full build cost --
+  # roughly 17 minutes, against 35-45 seconds for the compile that follows it.
+  # The `files` provider is used rather than `x-gha` so the cache is handled by
+  # actions/cache like everything else here, instead of vcpkg talking to the
+  # Actions cache service directly.
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg_cache
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/vcpkg_cache,readwrite"
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: create the vcpkg binary cache directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg_cache"
+
+      # Restore and save are SPLIT deliberately. actions/cache saves in a post
+      # step that is SKIPPED when the job fails, so a single actions/cache step
+      # never writes the cache while the build is red -- which is precisely when
+      # iteration is happening and the cache is worth most.
+      #
+      # Measured before this split: four consecutive failing runs, each paying
+      # ~14 minutes to rebuild every port, with `Post cache vcpkg binaries ->
+      # skipped` as the only evidence that nothing had been stored.
+      #
+      # `if: always()` on the save is the whole fix. The ports that did build are
+      # worth keeping regardless of what failed afterwards.
+      #
+      # Keyed on vcpkg.json, which carries builtin-baseline, so a port list or
+      # baseline change invalidates the cache and nothing else does.
+      - name: restore vcpkg binaries
+        id: vcpkg_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-
 
       - uses: actions/cache@v4
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
-      # CONFIGURE ONLY, deliberately, and the job is named for it.
+      # No generator is specified, so this uses the Visual Studio generator,
+      # which locates MSVC unaided. That is a deliberate deviation from the
+      # recorded known-good invocation, which used -GNinja: Ninja with MSVC needs
+      # a developer environment set up first, and the VS generator is what this
+      # repo's Windows job has already been passing with. They differ in setup,
+      # not in outcome. If this moves to Ninja, a vcvars step has to come with it.
       #
-      # This verifies the thing that was actually broken: the dependency chain
-      # on Windows. cpr, curl without libpsl, the zlib curl brings, and
-      # libarchive resolving gzip against it. None of that resolved before
-      # SB-4853, and a regression in it is silent -- libarchive will happily
-      # configure with no gzip support and fail only at upload time.
+      # SCORBIT_SDK_PRODUCTION stays OFF: production requires
+      # SCORBIT_SDK_ENCRYPT_SECRET in the environment (cmake/encrypt.cmake) and
+      # fails configure without it. SCORBIT_SDK_ABI is set anyway, because it is
+      # the established tag for this toolchain and CMakeLists.txt rejects
+      # "unknown" the moment production is ever switched on.
+      # vcpkg is checked out AT the pinned baseline rather than using the one
+      # bundled with the runner image, because mixing the two does not work.
       #
-      # Compiling is a separate, unfinished job. The SDK's own sources have
-      # never been built for _WIN32 and currently fail on min/max macro
-      # collisions in libs/nfc, a POSIX-only <sys/resource.h> in libs/utils,
-      # and GCC warning flags reaching cl in centrifugo-cpp. Widening this job
-      # to build and test belongs with that work, not here -- a job that must
-      # stay red until an open-ended port finishes teaches everyone to ignore
-      # it, and a green one that skipped the failure would be worse.
-      - name: configure
-        run: cmake -Stests -Bbuild
+      # The image's vcpkg sits at its own commit. Pointing its toolchain at a
+      # different builtin-baseline makes vcpkg resolve the version database from
+      # the pinned commit while the ports tree on disk is from another, and the
+      # two disagree:
+      #
+      #   error: no version database entry for curl at 8.22.0#1
+      #   error: no version database entry for liblzma at 5.8.4
+      #
+      # When the checkout IS the baseline, there is no cross-commit resolution to
+      # get wrong -- ports, version database and baseline are one tree. That also
+      # makes --depth=1 sufficient, since no historical trees are ever consulted.
+      - name: check out vcpkg at the pinned baseline
+        shell: pwsh
+        run: |
+          $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
+          Write-Output "baseline: $baseline"
+
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git init --quiet $root
+          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $root fetch --quiet --depth=1 origin $baseline
+          if ($LASTEXITCODE -ne 0) { throw "could not fetch vcpkg at $baseline" }
+          git -C $root checkout --quiet FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw "could not check out vcpkg at $baseline" }
+
+          $head = git -C $root rev-parse HEAD
+          if ($head -ne $baseline) { throw "vcpkg checkout is at $head, expected $baseline" }
+
+          & (Join-Path $root "bootstrap-vcpkg.bat") -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg bootstrap failed" }
+
+          $toolchain = Join-Path $root "scripts/buildsystems/vcpkg.cmake"
+          if (-not (Test-Path $toolchain)) { throw "toolchain missing at $toolchain" }
+          Write-Output "toolchain: $toolchain"
+          "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
+
+      - name: configure the SDK
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }}" `
+            "-DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}" `
+            -DSCORBIT_SDK_PRODUCTION=OFF `
+            -DSCORBIT_SDK_ABI=msvc2022
+
+      - name: build the SDK
+        run: cmake --build build --config Release
+
+      # VCPKG_MANIFEST_DIR is required here and easy to miss: in manifest mode
+      # vcpkg looks for vcpkg.json beside the -S directory, so configuring the
+      # tests project would look for tests/vcpkg.json and install nothing.
+      - name: configure the tests
+        shell: pwsh
+        run: |
+          cmake -S tests -B build-tests `
+            "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_TOOLCHAIN }}" `
+            "-DVCPKG_TARGET_TRIPLET=${{ env.VCPKG_TARGET_TRIPLET }}" `
+            "-DVCPKG_MANIFEST_DIR=${{ github.workspace }}"
+
+      - name: build the tests
+        run: cmake --build build-tests --config Release
+
+      # Run from the build root that actually registered the tests. `ctest` in a
+      # directory with no registered tests reports "Total Tests: 0" and exits 0 --
+      # a pass that ran nothing. --no-tests=error turns that into a failure.
+      - name: test
+        run: ctest --test-dir build-tests -C Release --no-tests=error --output-on-failure
+
+      # Runs on failure too -- see the note on the restore step. Skipped only on
+      # an exact key hit, since re-uploading an unchanged cache is pure cost.
+      - name: save vcpkg binaries
+        if: always() && steps.vcpkg_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_cache
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ hashFiles('vcpkg.json') }}

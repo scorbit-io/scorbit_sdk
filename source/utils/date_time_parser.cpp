@@ -69,12 +69,16 @@ bool setSystemTime(int64_t timestamp)
     ft.dwLowDateTime = static_cast<DWORD>(ft_ticks);
     ft.dwHighDateTime = static_cast<DWORD>(ft_ticks >> 32);
 
-    // Windows 10+
-    if (auto fn = reinterpret_cast<decltype(&SetSystemTimePreciseAsFileTime)>(GetProcAddress(
-                GetModuleHandleA("kernel32.dll"), "SetSystemTimePreciseAsFileTime"))) {
-        return fn(&ft) != 0;
-    }
-
+    // There is no SetSystemTimePreciseAsFileTime in the Windows API, so the
+    // runtime-resolved "precise" path that used to sit here has been removed
+    // rather than repaired. sysinfoapi.h has GetSystemTimePreciseAsFileTime
+    // (Windows 8+) and SetSystemTime, but no Set counterpart to the Get -- the
+    // name was symmetric and plausible and simply is not a function.
+    //
+    // It could never have worked either way: decltype(&<undeclared>) does not
+    // compile at any _WIN32_WINNT, and GetProcAddress would have returned null
+    // at run time, so SetSystemTime below was always the only reachable path.
+    // Nothing had ever compiled this file for Windows, so nothing said so.
     SYSTEMTIME st {};
     if (!FileTimeToSystemTime(&ft, &st))
         return false;
