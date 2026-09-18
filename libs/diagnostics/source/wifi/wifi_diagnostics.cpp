@@ -626,6 +626,76 @@ std::optional<int> plausibleNoiseDbm(int noise)
     return noise;
 }
 
+bool resolveHost(const std::string &host)
+{
+    if (host.empty()) {
+        return false;
+    }
+
+    // Asio rather than raw getaddrinfo: it is already a dependency of this file (the TCP-connect
+    // fallback probe uses it) and it hides the POSIX/Winsock split, which matters because this
+    // library builds on all three platforms.
+    try {
+        boost::asio::io_context io;
+        boost::asio::ip::tcp::resolver resolver {io};
+        boost::system::error_code ec;
+        const auto results = resolver.resolve(host, "443", ec);
+        return !ec && !results.empty();
+    } catch (...) {
+        // A resolver failure is a "no", never a crash: this runs on the sampler thread.
+        return false;
+    }
+}
+
+std::map<std::string, std::string> buildDependencyChecks(const LinkInfo &link,
+                                                         const std::optional<ProbeResult> &gateway,
+                                                         const DependencySnapshot &snapshot,
+                                                         std::optional<bool> dnsOk)
+{
+    using namespace dependency;
+    std::map<std::string, std::string> checks;
+
+    checks[KEY_LINK] = link.connected ? STATUS_OK : STATUS_BLOCKED;
+
+    // The gateway chip is free: the 60s ICMP triplet already measures exactly this. Loss is the
+    // signal rather than RTT -- a slow gateway still works, a lossy one is what breaks a venue.
+    if (gateway && gateway->lossPct) {
+        const auto loss = *gateway->lossPct;
+        checks[KEY_DHCP_GATEWAY] = loss <= 0.0    ? STATUS_OK
+                                   : loss >= 100.0 ? STATUS_BLOCKED
+                                                   : STATUS_INTERMITTENT;
+    } else if (gateway && gateway->rttMs) {
+        // A reply with no loss figure parsed still proves reachability.
+        checks[KEY_DHCP_GATEWAY] = STATUS_OK;
+    }
+
+    if (snapshot.realtimeConnected) {
+        checks[KEY_WSS443] = *snapshot.realtimeConnected ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    // "Quiet" and "broken" are not the same thing for REST: the SDK only calls the API when it has
+    // something to say, so a gap is graded rather than treated as failure the moment it appears.
+    if (snapshot.sinceLastRestSuccess) {
+        const auto age = *snapshot.sinceLastRestSuccess;
+        checks[KEY_REST443] = age <= REST_OK_WITHIN         ? STATUS_OK
+                              : age <= REST_BLOCKED_BEYOND ? STATUS_INTERMITTENT
+                                                           : STATUS_BLOCKED;
+    }
+
+    if (snapshot.clockDelta) {
+        const auto drift = snapshot.clockDelta->count() < 0 ? -snapshot.clockDelta->count()
+                                                            : snapshot.clockDelta->count();
+        checks[KEY_CLOCK] =
+                drift <= CLOCK_OK_WITHIN.count() ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    if (dnsOk) {
+        checks[KEY_DNS] = *dnsOk ? STATUS_OK : STATUS_BLOCKED;
+    }
+
+    return checks;
+}
+
 std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::string interfaceName)
 {
     for (const auto &line : lines(output)) {

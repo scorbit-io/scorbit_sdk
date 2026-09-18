@@ -1235,6 +1235,27 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
     options.runId = runId;
     options.requestedDuration = std::chrono::seconds {requestedDuration};
 
+    // Passive only: reads state this object already holds, opens nothing. Called from the sampler
+    // thread, so every field it touches is atomic.
+    options.dependencyProvider = [this]() {
+        using namespace std::chrono;
+        wifi::DependencySnapshot snapshot;
+
+        snapshot.realtimeConnected =
+                m_cfState.load(std::memory_order_relaxed) == centrifugo::ConnectionState::Connected;
+
+        if (const auto last = m_lastRestSuccessSteady.load(std::memory_order_relaxed); last > 0) {
+            const auto nowSteady = duration_cast<seconds>(steady_clock::now().time_since_epoch());
+            snapshot.sinceLastRestSuccess = nowSteady - seconds {last};
+        }
+
+        if (m_haveClockDelta.load(std::memory_order_relaxed)) {
+            snapshot.clockDelta = seconds {m_clockDeltaSeconds.load(std::memory_order_relaxed)};
+        }
+
+        return snapshot;
+    };
+
     wifi::NetworkMonitor::Callbacks callbacks;
     callbacks.onSample = [this, runId](const wifi::Sample &sample) {
         postWifiCaptureSample(runId, sample);
@@ -1320,6 +1341,33 @@ void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &even
                 INF("API sending wifi capture event: run_id={}, kind={}", runId, event.kind);
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));
+}
+
+void Net::noteRestSuccess(const cpr::Header &header)
+{
+    using namespace std::chrono;
+
+    m_lastRestSuccessSteady.store(
+            duration_cast<seconds>(steady_clock::now().time_since_epoch()).count(),
+            std::memory_order_relaxed);
+
+    // The Date header is a free server clock reading on every single REST call, which is what
+    // lets the `clock` chip be passive. checkSystemTimeAccuracy() reads the same header but runs
+    // exactly once per process and CORRECTS the clock rather than reporting it, so it cannot be
+    // reused for a per-sample verdict.
+    const auto it = header.find("Date");
+    if (it == header.end() || it->second.empty()) {
+        return;
+    }
+
+    const auto serverEpoch = parseHttpDateToUnixTimestamp(it->second);
+    if (serverEpoch <= 0) {
+        return;
+    }
+
+    const auto localEpoch = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    m_clockDeltaSeconds.store(serverEpoch - localEpoch, std::memory_order_relaxed);
+    m_haveClockDelta.store(true, std::memory_order_relaxed);
 }
 
 void Net::recoverNetworkMonitorState()
@@ -2573,6 +2621,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             if (r.status_code >= 200 && r.status_code < 300) {
                 DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
                 error = Error::Success;
+                noteRestSuccess(r.header);
                 break;
             }
 

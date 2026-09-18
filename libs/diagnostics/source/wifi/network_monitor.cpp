@@ -129,6 +129,8 @@ void NetworkMonitor::run()
     auto nextSample = startedSteady;
     auto nextProbe = startedSteady;
     auto nextScan = startedSteady + m_options.scanInterval;
+    // Due immediately, so the very first sample carries a dns verdict instead of "unknown".
+    auto nextDependency = startedSteady;
 
     // No "capture_started" event. The server's WifiCaptureEvent.kind is a CLOSED enum --
     // assoc / deauth / scan / dhcp_renew / scorbitd_restart -- so every lifecycle value this
@@ -151,6 +153,12 @@ void NetworkMonitor::run()
                 }
             }
             break;
+        }
+
+        // Before the sample, so a fresh verdict lands in this round rather than the next one.
+        if (now >= nextDependency) {
+            m_lastDnsOk = resolveHost(m_options.scorbitProbeTarget);
+            nextDependency = now + m_options.dependencyInterval;
         }
 
         if (now >= nextSample) {
@@ -210,6 +218,13 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
         sample.publicInternet = m_lastSample->publicInternet;
         sample.scorbit = m_lastSample->scorbit;
     }
+
+    DependencySnapshot snapshot;
+    if (m_options.dependencyProvider) {
+        snapshot = m_options.dependencyProvider();
+    }
+    sample.dependencyChecks =
+            buildDependencyChecks(sample.link, sample.gateway, snapshot, m_lastDnsOk);
 
     return sample;
 }
