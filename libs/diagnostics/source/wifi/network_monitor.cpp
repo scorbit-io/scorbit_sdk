@@ -107,6 +107,12 @@ const std::string &NetworkMonitor::runId() const
     return m_options.runId;
 }
 
+std::string NetworkMonitor::endReason() const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_stopReason;
+}
+
 std::optional<State> NetworkMonitor::recoverState(const std::string &stateFilePath)
 {
     auto state = readStateFile(stateFilePath);
@@ -124,8 +130,11 @@ void NetworkMonitor::run()
     auto nextProbe = startedSteady;
     auto nextScan = startedSteady + m_options.scanInterval;
 
-    emitEvent("capture_started");
-
+    // No "capture_started" event. The server's WifiCaptureEvent.kind is a CLOSED enum --
+    // assoc / deauth / scan / dhcp_renew / scorbitd_restart -- so every lifecycle value this
+    // class used to emit was rejected with a 400. Run lifecycle is already server-side state
+    // (WifiCaptureRun.end_reason + the is_final sample), so these events carried nothing the
+    // server did not already have. Do not reintroduce them under a different name.
     while (m_active) {
         const auto now = clock::now();
         if (now >= deadline) {
@@ -168,7 +177,14 @@ void NetworkMonitor::run()
     }
 
     emitFinalSample();
-    emitEvent(m_stopReason.empty() ? "capture_stopped" : m_stopReason);
+    // No end-of-run event either: "capture_stopped" / "expired" / "manual_stop" / "shutdown"
+    // are all rejected by the closed kind enum (see the note at the top of the loop). Note
+    // that `expired` and `manual_stop` ARE valid WifiCaptureRun.end_reason values -- end_reason
+    // and event kind were conflated. The server sets end_reason itself.
+    //
+    // The reason is still recorded in m_stopReason and readable via endReason(), so the owner
+    // -- which, unlike this library, has a logger -- can report it. This library deliberately
+    // has no logging dependency: it links only Boost and nlohmann.
     removeStateFile(m_options.stateFilePath);
 }
 

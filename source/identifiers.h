@@ -171,6 +171,7 @@ constexpr auto JKEY_DIAG_SEQUENCE {"sequence"};
 constexpr auto JKEY_DIAG_KIND {"kind"};
 constexpr auto JKEY_DIAG_REASON_CODE {"reason_code"};
 constexpr auto JKEY_DIAG_RSSI_DBM {"rssi_dbm"};
+constexpr auto JKEY_DIAG_NOISE_DBM {"noise_dbm"};
 constexpr auto JKEY_DIAG_LINK_RATE_MBPS {"link_rate_mbps"};
 constexpr auto JKEY_DIAG_TX_RETRY_PCT {"tx_retry_pct"};
 constexpr auto JKEY_DIAG_BEACON_LOSS_COUNT {"beacon_loss_count"};
@@ -185,6 +186,10 @@ constexpr auto JKEY_DIAG_SSID {"ssid"};
 constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
 constexpr auto JKEY_DIAG_CHANNEL {"channel"};
 constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};
+constexpr auto JKEY_DIAG_SOURCE {"source"};
+// Closed server-side enum (WifiCaptureSampleSource): anything else is a 400.
+constexpr auto JVAL_DIAG_SOURCE_WIFI {"wifi"};
+constexpr auto JVAL_DIAG_SOURCE_ETHERNET {"ethernet"};
 constexpr auto JVAL_DIAG_HOP_DEVICE_EGRESS {"device_egress"};
 
 // Scorbitron config

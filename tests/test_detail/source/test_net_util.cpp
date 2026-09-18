@@ -20,6 +20,8 @@
 #include "net_util.h"
 #include "device_info.h"
 #include <catch2/catch_test_macros.hpp>
+#include <set>
+#include <string>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -389,3 +391,102 @@ TEST_CASE("The API's documented deadline range round-trips", "[diagProbeDeadline
     }
 }
 
+
+// --- wifi capture sample payload -------------------------------------------
+//
+// These pin the SHAPE, not the plumbing. The server's WifiCaptureSampleIngestSerializer silently
+// drops unknown keys, so a typo is a 202 plus a NULL column and no error anywhere. That is
+// precisely how noise_dbm -- this ticket's own acceptance canary -- went unsent for four months
+// behind nine passing tests, all of which tested output parsing rather than what gets POSTed.
+
+namespace {
+
+wifi::Sample makeFullSample()
+{
+    wifi::Sample sample;
+    sample.link.kind = wifi::InterfaceKind::Wifi;
+    sample.link.ssid = "venue-ap";
+    sample.link.bssid = "00:11:22:33:44:55";
+    sample.link.rssiDbm = -52;
+    sample.link.noiseDbm = -95;
+    sample.link.linkRateMbps = 144;
+    sample.link.txRetryPct = 3.5;
+    sample.link.beaconLossCount = 2;
+    sample.link.freqMhz = 2437;
+    sample.link.channel = 6;
+    sample.gateway = wifi::ProbeResult {"192.168.1.1", 3, 0.0};
+    sample.scorbit = wifi::ProbeResult {"sws.scorbit.io", 41, 10.0};
+    sample.publicInternet = wifi::ProbeResult {"1.1.1.1", 22, 0.0};
+    return sample;
+}
+
+} // namespace
+
+TEST_CASE("A full wifi sample POSTs exactly the keys the server declares",
+          "[buildWifiSamplePayload]")
+{
+    const auto j = buildWifiSamplePayload(makeFullSample());
+
+    // Every key here is spelled to match WifiCaptureSampleIngestSerializer. If one is renamed
+    // server-side this test is the thing that fails, rather than a venue's data quietly going
+    // NULL.
+    const std::set<std::string> expected {
+            "ts",          "source",           "ssid",        "bssid",
+            "is_final",    "rssi_dbm",         "noise_dbm",   "link_rate_mbps",
+            "tx_retry_pct", "beacon_loss_count", "freq_mhz",   "channel",
+            "gateway_rtt_ms", "gateway_loss_pct", "scorbit_rtt_ms", "scorbit_loss_pct",
+            "public_rtt_ms", "public_loss_pct"};
+
+    std::set<std::string> actual;
+    for (const auto &item : j.items()) {
+        actual.insert(item.key());
+    }
+
+    CHECK(actual == expected);
+}
+
+TEST_CASE("noise_dbm is sent, so SNR is derivable", "[buildWifiSamplePayload]")
+{
+    // The acceptance canary for SB-3461: a sample must carry BOTH rssi_dbm and noise_dbm.
+    const auto j = buildWifiSamplePayload(makeFullSample());
+
+    REQUIRE(j.contains("rssi_dbm"));
+    REQUIRE(j.contains("noise_dbm"));
+    CHECK(j["rssi_dbm"].get<int>() == -52);
+    CHECK(j["noise_dbm"].get<int>() == -95);
+}
+
+TEST_CASE("source distinguishes ethernet from wifi", "[buildWifiSamplePayload]")
+{
+    // Without this field every sample is recorded as "wifi" server-side, which is what blocks
+    // SB-3465 -- an Ethernet sampler that cannot say so produces mislabelled rows.
+    auto sample = makeFullSample();
+    CHECK(buildWifiSamplePayload(sample)["source"].get<std::string>() == "wifi");
+
+    sample.link.kind = wifi::InterfaceKind::Ethernet;
+    CHECK(buildWifiSamplePayload(sample)["source"].get<std::string>() == "ethernet");
+
+    // Unknown must not invent a third value: the server's ChoiceField would 400 it.
+    sample.link.kind = wifi::InterfaceKind::Unknown;
+    CHECK(buildWifiSamplePayload(sample)["source"].get<std::string>() == "wifi");
+}
+
+TEST_CASE("Unmeasured metrics are omitted, not sent as null", "[buildWifiSamplePayload]")
+{
+    // A sampler round that measured nothing -- e.g. `iw` missing, which yields empty stdout and
+    // parses as absent across the board -- must not fabricate keys.
+    wifi::Sample sample;
+    sample.link.kind = wifi::InterfaceKind::Wifi;
+
+    const auto j = buildWifiSamplePayload(sample);
+
+    CHECK_FALSE(j.contains("rssi_dbm"));
+    CHECK_FALSE(j.contains("noise_dbm"));
+    CHECK_FALSE(j.contains("gateway_rtt_ms"));
+    CHECK_FALSE(j.contains("public_loss_pct"));
+
+    // The always-present keys stay present.
+    CHECK(j.contains("ts"));
+    CHECK(j.contains("source"));
+    CHECK(j.contains("is_final"));
+}

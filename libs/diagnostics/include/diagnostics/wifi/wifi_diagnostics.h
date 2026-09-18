@@ -34,6 +34,9 @@ struct LinkInfo {
     std::string ssid;
     std::string bssid;
     std::optional<int> rssiDbm;
+    /// Noise floor. SNR is derived server-side as rssiDbm - noiseDbm, so an
+    /// implausible value here is worse than none: see plausibleNoiseDbm().
+    std::optional<int> noiseDbm;
     std::optional<int> linkRateMbps;
     std::optional<double> txRetryPct;
     std::optional<int> beaconLossCount;
