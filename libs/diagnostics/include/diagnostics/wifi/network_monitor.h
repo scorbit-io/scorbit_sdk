@@ -1,0 +1,99 @@
+/*
+ * Scorbit SDK
+ *
+ * (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scrobit.io, All Rights Reserved
+ *
+ * MIT License
+ */
+
+#pragma once
+
+#include "wifi_diagnostics.h"
+#include "wpa_supplicant_dbus.h"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+
+namespace scorbit {
+namespace detail {
+namespace wifi {
+
+class NetworkMonitor
+{
+public:
+    struct Options {
+        std::string runId;
+        std::chrono::seconds requestedDuration {std::chrono::minutes {5}};
+        std::chrono::seconds sampleInterval {std::chrono::seconds {30}};
+        std::chrono::seconds probeInterval {std::chrono::seconds {60}};
+        std::chrono::seconds scanInterval {std::chrono::minutes {5}};
+        bool scanEnabled {true};
+        std::string stateFilePath {defaultStateFilePath()};
+        std::string preferredInterface;
+        std::string publicProbeTarget {"1.1.1.1"};
+        std::string scorbitProbeTarget {"sws.scorbit.io"};
+        CommandRunner commandRunner {runCommand};
+    };
+
+    struct Callbacks {
+        std::function<void(const Sample &)> onSample;
+        std::function<void(const Event &)> onEvent;
+    };
+
+    explicit NetworkMonitor(Options options, Callbacks callbacks);
+    ~NetworkMonitor();
+
+    NetworkMonitor(const NetworkMonitor &) = delete;
+    NetworkMonitor &operator=(const NetworkMonitor &) = delete;
+
+    bool start();
+    void stop(const std::string &endReason);
+
+    bool isActive() const;
+    const std::string &runId() const;
+
+    static std::optional<State>
+    recoverState(const std::string &stateFilePath = defaultStateFilePath());
+
+private:
+    void run();
+    Sample collectSample(bool includeProbes, bool isFinal = false);
+    void maybeEmitLinkEvent(const LinkInfo &link);
+    void maybeEmitScanEvent();
+    void startDbusListener();
+    void stopDbusListener();
+    void emitEvent(std::string kind, std::string payloadJson = {},
+                   std::optional<int> reasonCode = {});
+    void emitEvent(Event event);
+    void emitFinalSample();
+
+    Options m_options;
+    Callbacks m_callbacks;
+    std::atomic_bool m_active {false};
+    mutable std::mutex m_mutex;
+    std::condition_variable m_cv;
+    std::thread m_thread;
+    std::string m_stopReason;
+    std::optional<LinkInfo> m_lastLink;
+    std::optional<Sample> m_lastSample;
+    std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;
+    // Atomic for the same reason m_active above is: it is written by whichever
+    // thread calls stop()/startDbusListener() and read by the sampler thread in
+    // maybeEmitLinkEvent(). As a plain bool that was a data race, so the sampler
+    // could read a torn or stale value and emit a spurious assoc/deauth during
+    // teardown -- and those kinds ARE accepted by the API, so the corruption
+    // would land in real diagnostic data rather than being rejected.
+    //
+    // This removes the race, not the ordering question: a read that happens just
+    // before the flag is cleared can still emit one last event. Establishing an
+    // owning strand for the monitor is SB-3461's job.
+    std::atomic_bool m_dbusListenerActive {false};
+};
+
+} // namespace wifi
+} // namespace detail
+} // namespace scorbit

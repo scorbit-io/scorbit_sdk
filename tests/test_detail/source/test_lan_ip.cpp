@@ -17,7 +17,7 @@
  * SOFTWARE.
  */
 
-#include "utils/lan_ip.h"
+#include <diagnostics/lan_ip.h>
 #include <catch2/catch_test_macros.hpp>
 #include <boost/asio/ip/address.hpp>
 
