@@ -15,6 +15,24 @@ include(sources.cmake)
 add_library(${PROJECT_NAME} STATIC ${headers} ${sources})
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC USE_FMT_LIBRARY)
+
+# NOMINMAX on the target, not only in tools.cmake.
+#
+# Util.h calls std::numeric_limits<T>::min() and ::max(), which <windows.h>
+# breaks by defining min and max as function-like macros. tools.cmake does define
+# NOMINMAX for MSVC, but it returns early for anything that is not the top-level
+# project (see its guard), so that definition exists when the SDK is configured
+# directly and NOT when `cmake -S tests` makes the tests project top-level. The
+# same build then fails or succeeds depending on which entry point was used --
+# which is how this reached CI green on one step and red on the next.
+#
+# PUBLIC rather than PRIVATE because Util.h is a header: every consumer that
+# includes it needs the macro suppressed too, and test_detail links nfc for
+# exactly that reason.
+if(WIN32)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC NOMINMAX)
+endif()
+
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt)
 
 # ListUsbDevices.h falls back to raw libusb probing on Linux when no
