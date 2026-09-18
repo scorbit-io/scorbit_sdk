@@ -346,9 +346,17 @@ bool WpaSupplicantDbusListener::start()
 
 void WpaSupplicantDbusListener::stop()
 {
-    if (!m_running.exchange(false)) {
-        return;
-    }
+    // Join unconditionally rather than gating on m_running. run() clears the flag
+    // itself on its early-exit paths -- no libdbus, or a connection that never
+    // opens -- so by the time stop() is called m_running can already be false
+    // while m_thread is still joinable. Returning early then left the
+    // std::thread destructor to run on a joinable thread, which calls
+    // std::terminate(): on any unit without libdbus, merely constructing and
+    // destroying this listener aborted scorbitd.
+    //
+    // Still idempotent. A second stop() finds the thread no longer joinable and
+    // does nothing, and clearing an already-clear flag is harmless.
+    m_running = false;
 
     if (m_thread.joinable()) {
         m_thread.join();

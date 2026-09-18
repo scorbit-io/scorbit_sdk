@@ -68,13 +68,26 @@ bool NetworkMonitor::start()
 
 void NetworkMonitor::stop(const std::string &endReason)
 {
+    // Only claim the stop reason if we are the one stopping it, but ALWAYS fall
+    // through to the join.
+    //
+    // The sampler clears m_active itself when its deadline expires, then exits.
+    // The thread is finished but still joinable, and m_active is already false
+    // -- so the previous `if (!m_active) return;` skipped the join, and the
+    // std::thread destructor then ran on a joinable thread and called
+    // std::terminate(). That fired on the ordinary completion path: every
+    // capture that ran to its natural deadline aborted scorbitd when the
+    // monitor was destroyed, since ~NetworkMonitor() calls stop().
+    //
+    // Guarding only the reason assignment also keeps the end_reason honest: a
+    // capture that expired on its own must stay "expired" and not be relabelled
+    // by the "shutdown" call that the destructor makes afterwards.
     {
         std::scoped_lock lock(m_mutex);
-        if (!m_active) {
-            return;
+        if (m_active) {
+            m_stopReason = endReason;
+            m_active = false;
         }
-        m_stopReason = endReason;
-        m_active = false;
     }
     m_cv.notify_all();
 

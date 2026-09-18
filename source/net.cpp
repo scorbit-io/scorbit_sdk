@@ -2170,7 +2170,15 @@ void Net::initScorbitronObject()
     // SB-3363 — handler ships unconditionally; advertise so the API can gate
     // probe dispatch on this bool and avoid timing out old-SDK devices.
     m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
-    m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
+    // Deliberately false until SB-3461 finishes the capture handlers. The code
+    // below them lands here so that ticket has something to finish, but it does
+    // not yet satisfy the API contract: noise_dbm is never sent, five of the
+    // event `kind` values it emits are rejected by the closed enum, and a 410
+    // on ingest is not treated as terminal. Advertising capability would let the
+    // API start captures against it and record plausible-looking empty data.
+    // Flip this to true in SB-3461, not before. Same reason START_GAME_CAPABLE
+    // and CREDIT_DROP_CAPABLE above are false.
+    m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = false;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
