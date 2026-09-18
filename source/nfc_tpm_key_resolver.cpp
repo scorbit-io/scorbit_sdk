@@ -64,7 +64,17 @@ SignerCallback NfcTpmKeyResolver::createSigner() const
 
     auto tpm = m_tpm;
     return [tpm](const Digest &digest) -> Signature {
-        utils::ByteArray digestArray(digest.begin(), digest.size());
+        // .data() rather than .begin(): the intended overload is
+        // ByteArray(const uint8_t[], size_t), and std::array::iterator is only a
+        // raw pointer on libstdc++ and libc++. MSVC makes it a class type, so
+        // begin() matches nothing and the compiler falls through to the
+        // string-iterator overload:
+        //
+        //   error C2665: 'utils::ByteArray::ByteArray': no overloaded function
+        //   could convert all the argument types
+        //
+        // data() is required to return a pointer on every implementation.
+        utils::ByteArray digestArray(digest.data(), digest.size());
         const auto sig = tpm->signDigest(digestArray);
         if (sig.empty()) {
             ERR("NFC TPM signing failed");
