@@ -107,7 +107,7 @@ const std::string &NetworkMonitor::runId() const
     return m_options.runId;
 }
 
-const std::string &NetworkMonitor::endReason() const
+std::string NetworkMonitor::endReason() const
 {
     std::scoped_lock lock(m_mutex);
     return m_stopReason;
