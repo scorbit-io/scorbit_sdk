@@ -88,9 +88,21 @@ CPMAddPackage(
 )
 
 # The call sites link LibArchive::LibArchive, which is what find_package would
-# have given them. An INTERFACE target rather than a bare alias to archive_static,
-# because the static libarchive does not carry zlib as a link dependency and the
-# consumer would fail to link without it.
+# have given them. An INTERFACE target rather than a bare alias to
+# archive_static, because on the cpr/zlibstatic path the zlib is a target in
+# this build rather than something libarchive's own FIND_PACKAGE(ZLIB) can
+# resolve, so the wrapper is where that dependency has to be attached.
+#
+# On the system-zlib path libarchive already carries it, which is why
+# _scorbit_zlib_target is deliberately empty there: libarchive's
+# CMakeLists.txt:493 runs its own FIND_PACKAGE(ZLIB), :501 appends
+# ${ZLIB_LIBRARIES} to ADDITIONAL_LIBS, and libarchive/CMakeLists.txt:266 links
+# those into archive_static with the PLAIN signature -- which populates
+# INTERFACE_LINK_LIBRARIES and so propagates to consumers. Measured, not
+# assumed. An earlier version of this comment said the static libarchive never
+# carries zlib; that holds only on the cpr path, and a reviewer reasonably read
+# the generalisation as a missing-link bug. See SB-4874.
+#
 # Guarded on OUR target, not on LibArchive::LibArchive. This module really is
 # included twice in one configure -- tests/test_detail includes it, and then
 # pulls in the SDK root, which includes it again -- so without a guard the second
