@@ -18,6 +18,9 @@
 #include <charconv>
 #include <cctype>
 #include <cstdio>
+#ifndef _WIN32
+#    include <sys/wait.h>
+#endif
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -439,9 +442,18 @@ CommandResult runCommand(const std::string &command, const std::vector<std::stri
     }
 
 #ifdef _WIN32
-    const auto code = _pclose(pipe);
+    // _pclose yields the child's exit code directly.
+    const int code = _pclose(pipe);
 #else
-    const auto code = pclose(pipe);
+    // pclose yields a WAIT STATUS, not an exit code -- a command exiting 1 comes
+    // back as 256. Every `exitCode == 0` test in this file still behaved, since a
+    // clean exit is status 0, which is why this went unnoticed; what was wrong was
+    // the value itself, and network_monitor.cpp reports it verbatim as the
+    // `exit_code` field of the scan event. Decoded the way
+    // libs/utils/source/commandrunner.cpp already does it: an exited child gives
+    // its code, anything else -- signalled, or pclose itself failing -- gives -1.
+    const int status = pclose(pipe);
+    const int code = (status != -1 && WIFEXITED(status)) ? WEXITSTATUS(status) : -1;
 #endif
     return {code, output};
 }

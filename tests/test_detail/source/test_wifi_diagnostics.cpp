@@ -161,3 +161,22 @@ TEST_CASE("default gateways are parsed", "[wifi]")
     CHECK(parseDefaultGateway("0.0.0.0          0.0.0.0      172.16.0.1    172.16.0.5")
           == "172.16.0.1");
 }
+
+#ifndef _WIN32
+TEST_CASE("runCommand reports a child's real exit code", "[wifi]")
+{
+    // POSIX pclose() yields a WAIT STATUS, not an exit code, so a child exiting 1
+    // used to surface as 256. Nothing in wifi_diagnostics.cpp noticed: every test
+    // there is `exitCode == 0`, and a clean exit is status 0 under either reading.
+    // What was wrong was the value itself, and network_monitor.cpp reports it
+    // verbatim as the scan event's `exit_code`, so a failed `iw scan` told the
+    // server 256.
+    //
+    // POSIX-only: the shell invocation has no cmd.exe equivalent, and _pclose
+    // already returns the code directly on Windows.
+    CHECK(runCommand("sh", {"-c", "exit 0"}).exitCode == 0);
+    CHECK(runCommand("sh", {"-c", "exit 1"}).exitCode == 1);
+    CHECK(runCommand("sh", {"-c", "exit 7"}).exitCode == 7);
+}
+#endif
+

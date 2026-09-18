@@ -81,7 +81,17 @@ private:
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
     std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;
-    bool m_dbusListenerActive {false};
+    // Atomic for the same reason m_active above is: it is written by whichever
+    // thread calls stop()/startDbusListener() and read by the sampler thread in
+    // maybeEmitLinkEvent(). As a plain bool that was a data race, so the sampler
+    // could read a torn or stale value and emit a spurious assoc/deauth during
+    // teardown -- and those kinds ARE accepted by the API, so the corruption
+    // would land in real diagnostic data rather than being rejected.
+    //
+    // This removes the race, not the ordering question: a read that happens just
+    // before the flag is cleared can still emit one last event. Establishing an
+    // owning strand for the monitor is SB-3461's job.
+    std::atomic_bool m_dbusListenerActive {false};
 };
 
 } // namespace wifi
