@@ -1081,8 +1081,10 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
     // then hand the publish + ack off to the worker strand so the centrifugo
     // dispatcher thread is never blocked on network I/O.
     std::string traceId;
+    int deadlineSeconds = 0;
     try {
         traceId = payload.value(JKEY_DIAG_TRACE_ID, std::string {});
+        deadlineSeconds = payload.value(JKEY_DIAG_DEADLINE_SECONDS, 0);
     } catch (const std::exception &e) {
         WRN("DIAG: probe payload error: {}", e.what());
         return;
@@ -1117,15 +1119,27 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
     INF("DIAG: received probe trace_id={} sequence={} channel={}", traceId, sequence,
         m_machineChannel);
 
-    publishDiagnosticPacket(traceId, sequence, createdAt);
-    postDiagnosticAck(traceId, sequence, createdAt);
+    // Resolved here, at receipt, so the budget covers the queue wait that follows -- not from
+    // inside the worker, where it would restart the clock after the delay it is meant to catch.
+    const auto deadline = diagProbeDeadline(deadlineSeconds, steady_clock::now());
+
+    publishDiagnosticPacket(traceId, sequence, createdAt, deadline);
+    postDiagnosticAck(traceId, sequence, createdAt, deadline);
 }
 
 void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
-                                  const std::string &createdAt)
+                                  const std::string &createdAt,
+                                  std::optional<steady_clock::time_point> deadline)
 {
-    m_worker.post([this, traceId, sequence, createdAt]() {
+    m_worker.post([this, traceId, sequence, createdAt, deadline]() {
         if (m_stop || m_cfState != centrifugo::ConnectionState::Connected) {
+            return;
+        }
+        // A probe whose budget has already elapsed is worthless to the synthetic subscriber --
+        // the API has timed the trace out. Publishing anyway would still burn one of the 20
+        // history slots on machine:<uuid> that real score updates share.
+        if (diagProbeDeadlinePassed(deadline, steady_clock::now())) {
+            WRN("DIAG: deadline passed before publish, dropping trace_id={}", traceId);
             return;
         }
         if (m_machineChannel.empty()) {
@@ -1154,9 +1168,10 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
 }
 
 void Net::postDiagnosticAck(const std::string &traceId, uint64_t sequence,
-                            const std::string &createdAt)
+                            const std::string &createdAt,
+                            std::optional<steady_clock::time_point> deadline)
 {
-    m_worker.post(createPostRequestTask(
+    auto task = createPostRequestTask(
             [traceId](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API diag ack: ok, trace_id={}, {}", traceId, reply);
@@ -1177,7 +1192,19 @@ void Net::postDiagnosticAck(const std::string &traceId, uint64_t sequence,
                 const auto endpoint = url(URL_DIAGNOSTICS_ACK_PATH);
                 INF("API sending diag ack: {}", j.dump());
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
-            }));
+            });
+
+    // Wrapped rather than posted directly so the deadline is tested when the worker RUNS the
+    // task, not when it is enqueued -- the queue wait is the delay this exists to catch. A stale
+    // ack is not merely useless: the API 404s an expired trace, and the POST would still spend a
+    // 14s timeout and up to 3 retries getting there.
+    m_worker.post([traceId, deadline, task = std::move(task)]() {
+        if (diagProbeDeadlinePassed(deadline, steady_clock::now())) {
+            WRN("DIAG: deadline passed before ack, dropping trace_id={}", traceId);
+            return;
+        }
+        task();
+    });
 }
 
 void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)

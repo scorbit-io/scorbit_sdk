@@ -336,3 +336,56 @@ TEST_CASE("Short-lived tokens do not spin the timer", "[centrifugoTokenRefreshDe
     // Negative can arrive from an already-expired token.
     CHECK(centrifugoTokenRefreshDelay(-1h) == CF_TOKEN_REFRESH_MIN_DELAY);
 }
+
+TEST_CASE("A probe without a deadline never expires", "[diagProbeDeadline]")
+{
+    // deadline_seconds is optional on the wire. An API build that does not send it, or sends 0,
+    // must leave the probe working rather than be treated as "already expired" -- the device
+    // ships ahead of the server and has to tolerate both.
+    const auto now = std::chrono::steady_clock::now();
+
+    CHECK_FALSE(diagProbeDeadline(0, now).has_value());
+    CHECK_FALSE(diagProbeDeadline(-1, now).has_value());
+
+    // And an absent deadline is never passed, however far the clock has moved.
+    CHECK_FALSE(diagProbeDeadlinePassed(std::nullopt, now + 24h));
+}
+
+TEST_CASE("The budget is measured from receipt", "[diagProbeDeadline]")
+{
+    // The payload carries a duration, not an instant, so the deadline is anchored at the moment
+    // the probe arrived. Anchoring it anywhere later would restart the clock after exactly the
+    // queue delay this is meant to catch.
+    const auto receivedAt = std::chrono::steady_clock::now();
+    const auto deadline = diagProbeDeadline(15, receivedAt);
+
+    REQUIRE(deadline.has_value());
+    CHECK(*deadline == receivedAt + 15s);
+}
+
+TEST_CASE("A deadline passes only once it is reached", "[diagProbeDeadline]")
+{
+    const auto receivedAt = std::chrono::steady_clock::now();
+    const auto deadline = diagProbeDeadline(15, receivedAt);
+
+    CHECK_FALSE(diagProbeDeadlinePassed(deadline, receivedAt));
+    CHECK_FALSE(diagProbeDeadlinePassed(deadline, receivedAt + 14s));
+
+    // Exactly at the deadline counts as passed: the budget is spent.
+    CHECK(diagProbeDeadlinePassed(deadline, receivedAt + 15s));
+    CHECK(diagProbeDeadlinePassed(deadline, receivedAt + 1h));
+}
+
+TEST_CASE("The API's documented deadline range round-trips", "[diagProbeDeadline]")
+{
+    // machine.py publishes deadline_seconds in 1..60. Nothing in that range should collapse to
+    // "no deadline", which is the failure that would silently restore today's behaviour.
+    const auto receivedAt = std::chrono::steady_clock::now();
+    for (const int seconds : {1, 15, 59, 60}) {
+        const auto deadline = diagProbeDeadline(seconds, receivedAt);
+        REQUIRE(deadline.has_value());
+        CHECK_FALSE(diagProbeDeadlinePassed(deadline, receivedAt));
+        CHECK(diagProbeDeadlinePassed(deadline, receivedAt + std::chrono::seconds {seconds}));
+    }
+}
+
