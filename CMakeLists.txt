@@ -96,10 +96,7 @@ include(${MY_CMAKE_DIR}/lib_cpr.cmake)
 
 include(${MY_CMAKE_DIR}/lib_concurrentqueue.cmake)
 
-if(APPLE AND NOT DEFINED LibArchive_ROOT)
-    set(LibArchive_ROOT "/opt/homebrew/opt/libarchive")
-endif()
-find_package(LibArchive REQUIRED) # Try to find system-installed libarchive
+include(${MY_CMAKE_DIR}/lib_libarchive.cmake)
 
 # Boost -----------
 

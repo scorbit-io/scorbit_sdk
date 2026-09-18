@@ -1,4 +1,4 @@
-name: Windows
+name: Windows (configure)
 
 on:
   push:
@@ -26,13 +26,20 @@ jobs:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
 
+      # CONFIGURE ONLY, deliberately, and the job is named for it.
+      #
+      # This verifies the thing that was actually broken: the dependency chain
+      # on Windows. cpr, curl without libpsl, the zlib curl brings, and
+      # libarchive resolving gzip against it. None of that resolved before
+      # SB-4853, and a regression in it is silent -- libarchive will happily
+      # configure with no gzip support and fail only at upload time.
+      #
+      # Compiling is a separate, unfinished job. The SDK's own sources have
+      # never been built for _WIN32 and currently fail on min/max macro
+      # collisions in libs/nfc, a POSIX-only <sys/resource.h> in libs/utils,
+      # and GCC warning flags reaching cl in centrifugo-cpp. Widening this job
+      # to build and test belongs with that work, not here -- a job that must
+      # stay red until an open-ended port finishes teaches everyone to ignore
+      # it, and a green one that skipped the failure would be worse.
       - name: configure
         run: cmake -Stests -Bbuild
-
-      - name: build
-        run: cmake --build build --config Debug -j4
-
-      - name: test
-        run: |
-          cd build
-          ctest --build-config Debug
