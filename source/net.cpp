@@ -397,10 +397,10 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
 Net::~Net()
 {
-    if (m_networkMonitor) {
-        m_networkMonitor->stop("shutdown");
-        m_networkMonitor.reset();
-    }
+    // Posted to the worker, which m_worker.stop() below drains before returning -- so the join
+    // still completes inside this destructor, just not on this thread while the dispatcher may
+    // still be delivering messages.
+    retireNetworkMonitor("shutdown");
 
     if (!m_stop.exchange(true)) {
         m_heartbeat.stop();
@@ -1225,10 +1225,13 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         return;
     }
 
-    if (m_networkMonitor && m_networkMonitor->isActive()) {
-        WRN("DIAG: capture start refused: run_id={} active_run_id={}", runId,
-            m_networkMonitor->runId());
-        return;
+    {
+        std::scoped_lock lock(m_networkMonitorMutex);
+        if (m_networkMonitor && m_networkMonitor->isActive()) {
+            WRN("DIAG: capture start refused: run_id={} active_run_id={}", runId,
+                m_networkMonitor->runId());
+            return;
+        }
     }
 
     wifi::NetworkMonitor::Options options;
@@ -1272,11 +1275,18 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         postWifiCaptureEvent(runId, event, runClosed);
     };
 
-    m_networkMonitor = std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
-    if (!m_networkMonitor->start()) {
+    // Built outside the lock: the constructor is cheap but start() spawns threads, and holding the
+    // pointer's mutex across either is how a short guard turns into a long one.
+    auto monitor =
+            std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
+    if (!monitor->start()) {
         WRN("DIAG: capture start failed: run_id={}", runId);
-        m_networkMonitor.reset();
         return;
+    }
+
+    {
+        std::scoped_lock lock(m_networkMonitorMutex);
+        m_networkMonitor = std::move(monitor);
     }
 
     INF("DIAG: capture started: run_id={} duration={}s", runId, requestedDuration);
@@ -1285,13 +1295,18 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
 void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
 {
     const auto runId = payload.value(JKEY_DIAG_RUN_ID, std::string {});
-    if (!m_networkMonitor || !m_networkMonitor->isActive() || m_networkMonitor->runId() != runId) {
-        WRN("DIAG: capture stop ignored: no matching active capture run_id={}", runId);
-        return;
+    {
+        std::scoped_lock lock(m_networkMonitorMutex);
+        if (!m_networkMonitor || !m_networkMonitor->isActive()
+            || m_networkMonitor->runId() != runId) {
+            WRN("DIAG: capture stop ignored: no matching active capture run_id={}", runId);
+            return;
+        }
     }
 
-    m_networkMonitor->stop("manual_stop");
-    m_networkMonitor.reset();
+    // Returns immediately; the sampler is joined on the worker. This handler runs on the Centrifugo
+    // dispatcher, so blocking here would freeze every other realtime message for the duration.
+    retireNetworkMonitor("manual_stop");
     INF("DIAG: capture stopped: run_id={}", runId);
 }
 
@@ -1360,6 +1375,38 @@ void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &even
                 INF("API sending wifi capture event: run_id={}, kind={}", runId, event.kind);
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));
+}
+
+void Net::retireNetworkMonitor(const std::string &reason)
+{
+    std::unique_ptr<wifi::NetworkMonitor> monitor;
+    {
+        std::scoped_lock lock(m_networkMonitorMutex);
+        monitor = std::move(m_networkMonitor);
+    }
+
+    if (!monitor) {
+        return;
+    }
+
+    // Non-blocking: asks the sampler to finish and returns. The join is the expensive half and it
+    // happens below, on a thread that is allowed to wait.
+    monitor->requestStop(reason);
+
+    // task_t is a std::function, which requires a copyable callable, so the move-only unique_ptr
+    // is wrapped rather than captured directly. The destructor -- and therefore the join -- runs
+    // when this task does.
+    auto shared = std::shared_ptr<wifi::NetworkMonitor> {std::move(monitor)};
+
+    if (!m_worker.isRunning()) {
+        // Nothing will ever drain a posted task, so join here instead of leaking the thread. This
+        // is the shutdown-after-worker-stop path; blocking is acceptable because there is nothing
+        // left to block.
+        shared.reset();
+        return;
+    }
+
+    m_worker.post([shared]() mutable { shared.reset(); });
 }
 
 void Net::noteRestSuccess(const cpr::Header &header)
@@ -2249,13 +2296,23 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
     // Deliberately false until SB-3461 finishes the capture handlers. The code
     // below them lands here so that ticket has something to finish, but it does
-    // not yet satisfy the API contract: noise_dbm is never sent, five of the
-    // event `kind` values it emits are rejected by the closed enum, and a 410
-    // on ingest is not treated as terminal. Advertising capability would let the
-    // API start captures against it and record plausible-looking empty data.
-    // Flip this to true in SB-3461, not before. Same reason START_GAME_CAPABLE
-    // and CREDIT_DROP_CAPABLE above are false.
-    m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = false;
+    // True as of SB-3461. This was false while the salvaged capture code did not satisfy the API
+    // contract; all four of those gaps are now closed:
+    //
+    //   noise_dbm            sent, guarded against the -256 "no data" sentinel
+    //   event `kind`         the five rejected lifecycle values are gone, not renamed
+    //   dependency_checks    all six keys the panel renders
+    //   410 on ingest        terminal -- the run retires instead of posting into a closed run
+    //
+    // and the monitor is no longer torn down on the Centrifugo dispatcher.
+    //
+    // One honest caveat, which is a data limit rather than a contract gap: brcmfmac -- what the
+    // Scorbitron runs -- reports no noise floor by any route, so noise_dbm is absent on current
+    // hardware and SNR is unavailable there. See SB-3461 for the acceptance-criterion amendment.
+    //
+    // Note this does not switch anything on by itself. scorbitd pins an SDK commit, so captures
+    // only become dispatchable once SB-3463 bumps that pin and releases.
+    m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
