@@ -397,10 +397,15 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
 Net::~Net()
 {
+    // Set m_stop FIRST: onPublication() gates on it, so this stops a diag_capture_start from
+    // creating a monitor after the retire below has already run. Exchanged into a local to keep
+    // the once-only semantics the block below relies on.
+    const bool alreadyStopping = m_stop.exchange(true);
+
     // m_worker.stop() below drains the posted teardown, so the join still happens in this dtor.
     retireNetworkMonitor("shutdown");
 
-    if (!m_stop.exchange(true)) {
+    if (!alreadyStopping) {
         m_heartbeat.stop();
         stopCentrifugoIdleTimer();
         stopTokenRefreshTimer();
@@ -1232,6 +1237,11 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         }
     }
 
+    if (m_stop) {
+        WRN("DIAG: capture start ignored, shutting down: run_id={}", runId);
+        return;
+    }
+
     // A deadline-expired capture is never retired, so assigning over it would join on the
     // dispatcher under the mutex. Retire first; the assignment below then destroys nothing.
     retireNetworkMonitor("superseded");
@@ -1288,7 +1298,17 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
     {
         // Pointer move only: the retire above guarantees nothing is destroyed here.
         std::scoped_lock lock(m_networkMonitorMutex);
-        m_networkMonitor = std::move(monitor);
+        if (!m_stop) {
+            m_networkMonitor = std::move(monitor);
+        }
+    }
+
+    if (monitor) {
+        // ~Net() started while this capture was starting, so nothing would ever retire it and its
+        // callbacks would outlive m_worker. Blocking is fine here -- we are shutting down.
+        monitor->stop("shutdown");
+        WRN("DIAG: capture start abandoned, shutting down: run_id={}", runId);
+        return;
     }
 
     INF("DIAG: capture started: run_id={} duration={}s", runId, requestedDuration);
