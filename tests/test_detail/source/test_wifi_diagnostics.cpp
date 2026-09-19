@@ -530,3 +530,129 @@ TEST_CASE("A run closed as it is stopped posts no final sample", "[wifi][runclos
     std::error_code ec;
     std::filesystem::remove(stateFilePath, ec);
 }
+
+// --- lifecycle -------------------------------------------------------------
+//
+// Nothing tested NetworkMonitor's lifecycle until now, which is exactly why two separate
+// std::terminate() bugs lived in it: stop() skipped the join whenever m_active was already false,
+// and the sampler clears that flag itself on deadline expiry -- so the ORDINARY completion path
+// destroyed a joinable std::thread. Each of these cases would have caught it.
+
+namespace {
+
+NetworkMonitor::Options lifecycleOptions(std::chrono::seconds duration)
+{
+    NetworkMonitor::Options options;
+    options.runId = "lifecycle";
+    options.requestedDuration = duration;
+    options.stateFilePath = uniqueStateFilePath();
+    options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
+        return CommandResult {0, ""};
+    };
+    // Keeps the active dependency probe off the network; it is otherwise due immediately.
+    options.scorbitProbeTarget = "";
+    return options;
+}
+
+} // namespace
+
+TEST_CASE("A capture that reaches its deadline can be destroyed", "[wifi][lifecycle]")
+{
+    // THE regression case. The sampler clears m_active itself when the deadline passes, so by the
+    // time ~NetworkMonitor() runs the flag is already false -- which is precisely the state the old
+    // stop() used to skip the join on, destroying a joinable thread and aborting the process.
+    auto options = lifecycleOptions(std::chrono::seconds {0});
+    const auto stateFilePath = options.stateFilePath;
+
+    {
+        NetworkMonitor monitor {std::move(options), {}};
+        REQUIRE(monitor.start());
+
+        for (int i = 0; i < 400 && monitor.isActive(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds {5});
+        }
+        REQUIRE_FALSE(monitor.isActive());
+
+        // The destructor runs here, on an already-finished sampler. Reaching the line after this
+        // scope at all is the assertion.
+        CHECK(monitor.endReason() == "expired");
+    }
+
+    SUCCEED("destroyed a monitor whose sampler had already exited");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A deadline expiry is not relabelled by the destructor", "[wifi][lifecycle]")
+{
+    // ~NetworkMonitor() calls stop("shutdown"). If that overwrote the reason unconditionally, every
+    // naturally-expired run would report end_reason "shutdown" instead.
+    auto options = lifecycleOptions(std::chrono::seconds {0});
+    const auto stateFilePath = options.stateFilePath;
+
+    NetworkMonitor monitor {std::move(options), {}};
+    REQUIRE(monitor.start());
+    for (int i = 0; i < 400 && monitor.isActive(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+
+    monitor.stop("shutdown");
+    CHECK(monitor.endReason() == "expired");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("stop() is idempotent and safe before start()", "[wifi][lifecycle]")
+{
+    auto options = lifecycleOptions(std::chrono::seconds {300});
+    const auto stateFilePath = options.stateFilePath;
+
+    {
+        // Never started: no thread was ever spawned, so the join must cope with that too.
+        NetworkMonitor monitor {lifecycleOptions(std::chrono::seconds {300}), {}};
+        monitor.stop("manual_stop");
+        monitor.stop("manual_stop");
+    }
+
+    {
+        NetworkMonitor monitor {std::move(options), {}};
+        REQUIRE(monitor.start());
+        monitor.stop("manual_stop");
+        // Second stop finds a thread that is no longer joinable.
+        monitor.stop("manual_stop");
+        CHECK_FALSE(monitor.isActive());
+        CHECK(monitor.endReason() == "manual_stop");
+    }
+
+    SUCCEED("double stop, and stop before start, both survived");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("requestStop() returns without joining, and the destructor still joins",
+          "[wifi][lifecycle]")
+{
+    // The split that lets the Centrifugo dispatcher end a capture without blocking: requestStop()
+    // asks the sampler to finish, and whoever destroys the object later does the waiting.
+    auto options = lifecycleOptions(std::chrono::seconds {300});
+    const auto stateFilePath = options.stateFilePath;
+
+    {
+        NetworkMonitor monitor {std::move(options), {}};
+        REQUIRE(monitor.start());
+
+        monitor.requestStop("manual_stop");
+        CHECK(monitor.endReason() == "manual_stop");
+
+        // Destructor joins here. If requestStop() had left the thread unjoinable-but-running, or
+        // had itself joined, this is where it would show.
+    }
+
+    SUCCEED("requestStop() then destroy completed cleanly");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}

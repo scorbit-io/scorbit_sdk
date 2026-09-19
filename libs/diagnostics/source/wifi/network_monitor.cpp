@@ -66,6 +66,19 @@ bool NetworkMonitor::start()
     return true;
 }
 
+void NetworkMonitor::requestStop(const std::string &endReason)
+{
+    {
+        // Only the caller that ends the run names the reason.
+        std::scoped_lock lock(m_mutex);
+        if (m_active) {
+            m_stopReason = endReason;
+            m_active = false;
+        }
+    }
+    m_cv.notify_all();
+}
+
 void NetworkMonitor::stop(const std::string &endReason)
 {
     // Only claim the stop reason if we are the one stopping it, but ALWAYS fall
@@ -82,14 +95,7 @@ void NetworkMonitor::stop(const std::string &endReason)
     // Guarding only the reason assignment also keeps the end_reason honest: a
     // capture that expired on its own must stay "expired" and not be relabelled
     // by the "shutdown" call that the destructor makes afterwards.
-    {
-        std::scoped_lock lock(m_mutex);
-        if (m_active) {
-            m_stopReason = endReason;
-            m_active = false;
-        }
-    }
-    m_cv.notify_all();
+    requestStop(endReason);
 
     stopDbusListener();
     if (m_thread.joinable()) {
