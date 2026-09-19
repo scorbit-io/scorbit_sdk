@@ -410,6 +410,9 @@ private:
     void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event,
                               std::shared_ptr<std::atomic_bool> runClosed);
     void recoverNetworkMonitorState();
+    /// End the current capture without blocking: ownership moves out under the mutex, the worker
+    /// does the joining. Safe from the Centrifugo dispatcher, which must never block.
+    void retireNetworkMonitor(const std::string &reason);
     /**
      * Record that a REST call just succeeded, and what the server thinks the time is.
      *
@@ -521,6 +524,8 @@ private:
     std::atomic<uint64_t> m_diagProbeSequence {0};
     std::unordered_set<std::string> m_seenDiagTraceIds;
     mutable std::mutex m_seenDiagTraceIdsMutex;
+    /// Guards the pointer only. Never held across stop() or the destructor -- both join.
+    std::mutex m_networkMonitorMutex;
     std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;
     bool m_networkMonitorStateRecovered {false};
 

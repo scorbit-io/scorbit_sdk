@@ -69,6 +69,10 @@ public:
     NetworkMonitor &operator=(const NetworkMonitor &) = delete;
 
     bool start();
+    /// Non-blocking half of stop(): asks the sampler to finish without joining it. Idempotent,
+    /// and leaves the D-Bus listener for stop().
+    void requestStop(const std::string &endReason);
+
     void stop(const std::string &endReason);
 
     bool isActive() const;
