@@ -299,7 +299,10 @@ target_link_libraries(
         fmt::fmt
         cpr::cpr
         OpenSSL::Crypto
-        LibArchive::LibArchive
+        # BUILD_INTERFACE like the other in-build deps: on the source-build path
+        # this aliases scorbit_libarchive, a real target install(EXPORT) refuses
+        # unless exported. SB-4887.
+        $<BUILD_INTERFACE:LibArchive::LibArchive>
         $<BUILD_INTERFACE:centrifugo-cpp>
         $<BUILD_INTERFACE:nfc>
         $<BUILD_INTERFACE:tpm>
