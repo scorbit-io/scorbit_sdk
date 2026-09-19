@@ -1234,6 +1234,18 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         }
     }
 
+    // Dispose of the previous monitor BEFORE building the new one.
+    //
+    // A capture that ends on its own deadline is never retired by anyone -- the sampler clears
+    // m_active and exits, but the object stays in m_networkMonitor. The guard above then lets the
+    // next capture through, and assigning over that pointer would destroy the old monitor in
+    // place: ~NetworkMonitor() -> stop() -> join(), on the Centrifugo dispatcher, WHILE HOLDING
+    // m_networkMonitorMutex. That is both the stall this change exists to remove and a lock held
+    // across it, which would also block retireNetworkMonitor() from the stop handler and ~Net().
+    //
+    // Retiring first leaves the pointer null, so the assignment below destroys nothing.
+    retireNetworkMonitor("superseded");
+
     wifi::NetworkMonitor::Options options;
     options.runId = runId;
     options.requestedDuration = std::chrono::seconds {requestedDuration};
@@ -1285,6 +1297,9 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
     }
 
     {
+        // Assigning onto a null pointer, because of the retire above -- no destructor runs here,
+        // so the lock covers a pointer move and nothing else. Never let this assignment be the
+        // thing that destroys a monitor.
         std::scoped_lock lock(m_networkMonitorMutex);
         m_networkMonitor = std::move(monitor);
     }
