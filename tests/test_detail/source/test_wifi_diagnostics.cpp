@@ -7,6 +7,12 @@
  */
 
 #include <diagnostics/wifi/wifi_diagnostics.h>
+#include <diagnostics/wifi/network_monitor.h>
+#include <atomic>
+#include <filesystem>
+#include <memory>
+#include <random>
+#include <thread>
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 #include <string>
@@ -335,4 +341,192 @@ TEST_CASE("A measured link that is down still reports blocked", "[wifi][dependen
     down.connected = false;
 
     CHECK(buildDependencyChecks(down, std::nullopt, {}, std::nullopt).at("link") == "blocked");
+}
+
+// --- 410 is terminal for a run ---------------------------------------------
+
+namespace {
+
+/// A state-file path unique to this call.
+///
+/// NetworkMonitor writes a real file, and a fixed name is not safe here: the suite runs under
+/// `ctest -j8`, and several worktrees of this repo share one system temp directory, so two runs
+/// could delete or overwrite each other's state and fail for reasons that have nothing to do with
+/// what is under test. That is exactly the kind of flakiness SB-4875 already tracks.
+std::string uniqueStateFilePath()
+{
+    static std::atomic_uint64_t counter {0};
+    std::random_device rd;
+    const auto name = "scorbit_capture_test_" + std::to_string(rd()) + "_"
+                    + std::to_string(counter.fetch_add(1)) + ".state";
+    return (std::filesystem::temp_directory_path() / name).string();
+}
+
+} // namespace
+
+TEST_CASE("A run the server has closed retires without a final sample", "[wifi][runclosed]")
+{
+    // SPEC-0007 makes 410 terminal: the server has ended this run, so anything further the device
+    // posts lands in another 410. Before this, the sampler had no way to learn that and kept
+    // posting for the rest of the requested duration.
+    //
+    // The flag is set before start() so the assertion is deterministic -- the retirement check is
+    // the first thing the loop does, which also keeps this test off the network (the DNS probe
+    // would otherwise be due immediately on the first iteration).
+    auto runClosed = std::make_shared<std::atomic_bool>(true);
+
+    NetworkMonitor::Options options;
+    options.runId = "run-closed-test";
+    options.requestedDuration = std::chrono::seconds {300};
+    options.runClosed = runClosed;
+    const auto stateFilePath = uniqueStateFilePath();
+    options.stateFilePath = stateFilePath;
+    options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
+        return CommandResult {0, ""};
+    };
+
+    std::atomic_int samples {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&samples](const Sample &) { ++samples; };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    // Wait for the condition rather than sleeping a fixed span: this repo already has timing
+    // flakiness under -j8 (SB-4875) and a fixed sleep would add to it.
+    for (int i = 0; i < 400 && monitor.isActive(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+
+    CHECK_FALSE(monitor.isActive());
+
+    // Joins. The reason guard means this does not relabel the retirement.
+    monitor.stop("shutdown");
+
+    CHECK(monitor.endReason() == "run_closed");
+    // The point of the whole exercise: nothing was posted into the closed run, not even the final
+    // sample that a normal stop emits.
+    CHECK(samples.load() == 0);
+
+    // run() removes the state file itself, so this only matters when an assertion above failed --
+    // but a failing test should not also leave litter behind for the next one to trip over.
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run closed mid-capture emits no final sample", "[wifi][runclosed]")
+{
+    // The case the flag-set-before-start test does not reach: the run is still live when sampling
+    // begins and is closed while it is under way, which is the realistic shape -- a 410 usually
+    // arrives *because* the run is ending.
+    //
+    // Deterministic without sleeping on a race: the flag is set from inside onSample, so the
+    // ordering is fixed by the callback rather than by timing. The sampler takes its first sample,
+    // the run is closed during that callback, and the loop must then retire WITHOUT the final
+    // sample a normal stop would emit.
+    auto runClosed = std::make_shared<std::atomic_bool>(false);
+
+    NetworkMonitor::Options options;
+    options.runId = "closed-mid-capture";
+    options.requestedDuration = std::chrono::seconds {300};
+    options.runClosed = runClosed;
+    const auto stateFilePath = uniqueStateFilePath();
+    options.stateFilePath = stateFilePath;
+    options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
+        return CommandResult {0, ""};
+    };
+    // Empty target short-circuits resolveHost(), keeping this unit test off the network -- the
+    // dependency probe is otherwise due on the first iteration.
+    options.scorbitProbeTarget = "";
+
+    std::atomic_int ordinary {0};
+    std::atomic_int finals {0};
+
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&](const Sample &sample) {
+        if (sample.isFinal) {
+            ++finals;
+            return;
+        }
+        ++ordinary;
+        // The server closes the run while the capture is live.
+        runClosed->store(true, std::memory_order_release);
+    };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    for (int i = 0; i < 400 && monitor.isActive(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+    CHECK_FALSE(monitor.isActive());
+    monitor.stop("shutdown");
+
+    CHECK(monitor.endReason() == "run_closed");
+    CHECK(ordinary.load() >= 1);
+    // The assertion this test exists for. Before the final-check re-read, the loop exited with a
+    // stale local and posted one last sample into a run the server had already closed.
+    CHECK(finals.load() == 0);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run closed as it is stopped posts no final sample", "[wifi][runclosed]")
+{
+    // THIS is the interleaving the final-check re-read exists for, and the one the two tests above
+    // cannot reach. Both of those exit the loop through the closed-run branch, which the old code
+    // also handled -- they describe the behaviour rather than pin the fix.
+    //
+    // Here the loop exits WITHOUT consulting the flag at all: stop() clears m_active while the
+    // sampler is parked in its condition-variable wait, so `while (m_active)` fails and the check
+    // at the top of the loop never runs again. Whether a final sample is posted into the closed
+    // run then depends entirely on re-reading the flag at the gate. The old cached local was false
+    // on this path, so it posted one.
+    auto runClosed = std::make_shared<std::atomic_bool>(false);
+
+    NetworkMonitor::Options options;
+    options.runId = "closed-at-stop";
+    options.requestedDuration = std::chrono::seconds {300};
+    options.runClosed = runClosed;
+    const auto stateFilePath = uniqueStateFilePath();
+    options.stateFilePath = stateFilePath;
+    options.commandRunner = [](const std::string &, const std::vector<std::string> &) {
+        return CommandResult {0, ""};
+    };
+    options.scorbitProbeTarget = "";
+
+    std::atomic_int ordinary {0};
+    std::atomic_int finals {0};
+
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&](const Sample &sample) {
+        if (sample.isFinal) {
+            ++finals;
+        } else {
+            ++ordinary;
+        }
+    };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    // Wait for the first sample, after which the sampler parks in its 1s wait.
+    for (int i = 0; i < 400 && ordinary.load() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+    REQUIRE(ordinary.load() >= 1);
+
+    // A margin, not a race: the sampler reaches the wait within microseconds of the callback
+    // returning. If it has not, the loop takes the closed-run branch instead and the assertion
+    // below still holds -- so this can only be less informative, never falsely red.
+    std::this_thread::sleep_for(std::chrono::milliseconds {50});
+
+    runClosed->store(true, std::memory_order_release);
+    monitor.stop("manual_stop");
+
+    CHECK(finals.load() == 0);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
 }

@@ -1258,12 +1258,18 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         return snapshot;
     };
 
+    // One flag per run, shared by the monitor and by every POST callback belonging to it. A 410
+    // on any ingest call retires the run; see NetworkMonitor::Options::runClosed for why this is a
+    // flag rather than a call into the monitor.
+    auto runClosed = std::make_shared<std::atomic_bool>(false);
+    options.runClosed = runClosed;
+
     wifi::NetworkMonitor::Callbacks callbacks;
-    callbacks.onSample = [this, runId](const wifi::Sample &sample) {
-        postWifiCaptureSample(runId, sample);
+    callbacks.onSample = [this, runId, runClosed](const wifi::Sample &sample) {
+        postWifiCaptureSample(runId, sample, runClosed);
     };
-    callbacks.onEvent = [this, runId](const wifi::Event &event) {
-        postWifiCaptureEvent(runId, event);
+    callbacks.onEvent = [this, runId, runClosed](const wifi::Event &event) {
+        postWifiCaptureEvent(runId, event, runClosed);
     };
 
     m_networkMonitor = std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
@@ -1289,13 +1295,18 @@ void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
     INF("DIAG: capture stopped: run_id={}", runId);
 }
 
-void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample)
+void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample,
+                               std::shared_ptr<std::atomic_bool> runClosed)
 {
     m_worker.post(createPostRequestTask(
-            [runId](Error error, std::string reply) {
+            [runId, runClosed](Error error, int httpStatus, const std::string &reply) {
                 if (error == Error::Success) {
                     INF("API wifi capture sample: ok, run_id={}", runId);
                 } else {
+                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
+                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                        runClosed->store(true, std::memory_order_release);
+                    }
                     WRN("API wifi capture sample: failed, run_id={}, error code: {}, reply: {}",
                         runId, static_cast<int>(error), reply);
                 }
@@ -1310,13 +1321,19 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
             }));
 }
 
-void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &event)
+void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &event,
+                              std::shared_ptr<std::atomic_bool> runClosed)
 {
     m_worker.post(createPostRequestTask(
-            [runId, kind = event.kind](Error error, std::string reply) {
+            [runId, runClosed, kind = event.kind](Error error, int httpStatus,
+                                                  const std::string &reply) {
                 if (error == Error::Success) {
                     INF("API wifi capture event: ok, run_id={}, kind={}", runId, kind);
                 } else {
+                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
+                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                        runClosed->store(true, std::memory_order_release);
+                    }
                     WRN("API wifi capture event: failed, run_id={}, kind={}, error code: {}, "
                         "reply: {}",
                         runId, kind, static_cast<int>(error), reply);
@@ -1396,7 +1413,9 @@ void Net::recoverNetworkMonitorState()
     wifi::Event event;
     event.kind = "scorbitd_restart";
     event.payloadJson = payload.dump();
-    postWifiCaptureEvent(state->runId, event);
+    // No run flag: this fires once on restart for a run that is already over, and
+    // a 410 here is expected rather than something to retire.
+    postWifiCaptureEvent(state->runId, event, nullptr);
 }
 
 void Net::scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
@@ -2726,7 +2745,8 @@ task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setu
             std::move(allowedStatuses));
 }
 
-task_t Net::createPostRequestTask(StringCallback replyCallback, deferred_post_setup_t deferredSetup,
+template<typename CallbackT>
+task_t Net::createPostRequestTask(CallbackT replyCallback, deferred_post_setup_t deferredSetup,
                                   std::vector<AuthStatus> allowedStatuses,
                                   bool includeFingerprintHash)
 {
