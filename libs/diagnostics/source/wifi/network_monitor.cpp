@@ -132,24 +132,29 @@ void NetworkMonitor::run()
     // Due immediately, so the very first sample carries a dns verdict instead of "unknown".
     auto nextDependency = startedSteady;
 
+    // Read live every time, never cached in a local. The flag is set by a worker thread finishing
+    // a POST that came back 410, so it can flip at any instant -- including between the loop
+    // exiting for an unrelated reason and the final sample being emitted below.
+    const auto runIsClosed = [this] {
+        return m_options.runClosed && m_options.runClosed->load(std::memory_order_acquire);
+    };
+
     // No "capture_started" event. The server's WifiCaptureEvent.kind is a CLOSED enum --
     // assoc / deauth / scan / dhcp_renew / scorbitd_restart -- so every lifecycle value this
     // class used to emit was rejected with a 400. Run lifecycle is already server-side state
     // (WifiCaptureRun.end_reason + the is_final sample), so these events carried nothing the
     // server did not already have. Do not reintroduce them under a different name.
-    bool runClosed = false;
 
     while (m_active) {
         // The server has closed this run, so everything after this point would be posted into a
         // 410. Retire immediately rather than finishing the round: the whole point of the 410
         // contract is that the device stops talking to a run the server has already ended.
-        if (m_options.runClosed && m_options.runClosed->load(std::memory_order_acquire)) {
+        if (runIsClosed()) {
             std::scoped_lock lock(m_mutex);
             if (m_active) {
                 m_stopReason = "run_closed";
                 m_active = false;
             }
-            runClosed = true;
             break;
         }
 
@@ -201,7 +206,13 @@ void NetworkMonitor::run()
 
     // No final sample when the run is closed -- there is nothing left server-side to accept it,
     // and posting one is exactly the behaviour the 410 is telling us to stop.
-    if (!runClosed) {
+    //
+    // Re-read rather than reusing whatever was true when the loop exited: a run that ends on its
+    // deadline or a manual stop can still be closed by the server a moment later, while the last
+    // in-flight POST is still resolving. That overlap is not remote -- a 410 usually arrives
+    // *because* the run is ending. A few instructions of residual window remain and are
+    // unavoidable without coordination; the cost there is one POST the server rejects.
+    if (!runIsClosed()) {
         emitFinalSample();
     }
     // No end-of-run event either: "capture_stopped" / "expired" / "manual_stop" / "shutdown"
