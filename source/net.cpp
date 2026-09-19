@@ -397,9 +397,7 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
 Net::~Net()
 {
-    // Posted to the worker, which m_worker.stop() below drains before returning -- so the join
-    // still completes inside this destructor, just not on this thread while the dispatcher may
-    // still be delivering messages.
+    // m_worker.stop() below drains the posted teardown, so the join still happens in this dtor.
     retireNetworkMonitor("shutdown");
 
     if (!m_stop.exchange(true)) {
@@ -1234,16 +1232,8 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         }
     }
 
-    // Dispose of the previous monitor BEFORE building the new one.
-    //
-    // A capture that ends on its own deadline is never retired by anyone -- the sampler clears
-    // m_active and exits, but the object stays in m_networkMonitor. The guard above then lets the
-    // next capture through, and assigning over that pointer would destroy the old monitor in
-    // place: ~NetworkMonitor() -> stop() -> join(), on the Centrifugo dispatcher, WHILE HOLDING
-    // m_networkMonitorMutex. That is both the stall this change exists to remove and a lock held
-    // across it, which would also block retireNetworkMonitor() from the stop handler and ~Net().
-    //
-    // Retiring first leaves the pointer null, so the assignment below destroys nothing.
+    // A deadline-expired capture is never retired, so assigning over it would join on the
+    // dispatcher under the mutex. Retire first; the assignment below then destroys nothing.
     retireNetworkMonitor("superseded");
 
     wifi::NetworkMonitor::Options options;
@@ -1287,8 +1277,7 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         postWifiCaptureEvent(runId, event, runClosed);
     };
 
-    // Built outside the lock: the constructor is cheap but start() spawns threads, and holding the
-    // pointer's mutex across either is how a short guard turns into a long one.
+    // start() spawns threads -- never under the pointer's mutex.
     auto monitor =
             std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
     if (!monitor->start()) {
@@ -1297,9 +1286,7 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
     }
 
     {
-        // Assigning onto a null pointer, because of the retire above -- no destructor runs here,
-        // so the lock covers a pointer move and nothing else. Never let this assignment be the
-        // thing that destroys a monitor.
+        // Pointer move only: the retire above guarantees nothing is destroyed here.
         std::scoped_lock lock(m_networkMonitorMutex);
         m_networkMonitor = std::move(monitor);
     }
@@ -1319,8 +1306,7 @@ void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
         }
     }
 
-    // Returns immediately; the sampler is joined on the worker. This handler runs on the Centrifugo
-    // dispatcher, so blocking here would freeze every other realtime message for the duration.
+    // Returns immediately; the join happens on the worker, not the dispatcher.
     retireNetworkMonitor("manual_stop");
     INF("DIAG: capture stopped: run_id={}", runId);
 }
@@ -1404,19 +1390,14 @@ void Net::retireNetworkMonitor(const std::string &reason)
         return;
     }
 
-    // Non-blocking: asks the sampler to finish and returns. The join is the expensive half and it
-    // happens below, on a thread that is allowed to wait.
+    // Non-blocking; the join happens in the task below.
     monitor->requestStop(reason);
 
-    // task_t is a std::function, which requires a copyable callable, so the move-only unique_ptr
-    // is wrapped rather than captured directly. The destructor -- and therefore the join -- runs
-    // when this task does.
+    // task_t is a std::function and needs a copyable callable, hence shared_ptr.
     auto shared = std::shared_ptr<wifi::NetworkMonitor> {std::move(monitor)};
 
     if (!m_worker.isRunning()) {
-        // Nothing will ever drain a posted task, so join here instead of leaking the thread. This
-        // is the shutdown-after-worker-stop path; blocking is acceptable because there is nothing
-        // left to block.
+        // Nothing would drain a posted task; join here rather than leak the thread.
         shared.reset();
         return;
     }
@@ -2311,22 +2292,9 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_DIAG_PROBE_CAPABLE] = true;
     // Deliberately false until SB-3461 finishes the capture handlers. The code
     // below them lands here so that ticket has something to finish, but it does
-    // True as of SB-3461. This was false while the salvaged capture code did not satisfy the API
-    // contract; all four of those gaps are now closed:
-    //
-    //   noise_dbm            sent, guarded against the -256 "no data" sentinel
-    //   event `kind`         the five rejected lifecycle values are gone, not renamed
-    //   dependency_checks    all six keys the panel renders
-    //   410 on ingest        terminal -- the run retires instead of posting into a closed run
-    //
-    // and the monitor is no longer torn down on the Centrifugo dispatcher.
-    //
-    // One honest caveat, which is a data limit rather than a contract gap: brcmfmac -- what the
-    // Scorbitron runs -- reports no noise floor by any route, so noise_dbm is absent on current
-    // hardware and SNR is unavailable there. See SB-3461 for the acceptance-criterion amendment.
-    //
-    // Note this does not switch anything on by itself. scorbitd pins an SDK commit, so captures
-    // only become dispatchable once SB-3463 bumps that pin and releases.
+    // True as of SB-3461: the four contract gaps are closed and teardown is off the dispatcher.
+    // Inert until SB-3463 bumps scorbitd's SDK pin. brcmfmac reports no noise floor, so noise_dbm
+    // is absent on current hardware -- see SB-3461.
     m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {

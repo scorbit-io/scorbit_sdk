@@ -69,17 +69,8 @@ public:
     NetworkMonitor &operator=(const NetworkMonitor &) = delete;
 
     bool start();
-    /**
-     * Ask the sampler to finish, without waiting for it.
-     *
-     * The non-blocking half of stop(). stop() joins the sampler -- which may be mid-`iw scan` or
-     * mid-ping -- so calling it from a latency-sensitive thread stalls that thread for seconds.
-     * An owner can call this first, hand the object to a thread that is allowed to block, and let
-     * the destructor there do the joining.
-     *
-     * Idempotent, and does NOT stop the D-Bus listener: that join belongs with the rest of the
-     * teardown in stop().
-     */
+    /// Non-blocking half of stop(): asks the sampler to finish without joining it. Idempotent,
+    /// and leaves the D-Bus listener for stop().
     void requestStop(const std::string &endReason);
 
     void stop(const std::string &endReason);

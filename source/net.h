@@ -410,15 +410,8 @@ private:
     void postWifiCaptureEvent(const std::string &runId, const wifi::Event &event,
                               std::shared_ptr<std::atomic_bool> runClosed);
     void recoverNetworkMonitorState();
-    /**
-     * End the current capture, if any, without blocking the caller.
-     *
-     * Takes ownership away under the mutex, asks the sampler to finish, then hands the object to
-     * the worker so the join happens there. Safe to call from the Centrifugo dispatcher, which
-     * must never block: NetworkMonitor::stop() joins a sampler that can be several seconds inside
-     * `iw dev wlan0 scan` or a ping triplet, and the dispatcher is the thread every realtime
-     * message arrives on.
-     */
+    /// End the current capture without blocking: ownership moves out under the mutex, the worker
+    /// does the joining. Safe from the Centrifugo dispatcher, which must never block.
     void retireNetworkMonitor(const std::string &reason);
     /**
      * Record that a REST call just succeeded, and what the server thinks the time is.
@@ -531,15 +524,7 @@ private:
     std::atomic<uint64_t> m_diagProbeSequence {0};
     std::unordered_set<std::string> m_seenDiagTraceIds;
     mutable std::mutex m_seenDiagTraceIdsMutex;
-    /**
-     * Guards the m_networkMonitor POINTER only, never a call through it.
-     *
-     * The pointer is reached from the Centrifugo dispatcher (the capture handlers) and from
-     * ~Net(), so it needs synchronising -- but the lock is never held across NetworkMonitor::stop()
-     * or the destructor, both of which join threads that may be mid-`iw scan`. Ownership is moved
-     * out under the lock and the blocking teardown happens on the worker; see
-     * retireNetworkMonitor().
-     */
+    /// Guards the pointer only. Never held across stop() or the destructor -- both join.
     std::mutex m_networkMonitorMutex;
     std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;
     bool m_networkMonitorStateRecovered {false};

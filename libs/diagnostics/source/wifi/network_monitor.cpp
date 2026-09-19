@@ -69,8 +69,7 @@ bool NetworkMonitor::start()
 void NetworkMonitor::requestStop(const std::string &endReason)
 {
     {
-        // Same guard as stop(): only the caller that actually ends the run names the reason, so a
-        // later "shutdown" cannot relabel a run that expired or was stopped by hand.
+        // Only the caller that ends the run names the reason.
         std::scoped_lock lock(m_mutex);
         if (m_active) {
             m_stopReason = endReason;
