@@ -68,6 +68,8 @@ constexpr auto PRODUCTION_CENTRIFUGO = "wss://sws.scorbit.io";
 
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
+// Deliberate: staging's API publishes here too (api config/deploy.yml
+// CENTRIFUGO_BASE_URL). sws-staging.scorbit.io is live but unused. SB-4932.
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 
 // Headers
