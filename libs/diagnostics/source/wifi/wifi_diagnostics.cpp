@@ -218,14 +218,9 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         return std::string {env};
     }
 
-    const auto iw = runner("iw", {"dev"});
-    if (iw.exitCode == 0) {
-        static const std::regex ifaceRe {R"(\bInterface\s+([^\s]+))"};
-        if (const auto iface = matchString(iw.output, ifaceRe); iface) {
-            return iface;
-        }
-    }
-
+    // /proc/net/wireless BEFORE `iw dev`: the kernel lists only interfaces it has stats for, which
+    // on a Scorbitron is wlan0 alone, while `iw dev` lists wlan1 -- the commissioning AP, never
+    // associated -- first. Taking iw's first entry samples wlan1 and reports an empty radio.
     const auto proc = runner("cat", {"/proc/net/wireless"});
     if (proc.exitCode == 0) {
         for (const auto &line : lines(proc.output)) {
@@ -233,6 +228,13 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
             if (colon != std::string::npos) {
                 return trim(std::string_view {line}.substr(0, colon));
             }
+        }
+    }
+
+    if (const auto iw = runner("iw", {"dev"}); iw.exitCode == 0) {
+        const auto ifaces = parseIwDevInterfaces(iw.output);
+        if (!ifaces.empty()) {
+            return ifaces.front();
         }
     }
 
@@ -251,15 +253,9 @@ constexpr auto ROUTE_PROBE_TARGET {"1.1.1.1"};
         iface = preferredInterface;
     } else {
         // Sample whatever carries the traffic. `iw dev` lists wlan1 (the commissioning AP) before
-        // wlan0 on a Scorbitron, so taking its first entry samples an unconnected interface and
-        // reports an empty radio for a healthy link.
-        const auto wireless = [&runner] {
-            const auto iw = runner("iw", {"dev"});
-            return iw.exitCode == 0 ? parseIwDevInterfaces(iw.output) : std::vector<std::string> {};
-        }();
-
+        // wlan0 on a Scorbitron, so its first entry is not the station link.
         const auto routed = defaultRouteInterface(ROUTE_PROBE_TARGET, runner);
-        if (shouldSampleEthernet(routed, wireless)) {
+        if (routed && shouldSampleEthernet(routed, isWirelessInterface(*routed, runner))) {
             return collectEthernet(*routed, std::move(runner));
         }
 
@@ -777,14 +773,18 @@ std::vector<std::string> parseIwDevInterfaces(std::string_view output)
     return ifaces;
 }
 
-bool shouldSampleEthernet(const std::optional<std::string> &routedIface,
-                          const std::vector<std::string> &wirelessIfaces)
+bool isWirelessInterface(const std::string &iface, CommandRunner runner)
 {
-    if (!routedIface) {
-        return false;
+    const auto uevent = runner("cat", {"/sys/class/net/" + iface + "/uevent"});
+    if (uevent.exitCode != 0) {
+        return true;
     }
-    return std::find(wirelessIfaces.begin(), wirelessIfaces.end(), *routedIface)
-            == wirelessIfaces.end();
+    return uevent.output.find("DEVTYPE=wlan") != std::string::npos;
+}
+
+bool shouldSampleEthernet(const std::optional<std::string> &routedIface, bool routedIsWireless)
+{
+    return routedIface.has_value() && !routedIsWireless;
 }
 
 std::optional<LinkInfo> collectEthernet(const std::string &iface, CommandRunner runner)

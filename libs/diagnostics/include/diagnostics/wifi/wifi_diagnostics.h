@@ -160,12 +160,15 @@ std::optional<std::string> parseIpRouteInterface(std::string_view output);
 /// Every wireless interface named by `iw dev`, in listed order.
 std::vector<std::string> parseIwDevInterfaces(std::string_view output);
 
-/// Whether to sample Ethernet: the routed interface exists and is not one of @p wirelessIfaces.
+/// Whether @p iface is a radio, from sysfs `DEVTYPE=wlan`.
 ///
-/// Tested against the whole wireless set, not one name: a Scorbitron has wlan0 AND wlan1, and
-/// `iw dev` lists wlan1 first.
-bool shouldSampleEthernet(const std::optional<std::string> &routedIface,
-                          const std::vector<std::string> &wirelessIfaces);
+/// Deliberately not `iw dev`: `iw` is only an AUTO package on our images (SB-3462), so it can be
+/// removed by an autoremove, and a missing tool must not turn a radio into "Ethernet".
+/// Unreadable sysfs answers true, because mislabelling Wi-Fi as wired is the worse error.
+bool isWirelessInterface(const std::string &iface, CommandRunner runner = runCommand);
+
+/// Sample Ethernet only when there IS a routed interface and it is not a radio.
+bool shouldSampleEthernet(const std::optional<std::string> &routedIface, bool routedIsWireless);
 
 /// Link state for a wired @p iface, from /sys/class/net. Wi-Fi-only fields are left unset.
 std::optional<LinkInfo> collectEthernet(const std::string &iface, CommandRunner runner = runCommand);

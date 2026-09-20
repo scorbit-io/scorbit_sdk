@@ -712,9 +712,10 @@ CommandRunner bothUpRoutedVia(const std::string &routedIface)
 
 TEST_CASE("iw dev lists wlan1 before wlan0 on a Scorbitron", "[wifi][ethernet]")
 {
-    // Verbatim from Scorbitron-31871. Order matters: taking the first entry samples wlan1, the
-    // commissioning AP, which reports "Not connected." and has no /proc/net/wireless row -- so a
-    // healthy link yields an entirely empty radio.
+    // Verbatim from Scorbitron-31871. Order matters: wlan1 is the commissioning AP, reports
+    // "Not connected." and has no /proc/net/wireless row, so taking the first entry yields an
+    // entirely empty radio for a healthy link. linuxWifiInterface() therefore consults
+    // /proc/net/wireless first and only falls back to this ordering.
     const auto ifaces = parseIwDevInterfaces("phy#0\n\tInterface wlan1\n\tInterface wlan0\n");
 
     REQUIRE(ifaces.size() == 2);
@@ -724,24 +725,37 @@ TEST_CASE("iw dev lists wlan1 before wlan0 on a Scorbitron", "[wifi][ethernet]")
 
 TEST_CASE("Ethernet is chosen by what carries the route, not by what exists", "[wifi][ethernet]")
 {
-    const std::vector<std::string> wireless {"wlan1", "wlan0"};
-
     // The rule SB-3465 originally specified -- "both interfaces present -> Wi-Fi" -- is wrong on
     // both reference Scorbitrons: wlan0 is associated at -59 dBm while eth0 holds the
     // lower-metric default route, so the traffic leaves over the cable.
-    CHECK(shouldSampleEthernet(std::optional<std::string> {"eth0"}, wireless));
+    CHECK(shouldSampleEthernet(std::optional<std::string> {"eth0"}, false));
 
-    // Routed over Wi-Fi: sample Wi-Fi. Tested against the whole wireless set, so wlan0 is
-    // recognised even though iw dev lists wlan1 first.
-    CHECK_FALSE(shouldSampleEthernet(std::optional<std::string> {"wlan0"}, wireless));
-    CHECK_FALSE(shouldSampleEthernet(std::optional<std::string> {"wlan1"}, wireless));
-
-    // Wired-only: no wireless interfaces at all.
-    CHECK(shouldSampleEthernet(std::optional<std::string> {"eth0"}, {}));
+    // Routed over a radio: sample Wi-Fi.
+    CHECK_FALSE(shouldSampleEthernet(std::optional<std::string> {"wlan0"}, true));
 
     // No default route -- fall through to the Wi-Fi path rather than guessing Ethernet.
-    CHECK_FALSE(shouldSampleEthernet(std::nullopt, wireless));
-    CHECK_FALSE(shouldSampleEthernet(std::nullopt, {}));
+    CHECK_FALSE(shouldSampleEthernet(std::nullopt, false));
+    CHECK_FALSE(shouldSampleEthernet(std::nullopt, true));
+}
+
+TEST_CASE("Wireless is detected from sysfs, not from iw", "[wifi][ethernet]")
+{
+    // uevent contents verbatim from Scorbitron-31871.
+    const auto sysfs = [](const std::string &devtype, int exitCode) {
+        return [devtype, exitCode](const std::string &, const std::vector<std::string> &) {
+            return CommandResult {exitCode, devtype};
+        };
+    };
+
+    CHECK(isWirelessInterface("wlan0", sysfs("DEVTYPE=wlan\n", 0)));
+    CHECK_FALSE(isWirelessInterface("eth0", sysfs("INTERFACE=eth0\nIFINDEX=2\n", 0)));
+
+    // The case this exists for: `iw` is only an AUTO package on our images (SB-3462), so the old
+    // iw-based classification turned a missing tool into "this radio is Ethernet" -- reporting
+    // source:ethernet with no RF data for a Wi-Fi device. sysfs cannot go missing, and an
+    // unreadable read still answers "wireless", because mislabelling Wi-Fi as wired is worse than
+    // the reverse.
+    CHECK(isWirelessInterface("wlan0", sysfs("", 1)));
 }
 
 TEST_CASE("A wired link reports speed and leaves the Wi-Fi fields unset", "[wifi][ethernet]")
