@@ -218,14 +218,9 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         return std::string {env};
     }
 
-    const auto iw = runner("iw", {"dev"});
-    if (iw.exitCode == 0) {
-        static const std::regex ifaceRe {R"(\bInterface\s+([^\s]+))"};
-        if (const auto iface = matchString(iw.output, ifaceRe); iface) {
-            return iface;
-        }
-    }
-
+    // /proc/net/wireless BEFORE `iw dev`: the kernel lists only interfaces it has stats for, which
+    // on a Scorbitron is wlan0 alone, while `iw dev` lists wlan1 -- the commissioning AP, never
+    // associated -- first. Taking iw's first entry samples wlan1 and reports an empty radio.
     const auto proc = runner("cat", {"/proc/net/wireless"});
     if (proc.exitCode == 0) {
         for (const auto &line : lines(proc.output)) {
@@ -236,14 +231,37 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         }
     }
 
+    if (const auto iw = runner("iw", {"dev"}); iw.exitCode == 0) {
+        const auto ifaces = parseIwDevInterfaces(iw.output);
+        if (!ifaces.empty()) {
+            return ifaces.front();
+        }
+    }
+
     return std::nullopt;
 }
+
+/// Any off-link address works; only the chosen interface is read, no packet is sent.
+constexpr auto ROUTE_PROBE_TARGET {"1.1.1.1"};
 
 [[maybe_unused]] std::optional<LinkInfo> collectLinux(CommandRunner runner,
                                                       std::string preferredInterface)
 {
-    auto iface = preferredInterface.empty() ? linuxWifiInterface(runner)
-                                            : std::optional<std::string> {preferredInterface};
+    std::optional<std::string> iface;
+
+    if (!preferredInterface.empty()) {
+        iface = preferredInterface;
+    } else {
+        // Sample whatever carries the traffic. `iw dev` lists wlan1 (the commissioning AP) before
+        // wlan0 on a Scorbitron, so its first entry is not the station link.
+        const auto routed = defaultRouteInterface(ROUTE_PROBE_TARGET, runner);
+        if (routed && shouldSampleEthernet(routed, isWirelessInterface(*routed, runner))) {
+            return collectEthernet(*routed, std::move(runner));
+        }
+
+        iface = routed ? routed : linuxWifiInterface(runner);
+    }
+
     if (!iface) {
         return std::nullopt;
     }
@@ -731,6 +749,85 @@ std::map<std::string, std::string> buildDependencyChecks(const LinkInfo &link,
     }
 
     return checks;
+}
+
+namespace {
+
+/// Reads one /sys/class/net/<iface>/<field>, trimmed. Empty when the field does not exist.
+std::string sysNetField(CommandRunner &runner, const std::string &iface, const std::string &field)
+{
+    const auto r = runner("cat", {"/sys/class/net/" + iface + "/" + field});
+    return r.exitCode == 0 ? std::string {trim(r.output)} : std::string {};
+}
+
+} // namespace
+
+std::vector<std::string> parseIwDevInterfaces(std::string_view output)
+{
+    static const std::regex ifaceRe {R"(\bInterface\s+([^\s]+))"};
+    const std::string text {output};
+    std::vector<std::string> ifaces;
+    for (std::sregex_iterator it {text.begin(), text.end(), ifaceRe}, end; it != end; ++it) {
+        ifaces.push_back((*it)[1].str());
+    }
+    return ifaces;
+}
+
+bool isWirelessInterface(const std::string &iface, CommandRunner runner)
+{
+    const auto uevent = runner("cat", {"/sys/class/net/" + iface + "/uevent"});
+    if (uevent.exitCode != 0) {
+        return true;
+    }
+    return uevent.output.find("DEVTYPE=wlan") != std::string::npos;
+}
+
+bool shouldSampleEthernet(const std::optional<std::string> &routedIface, bool routedIsWireless)
+{
+    return routedIface.has_value() && !routedIsWireless;
+}
+
+std::optional<LinkInfo> collectEthernet(const std::string &iface, CommandRunner runner)
+{
+    LinkInfo info;
+    info.kind = InterfaceKind::Ethernet;
+    info.backend = "sysfs";
+    info.interfaceName = iface;
+
+    const auto operstate = sysNetField(runner, iface, "operstate");
+    const auto carrier = sysNetField(runner, iface, "carrier");
+    if (operstate.empty() && carrier.empty()) {
+        return std::nullopt;
+    }
+
+    info.connected = operstate == "up" || carrier == "1";
+
+    // speed reads as -1 on a down link.
+    if (const auto speed = sysNetField(runner, iface, "speed"); !speed.empty()) {
+        if (int mbps = 0; std::from_chars(speed.data(), speed.data() + speed.size(), mbps).ec
+                          == std::errc {}) {
+            if (mbps > 0) {
+                info.linkRateMbps = mbps;
+            }
+        }
+    }
+
+    return info;
+}
+
+std::optional<std::string> parseIpRouteInterface(std::string_view output)
+{
+    static const std::regex devRe {R"(\bdev\s+([^\s]+))"};
+    return matchString(output, devRe);
+}
+
+std::optional<std::string> defaultRouteInterface(const std::string &target, CommandRunner runner)
+{
+    const auto route = runner("ip", {"route", "get", target});
+    if (route.exitCode != 0) {
+        return std::nullopt;
+    }
+    return parseIpRouteInterface(route.output);
 }
 
 std::optional<LinkInfo> parseProcNetWireless(std::string_view output, std::string interfaceName)

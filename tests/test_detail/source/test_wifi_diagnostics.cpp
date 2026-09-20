@@ -656,3 +656,159 @@ TEST_CASE("requestStop() returns without joining, and the destructor still joins
     std::error_code ec;
     std::filesystem::remove(stateFilePath, ec);
 }
+
+// --- ethernet selection ----------------------------------------------------
+
+TEST_CASE("The routed interface is parsed from ip route get", "[wifi][ethernet]")
+{
+    // Verbatim from Scorbitron-31871.
+    CHECK(parseIpRouteInterface(
+                  "1.1.1.1 via 192.168.168.1 dev eth0 src 192.168.168.149 uid 1000")
+                  .value_or("")
+          == "eth0");
+    CHECK(parseIpRouteInterface("1.1.1.1 via 10.0.0.1 dev wlan0 src 10.0.0.5").value_or("")
+          == "wlan0");
+    CHECK_FALSE(parseIpRouteInterface("RTNETLINK answers: Network is unreachable").has_value());
+}
+
+namespace {
+
+/// Stubs the two Scorbitrons: wlan0 associated AND eth0 cabled, eth0 holding the default route.
+CommandRunner bothUpRoutedVia(const std::string &routedIface)
+{
+    return [routedIface](const std::string &cmd, const std::vector<std::string> &args) {
+        const auto joined = [&args] {
+            std::string s;
+            for (const auto &a : args) {
+                s += a + " ";
+            }
+            return s;
+        }();
+
+        if (cmd == "ip") {
+            return CommandResult {0, "1.1.1.1 via 192.168.168.1 dev " + routedIface + " src 1.2.3.4"};
+        }
+        if (cmd == "iw" && joined.rfind("dev ", 0) == 0 && args.size() == 1) {
+            return CommandResult {0, "Interface wlan0"};
+        }
+        if (cmd == "cat" && joined.find("operstate") != std::string::npos) {
+            return CommandResult {0, "up"};
+        }
+        if (cmd == "cat" && joined.find("carrier") != std::string::npos) {
+            return CommandResult {0, "1"};
+        }
+        if (cmd == "cat" && joined.find("speed") != std::string::npos) {
+            return CommandResult {0, "100"};
+        }
+        if (cmd == "iw") {
+            return CommandResult {0, "Connected to a2:05:d6:42:25:10 (on wlan0)\n\tSSID: TL_LOCAL\n"
+                                     "\tfreq: 2437\n\tsignal: -59 dBm"};
+        }
+        return CommandResult {1, ""};
+    };
+}
+
+} // namespace
+
+TEST_CASE("iw dev lists wlan1 before wlan0 on a Scorbitron", "[wifi][ethernet]")
+{
+    // Verbatim from Scorbitron-31871. Order matters: wlan1 is the commissioning AP, reports
+    // "Not connected." and has no /proc/net/wireless row, so taking the first entry yields an
+    // entirely empty radio for a healthy link. linuxWifiInterface() therefore consults
+    // /proc/net/wireless first and only falls back to this ordering.
+    const auto ifaces = parseIwDevInterfaces("phy#0\n\tInterface wlan1\n\tInterface wlan0\n");
+
+    REQUIRE(ifaces.size() == 2);
+    CHECK(ifaces[0] == "wlan1");
+    CHECK(ifaces[1] == "wlan0");
+}
+
+TEST_CASE("Ethernet is chosen by what carries the route, not by what exists", "[wifi][ethernet]")
+{
+    // The rule SB-3465 originally specified -- "both interfaces present -> Wi-Fi" -- is wrong on
+    // both reference Scorbitrons: wlan0 is associated at -59 dBm while eth0 holds the
+    // lower-metric default route, so the traffic leaves over the cable.
+    CHECK(shouldSampleEthernet(std::optional<std::string> {"eth0"}, false));
+
+    // Routed over a radio: sample Wi-Fi.
+    CHECK_FALSE(shouldSampleEthernet(std::optional<std::string> {"wlan0"}, true));
+
+    // No default route -- fall through to the Wi-Fi path rather than guessing Ethernet.
+    CHECK_FALSE(shouldSampleEthernet(std::nullopt, false));
+    CHECK_FALSE(shouldSampleEthernet(std::nullopt, true));
+}
+
+TEST_CASE("Wireless is detected from sysfs, not from iw", "[wifi][ethernet]")
+{
+    // uevent contents verbatim from Scorbitron-31871.
+    const auto sysfs = [](const std::string &devtype, int exitCode) {
+        return [devtype, exitCode](const std::string &, const std::vector<std::string> &) {
+            return CommandResult {exitCode, devtype};
+        };
+    };
+
+    CHECK(isWirelessInterface("wlan0", sysfs("DEVTYPE=wlan\n", 0)));
+    CHECK_FALSE(isWirelessInterface("eth0", sysfs("INTERFACE=eth0\nIFINDEX=2\n", 0)));
+
+    // The case this exists for: `iw` is only an AUTO package on our images (SB-3462), so the old
+    // iw-based classification turned a missing tool into "this radio is Ethernet" -- reporting
+    // source:ethernet with no RF data for a Wi-Fi device. sysfs cannot go missing, and an
+    // unreadable read still answers "wireless", because mislabelling Wi-Fi as wired is worse than
+    // the reverse.
+    CHECK(isWirelessInterface("wlan0", sysfs("", 1)));
+}
+
+TEST_CASE("A wired link reports speed and leaves the Wi-Fi fields unset", "[wifi][ethernet]")
+{
+    // /sys values verbatim from Scorbitron-31871.
+    const auto runner = [](const std::string &, const std::vector<std::string> &args) {
+        const auto &path = args.front();
+        if (path.find("operstate") != std::string::npos) {
+            return CommandResult {0, "up\n"};
+        }
+        if (path.find("carrier") != std::string::npos) {
+            return CommandResult {0, "1\n"};
+        }
+        if (path.find("speed") != std::string::npos) {
+            return CommandResult {0, "100\n"};
+        }
+        return CommandResult {1, ""};
+    };
+
+    const auto link = collectEthernet("eth0", runner);
+    REQUIRE(link.has_value());
+    CHECK(link->kind == InterfaceKind::Ethernet);
+    CHECK(link->interfaceName == "eth0");
+    CHECK(link->connected);
+    CHECK(link->linkRateMbps.value_or(0) == 100);
+
+    // Wi-Fi-only fields must stay absent rather than carry the radio's numbers.
+    CHECK_FALSE(link->rssiDbm.has_value());
+    CHECK_FALSE(link->noiseDbm.has_value());
+    CHECK_FALSE(link->txRetryPct.has_value());
+    CHECK_FALSE(link->beaconLossCount.has_value());
+    CHECK(link->ssid.empty());
+    CHECK(link->bssid.empty());
+}
+
+TEST_CASE("A down wired link is reported disconnected, with no speed", "[wifi][ethernet]")
+{
+    const auto runner = [](const std::string &, const std::vector<std::string> &args) {
+        const auto &path = args.front();
+        if (path.find("operstate") != std::string::npos) {
+            return CommandResult {0, "down"};
+        }
+        if (path.find("carrier") != std::string::npos) {
+            return CommandResult {0, "0"};
+        }
+        if (path.find("speed") != std::string::npos) {
+            return CommandResult {0, "-1"}; // what the kernel reports on a down link
+        }
+        return CommandResult {1, ""};
+    };
+
+    const auto link = collectEthernet("eth0", runner);
+    REQUIRE(link.has_value());
+    CHECK_FALSE(link->connected);
+    CHECK_FALSE(link->linkRateMbps.has_value());
+}

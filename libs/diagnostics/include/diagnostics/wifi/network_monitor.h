@@ -121,6 +121,9 @@ private:
     /// sample's dict and renders a missing key as "unknown" -- so omitting would make the dns chip
     /// blink to "unknown" for nine samples out of ten. Carried here instead, so the chip is stable.
     std::optional<bool> m_lastDnsOk;
+    /// True when this run is sampling Ethernet. wlan0 stays associated on a cabled Scorbitron, so
+    /// D-Bus assoc/deauth and scans would report the radio's events for a capture of the cable.
+    bool m_ethernet {false};
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
     std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;

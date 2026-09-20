@@ -61,7 +61,15 @@ bool NetworkMonitor::start()
     writeStateFile(m_options.stateFilePath,
                    State {m_options.runId, startedAt, startedAt + m_options.requestedDuration});
 
-    startDbusListener();
+    // Decided once, up front: the rest of the run's shape depends on it.
+    if (const auto link = collectLinkInfo(m_options.commandRunner, m_options.preferredInterface);
+        link) {
+        m_ethernet = link->kind == InterfaceKind::Ethernet;
+    }
+
+    if (!m_ethernet) {
+        startDbusListener();
+    }
     m_thread = std::thread {[this] { run(); }};
     return true;
 }
@@ -201,7 +209,7 @@ void NetworkMonitor::run()
             }
         }
 
-        if (m_options.scanEnabled && now >= nextScan) {
+        if (m_options.scanEnabled && !m_ethernet && now >= nextScan) {
             maybeEmitScanEvent();
             nextScan = now + m_options.scanInterval;
         }

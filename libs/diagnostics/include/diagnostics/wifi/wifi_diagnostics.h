@@ -147,6 +147,32 @@ std::optional<ProbeResult> probeHost(const std::string &target, int count = 3,
                                      CommandRunner runner = runCommand);
 std::optional<std::string> defaultGateway(CommandRunner runner = runCommand);
 
+/// Interface carrying the default route to @p target, e.g. "eth0".
+///
+/// A Scorbitron is routinely associated to Wi-Fi AND cabled at once, with eth0 on a lower metric,
+/// so picking by name would sample a healthy radio while the traffic leaves over the cable.
+std::optional<std::string> defaultRouteInterface(const std::string &target,
+                                                 CommandRunner runner = runCommand);
+
+/// Parses `ip route get` output for the `dev <iface>` it selected.
+std::optional<std::string> parseIpRouteInterface(std::string_view output);
+
+/// Every wireless interface named by `iw dev`, in listed order.
+std::vector<std::string> parseIwDevInterfaces(std::string_view output);
+
+/// Whether @p iface is a radio, from sysfs `DEVTYPE=wlan`.
+///
+/// Deliberately not `iw dev`: `iw` is only an AUTO package on our images (SB-3462), so it can be
+/// removed by an autoremove, and a missing tool must not turn a radio into "Ethernet".
+/// Unreadable sysfs answers true, because mislabelling Wi-Fi as wired is the worse error.
+bool isWirelessInterface(const std::string &iface, CommandRunner runner = runCommand);
+
+/// Sample Ethernet only when there IS a routed interface and it is not a radio.
+bool shouldSampleEthernet(const std::optional<std::string> &routedIface, bool routedIsWireless);
+
+/// Link state for a wired @p iface, from /sys/class/net. Wi-Fi-only fields are left unset.
+std::optional<LinkInfo> collectEthernet(const std::string &iface, CommandRunner runner = runCommand);
+
 /**
  * Assemble dependency_checks from what the sampler already measured plus the owner's passive state.
  *
