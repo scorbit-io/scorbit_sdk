@@ -68,8 +68,8 @@ constexpr auto PRODUCTION_CENTRIFUGO = "wss://sws.scorbit.io";
 
 constexpr auto STAGING_LABEL = "staging";
 constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
-// Deliberate: staging's API publishes here too (api config/deploy.yml
-// CENTRIFUGO_BASE_URL). sws-staging.scorbit.io is live but unused. SB-4932.
+// Staging still shares the prod broker -- known gap, SB-3645. Do not change
+// this alone: the SDK must reach devices before the API cuts over.
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
 
 // Headers
