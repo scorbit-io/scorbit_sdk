@@ -115,6 +115,10 @@ CPMAddPackage(
 if(NOT TARGET scorbit_libarchive)
     add_library(scorbit_libarchive INTERFACE)
     target_link_libraries(scorbit_libarchive INTERFACE archive_static ${_scorbit_zlib_target})
+    # archive.h declares every function __declspec(dllimport) unless this is set, so
+    # a static libarchive links against __imp_ symbols that no import library
+    # provides. INTERFACE because the define has to reach whoever includes the header.
+    target_compile_definitions(scorbit_libarchive INTERFACE LIBARCHIVE_STATIC)
 endif()
 
 # Claim the canonical name only if nothing else has, so a future libarchive that
