@@ -9,8 +9,10 @@
 #include <diagnostics/wifi/wifi_diagnostics.h>
 #include <diagnostics/wifi/network_monitor.h>
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <catch2/catch_test_macros.hpp>
@@ -671,6 +673,23 @@ struct ListenerProbe {
     std::atomic_int starts {0};
     std::atomic_int stops {0};
     std::function<void(Event)> callback;
+    // When set, stop() parks on the gate until release(): a stand-in for the
+    // D-Bus listener's join taking a while, so a test can hold a teardown in
+    // flight and watch what the other thread does meanwhile.
+    bool blockStop {false};
+    std::mutex gate;
+    std::condition_variable gateCv;
+    bool stopEntered {false};
+    bool released {false};
+
+    void release()
+    {
+        {
+            std::scoped_lock lock(gate);
+            released = true;
+        }
+        gateCv.notify_all();
+    }
 };
 
 class FakeListener : public EventListener
@@ -688,7 +707,17 @@ public:
         return true;
     }
 
-    void stop() override { ++m_probe->stops; }
+    void stop() override
+    {
+        ++m_probe->stops;
+        if (!m_probe->blockStop) {
+            return;
+        }
+        std::unique_lock lock(m_probe->gate);
+        m_probe->stopEntered = true;
+        m_probe->gateCv.notify_all();
+        m_probe->gateCv.wait(lock, [this] { return m_probe->released; });
+    }
 
 private:
     std::shared_ptr<ListenerProbe> m_probe;
@@ -761,6 +790,53 @@ TEST_CASE("A run that expires on its own stops its event listener", "[wifi][list
     // The eventual stop() finds nothing left to stop: no double teardown.
     monitor.stop("shutdown");
     CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("The final sample waits for a listener teardown already in flight", "[wifi][listener]")
+{
+    // Copilot review on sdk#208. stop() and the sampler both tear the listener down; if stop()
+    // wins the pointer and is still joining the listener, the sampler must not go on to emit
+    // the final sample -- the listener's thread may still be inside its callback, and an event
+    // would land after the sample that closes the run.
+    auto probe = std::make_shared<ListenerProbe>();
+    probe->blockStop = true;
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    std::atomic_int finals {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&finals](const Sample &sample) {
+        if (sample.isFinal) {
+            ++finals;
+        }
+    };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    // An external stop: it asks the sampler to finish, then parks inside the listener's stop().
+    std::thread stopper {[&monitor] { monitor.stop("manual_stop"); }};
+    {
+        std::unique_lock lock(probe->gate);
+        REQUIRE(probe->gateCv.wait_for(lock, std::chrono::seconds {2},
+                                       [&probe] { return probe->stopEntered; }));
+    }
+
+    // The sampler has been told to finish and, without the ordering, would take the (now null)
+    // listener pointer and emit the final sample while the teardown is still in flight. Give it
+    // ample time to do exactly that.
+    std::this_thread::sleep_for(std::chrono::milliseconds {150});
+    CHECK(finals.load() == 0);
+
+    probe->release();
+    stopper.join();
+
+    CHECK(finals.load() == 1);
+    CHECK(probe->stops.load() == 1);
+    CHECK(monitor.endReason() == "manual_stop");
 
     std::error_code ec;
     std::filesystem::remove(stateFilePath, ec);

@@ -361,15 +361,17 @@ void NetworkMonitor::startEventListener()
 
 void NetworkMonitor::stopEventListener()
 {
-    // Take ownership under the lock, stop outside it: stop() joins the listener's thread, and
-    // that thread may be inside the event callback, which must never need this mutex.
-    std::unique_ptr<EventListener> listener;
-    {
-        std::scoped_lock lock(m_eventListenerMutex);
-        listener = std::move(m_eventListener);
-    }
-    if (listener) {
-        listener->stop();
+    // The lock is held across the stop itself, not just the pointer move, so the second caller
+    // waits for the first one's teardown to finish. Otherwise stop() could take the listener and
+    // still be joining it while the sampler saw a null pointer, went on to emit the final sample,
+    // and the listener's thread -- still inside its callback -- posted an event after it.
+    //
+    // Holding the lock through a join is safe here because the listener's callback never takes
+    // it: it only ends in emitEvent(), which touches no listener state.
+    std::scoped_lock lock(m_eventListenerMutex);
+    if (m_eventListener) {
+        m_eventListener->stop();
+        m_eventListener.reset();
     }
     m_eventListenerActive = false;
 }

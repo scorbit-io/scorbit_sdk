@@ -133,8 +133,9 @@ private:
     bool m_ethernet {false};
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
-    /// Guards the pointer only. The sampler stops the listener as the run ends, and stop() may do
-    /// the same from another thread at the same moment.
+    /// Serialises the listener's teardown, not just its pointer. The sampler stops the listener as
+    /// the run ends and stop() may do the same from another thread at the same moment; whichever
+    /// is second waits until the first has joined it, so no event can follow the final sample.
     std::mutex m_eventListenerMutex;
     std::unique_ptr<EventListener> m_eventListener;
     // Atomic for the same reason m_active above is: it is written by whichever
