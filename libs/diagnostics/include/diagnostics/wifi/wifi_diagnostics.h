@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -124,6 +125,20 @@ struct Event {
     std::optional<int> reasonCode;
     std::string payloadJson;
 };
+
+/// A passive event source that runs for the life of one capture -- wpa_supplicant over D-Bus in
+/// production, a fake in tests. Whoever starts it must stop it when the run ends, or its events
+/// keep flowing into a run that no longer exists (SB-4938).
+class EventListener
+{
+public:
+    virtual ~EventListener() = default;
+    virtual bool start() = 0;
+    virtual void stop() = 0;
+};
+
+using EventListenerFactory =
+        std::function<std::unique_ptr<EventListener>(std::function<void(Event)>)>;
 
 struct State {
     std::string runId;

@@ -39,6 +39,16 @@ std::string linkPayload(const LinkInfo &link)
 
 } // namespace
 
+std::unique_ptr<EventListener> defaultEventListener(std::function<void(Event)> callback)
+{
+#if defined(__linux__)
+    return std::make_unique<WpaSupplicantDbusListener>(std::move(callback));
+#else
+    (void)callback;
+    return nullptr;
+#endif
+}
+
 NetworkMonitor::NetworkMonitor(Options options, Callbacks callbacks)
     : m_options(std::move(options))
     , m_callbacks(std::move(callbacks))
@@ -68,7 +78,7 @@ bool NetworkMonitor::start()
     }
 
     if (!m_ethernet) {
-        startDbusListener();
+        startEventListener();
     }
     m_thread = std::thread {[this] { run(); }};
     return true;
@@ -105,7 +115,7 @@ void NetworkMonitor::stop(const std::string &endReason)
     // by the "shutdown" call that the destructor makes afterwards.
     requestStop(endReason);
 
-    stopDbusListener();
+    stopEventListener();
     if (m_thread.joinable()) {
         m_thread.join();
     }
@@ -147,7 +157,7 @@ void NetworkMonitor::run()
     auto nextDependency = startedSteady;
 
     // Read live every time, never cached in a local. The flag is set by a worker thread finishing
-    // a POST that came back 410, so it can flip at any instant -- including between the loop
+    // a POST that came back 404 or 410, so it can flip at any instant -- including between the loop
     // exiting for an unrelated reason and the final sample being emitted below.
     const auto runIsClosed = [this] {
         return m_options.runClosed && m_options.runClosed->load(std::memory_order_acquire);
@@ -160,9 +170,10 @@ void NetworkMonitor::run()
     // server did not already have. Do not reintroduce them under a different name.
 
     while (m_active) {
-        // The server has closed this run, so everything after this point would be posted into a
-        // 410. Retire immediately rather than finishing the round: the whole point of the 410
-        // contract is that the device stops talking to a run the server has already ended.
+        // The server has closed this run or does not know it, so everything after this point
+        // would be posted into another 410 or 404. Retire immediately rather than finishing the
+        // round: the whole point of the terminal-status contract is that the device stops talking
+        // to a run the server will not accept.
         if (runIsClosed()) {
             std::scoped_lock lock(m_mutex);
             if (m_active) {
@@ -219,13 +230,19 @@ void NetworkMonitor::run()
     }
 
     // No final sample when the run is closed -- there is nothing left server-side to accept it,
-    // and posting one is exactly the behaviour the 410 is telling us to stop.
+    // and posting one is exactly the behaviour the 404 or 410 is telling us to stop.
     //
     // Re-read rather than reusing whatever was true when the loop exited: a run that ends on its
     // deadline or a manual stop can still be closed by the server a moment later, while the last
     // in-flight POST is still resolving. That overlap is not remote -- a 410 usually arrives
     // *because* the run is ending. A few instructions of residual window remain and are
     // unavoidable without coordination; the cost there is one POST the server rejects.
+    //
+    // The listener goes first, and it goes HERE rather than only in stop(). A run that ends on
+    // its own -- deadline, 404 or 410 -- is never stop()ped by anyone: the owner keeps the object until
+    // the next capture supersedes it. Left running, wpa_supplicant's own bgscan and re-association
+    // signals kept posting scan/assoc events into a run that had ended hours earlier (SB-4938).
+    stopEventListener();
     if (!runIsClosed()) {
         emitFinalSample();
     }
@@ -275,7 +292,7 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
 
 void NetworkMonitor::maybeEmitLinkEvent(const LinkInfo &link)
 {
-    if (m_dbusListenerActive) {
+    if (m_eventListenerActive) {
         m_lastLink = link;
         return;
     }
@@ -326,22 +343,37 @@ void NetworkMonitor::maybeEmitScanEvent()
 #endif
 }
 
-void NetworkMonitor::startDbusListener()
+void NetworkMonitor::startEventListener()
 {
-#if defined(__linux__)
-    m_dbusListener = std::make_unique<WpaSupplicantDbusListener>(
-            [this](Event event) { emitEvent(std::move(event)); });
-    m_dbusListenerActive = m_dbusListener->start();
-#endif
+    if (!m_options.eventListenerFactory) {
+        return;
+    }
+    auto listener =
+            m_options.eventListenerFactory([this](Event event) { emitEvent(std::move(event)); });
+    if (!listener) {
+        return;
+    }
+    m_eventListenerActive = listener->start();
+
+    std::scoped_lock lock(m_eventListenerMutex);
+    m_eventListener = std::move(listener);
 }
 
-void NetworkMonitor::stopDbusListener()
+void NetworkMonitor::stopEventListener()
 {
-    if (m_dbusListener) {
-        m_dbusListener->stop();
-        m_dbusListener.reset();
+    // The lock is held across the stop itself, not just the pointer move, so the second caller
+    // waits for the first one's teardown to finish. Otherwise stop() could take the listener and
+    // still be joining it while the sampler saw a null pointer, went on to emit the final sample,
+    // and the listener's thread -- still inside its callback -- posted an event after it.
+    //
+    // Holding the lock through a join is safe here because the listener's callback never takes
+    // it: it only ends in emitEvent(), which touches no listener state.
+    std::scoped_lock lock(m_eventListenerMutex);
+    if (m_eventListener) {
+        m_eventListener->stop();
+        m_eventListener.reset();
     }
-    m_dbusListenerActive = false;
+    m_eventListenerActive = false;
 }
 
 void NetworkMonitor::emitEvent(std::string kind, std::string payloadJson,

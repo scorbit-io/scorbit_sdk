@@ -1273,9 +1273,9 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         return snapshot;
     };
 
-    // One flag per run, shared by the monitor and by every POST callback belonging to it. A 410
-    // on any ingest call retires the run; see NetworkMonitor::Options::runClosed for why this is a
-    // flag rather than a call into the monitor.
+    // One flag per run, shared by the monitor and by every POST callback belonging to it. A 404 or
+    // 410 on any ingest call retires the run (wifiIngestStatusEndsRun); see
+    // NetworkMonitor::Options::runClosed for why this is a flag rather than a call into the monitor.
     auto runClosed = std::make_shared<std::atomic_bool>(false);
     options.runClosed = runClosed;
 
@@ -1339,8 +1339,9 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                 if (error == Error::Success) {
                     INF("API wifi capture sample: ok, run_id={}", runId);
                 } else {
-                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
-                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                    if (wifiIngestStatusEndsRun(httpStatus) && runClosed) {
+                        INF("DIAG: ingest returned {}, retiring capture: run_id={}", httpStatus,
+                            runId);
                         runClosed->store(true, std::memory_order_release);
                     }
                     WRN("API wifi capture sample: failed, run_id={}, error code: {}, reply: {}",
@@ -1366,8 +1367,9 @@ void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &even
                 if (error == Error::Success) {
                     INF("API wifi capture event: ok, run_id={}, kind={}", runId, kind);
                 } else {
-                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
-                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                    if (wifiIngestStatusEndsRun(httpStatus) && runClosed) {
+                        INF("DIAG: ingest returned {}, retiring capture: run_id={}", httpStatus,
+                            runId);
                         runClosed->store(true, std::memory_order_release);
                     }
                     WRN("API wifi capture event: failed, run_id={}, kind={}, error code: {}, "

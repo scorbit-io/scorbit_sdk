@@ -18,19 +18,19 @@ namespace scorbit {
 namespace detail {
 namespace wifi {
 
-class WpaSupplicantDbusListener
+class WpaSupplicantDbusListener : public EventListener
 {
 public:
     using EventCallback = std::function<void(Event)>;
 
     explicit WpaSupplicantDbusListener(EventCallback callback);
-    ~WpaSupplicantDbusListener();
+    ~WpaSupplicantDbusListener() override;
 
     WpaSupplicantDbusListener(const WpaSupplicantDbusListener &) = delete;
     WpaSupplicantDbusListener &operator=(const WpaSupplicantDbusListener &) = delete;
 
-    bool start();
-    void stop();
+    bool start() override;
+    void stop() override;
     bool isRunning() const;
 
 private:

@@ -9,8 +9,10 @@
 #include <diagnostics/wifi/wifi_diagnostics.h>
 #include <diagnostics/wifi/network_monitor.h>
 #include <atomic>
+#include <condition_variable>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <random>
 #include <thread>
 #include <catch2/catch_test_macros.hpp>
@@ -652,6 +654,224 @@ TEST_CASE("requestStop() returns without joining, and the destructor still joins
     }
 
     SUCCEED("requestStop() then destroy completed cleanly");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+// --- the event listener ends with the run ----------------------------------
+//
+// SB-4938. On a Scorbitron the passive listener is wpa_supplicant over D-Bus, and it was only ever
+// stopped by stop() -- which nobody calls on a run that ends by itself. The sampler stopped on
+// time; the listener kept turning wpa_supplicant's bgscan and re-association signals into
+// scan/assoc POSTs against the finished run for 3h45m. The fake below is what makes that
+// observable on a host without D-Bus.
+
+namespace {
+
+struct ListenerProbe {
+    std::atomic_int starts {0};
+    std::atomic_int stops {0};
+    std::function<void(Event)> callback;
+    // When set, stop() parks on the gate until release(): a stand-in for the
+    // D-Bus listener's join taking a while, so a test can hold a teardown in
+    // flight and watch what the other thread does meanwhile.
+    bool blockStop {false};
+    std::mutex gate;
+    std::condition_variable gateCv;
+    bool stopEntered {false};
+    bool released {false};
+
+    void release()
+    {
+        {
+            std::scoped_lock lock(gate);
+            released = true;
+        }
+        gateCv.notify_all();
+    }
+};
+
+class FakeListener : public EventListener
+{
+public:
+    FakeListener(std::shared_ptr<ListenerProbe> probe, std::function<void(Event)> callback)
+        : m_probe(std::move(probe))
+    {
+        m_probe->callback = std::move(callback);
+    }
+
+    bool start() override
+    {
+        ++m_probe->starts;
+        return true;
+    }
+
+    void stop() override
+    {
+        ++m_probe->stops;
+        if (!m_probe->blockStop) {
+            return;
+        }
+        std::unique_lock lock(m_probe->gate);
+        m_probe->stopEntered = true;
+        m_probe->gateCv.notify_all();
+        m_probe->gateCv.wait(lock, [this] { return m_probe->released; });
+    }
+
+private:
+    std::shared_ptr<ListenerProbe> m_probe;
+};
+
+NetworkMonitor::Options listenerOptions(std::chrono::seconds duration,
+                                        std::shared_ptr<ListenerProbe> probe)
+{
+    auto options = lifecycleOptions(duration);
+    options.eventListenerFactory = [probe](std::function<void(Event)> callback) {
+        return std::make_unique<FakeListener>(probe, std::move(callback));
+    };
+    return options;
+}
+
+bool waitFor(const std::function<bool()> &condition)
+{
+    for (int i = 0; i < 400 && !condition(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+    return condition();
+}
+
+} // namespace
+
+TEST_CASE("The event listener is started with the run and wired to onEvent", "[wifi][listener]")
+{
+    auto probe = std::make_shared<ListenerProbe>();
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    std::atomic_int events {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onEvent = [&events](const Event &) { ++events; };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+    CHECK(probe->starts.load() == 1);
+
+    // A listener event reaches the owner exactly as a D-Bus signal would.
+    REQUIRE(probe->callback);
+    Event event;
+    event.kind = "scan";
+    probe->callback(event);
+    CHECK(events.load() == 1);
+
+    monitor.stop("manual_stop");
+    CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run that expires on its own stops its event listener", "[wifi][listener]")
+{
+    // THE SB-4938 case. Nobody calls stop() on an expired run, so the assertion must hold before
+    // stop() is ever called -- that is exactly the window the listener used to survive in.
+    auto probe = std::make_shared<ListenerProbe>();
+    auto options = listenerOptions(std::chrono::seconds {0}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    NetworkMonitor monitor {std::move(options), {}};
+    REQUIRE(monitor.start());
+
+    // m_active clears a moment before the listener is stopped, so wait on the stop itself.
+    CHECK(waitFor([&] { return probe->stops.load() == 1; }));
+    CHECK_FALSE(monitor.isActive());
+    CHECK(monitor.endReason() == "expired");
+
+    // The eventual stop() finds nothing left to stop: no double teardown.
+    monitor.stop("shutdown");
+    CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("The final sample waits for a listener teardown already in flight", "[wifi][listener]")
+{
+    // Copilot review on sdk#208. stop() and the sampler both tear the listener down; if stop()
+    // wins the pointer and is still joining the listener, the sampler must not go on to emit
+    // the final sample -- the listener's thread may still be inside its callback, and an event
+    // would land after the sample that closes the run.
+    auto probe = std::make_shared<ListenerProbe>();
+    probe->blockStop = true;
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    std::atomic_int finals {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onSample = [&finals](const Sample &sample) {
+        if (sample.isFinal) {
+            ++finals;
+        }
+    };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+
+    // An external stop: it asks the sampler to finish, then parks inside the listener's stop().
+    std::thread stopper {[&monitor] { monitor.stop("manual_stop"); }};
+    bool stopEntered = false;
+    {
+        std::unique_lock lock(probe->gate);
+        stopEntered = probe->gateCv.wait_for(lock, std::chrono::seconds {2},
+                                             [&probe] { return probe->stopEntered; });
+    }
+    if (!stopEntered) {
+        // Clean up BEFORE asserting: a throwing assertion with `stopper` still joinable would
+        // run std::thread's destructor on it and turn the failure into std::terminate().
+        probe->release();
+        stopper.join();
+    }
+    REQUIRE(stopEntered);
+
+    // The sampler has been told to finish and, without the ordering, would take the (now null)
+    // listener pointer and emit the final sample while the teardown is still in flight. Give it
+    // ample time to do exactly that.
+    std::this_thread::sleep_for(std::chrono::milliseconds {150});
+    CHECK(finals.load() == 0);
+
+    probe->release();
+    stopper.join();
+
+    CHECK(finals.load() == 1);
+    CHECK(probe->stops.load() == 1);
+    CHECK(monitor.endReason() == "manual_stop");
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run the server has closed stops its event listener", "[wifi][listener]")
+{
+    // The other self-ending path: a 410 or 404 on ingest retires the sampler, and the listener
+    // must go with it, or it keeps posting into the very run the server just refused.
+    auto probe = std::make_shared<ListenerProbe>();
+    auto runClosed = std::make_shared<std::atomic_bool>(false);
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    options.runClosed = runClosed;
+    const auto stateFilePath = options.stateFilePath;
+
+    NetworkMonitor monitor {std::move(options), {}};
+    REQUIRE(monitor.start());
+    REQUIRE(probe->starts.load() == 1);
+
+    runClosed->store(true, std::memory_order_release);
+
+    CHECK(waitFor([&] { return probe->stops.load() == 1; }));
+    CHECK_FALSE(monitor.isActive());
+    CHECK(monitor.endReason() == "run_closed");
+
+    monitor.stop("shutdown");
+    CHECK(probe->stops.load() == 1);
 
     std::error_code ec;
     std::filesystem::remove(stateFilePath, ec);
