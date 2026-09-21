@@ -41,9 +41,10 @@ public:
         /// rest443/wss443/clock chips stay "unknown" rather than being guessed.
         DependencyProvider dependencyProvider;
         /**
-         * Set by the owner when the server reports this run is closed (HTTP 410 on ingest).
+         * Set by the owner when ingest reports the run is over: HTTP 410 (the server closed it)
+         * or 404 (the server does not know it). Both are terminal for the run.
          *
-         * A shared flag rather than a call back into the monitor, deliberately. The 410 is observed
+         * A shared flag rather than a call back into the monitor, deliberately. The status is observed
          * on a worker thread completing a POST, and having that thread reach into the monitor to
          * stop it would add a third writer to an object already touched by the Centrifugo
          * dispatcher and the shutdown path -- the ownership problem SB-3461 still has to solve.

@@ -157,7 +157,7 @@ void NetworkMonitor::run()
     auto nextDependency = startedSteady;
 
     // Read live every time, never cached in a local. The flag is set by a worker thread finishing
-    // a POST that came back 410, so it can flip at any instant -- including between the loop
+    // a POST that came back 404 or 410, so it can flip at any instant -- including between the loop
     // exiting for an unrelated reason and the final sample being emitted below.
     const auto runIsClosed = [this] {
         return m_options.runClosed && m_options.runClosed->load(std::memory_order_acquire);
@@ -170,9 +170,10 @@ void NetworkMonitor::run()
     // server did not already have. Do not reintroduce them under a different name.
 
     while (m_active) {
-        // The server has closed this run, so everything after this point would be posted into a
-        // 410. Retire immediately rather than finishing the round: the whole point of the 410
-        // contract is that the device stops talking to a run the server has already ended.
+        // The server has closed this run or does not know it, so everything after this point
+        // would be posted into another 410 or 404. Retire immediately rather than finishing the
+        // round: the whole point of the terminal-status contract is that the device stops talking
+        // to a run the server will not accept.
         if (runIsClosed()) {
             std::scoped_lock lock(m_mutex);
             if (m_active) {
@@ -229,7 +230,7 @@ void NetworkMonitor::run()
     }
 
     // No final sample when the run is closed -- there is nothing left server-side to accept it,
-    // and posting one is exactly the behaviour the 410 is telling us to stop.
+    // and posting one is exactly the behaviour the 404 or 410 is telling us to stop.
     //
     // Re-read rather than reusing whatever was true when the loop exited: a run that ends on its
     // deadline or a manual stop can still be closed by the server a moment later, while the last
@@ -238,7 +239,7 @@ void NetworkMonitor::run()
     // unavoidable without coordination; the cost there is one POST the server rejects.
     //
     // The listener goes first, and it goes HERE rather than only in stop(). A run that ends on
-    // its own -- deadline or 410 -- is never stop()ped by anyone: the owner keeps the object until
+    // its own -- deadline, 404 or 410 -- is never stop()ped by anyone: the owner keeps the object until
     // the next capture supersedes it. Left running, wpa_supplicant's own bgscan and re-association
     // signals kept posting scan/assoc events into a run that had ended hours earlier (SB-4938).
     stopEventListener();

@@ -1273,9 +1273,9 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
         return snapshot;
     };
 
-    // One flag per run, shared by the monitor and by every POST callback belonging to it. A 410
-    // on any ingest call retires the run; see NetworkMonitor::Options::runClosed for why this is a
-    // flag rather than a call into the monitor.
+    // One flag per run, shared by the monitor and by every POST callback belonging to it. A 404 or
+    // 410 on any ingest call retires the run (wifiIngestStatusEndsRun); see
+    // NetworkMonitor::Options::runClosed for why this is a flag rather than a call into the monitor.
     auto runClosed = std::make_shared<std::atomic_bool>(false);
     options.runClosed = runClosed;
 
