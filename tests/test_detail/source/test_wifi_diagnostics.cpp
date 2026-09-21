@@ -819,11 +819,19 @@ TEST_CASE("The final sample waits for a listener teardown already in flight", "[
 
     // An external stop: it asks the sampler to finish, then parks inside the listener's stop().
     std::thread stopper {[&monitor] { monitor.stop("manual_stop"); }};
+    bool stopEntered = false;
     {
         std::unique_lock lock(probe->gate);
-        REQUIRE(probe->gateCv.wait_for(lock, std::chrono::seconds {2},
-                                       [&probe] { return probe->stopEntered; }));
+        stopEntered = probe->gateCv.wait_for(lock, std::chrono::seconds {2},
+                                             [&probe] { return probe->stopEntered; });
     }
+    if (!stopEntered) {
+        // Clean up BEFORE asserting: a throwing assertion with `stopper` still joinable would
+        // run std::thread's destructor on it and turn the failure into std::terminate().
+        probe->release();
+        stopper.join();
+    }
+    REQUIRE(stopEntered);
 
     // The sampler has been told to finish and, without the ordering, would take the (now null)
     // listener pointer and emit the final sample while the teardown is still in flight. Give it
