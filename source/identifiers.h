@@ -188,8 +188,10 @@ constexpr auto JKEY_DIAG_SSID {"ssid"};
 constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
 constexpr auto JKEY_DIAG_CHANNEL {"channel"};
 constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};
-// SPEC-0007: 410 on capture ingest means the server has CLOSED this run. It is terminal for
-// the run -- the device stops rather than retrying, because there is nothing to retry into.
+// SPEC-0007: 410 on capture ingest means the server has CLOSED this run, and 404 that it does
+// not know the run at all. Both are terminal for the run -- the device stops rather than
+// retrying, because there is nothing to retry into. See wifiIngestStatusEndsRun().
+constexpr int HTTP_STATUS_NOT_FOUND {404};
 constexpr int HTTP_STATUS_GONE {410};
 constexpr auto JKEY_DIAG_DEPENDENCY_CHECKS {"dependency_checks"};
 constexpr auto JKEY_DIAG_SOURCE {"source"};

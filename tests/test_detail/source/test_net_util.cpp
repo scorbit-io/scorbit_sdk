@@ -391,6 +391,25 @@ TEST_CASE("The API's documented deadline range round-trips", "[diagProbeDeadline
     }
 }
 
+// --- capture ingest: which statuses end the run ----------------------------
+
+TEST_CASE("A 404 or 410 on capture ingest ends the run; nothing else does", "[wifiIngest]")
+{
+    // 410: the server closed the run. 404: the server has never heard of it -- the case SB-4938
+    // found running for 3h45m, because only 410 was terminal and 404 fell through to "try again".
+    CHECK(wifiIngestStatusEndsRun(410));
+    CHECK(wifiIngestStatusEndsRun(404));
+
+    // Transient shapes: a transport failure carries no status at all, and a server error or a
+    // rejected body should not end a run that is otherwise still live.
+    CHECK_FALSE(wifiIngestStatusEndsRun(0));
+    CHECK_FALSE(wifiIngestStatusEndsRun(202));
+    CHECK_FALSE(wifiIngestStatusEndsRun(400));
+    CHECK_FALSE(wifiIngestStatusEndsRun(413));
+    CHECK_FALSE(wifiIngestStatusEndsRun(500));
+    CHECK_FALSE(wifiIngestStatusEndsRun(503));
+}
+
 
 // --- wifi capture sample payload -------------------------------------------
 //

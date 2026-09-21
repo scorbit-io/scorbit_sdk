@@ -39,6 +39,16 @@ std::string linkPayload(const LinkInfo &link)
 
 } // namespace
 
+std::unique_ptr<EventListener> defaultEventListener(std::function<void(Event)> callback)
+{
+#if defined(__linux__)
+    return std::make_unique<WpaSupplicantDbusListener>(std::move(callback));
+#else
+    (void)callback;
+    return nullptr;
+#endif
+}
+
 NetworkMonitor::NetworkMonitor(Options options, Callbacks callbacks)
     : m_options(std::move(options))
     , m_callbacks(std::move(callbacks))
@@ -68,7 +78,7 @@ bool NetworkMonitor::start()
     }
 
     if (!m_ethernet) {
-        startDbusListener();
+        startEventListener();
     }
     m_thread = std::thread {[this] { run(); }};
     return true;
@@ -105,7 +115,7 @@ void NetworkMonitor::stop(const std::string &endReason)
     // by the "shutdown" call that the destructor makes afterwards.
     requestStop(endReason);
 
-    stopDbusListener();
+    stopEventListener();
     if (m_thread.joinable()) {
         m_thread.join();
     }
@@ -226,6 +236,12 @@ void NetworkMonitor::run()
     // in-flight POST is still resolving. That overlap is not remote -- a 410 usually arrives
     // *because* the run is ending. A few instructions of residual window remain and are
     // unavoidable without coordination; the cost there is one POST the server rejects.
+    //
+    // The listener goes first, and it goes HERE rather than only in stop(). A run that ends on
+    // its own -- deadline or 410 -- is never stop()ped by anyone: the owner keeps the object until
+    // the next capture supersedes it. Left running, wpa_supplicant's own bgscan and re-association
+    // signals kept posting scan/assoc events into a run that had ended hours earlier (SB-4938).
+    stopEventListener();
     if (!runIsClosed()) {
         emitFinalSample();
     }
@@ -275,7 +291,7 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
 
 void NetworkMonitor::maybeEmitLinkEvent(const LinkInfo &link)
 {
-    if (m_dbusListenerActive) {
+    if (m_eventListenerActive) {
         m_lastLink = link;
         return;
     }
@@ -326,22 +342,35 @@ void NetworkMonitor::maybeEmitScanEvent()
 #endif
 }
 
-void NetworkMonitor::startDbusListener()
+void NetworkMonitor::startEventListener()
 {
-#if defined(__linux__)
-    m_dbusListener = std::make_unique<WpaSupplicantDbusListener>(
-            [this](Event event) { emitEvent(std::move(event)); });
-    m_dbusListenerActive = m_dbusListener->start();
-#endif
+    if (!m_options.eventListenerFactory) {
+        return;
+    }
+    auto listener =
+            m_options.eventListenerFactory([this](Event event) { emitEvent(std::move(event)); });
+    if (!listener) {
+        return;
+    }
+    m_eventListenerActive = listener->start();
+
+    std::scoped_lock lock(m_eventListenerMutex);
+    m_eventListener = std::move(listener);
 }
 
-void NetworkMonitor::stopDbusListener()
+void NetworkMonitor::stopEventListener()
 {
-    if (m_dbusListener) {
-        m_dbusListener->stop();
-        m_dbusListener.reset();
+    // Take ownership under the lock, stop outside it: stop() joins the listener's thread, and
+    // that thread may be inside the event callback, which must never need this mutex.
+    std::unique_ptr<EventListener> listener;
+    {
+        std::scoped_lock lock(m_eventListenerMutex);
+        listener = std::move(m_eventListener);
     }
-    m_dbusListenerActive = false;
+    if (listener) {
+        listener->stop();
+    }
+    m_eventListenerActive = false;
 }
 
 void NetworkMonitor::emitEvent(std::string kind, std::string payloadJson,

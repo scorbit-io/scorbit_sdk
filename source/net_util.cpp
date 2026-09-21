@@ -284,6 +284,11 @@ bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time
     return deadline.has_value() && now >= *deadline;
 }
 
+bool wifiIngestStatusEndsRun(int httpStatus)
+{
+    return httpStatus == HTTP_STATUS_GONE || httpStatus == HTTP_STATUS_NOT_FOUND;
+}
+
 nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
 {
     using nlohmann::json;

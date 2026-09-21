@@ -657,6 +657,142 @@ TEST_CASE("requestStop() returns without joining, and the destructor still joins
     std::filesystem::remove(stateFilePath, ec);
 }
 
+// --- the event listener ends with the run ----------------------------------
+//
+// SB-4938. On a Scorbitron the passive listener is wpa_supplicant over D-Bus, and it was only ever
+// stopped by stop() -- which nobody calls on a run that ends by itself. The sampler stopped on
+// time; the listener kept turning wpa_supplicant's bgscan and re-association signals into
+// scan/assoc POSTs against the finished run for 3h45m. The fake below is what makes that
+// observable on a host without D-Bus.
+
+namespace {
+
+struct ListenerProbe {
+    std::atomic_int starts {0};
+    std::atomic_int stops {0};
+    std::function<void(Event)> callback;
+};
+
+class FakeListener : public EventListener
+{
+public:
+    FakeListener(std::shared_ptr<ListenerProbe> probe, std::function<void(Event)> callback)
+        : m_probe(std::move(probe))
+    {
+        m_probe->callback = std::move(callback);
+    }
+
+    bool start() override
+    {
+        ++m_probe->starts;
+        return true;
+    }
+
+    void stop() override { ++m_probe->stops; }
+
+private:
+    std::shared_ptr<ListenerProbe> m_probe;
+};
+
+NetworkMonitor::Options listenerOptions(std::chrono::seconds duration,
+                                        std::shared_ptr<ListenerProbe> probe)
+{
+    auto options = lifecycleOptions(duration);
+    options.eventListenerFactory = [probe](std::function<void(Event)> callback) {
+        return std::make_unique<FakeListener>(probe, std::move(callback));
+    };
+    return options;
+}
+
+bool waitFor(const std::function<bool()> &condition)
+{
+    for (int i = 0; i < 400 && !condition(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds {5});
+    }
+    return condition();
+}
+
+} // namespace
+
+TEST_CASE("The event listener is started with the run and wired to onEvent", "[wifi][listener]")
+{
+    auto probe = std::make_shared<ListenerProbe>();
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    std::atomic_int events {0};
+    NetworkMonitor::Callbacks callbacks;
+    callbacks.onEvent = [&events](const Event &) { ++events; };
+
+    NetworkMonitor monitor {std::move(options), std::move(callbacks)};
+    REQUIRE(monitor.start());
+    CHECK(probe->starts.load() == 1);
+
+    // A listener event reaches the owner exactly as a D-Bus signal would.
+    REQUIRE(probe->callback);
+    Event event;
+    event.kind = "scan";
+    probe->callback(event);
+    CHECK(events.load() == 1);
+
+    monitor.stop("manual_stop");
+    CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run that expires on its own stops its event listener", "[wifi][listener]")
+{
+    // THE SB-4938 case. Nobody calls stop() on an expired run, so the assertion must hold before
+    // stop() is ever called -- that is exactly the window the listener used to survive in.
+    auto probe = std::make_shared<ListenerProbe>();
+    auto options = listenerOptions(std::chrono::seconds {0}, probe);
+    const auto stateFilePath = options.stateFilePath;
+
+    NetworkMonitor monitor {std::move(options), {}};
+    REQUIRE(monitor.start());
+
+    // m_active clears a moment before the listener is stopped, so wait on the stop itself.
+    CHECK(waitFor([&] { return probe->stops.load() == 1; }));
+    CHECK_FALSE(monitor.isActive());
+    CHECK(monitor.endReason() == "expired");
+
+    // The eventual stop() finds nothing left to stop: no double teardown.
+    monitor.stop("shutdown");
+    CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
+TEST_CASE("A run the server has closed stops its event listener", "[wifi][listener]")
+{
+    // The other self-ending path: a 410 or 404 on ingest retires the sampler, and the listener
+    // must go with it, or it keeps posting into the very run the server just refused.
+    auto probe = std::make_shared<ListenerProbe>();
+    auto runClosed = std::make_shared<std::atomic_bool>(false);
+    auto options = listenerOptions(std::chrono::seconds {300}, probe);
+    options.runClosed = runClosed;
+    const auto stateFilePath = options.stateFilePath;
+
+    NetworkMonitor monitor {std::move(options), {}};
+    REQUIRE(monitor.start());
+    REQUIRE(probe->starts.load() == 1);
+
+    runClosed->store(true, std::memory_order_release);
+
+    CHECK(waitFor([&] { return probe->stops.load() == 1; }));
+    CHECK_FALSE(monitor.isActive());
+    CHECK(monitor.endReason() == "run_closed");
+
+    monitor.stop("shutdown");
+    CHECK(probe->stops.load() == 1);
+
+    std::error_code ec;
+    std::filesystem::remove(stateFilePath, ec);
+}
+
 // --- ethernet selection ----------------------------------------------------
 
 TEST_CASE("The routed interface is parsed from ip route get", "[wifi][ethernet]")

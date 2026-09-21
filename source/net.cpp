@@ -1339,8 +1339,9 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                 if (error == Error::Success) {
                     INF("API wifi capture sample: ok, run_id={}", runId);
                 } else {
-                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
-                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                    if (wifiIngestStatusEndsRun(httpStatus) && runClosed) {
+                        INF("DIAG: ingest returned {}, retiring capture: run_id={}", httpStatus,
+                            runId);
                         runClosed->store(true, std::memory_order_release);
                     }
                     WRN("API wifi capture sample: failed, run_id={}, error code: {}, reply: {}",
@@ -1366,8 +1367,9 @@ void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &even
                 if (error == Error::Success) {
                     INF("API wifi capture event: ok, run_id={}, kind={}", runId, kind);
                 } else {
-                    if (httpStatus == HTTP_STATUS_GONE && runClosed) {
-                        INF("DIAG: run closed by server, retiring capture: run_id={}", runId);
+                    if (wifiIngestStatusEndsRun(httpStatus) && runClosed) {
+                        INF("DIAG: ingest returned {}, retiring capture: run_id={}", httpStatus,
+                            runId);
                         runClosed->store(true, std::memory_order_release);
                     }
                     WRN("API wifi capture event: failed, run_id={}, kind={}, error code: {}, "

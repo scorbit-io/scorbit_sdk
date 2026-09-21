@@ -129,6 +129,16 @@ bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time
                              std::chrono::steady_clock::time_point now);
 
 /**
+ * Whether a capture ingest POST that came back with @p httpStatus ends the run on the device.
+ *
+ * 410 means the server closed the run. 404 means the server does not know the run, and it never
+ * will -- a run minted elsewhere, or purged. Treating 404 as transient left a device posting every
+ * sample and event into it for 3h45m on a 300 s capture (SB-4938). Everything else, including a
+ * transport failure with no status at all, is transient and does not end the run.
+ */
+bool wifiIngestStatusEndsRun(int httpStatus);
+
+/**
  * Build the wifi-sample ingest body for @p sample.
  *
  * Extracted from Net purely so the payload SHAPE can be tested. The server's serializer silently

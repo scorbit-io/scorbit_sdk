@@ -22,6 +22,9 @@ namespace scorbit {
 namespace detail {
 namespace wifi {
 
+/// wpa_supplicant over D-Bus on Linux; nothing elsewhere.
+std::unique_ptr<EventListener> defaultEventListener(std::function<void(Event)> callback);
+
 class NetworkMonitor
 {
 public:
@@ -55,6 +58,9 @@ public:
         std::string publicProbeTarget {"1.1.1.1"};
         std::string scorbitProbeTarget {"sws.scorbit.io"};
         CommandRunner commandRunner {runCommand};
+        /// Source of the run's passive assoc/deauth/scan events. Injectable so a test can watch
+        /// the run stop its listener, which no platform without D-Bus could otherwise observe.
+        EventListenerFactory eventListenerFactory {defaultEventListener};
     };
 
     struct Callbacks {
@@ -69,8 +75,8 @@ public:
     NetworkMonitor &operator=(const NetworkMonitor &) = delete;
 
     bool start();
-    /// Non-blocking half of stop(): asks the sampler to finish without joining it. Idempotent,
-    /// and leaves the D-Bus listener for stop().
+    /// Non-blocking half of stop(): asks the sampler to finish without joining it. Idempotent.
+    /// The sampler stops the event listener itself on its way out.
     void requestStop(const std::string &endReason);
 
     void stop(const std::string &endReason);
@@ -100,8 +106,8 @@ private:
     Sample collectSample(bool includeProbes, bool isFinal = false);
     void maybeEmitLinkEvent(const LinkInfo &link);
     void maybeEmitScanEvent();
-    void startDbusListener();
-    void stopDbusListener();
+    void startEventListener();
+    void stopEventListener();
     void emitEvent(std::string kind, std::string payloadJson = {},
                    std::optional<int> reasonCode = {});
     void emitEvent(Event event);
@@ -126,9 +132,12 @@ private:
     bool m_ethernet {false};
     std::optional<LinkInfo> m_lastLink;
     std::optional<Sample> m_lastSample;
-    std::unique_ptr<WpaSupplicantDbusListener> m_dbusListener;
+    /// Guards the pointer only. The sampler stops the listener as the run ends, and stop() may do
+    /// the same from another thread at the same moment.
+    std::mutex m_eventListenerMutex;
+    std::unique_ptr<EventListener> m_eventListener;
     // Atomic for the same reason m_active above is: it is written by whichever
-    // thread calls stop()/startDbusListener() and read by the sampler thread in
+    // thread calls stop()/startEventListener() and read by the sampler thread in
     // maybeEmitLinkEvent(). As a plain bool that was a data race, so the sampler
     // could read a torn or stale value and emit a spurious assoc/deauth during
     // teardown -- and those kinds ARE accepted by the API, so the corruption
@@ -137,7 +146,7 @@ private:
     // This removes the race, not the ordering question: a read that happens just
     // before the flag is cleared can still emit one last event. Establishing an
     // owning strand for the monitor is SB-3461's job.
-    std::atomic_bool m_dbusListenerActive {false};
+    std::atomic_bool m_eventListenerActive {false};
 };
 
 } // namespace wifi
