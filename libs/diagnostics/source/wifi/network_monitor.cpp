@@ -23,8 +23,9 @@ bool sameConnection(const LinkInfo &lhs, const LinkInfo &rhs)
 bool roamed(const LinkInfo &previous, const LinkInfo &current)
 {
     return previous.connected && current.connected
-        && previous.interfaceName == current.interfaceName && previous.ssid == current.ssid
-        && !previous.bssid.empty() && !current.bssid.empty() && previous.bssid != current.bssid;
+        && previous.interfaceName == current.interfaceName && !previous.ssid.empty()
+        && previous.ssid == current.ssid && !previous.bssid.empty() && !current.bssid.empty()
+        && previous.bssid != current.bssid;
 }
 
 } // namespace

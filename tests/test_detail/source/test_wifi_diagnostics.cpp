@@ -1145,6 +1145,9 @@ TEST_CASE("No roam without two known access points on one network", "[wifi][roam
 
     // A different network is a fresh association.
     CHECK(linkEventKind(before, wifiLink("aa:bb:cc:dd:ee:02", "OtherNet"), false) == "assoc");
+    // Two unknown networks are not "the same network".
+    CHECK(linkEventKind(wifiLink("aa:bb:cc:dd:ee:01", ""), wifiLink("aa:bb:cc:dd:ee:02", ""), false)
+          == "assoc");
     // A poll that could not read the BSSID is not evidence of a move.
     CHECK(linkEventKind(before, wifiLink(""), false) == "assoc");
     CHECK_FALSE(linkEventKind(before, wifiLink(""), true));
