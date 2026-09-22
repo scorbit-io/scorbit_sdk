@@ -316,8 +316,6 @@ nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
     // explicitly is what lets SB-3465's Ethernet sampler be distinguishable at all -- until this
     // field was sent, every sample was recorded as wifi regardless of the interface it came from.
     json j {{JKEY_DIAG_TS, to_iso8601(sample.ts)},
-            {JKEY_DIAG_SSID, sample.link.ssid},
-            {JKEY_DIAG_BSSID, sample.link.bssid},
             {JKEY_DIAG_IS_FINAL, sample.isFinal},
             {JKEY_DIAG_SOURCE, sample.link.kind == wifi::InterfaceKind::Ethernet
                                        ? JVAL_DIAG_SOURCE_ETHERNET
