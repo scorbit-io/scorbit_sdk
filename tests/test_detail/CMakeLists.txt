@@ -175,6 +175,8 @@ target_sources(
         ../../source/nfc_tpm_key_resolver.cpp
         source/test_soft_key_resolver.cpp
         source/test_nfc_tpm_key_resolver.cpp
+        ../../libs/tpm/source/atca_retry.h
+        source/test_atca_retry.cpp
 )
 
 target_link_libraries(
@@ -207,6 +209,7 @@ target_include_directories(
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/include"
         "${scorbit_sdk_SOURCE_DIR}/source"
+        "${scorbit_sdk_SOURCE_DIR}/libs/tpm/source"
         "${scorbit_sdk_SOURCE_DIR}/3rd/obfuscate"
         "${scorbit_sdk_BINARY_DIR}/PackageProjectInclude"
         "${scorbit_sdk_BINARY_DIR}"
