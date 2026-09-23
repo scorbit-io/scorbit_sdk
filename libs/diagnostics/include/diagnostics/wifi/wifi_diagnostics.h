@@ -156,6 +156,18 @@ using CommandRunner =
 
 CommandResult runCommand(const std::string &command, const std::vector<std::string> &args);
 
+/// The only `iw` queries the SDK makes. The radio stays read-only because no set/reg/txpower/
+/// connect variant exists to call (SB-4984; FCC Part 15, RED Art. 3(2)).
+enum class IwQuery {
+    ListDevices, ///< iw dev
+    Link,        ///< iw dev <iface> link
+    StationDump, ///< iw dev <iface> station dump
+    Scan,        ///< iw dev <iface> scan
+};
+
+std::vector<std::string> iwArgs(IwQuery query, const std::string &iface = {});
+CommandResult runIw(const CommandRunner &runner, IwQuery query, const std::string &iface = {});
+
 std::optional<LinkInfo> collectLinkInfo(CommandRunner runner = runCommand,
                                         std::string preferredInterface = {});
 std::optional<ProbeResult> probeHost(const std::string &target, int count = 3,

@@ -231,7 +231,7 @@ std::string commandLine(const std::string &command, const std::vector<std::strin
         }
     }
 
-    if (const auto iw = runner("iw", {"dev"}); iw.exitCode == 0) {
+    if (const auto iw = runIw(runner, IwQuery::ListDevices); iw.exitCode == 0) {
         const auto ifaces = parseIwDevInterfaces(iw.output);
         if (!ifaces.empty()) {
             return ifaces.front();
@@ -270,7 +270,7 @@ constexpr auto ROUTE_PROBE_TARGET {"1.1.1.1"};
     info.kind = InterfaceKind::Wifi;
     info.interfaceName = *iface;
 
-    if (const auto iw = runner("iw", {"dev", *iface, "link"}); iw.exitCode == 0) {
+    if (const auto iw = runIw(runner, IwQuery::Link, *iface); iw.exitCode == 0) {
         if (auto parsed = parseIwLink(iw.output, *iface); parsed) {
             info = *parsed;
         }
@@ -291,8 +291,7 @@ constexpr auto ROUTE_PROBE_TARGET {"1.1.1.1"};
         }
     }
 
-    if (const auto station = runner("iw", {"dev", *iface, "station", "dump"});
-        station.exitCode == 0) {
+    if (const auto station = runIw(runner, IwQuery::StationDump, *iface); station.exitCode == 0) {
         if (auto parsed = parseIwStationDump(station.output, info); parsed) {
             info = *parsed;
             addBackend(info, "iw_station_dump");
@@ -443,6 +442,26 @@ std::string toIso8601Utc(std::chrono::system_clock::time_point tp)
 }
 
 } // namespace
+
+std::vector<std::string> iwArgs(IwQuery query, const std::string &iface)
+{
+    switch (query) {
+    case IwQuery::ListDevices:
+        return {"dev"};
+    case IwQuery::Link:
+        return {"dev", iface, "link"};
+    case IwQuery::StationDump:
+        return {"dev", iface, "station", "dump"};
+    case IwQuery::Scan:
+        return {"dev", iface, "scan"};
+    }
+    return {"dev"};
+}
+
+CommandResult runIw(const CommandRunner &runner, IwQuery query, const std::string &iface)
+{
+    return runner("iw", iwArgs(query, iface));
+}
 
 CommandResult runCommand(const std::string &command, const std::vector<std::string> &args)
 {

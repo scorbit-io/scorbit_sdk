@@ -12,9 +12,11 @@
 #include "wpa_supplicant_dbus.h"
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -24,6 +26,17 @@ namespace wifi {
 
 /// wpa_supplicant over D-Bus on Linux; nothing elsewhere.
 std::unique_ptr<EventListener> defaultEventListener(std::function<void(Event)> callback);
+
+/// The link event one poll implies: "assoc", "deauth", "roam" or none. A roam is the access point
+/// changing on the same network while the link stays up. With a D-Bus listener running, only
+/// "roam" comes from here; the listener already reports association and deauthentication.
+std::optional<std::string> linkEventKind(const std::optional<LinkInfo> &previous,
+                                         const LinkInfo &current, bool listenerActive);
+
+/// Payloads are identifier-free by construction (SPEC-0007 "Identifier-Free Capture"): SSID and
+/// BSSID stay in LinkInfo for local comparison and never reach a serialiser.
+std::string linkEventPayload(const LinkInfo &link);
+std::string scanEventPayload(std::size_t apCount, int exitCode);
 
 class NetworkMonitor
 {

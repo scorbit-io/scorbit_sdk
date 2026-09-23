@@ -20,14 +20,37 @@ bool sameConnection(const LinkInfo &lhs, const LinkInfo &rhs)
         && lhs.interfaceName == rhs.interfaceName;
 }
 
-std::string linkPayload(const LinkInfo &link)
+bool roamed(const LinkInfo &previous, const LinkInfo &current)
 {
-    nlohmann::json j {
-            {"interface", link.interfaceName},
-            {"connected", link.connected},
-            {"ssid", link.ssid},
-            {"bssid", link.bssid},
-    };
+    return previous.connected && current.connected
+        && previous.interfaceName == current.interfaceName && !previous.ssid.empty()
+        && previous.ssid == current.ssid && !previous.bssid.empty() && !current.bssid.empty()
+        && previous.bssid != current.bssid;
+}
+
+} // namespace
+
+std::optional<std::string> linkEventKind(const std::optional<LinkInfo> &previous,
+                                         const LinkInfo &current, bool listenerActive)
+{
+    if (previous && roamed(*previous, current)) {
+        return "roam";
+    }
+    if (listenerActive || (previous && sameConnection(*previous, current))) {
+        return std::nullopt;
+    }
+    if (previous && previous->connected && !current.connected) {
+        return "deauth";
+    }
+    if (current.connected) {
+        return "assoc";
+    }
+    return std::nullopt;
+}
+
+std::string linkEventPayload(const LinkInfo &link)
+{
+    nlohmann::json j {{"interface", link.interfaceName}};
     if (link.rssiDbm) {
         j["rssi_dbm"] = *link.rssiDbm;
     }
@@ -37,7 +60,11 @@ std::string linkPayload(const LinkInfo &link)
     return j.dump();
 }
 
-} // namespace
+std::string scanEventPayload(std::size_t apCount, int exitCode)
+{
+    // Charter: neighbour networks are counted, never named. Do not add fields.
+    return nlohmann::json {{"ap_count", apCount}, {"exit_code", exitCode}}.dump();
+}
 
 std::unique_ptr<EventListener> defaultEventListener(std::function<void(Event)> callback)
 {
@@ -292,29 +319,10 @@ Sample NetworkMonitor::collectSample(bool includeProbes, bool isFinal)
 
 void NetworkMonitor::maybeEmitLinkEvent(const LinkInfo &link)
 {
-    if (m_eventListenerActive) {
-        m_lastLink = link;
-        return;
+    if (const auto kind = linkEventKind(m_lastLink, link, m_eventListenerActive); kind) {
+        // A deauth describes the link that was lost, not the empty one that replaced it.
+        emitEvent(*kind, linkEventPayload(*kind == "deauth" ? *m_lastLink : link));
     }
-
-    if (!m_lastLink) {
-        if (link.connected) {
-            emitEvent("assoc", linkPayload(link));
-        }
-        m_lastLink = link;
-        return;
-    }
-
-    if (sameConnection(*m_lastLink, link)) {
-        return;
-    }
-
-    if (m_lastLink->connected && !link.connected) {
-        emitEvent("deauth", linkPayload(*m_lastLink));
-    } else if (link.connected) {
-        emitEvent("assoc", linkPayload(link));
-    }
-
     m_lastLink = link;
 }
 
@@ -326,7 +334,7 @@ void NetworkMonitor::maybeEmitScanEvent()
         return;
     }
 
-    const auto scan = m_options.commandRunner("iw", {"dev", m_lastLink->interfaceName, "scan"});
+    const auto scan = runIw(m_options.commandRunner, IwQuery::Scan, m_lastLink->interfaceName);
     if (scan.output.empty()) {
         return;
     }
@@ -338,8 +346,7 @@ void NetworkMonitor::maybeEmitScanEvent()
         pos += 4;
     }
 
-    nlohmann::json payload {{"ap_count", apCount}, {"exit_code", scan.exitCode}};
-    emitEvent("scan", payload.dump());
+    emitEvent("scan", scanEventPayload(apCount, scan.exitCode));
 #endif
 }
 

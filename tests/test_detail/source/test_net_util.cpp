@@ -450,7 +450,7 @@ TEST_CASE("A full wifi sample POSTs exactly the keys the server declares",
     // server-side this test is the thing that fails, rather than a venue's data quietly going
     // NULL.
     const std::set<std::string> expected {
-            "ts",          "source",           "ssid",        "bssid",
+            "ts",          "source",
             "is_final",    "rssi_dbm",         "noise_dbm",   "link_rate_mbps",
             "tx_retry_pct", "beacon_loss_count", "freq_mhz",   "channel",
             "gateway_rtt_ms", "gateway_loss_pct", "scorbit_rtt_ms", "scorbit_loss_pct",
@@ -462,6 +462,19 @@ TEST_CASE("A full wifi sample POSTs exactly the keys the server declares",
     }
 
     CHECK(actual == expected);
+}
+
+TEST_CASE("A sample never carries the SSID or BSSID", "[buildWifiSamplePayload]")
+{
+    // SPEC-0007 "Identifier-Free Capture" (SB-4984): the link knows both, the body must not.
+    auto sample = makeFullSample();
+    sample.link.ssid = "VenueWiFi";
+    sample.link.bssid = "aa:bb:cc:dd:ee:ff";
+
+    const auto body = buildWifiSamplePayload(sample).dump();
+
+    CHECK(body.find("VenueWiFi") == std::string::npos);
+    CHECK(body.find("aa:bb:cc:dd:ee:ff") == std::string::npos);
 }
 
 TEST_CASE("noise_dbm is sent, so SNR is derivable", "[buildWifiSamplePayload]")

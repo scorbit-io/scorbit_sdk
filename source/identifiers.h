@@ -183,8 +183,6 @@ constexpr auto JKEY_DIAG_SCORBIT_RTT_MS {"scorbit_rtt_ms"};
 constexpr auto JKEY_DIAG_SCORBIT_LOSS_PCT {"scorbit_loss_pct"};
 constexpr auto JKEY_DIAG_PUBLIC_RTT_MS {"public_rtt_ms"};
 constexpr auto JKEY_DIAG_PUBLIC_LOSS_PCT {"public_loss_pct"};
-constexpr auto JKEY_DIAG_BSSID {"bssid"};
-constexpr auto JKEY_DIAG_SSID {"ssid"};
 constexpr auto JKEY_DIAG_FREQ_MHZ {"freq_mhz"};
 constexpr auto JKEY_DIAG_CHANNEL {"channel"};
 constexpr auto JKEY_DIAG_IS_FINAL {"is_final"};

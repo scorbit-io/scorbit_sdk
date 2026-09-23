@@ -16,6 +16,7 @@
 #include <random>
 #include <thread>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 #include <set>
 #include <string>
 
@@ -1031,4 +1032,123 @@ TEST_CASE("A down wired link is reported disconnected, with no speed", "[wifi][e
     REQUIRE(link.has_value());
     CHECK_FALSE(link->connected);
     CHECK_FALSE(link->linkRateMbps.has_value());
+}
+
+// --- identifier-free capture (SB-4984) --------------------------------------
+
+namespace {
+
+LinkInfo wifiLink(const std::string &bssid, const std::string &ssid = "VenueWiFi")
+{
+    LinkInfo link;
+    link.kind = InterfaceKind::Wifi;
+    link.interfaceName = "wlan0";
+    link.connected = true;
+    link.ssid = ssid;
+    link.bssid = bssid;
+    link.rssiDbm = -61;
+    link.channel = 36;
+    return link;
+}
+
+std::set<std::string> keysOf(const std::string &payload)
+{
+    std::set<std::string> keys;
+    const auto parsed = nlohmann::json::parse(payload);
+    for (const auto &item : parsed.items()) {
+        keys.insert(item.key());
+    }
+    return keys;
+}
+
+} // namespace
+
+TEST_CASE("iw is only ever asked the four read-only queries", "[wifi][iw]")
+{
+    CHECK(iwArgs(IwQuery::ListDevices) == std::vector<std::string> {"dev"});
+    CHECK(iwArgs(IwQuery::Link, "wlan0") == std::vector<std::string> {"dev", "wlan0", "link"});
+    CHECK(iwArgs(IwQuery::StationDump, "wlan0")
+          == std::vector<std::string> {"dev", "wlan0", "station", "dump"});
+    CHECK(iwArgs(IwQuery::Scan, "wlan0") == std::vector<std::string> {"dev", "wlan0", "scan"});
+
+    std::vector<std::string> seen;
+    const CommandRunner recorder = [&seen](const std::string &cmd,
+                                           const std::vector<std::string> &args) {
+        seen.push_back(cmd);
+        CHECK(args.front() == "dev");
+        return CommandResult {0, ""};
+    };
+    runIw(recorder, IwQuery::Scan, "wlan0");
+    CHECK(seen == std::vector<std::string> {"iw"});
+}
+
+TEST_CASE("A link event payload holds no network identifier", "[wifi][identifier-free]")
+{
+    const auto payload = linkEventPayload(wifiLink("aa:bb:cc:dd:ee:ff"));
+
+    CHECK(keysOf(payload) == std::set<std::string> {"interface", "rssi_dbm", "channel"});
+    CHECK(payload.find("VenueWiFi") == std::string::npos);
+    CHECK(payload.find("aa:bb:cc:dd:ee:ff") == std::string::npos);
+}
+
+TEST_CASE("A link with no measurements reports only its interface", "[wifi][identifier-free]")
+{
+    auto link = wifiLink("aa:bb:cc:dd:ee:ff");
+    link.rssiDbm.reset();
+    link.channel.reset();
+
+    CHECK(keysOf(linkEventPayload(link)) == std::set<std::string> {"interface"});
+}
+
+TEST_CASE("A scan payload is a count and an exit code and nothing else", "[wifi][identifier-free]")
+{
+    CHECK(keysOf(scanEventPayload(7, 0)) == std::set<std::string> {"ap_count", "exit_code"});
+}
+
+TEST_CASE("Link transitions map to assoc and deauth without a listener", "[wifi][roam]")
+{
+    const auto up = wifiLink("aa:bb:cc:dd:ee:01");
+    auto down = up;
+    down.connected = false;
+
+    CHECK(linkEventKind(std::nullopt, up, false) == "assoc");
+    CHECK_FALSE(linkEventKind(std::nullopt, down, false));
+    CHECK_FALSE(linkEventKind(up, up, false));
+    CHECK(linkEventKind(up, down, false) == "deauth");
+    CHECK(linkEventKind(down, up, false) == "assoc");
+}
+
+TEST_CASE("A new access point on the same network is a roam", "[wifi][roam]")
+{
+    const auto before = wifiLink("aa:bb:cc:dd:ee:01");
+    const auto after = wifiLink("aa:bb:cc:dd:ee:02");
+
+    CHECK(linkEventKind(before, after, false) == "roam");
+    // The D-Bus listener reports only assoc and deauth, so roams still come from the poll.
+    CHECK(linkEventKind(before, after, true) == "roam");
+}
+
+TEST_CASE("Only a roam is reported from the poll while the listener runs", "[wifi][roam]")
+{
+    const auto up = wifiLink("aa:bb:cc:dd:ee:01");
+    auto down = up;
+    down.connected = false;
+
+    CHECK_FALSE(linkEventKind(std::nullopt, up, true));
+    CHECK_FALSE(linkEventKind(up, down, true));
+    CHECK_FALSE(linkEventKind(down, up, true));
+}
+
+TEST_CASE("No roam without two known access points on one network", "[wifi][roam]")
+{
+    const auto before = wifiLink("aa:bb:cc:dd:ee:01");
+
+    // A different network is a fresh association.
+    CHECK(linkEventKind(before, wifiLink("aa:bb:cc:dd:ee:02", "OtherNet"), false) == "assoc");
+    // Two unknown networks are not "the same network".
+    CHECK(linkEventKind(wifiLink("aa:bb:cc:dd:ee:01", ""), wifiLink("aa:bb:cc:dd:ee:02", ""), false)
+          == "assoc");
+    // A poll that could not read the BSSID is not evidence of a move.
+    CHECK(linkEventKind(before, wifiLink(""), false) == "assoc");
+    CHECK_FALSE(linkEventKind(before, wifiLink(""), true));
 }
