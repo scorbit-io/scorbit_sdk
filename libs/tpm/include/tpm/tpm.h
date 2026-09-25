@@ -9,6 +9,7 @@
 
 #include "utils/bytearray.h"
 #include "utils/flags.h"
+#include <functional>
 #include <string>
 #include <memory>
 
@@ -31,6 +32,9 @@ enum TpmBus : uint8_t {
 };
 using TpmBusFlags = utils::Flags<TpmBus>;
 
+/// Whether an opened chip, known by its serial and UUID, is one to use. Empty accepts any.
+using TpmChipFilter = std::function<bool(uint64_t serial, const ByteArray &uuid)>;
+
 extern std::string hex(const ByteArray &array, const std::string &separator = " ");
 
 struct TpmDevice {
@@ -46,8 +50,9 @@ class Tpm
     struct Impl;
 
 public:
-    Tpm(TpmBusFlags busFlags = TpmBus::All, const std::string &usbDevicePath = {});
-    explicit Tpm(const TpmDevice &device);
+    Tpm(TpmBusFlags busFlags = TpmBus::All, const std::string &usbDevicePath = {},
+        TpmChipFilter accept = {});
+    explicit Tpm(const TpmDevice &device, TpmChipFilter accept = {});
     Tpm(Tpm &&other) noexcept;
     Tpm &operator=(Tpm &&other) noexcept;
     ~Tpm();
@@ -83,6 +88,7 @@ public:
     bool writeData(uint16_t slot, const ByteArray &data);
 
 private:
+    bool accepted(Impl *p);
     bool tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet = false);
     bool tryUsbBus(Impl *p, const std::string &devicePath, bool quiet = false);
 

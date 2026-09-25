@@ -47,15 +47,17 @@ struct Tpm::Impl {
     ByteArray uuid;
     uint64_t serialNumber {0};
     TpmDevice device;
+    TpmChipFilter accept;
 };
 
 /********************************************************************
  * Tpm class
  ********************************************************************/
 
-Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
+Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath, TpmChipFilter accept)
     : p {std::make_unique<Impl>()}
 {
+    p->accept = std::move(accept);
     bool found = false;
 
     // 1- Try to use the local I2C TPM
@@ -79,9 +81,10 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     }
 }
 
-Tpm::Tpm(const TpmDevice &device)
+Tpm::Tpm(const TpmDevice &device, TpmChipFilter accept)
     : p {std::make_unique<Impl>()}
 {
+    p->accept = std::move(accept);
     // An empty device is how HardwareTpm says "no usable chip"; nothing to open.
     if (!device.isValid()) {
         return;
@@ -381,10 +384,29 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet)
     }
 
     p->infoResult = info();
+    if (ok() && !accepted(p)) {
+        p->infoResult.clear();
+        atcab_release_ext(&p->atcaDevice);
+        p->atcaDevice = nullptr;
+        return false;
+    }
     if (ok()) {
         p->device = TpmDevice {TpmBus::I2C, i2cBus, {}};
     }
     return ok();
+}
+
+bool Tpm::accepted(Impl *p)
+{
+    if (!p->accept) {
+        return true;
+    }
+    readIdentity();
+    if (p->accept(p->serialNumber, p->uuid)) {
+        return true;
+    }
+    WRN("Skipping an HSM that is not this device's (serial {})", p->serialNumber);
+    return false;
 }
 
 bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
@@ -408,7 +430,7 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
         }
 
         p->infoResult = info();
-        if (!ok()) {
+        if (!ok() || !accepted(p)) {
             releaseDevice();
             return false;
         }

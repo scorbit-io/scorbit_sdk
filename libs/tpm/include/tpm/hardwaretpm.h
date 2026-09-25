@@ -17,6 +17,9 @@ class HardwareTpm : public ITpm
 public:
     HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath = {});
     ~HardwareTpm() override;
+    // Holds the cached route and its mutex; shared by pointer, never copied.
+    HardwareTpm(const HardwareTpm &) = delete;
+    HardwareTpm &operator=(const HardwareTpm &) = delete;
 
     bool hasTpm() const;
 
@@ -30,7 +33,8 @@ public:
 
 private:
     Tpm tpm() const;
-    bool isOurChip(const Tpm &tpm) const;
+    bool isOurChip(uint64_t serial, const ByteArray &uuid) const;
+    void remember(const TpmDevice &device) const;
     bool readIdentity();
 
 private:
@@ -45,6 +49,7 @@ private:
     mutable TpmDevice m_device;
     mutable std::mutex m_deviceMutex;
 
+    bool m_identityRead {false};
     uint64_t m_serial {0};
     ByteArray m_uuid;
 };

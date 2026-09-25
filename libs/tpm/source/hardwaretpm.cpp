@@ -17,6 +17,7 @@ HardwareTpm::HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     , m_usbDevicePath(usbDevicePath)
 {
     readIdentity();
+    m_identityRead = true;
 }
 
 HardwareTpm::~HardwareTpm()
@@ -107,37 +108,41 @@ ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
 Tpm HardwareTpm::tpm() const
 {
     const std::lock_guard<std::mutex> lock {m_deviceMutex};
+    const auto accept = [this](uint64_t serial, const ByteArray &uuid) {
+        return isOurChip(serial, uuid);
+    };
 
     if (m_device.isValid()) {
-        Tpm cached {m_device};
-        if (cached.ok() && isOurChip(cached)) {
+        Tpm cached {m_device, accept};
+        if (cached.ok()) {
+            remember(cached.device());
             return cached;
         }
 
-        WRN("Cached HSM device is unreachable or not this device's chip, rediscovering...");
+        WRN("Cached HSM device is no longer reachable, rediscovering...");
         m_device = {};
     }
 
-    Tpm discovered {m_busFlags, m_usbDevicePath};
-    if (!discovered.ok()) {
-        return discovered;
-    }
-    if (!isOurChip(discovered)) {
-        WRN("Found a different HSM (serial {}) than this device's (serial {}); not using it",
-            discovered.serialNumber(), m_serial);
-        return Tpm {TpmDevice {}};
-    }
-
-    m_device = discovered.device();
-    if (m_device.bus == TpmBus::USB) {
-        m_usbDevicePath = m_device.usbDevicePath;
+    Tpm discovered {m_busFlags, m_usbDevicePath, accept};
+    if (discovered.ok()) {
+        remember(discovered.device());
     }
     return discovered;
 }
 
-bool HardwareTpm::isOurChip(const Tpm &tpm) const
+// The open may have found the chip somewhere other than the path it was given.
+void HardwareTpm::remember(const TpmDevice &device) const
 {
-    return tpm_identity::isSameChip(m_serial, m_uuid, tpm.serialNumber(), tpm.uuid());
+    m_device = device;
+    if (device.bus == TpmBus::USB) {
+        m_usbDevicePath = device.usbDevicePath;
+    }
+}
+
+// Any chip will do while the constructor reads the identity; after that only this one will.
+bool HardwareTpm::isOurChip(uint64_t serial, const ByteArray &uuid) const
+{
+    return !m_identityRead || tpm_identity::isSameChip(m_serial, m_uuid, serial, uuid);
 }
 
 bool HardwareTpm::readIdentity()

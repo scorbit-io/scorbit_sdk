@@ -30,7 +30,8 @@ TEST_CASE("a chip that reports no identity is refused once ours is known", "[tpm
     CHECK_FALSE(isSameChip(20558, OURS, 0, ByteArray {}));
 }
 
-TEST_CASE("the first open is accepted before any identity is known", "[tpm_identity]")
+TEST_CASE("an unknown expected identity matches no chip", "[tpm_identity]")
 {
-    CHECK(isSameChip(0, ByteArray {}, 20558, OURS));
+    CHECK_FALSE(isSameChip(0, ByteArray {}, 20558, OURS));
+    CHECK_FALSE(isSameChip(0, ByteArray {}, 0, ByteArray {}));
 }
