@@ -30,6 +30,7 @@ public:
 
 private:
     Tpm tpm() const;
+    bool isOurChip(const Tpm &tpm) const;
     bool readIdentity();
 
 private:

@@ -82,6 +82,11 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
 Tpm::Tpm(const TpmDevice &device)
     : p {std::make_unique<Impl>()}
 {
+    // An empty device is how HardwareTpm says "no usable chip"; nothing to open.
+    if (!device.isValid()) {
+        return;
+    }
+
     bool found = false;
 
     if (device.bus == TpmBus::I2C) {

@@ -177,6 +177,8 @@ target_sources(
         source/test_nfc_tpm_key_resolver.cpp
         ../../libs/tpm/source/atca_retry.h
         source/test_atca_retry.cpp
+        ../../libs/tpm/source/tpm_identity.h
+        source/test_tpm_identity.cpp
 )
 
 target_link_libraries(

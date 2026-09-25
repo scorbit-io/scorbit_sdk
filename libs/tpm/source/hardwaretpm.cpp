@@ -6,6 +6,7 @@
  ****************************************************************************/
 
 #include "tpm/hardwaretpm.h"
+#include "tpm_identity.h"
 
 #include <logger/logger.h>
 
@@ -109,23 +110,34 @@ Tpm HardwareTpm::tpm() const
 
     if (m_device.isValid()) {
         Tpm cached {m_device};
-        if (cached.ok()) {
+        if (cached.ok() && isOurChip(cached)) {
             return cached;
         }
 
-        WRN("Cached HSM device is no longer reachable, rediscovering...");
+        WRN("Cached HSM device is unreachable or not this device's chip, rediscovering...");
         m_device = {};
     }
 
     Tpm discovered {m_busFlags, m_usbDevicePath};
-    if (discovered.ok()) {
-        m_device = discovered.device();
-        if (m_device.bus == TpmBus::USB) {
-            m_usbDevicePath = m_device.usbDevicePath;
-        }
+    if (!discovered.ok()) {
+        return discovered;
+    }
+    if (!isOurChip(discovered)) {
+        WRN("Found a different HSM (serial {}) than this device's (serial {}); not using it",
+            discovered.serialNumber(), m_serial);
+        return Tpm {TpmDevice {}};
     }
 
+    m_device = discovered.device();
+    if (m_device.bus == TpmBus::USB) {
+        m_usbDevicePath = m_device.usbDevicePath;
+    }
     return discovered;
+}
+
+bool HardwareTpm::isOurChip(const Tpm &tpm) const
+{
+    return tpm_identity::isSameChip(m_serial, m_uuid, tpm.serialNumber(), tpm.uuid());
 }
 
 bool HardwareTpm::readIdentity()

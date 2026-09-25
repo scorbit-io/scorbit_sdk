@@ -11,6 +11,7 @@ set(sources
     source/softwaretpm.cpp
     source/tpm.cpp
     source/atca_retry.h
+    source/tpm_identity.h
     source/crypto_helpers.cpp
     source/crypto_utils.h
     source/crypto_utils.cpp
