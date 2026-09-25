@@ -1696,7 +1696,11 @@ task_t Net::createAuthenticateTask()
                 m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
                                                                     AUTH_RETRY_MAX_BACKOFF);
                 m_isRefreshingToken = false;
-                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] { authenticate(); });
+                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
+                    if (rearmAuthAfterFailure()) {
+                        authenticate();
+                    }
+                });
                 return;
             }
 
@@ -2795,6 +2799,17 @@ task_t NetTestAccess::request(Net &net, StringCallback callback, TestTransport t
     return make(net, std::move(callback), std::move(transport), std::move(payload));
 }
 
+bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
+{
+    net.m_status = from;
+    return net.rearmAuthAfterFailure();
+}
+
+AuthStatus NetTestAccess::status(const Net &net)
+{
+    return net.m_status;
+}
+
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses)
 {
@@ -3583,6 +3598,18 @@ void Net::onAuthenticationFailed()
     // a keepalive it can do nothing with. It is restarted from the authentication success path
     // once it recovers.
     m_heartbeat.stop();
+}
+
+bool Net::rearmAuthAfterFailure()
+{
+    // A normal authentication only starts from NotAuthenticated; anything else means another
+    // path has already moved on, and this retry would only get in its way.
+    std::scoped_lock lock(m_authMutex);
+    if (m_status != AuthStatus::AuthenticationFailed) {
+        return false;
+    }
+    m_status = AuthStatus::NotAuthenticated;
+    return true;
 }
 
 void Net::startCentrifugoIdleTimer()
