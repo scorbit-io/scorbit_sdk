@@ -1685,10 +1685,18 @@ task_t Net::createAuthenticateTask()
         for (int i = 0;; ++i) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
-                ERR("Can't authenticate, signature is empty");
+                // The signer gives up after a bounded time (SPEC-0006), so try again later: a TPM
+                // that reappears must bring the device back without a restart (SB-4407).
+                ERR("Can't authenticate, signature is empty, will retry in {}s",
+                    m_authRetryBackoff.count());
                 onAuthenticationFailed();
                 stopTokenRefreshTimer();
                 notifyAuthStatusChanged();
+                const auto backoff = m_authRetryBackoff;
+                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
+                                                                    AUTH_RETRY_MAX_BACKOFF);
+                m_isRefreshingToken = false;
+                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] { authenticate(); });
                 return;
             }
 
