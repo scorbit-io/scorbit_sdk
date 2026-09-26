@@ -25,6 +25,10 @@
 #include <string>
 #include <thread>
 
+#ifdef _WIN32
+#include <mstcpip.h> // SIO_UDP_CONNRESET
+#endif
+
 // clazy:excludeall=non-pod-global-static
 
 using namespace scorbit::detail;
@@ -186,6 +190,16 @@ TEST_CASE("Heartbeat", "[stale reply]")
 
     Heartbeat heartbeat(worker.heartbeatStrand(), "127.0.0.1", server.local_endpoint().port(),
                         [&wakeCount] { ++wakeCount; });
+
+#ifdef _WIN32
+    // The late reply below goes to a closed port on purpose. Windows reports the ICMP "port
+    // unreachable" that comes back as WSAECONNRESET on the server's next receive, which would end
+    // the following exchange() before the heartbeat's datagram arrives.
+    BOOL reportConnReset = FALSE;
+    DWORD ignoredBytes = 0;
+    REQUIRE(WSAIoctl(server.native_handle(), SIO_UDP_CONNRESET, &reportConnReset,
+                     sizeof(reportConnReset), nullptr, 0, &ignoredBytes, nullptr, nullptr) == 0);
+#endif
 
     // The server takes the datagram but answers only after the heartbeat's 5 s wait has given up
     udp::endpoint client;
