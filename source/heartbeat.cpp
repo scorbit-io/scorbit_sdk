@@ -25,6 +25,7 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/post.hpp>
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 
 namespace scorbit {
@@ -48,6 +49,9 @@ constexpr auto REPLY_TIMEOUT = 5s;
 /// DNS for the heartbeat host is resolved lazily; back off while it is unreachable.
 constexpr auto RESOLVE_INITIAL_BACKOFF = 2s;
 constexpr auto RESOLVE_MAX_BACKOFF = 5min;
+/// A late reply or two is what the drain is for; the cap keeps a flood to this port from holding
+/// the strand. Anything past it is still refused by the sender check in onReply().
+constexpr int MAX_DRAIN = 64;
 
 /// Endpoint parts in precedence order: configured value, then environment, then built-in default.
 /// The environment path exists for development against a local heartbeat server.
@@ -169,6 +173,8 @@ void Heartbeat::send()
         }
     }
 
+    drainStale();
+
     // The server identifies the device solely by the 36 character uuid in the datagram
     m_socket.send_to(boost::asio::buffer(m_deviceUuid), m_endpoint, 0, ec);
     if (ec) {
@@ -180,13 +186,30 @@ void Heartbeat::send()
     awaitReply();
 }
 
+void Heartbeat::drainStale()
+{
+    boost::system::error_code ec;
+    std::array<std::uint8_t, 64> scratch {};
+    udp::endpoint from;
+    int dropped = 0;
+
+    while (dropped < MAX_DRAIN && m_socket.available(ec) > 0 && !ec) {
+        m_socket.receive_from(boost::asio::buffer(scratch), from, 0, ec);
+        if (ec) {
+            break;
+        }
+        ++dropped;
+    }
+
+    if (dropped > 0) {
+        DBG("API-HB dropped {} stale datagram(s)", dropped);
+    }
+}
+
 void Heartbeat::awaitReply()
 {
     m_isAwaitingReply = true;
-
-    m_socket.async_receive_from(
-            boost::asio::buffer(m_reply), m_senderEndpoint,
-            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+    receive();
 
     // UDP has no delivery guarantee, so bound the wait. Cancelling the socket completes the receive
     // above with operation_aborted.
@@ -201,8 +224,24 @@ void Heartbeat::awaitReply()
     });
 }
 
+void Heartbeat::receive()
+{
+    m_socket.async_receive_from(
+            boost::asio::buffer(m_reply), m_senderEndpoint,
+            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+}
+
 void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
 {
+    // Anyone can send to this port. A datagram from anywhere but the server is skipped and the wait
+    // goes on to the same deadline, so stray traffic can neither wake the device nor swallow the
+    // server's reply.
+    if (!ec && m_senderEndpoint != m_endpoint) {
+        DBG("API-HB ignoring a datagram from {}", toString(m_senderEndpoint));
+        receive();
+        return;
+    }
+
     m_isAwaitingReply = false;
     m_replyTimer.cancel();
 

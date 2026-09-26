@@ -113,7 +113,14 @@ public:
 private:
     void scheduleNextTick();
     void send();
+
+    /// Discard whatever is queued before a send. A reply that arrives after awaitReply() gave up
+    /// stays queued, and every later receive would read one heartbeat late, wakes included
+    /// (SB-5170). Nothing queued before a send answers it. Runs on the strand.
+    void drainStale();
+
     void awaitReply();
+    void receive();
     void onReply(const boost::system::error_code &ec, std::size_t bytes);
 
     /// Start resolving the host, and send once the endpoint lands. The lookup is asynchronous so it
