@@ -36,8 +36,10 @@ namespace {
 constexpr auto DEVICE_UUID = "1e1c4d54-2eef-4c86-8e4d-1e6c4a6a0f21";
 
 /// Stand-in heartbeat server: waits for one datagram and replies with @p flags.
+/// @param client Set to the heartbeat's address when not null.
 /// @return the payload received, or an empty string when nothing arrived in time.
-std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uint8_t flags)
+std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uint8_t flags,
+                     udp::endpoint *client = nullptr)
 {
     std::array<char, 64> buffer {};
     udp::endpoint sender;
@@ -49,6 +51,9 @@ std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uin
                                       return;
                                   }
                                   payload.assign(buffer.data(), bytes);
+                                  if (client != nullptr) {
+                                      *client = sender;
+                                  }
 
                                   boost::system::error_code ignored;
                                   server.send_to(boost::asio::buffer(&flags, 1), sender, 0,
@@ -135,6 +140,46 @@ TEST_CASE("Heartbeat", "[wake flag]")
     heartbeat.stop();
     worker.stop();
     CHECK(!worker.isRunning());
+}
+
+TEST_CASE("Heartbeat", "[stale reply]")
+{
+    boost::asio::io_context serverIoc;
+    udp::socket server(serverIoc, udp::endpoint {boost::asio::ip::make_address("127.0.0.1"),
+                                                 0 /* any port */});
+
+    std::atomic_int wakeCount {0};
+
+    Worker worker;
+    worker.start();
+
+    Heartbeat heartbeat(worker.heartbeatStrand(), "127.0.0.1", server.local_endpoint().port(),
+                        [&wakeCount] { ++wakeCount; });
+
+    udp::endpoint client;
+    heartbeat.start(DEVICE_UUID);
+    REQUIRE(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK, &client) == DEVICE_UUID);
+    std::this_thread::sleep_for(100ms);
+
+    // SB-5170: a wake reply that lands after the wait gave up sits in the socket queue. The next
+    // heartbeat must read the reply to its own datagram, not this one.
+    const std::uint8_t late = HEARTBEAT_FLAG_ACK | HEARTBEAT_FLAG_WAKE;
+    server.send_to(boost::asio::buffer(&late, 1), client);
+    std::this_thread::sleep_for(100ms);
+
+    heartbeat.start(DEVICE_UUID);
+    CHECK(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK) == DEVICE_UUID);
+    std::this_thread::sleep_for(100ms);
+    CHECK(wakeCount == 0);
+
+    // And a wake is acted on by the heartbeat whose reply carries it
+    heartbeat.start(DEVICE_UUID);
+    CHECK(exchange(serverIoc, server, late) == DEVICE_UUID);
+    std::this_thread::sleep_for(100ms);
+    CHECK(wakeCount == 1);
+
+    heartbeat.stop();
+    worker.stop();
 }
 
 TEST_CASE("Heartbeat", "[ack flag]")
