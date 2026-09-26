@@ -120,6 +120,7 @@ private:
     void drainStale();
 
     void awaitReply();
+    void receive();
     void onReply(const boost::system::error_code &ec, std::size_t bytes);
 
     /// Start resolving the host, and send once the endpoint lands. The lookup is asynchronous so it

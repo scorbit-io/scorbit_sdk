@@ -50,7 +50,7 @@ constexpr auto REPLY_TIMEOUT = 5s;
 constexpr auto RESOLVE_INITIAL_BACKOFF = 2s;
 constexpr auto RESOLVE_MAX_BACKOFF = 5min;
 /// A late reply or two is what the drain is for; the cap keeps a flood to this port from holding
-/// the strand.
+/// the strand. Anything past it is still refused by the sender check in onReply().
 constexpr int MAX_DRAIN = 64;
 
 /// Endpoint parts in precedence order: configured value, then environment, then built-in default.
@@ -209,10 +209,7 @@ void Heartbeat::drainStale()
 void Heartbeat::awaitReply()
 {
     m_isAwaitingReply = true;
-
-    m_socket.async_receive_from(
-            boost::asio::buffer(m_reply), m_senderEndpoint,
-            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+    receive();
 
     // UDP has no delivery guarantee, so bound the wait. Cancelling the socket completes the receive
     // above with operation_aborted.
@@ -227,8 +224,24 @@ void Heartbeat::awaitReply()
     });
 }
 
+void Heartbeat::receive()
+{
+    m_socket.async_receive_from(
+            boost::asio::buffer(m_reply), m_senderEndpoint,
+            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+}
+
 void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
 {
+    // Anyone can send to this port. A datagram from anywhere but the server is skipped and the wait
+    // goes on to the same deadline, so stray traffic can neither wake the device nor swallow the
+    // server's reply.
+    if (!ec && m_senderEndpoint != m_endpoint) {
+        DBG("API-HB ignoring a datagram from {}", toString(m_senderEndpoint));
+        receive();
+        return;
+    }
+
     m_isAwaitingReply = false;
     m_replyTimer.cancel();
 

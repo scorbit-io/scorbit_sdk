@@ -37,9 +37,10 @@ constexpr auto DEVICE_UUID = "1e1c4d54-2eef-4c86-8e4d-1e6c4a6a0f21";
 
 /// Stand-in heartbeat server: waits for one datagram and replies with @p flags.
 /// @param client Set to the heartbeat's address when not null.
+/// @param stray When not null, sends the heartbeat a wake from another address ahead of the reply.
 /// @return the payload received, or an empty string when nothing arrived in time.
 std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uint8_t flags,
-                     udp::endpoint *client = nullptr)
+                     udp::endpoint *client = nullptr, udp::socket *stray = nullptr)
 {
     std::array<char, 64> buffer {};
     udp::endpoint sender;
@@ -56,6 +57,13 @@ std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uin
                                   }
 
                                   boost::system::error_code ignored;
+                                  if (stray != nullptr) {
+                                      const std::uint8_t wake =
+                                              HEARTBEAT_FLAG_ACK | HEARTBEAT_FLAG_WAKE;
+                                      stray->send_to(boost::asio::buffer(&wake, 1), sender, 0,
+                                                     ignored);
+                                      std::this_thread::sleep_for(50ms);
+                                  }
                                   server.send_to(boost::asio::buffer(&flags, 1), sender, 0,
                                                  ignored);
                               });
@@ -175,6 +183,37 @@ TEST_CASE("Heartbeat", "[stale reply]")
     // And a wake is acted on by the heartbeat whose reply carries it
     heartbeat.start(DEVICE_UUID);
     CHECK(exchange(serverIoc, server, late) == DEVICE_UUID);
+    std::this_thread::sleep_for(100ms);
+    CHECK(wakeCount == 1);
+
+    heartbeat.stop();
+    worker.stop();
+}
+
+TEST_CASE("Heartbeat", "[stray sender]")
+{
+    boost::asio::io_context serverIoc;
+    const auto loopback = boost::asio::ip::make_address("127.0.0.1");
+    udp::socket server(serverIoc, udp::endpoint {loopback, 0 /* any port */});
+    udp::socket stray(serverIoc, udp::endpoint {loopback, 0 /* any port */});
+
+    std::atomic_int wakeCount {0};
+
+    Worker worker;
+    worker.start();
+
+    Heartbeat heartbeat(worker.heartbeatStrand(), "127.0.0.1", server.local_endpoint().port(),
+                        [&wakeCount] { ++wakeCount; });
+
+    // A wake from anyone but the server is ignored, and the wait carries on to the server's reply
+    heartbeat.start(DEVICE_UUID);
+    CHECK(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK, nullptr, &stray) == DEVICE_UUID);
+    std::this_thread::sleep_for(100ms);
+    CHECK(wakeCount == 0);
+
+    // The stray did not consume the wait: the next heartbeat is sent and its wake is acted on
+    heartbeat.start(DEVICE_UUID);
+    CHECK(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK | HEARTBEAT_FLAG_WAKE) == DEVICE_UUID);
     std::this_thread::sleep_for(100ms);
     CHECK(wakeCount == 1);
 
