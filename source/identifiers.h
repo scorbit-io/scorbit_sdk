@@ -71,6 +71,8 @@ constexpr auto STAGING_HOSTNAME = "https://staging.scorbit.io";
 // Staging still shares the prod broker -- known gap, SB-3645. Do not change
 // this alone: the SDK must reach devices before the API cuts over.
 constexpr auto STAGING_CENTRIFUGO = "wss://sws.scorbit.io";
+// Each api wakes devices through its own heartbeat server (SB-5158).
+constexpr auto STAGING_HEARTBEAT = "heartbeat-staging.scorbit.io";
 
 // Headers
 constexpr auto HDR_KEY_AUTHORIZATION {"Authorization"};

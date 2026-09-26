@@ -75,8 +75,11 @@ public:
      * @param host Heartbeat server host. Empty selects $HEARTBEAT_HOST, else the built-in default.
      * @param port Heartbeat server UDP port. 0 selects $HEARTBEAT_PORT, else the built-in default.
      * @param onWake Called when a reply carries the wake flag. May be nullptr.
+     * @param defaultHost Used when @p host and $HEARTBEAT_HOST are both empty; empty selects
+     *                    production's server. See defaultHeartbeatHost().
      */
-    Heartbeat(asio_strand strand, const std::string &host, std::uint16_t port, WakeHandler onWake);
+    Heartbeat(asio_strand strand, const std::string &host, std::uint16_t port, WakeHandler onWake,
+              const std::string &defaultHost = {});
 
     ~Heartbeat();
 
@@ -103,6 +106,9 @@ public:
      * would otherwise keep the io_context busy waiting for a datagram that may never come.
      */
     void stop();
+
+    /// The server this instance sends to, after the host, environment and default are applied.
+    const std::string &host() const { return m_host; }
 
 private:
     void scheduleNextTick();
@@ -142,6 +148,10 @@ private:
     /// Written by start() and stop() from outside the strand, hence atomic.
     std::atomic_bool m_stopped {true};
 };
+
+/// The heartbeat server for an api label: staging's own for "staging", else empty (production).
+/// A device must heartbeat to the server its api wakes it through, or a wake never reaches it.
+std::string defaultHeartbeatHost(const std::string &apiHostname);
 
 } // namespace detail
 } // namespace scorbit

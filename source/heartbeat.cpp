@@ -18,6 +18,7 @@
  */
 
 #include "heartbeat.h"
+#include "identifiers.h"
 #include <logger/logger.h>
 #include <fmt/chrono.h>
 #include <fmt/format.h>
@@ -70,10 +71,15 @@ std::string toString(const udp::endpoint &endpoint)
 
 } // namespace
 
+std::string defaultHeartbeatHost(const std::string &apiHostname)
+{
+    return apiHostname == STAGING_LABEL ? STAGING_HEARTBEAT : std::string {};
+}
+
 Heartbeat::Heartbeat(asio_strand strand, const std::string &host, std::uint16_t port,
-                     WakeHandler onWake)
+                     WakeHandler onWake, const std::string &defaultHost)
     : m_strand(std::move(strand))
-    , m_host(configured(host, ENV_HOST, DEFAULT_HOST))
+    , m_host(configured(host, ENV_HOST, defaultHost.empty() ? DEFAULT_HOST : defaultHost.c_str()))
     , m_port(configured(port != 0 ? std::to_string(port) : std::string {}, ENV_PORT, DEFAULT_PORT))
     , m_onWake(std::move(onWake))
     , m_socket(m_strand)

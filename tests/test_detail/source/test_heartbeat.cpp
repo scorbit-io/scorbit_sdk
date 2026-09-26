@@ -21,6 +21,8 @@
 #include "worker.h"
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
+#include <cstdlib>
+#include <string>
 #include <thread>
 
 // clazy:excludeall=non-pod-global-static
@@ -63,6 +65,42 @@ std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uin
 
     return payload;
 }
+
+/// Sets or clears $HEARTBEAT_HOST for one scope, then restores whatever was there.
+class HeartbeatHostEnv
+{
+public:
+    explicit HeartbeatHostEnv(const char *value)
+    {
+        if (const auto *old = std::getenv(NAME); old != nullptr) {
+            m_old = old;
+            m_hadOld = true;
+        }
+        set(value);
+    }
+    ~HeartbeatHostEnv() { set(m_hadOld ? m_old.c_str() : nullptr); }
+
+    HeartbeatHostEnv(const HeartbeatHostEnv &) = delete;
+    HeartbeatHostEnv &operator=(const HeartbeatHostEnv &) = delete;
+
+private:
+    static void set(const char *value)
+    {
+#ifdef _WIN32
+        _putenv_s(NAME, value != nullptr ? value : "");
+#else
+        if (value != nullptr) {
+            setenv(NAME, value, 1);
+        } else {
+            unsetenv(NAME);
+        }
+#endif
+    }
+
+    static constexpr auto NAME = "HEARTBEAT_HOST";
+    std::string m_old;
+    bool m_hadOld {false};
+};
 
 } // namespace
 
@@ -134,4 +172,34 @@ TEST_CASE("Heartbeat", "[unknown flags are ignored]")
     // 0xFF has every bit set, so both are true
     CHECK(isHeartbeatAcked(0xFF));
     CHECK(isHeartbeatWakeRequested(0xFF));
+}
+
+TEST_CASE("Heartbeat", "[host selection]")
+{
+    // SB-5158: a device must heartbeat to the server its own api wakes it through.
+    CHECK(defaultHeartbeatHost("staging") == "heartbeat-staging.scorbit.io");
+    CHECK(defaultHeartbeatHost("production").empty());
+    CHECK(defaultHeartbeatHost("").empty());
+    CHECK(defaultHeartbeatHost("http://localhost:8000").empty());
+
+    Worker worker;
+    worker.start();
+    const auto hostOf = [&worker](const std::string &host, const std::string &defaultHost) {
+        return Heartbeat(worker.heartbeatStrand(), host, 0, nullptr, defaultHost).host();
+    };
+
+    {
+        const HeartbeatHostEnv env(nullptr);
+        CHECK(hostOf("", "") == "heartbeat.scorbit.io");
+        CHECK(hostOf("", "heartbeat-staging.scorbit.io") == "heartbeat-staging.scorbit.io");
+        CHECK(hostOf("hb.example", "heartbeat-staging.scorbit.io") == "hb.example");
+    }
+    {
+        // The development override still beats the per-environment default.
+        const HeartbeatHostEnv env("127.0.0.1");
+        CHECK(hostOf("", "heartbeat-staging.scorbit.io") == "127.0.0.1");
+        CHECK(hostOf("hb.example", "heartbeat-staging.scorbit.io") == "hb.example");
+    }
+
+    worker.stop();
 }
