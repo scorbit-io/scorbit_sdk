@@ -62,7 +62,7 @@ TEST_CASE("Net hostname")
 
     net.setHostname("staging");
     CHECK(net.hostname() == "https://staging.scorbit.io:443");
-    CHECK(net.cfHostname() == "wss://sws.scorbit.io:443");
+    CHECK(net.cfHostname() == "wss://sws-staging.scorbit.io:443");
 
     net.setHostname("");
     CHECK(net.hostname() == "https://api.scorbit.io:443");
