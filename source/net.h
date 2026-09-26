@@ -94,6 +94,9 @@ struct NetTestAccess {
                           std::string payload);
     static task_t request(Net &net, StringCallback callback, TestTransport transport,
                           std::string payload);
+    /// Sets the auth status to @p from, then runs the signer-failure retry's state change.
+    static bool rearmAuthAfterFailure(Net &net, AuthStatus from);
+    static AuthStatus status(const Net &net);
 
 private:
     template<typename CallbackT>
@@ -346,6 +349,8 @@ private:
     void onUnpaired();
     /// Enter AuthenticationFailed and stop work that a non-authenticating machine should not do.
     void onAuthenticationFailed();
+    /// AuthenticationFailed -> NotAuthenticated, so a retry is not turned away as already handled.
+    bool rearmAuthAfterFailure();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 

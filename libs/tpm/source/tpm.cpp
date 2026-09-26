@@ -6,6 +6,7 @@
  ****************************************************************************/
 
 #include "tpm/tpm.h"
+#include "atca_retry.h"
 
 #include <logger/logger.h>
 #include <cryptoauthlib.h>
@@ -17,70 +18,11 @@
 #include <assert.h>
 #include <cstring>
 #include <functional>
-#include <chrono>
-#include <random>
-#include <thread>
-
-using namespace std::chrono_literals;
 
 constexpr uint8_t SLB_I2C_BUS = 1;
 constexpr uint8_t SCORBITRON_V1_I2C_BUS = 0;
 
-constexpr auto MAX_RETRY_TIMES = 5;
-
-constexpr auto DELAY_BEFORE_RETRY = 20ms;
-constexpr auto RX_ERROR_RETRY_MIN_DELAY = 2s;
-constexpr auto RX_ERROR_RETRY_MAX_DELAY = 5s;
-
-namespace {
-
-bool shouldUseRxErrorRetryDelay(ATCA_STATUS status)
-{
-    return status == ATCA_RX_CRC_ERROR || status == ATCA_RX_FAIL;
-}
-
-std::chrono::milliseconds retryDelayForStatus(ATCA_STATUS status)
-{
-    if (!shouldUseRxErrorRetryDelay(status)) {
-        return DELAY_BEFORE_RETRY;
-    }
-
-    static thread_local std::mt19937 randomGenerator {std::random_device {}()};
-
-    std::uniform_int_distribution<int64_t> delayDistribution(
-            std::chrono::duration_cast<std::chrono::milliseconds>(RX_ERROR_RETRY_MIN_DELAY).count(),
-            std::chrono::duration_cast<std::chrono::milliseconds>(RX_ERROR_RETRY_MAX_DELAY)
-                    .count());
-
-    return std::chrono::milliseconds(delayDistribution(randomGenerator));
-}
-
-ATCA_STATUS atcaRetry(std::function<ATCA_STATUS()> func)
-{
-    ATCA_STATUS status = ATCA_SUCCESS;
-    for (int i = 0; i < MAX_RETRY_TIMES; ++i) {
-        status = func();
-        if (status == ATCA_SUCCESS) {
-            return status;
-        }
-
-        if (i + 1 < MAX_RETRY_TIMES) {
-            const auto retryDelay = retryDelayForStatus(status);
-            if (status != ATCA_COMM_FAIL) {
-                WRN("{}: error {}, retrying in {}ms...", __func__, static_cast<int>(status),
-                    retryDelay.count());
-            }
-            std::this_thread::sleep_for(retryDelay);
-        }
-    }
-    if (status != ATCA_COMM_FAIL) {
-        WRN("{}: status code {}, giving up after {} retries...", __func__, static_cast<int>(status),
-            MAX_RETRY_TIMES);
-    }
-    return status;
-}
-
-} // namespace
+using atca_retry::atcaRetry;
 
 struct Tpm::Impl {
     Impl()
@@ -105,15 +47,17 @@ struct Tpm::Impl {
     ByteArray uuid;
     uint64_t serialNumber {0};
     TpmDevice device;
+    TpmChipFilter accept;
 };
 
 /********************************************************************
  * Tpm class
  ********************************************************************/
 
-Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
+Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath, TpmChipFilter accept)
     : p {std::make_unique<Impl>()}
 {
+    p->accept = std::move(accept);
     bool found = false;
 
     // 1- Try to use the local I2C TPM
@@ -137,9 +81,15 @@ Tpm::Tpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
     }
 }
 
-Tpm::Tpm(const TpmDevice &device)
+Tpm::Tpm(const TpmDevice &device, TpmChipFilter accept)
     : p {std::make_unique<Impl>()}
 {
+    p->accept = std::move(accept);
+    // An empty device is how HardwareTpm says "no usable chip"; nothing to open.
+    if (!device.isValid()) {
+        return;
+    }
+
     bool found = false;
 
     if (device.bus == TpmBus::I2C) {
@@ -434,10 +384,29 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet)
     }
 
     p->infoResult = info();
+    if (ok() && !accepted(p)) {
+        p->infoResult.clear();
+        atcab_release_ext(&p->atcaDevice);
+        p->atcaDevice = nullptr;
+        return false;
+    }
     if (ok()) {
         p->device = TpmDevice {TpmBus::I2C, i2cBus, {}};
     }
     return ok();
+}
+
+bool Tpm::accepted(Impl *p)
+{
+    if (!p->accept) {
+        return true;
+    }
+    readIdentity();
+    if (p->accept(p->serialNumber, p->uuid)) {
+        return true;
+    }
+    WRN("Skipping an HSM that is not this device's (serial {})", p->serialNumber);
+    return false;
 }
 
 bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
@@ -461,7 +430,7 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
         }
 
         p->infoResult = info();
-        if (!ok()) {
+        if (!ok() || !accepted(p)) {
             releaseDevice();
             return false;
         }

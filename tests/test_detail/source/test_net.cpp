@@ -380,3 +380,25 @@ TEST_CASE("StringCallback callers are unaffected by the status-carrying path")
     CHECK(seenReply == "rejected");
     CHECK(transport.calls == 1);
 }
+
+TEST_CASE("A signer-failure retry re-arms a failed authentication")
+{
+    // A normal authentication only starts from NotAuthenticated. Left at AuthenticationFailed,
+    // the retry scheduled after an empty signature would be turned away and never authenticate.
+    Net net {DeviceInfo {}, {}};
+
+    CHECK(NetTestAccess::rearmAuthAfterFailure(net, AuthStatus::AuthenticationFailed));
+    CHECK(NetTestAccess::status(net) == AuthStatus::NotAuthenticated);
+}
+
+TEST_CASE("A signer-failure retry leaves an authentication that has moved on alone")
+{
+    for (const auto moved : {AuthStatus::NotAuthenticated, AuthStatus::Authenticating,
+                             AuthStatus::AuthenticatedCheckingPairing,
+                             AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}) {
+        Net net {DeviceInfo {}, {}};
+        CAPTURE(static_cast<int>(moved));
+        CHECK_FALSE(NetTestAccess::rearmAuthAfterFailure(net, moved));
+        CHECK(NetTestAccess::status(net) == moved);
+    }
+}
