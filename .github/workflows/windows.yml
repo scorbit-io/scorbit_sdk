@@ -47,6 +47,35 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/vcpkg_cache"
 
+      # Compiled output depends on the toolchain, and windows-latest is mutable.
+      # vcpkg hashes the compiler, CMake and PowerShell into every package ABI, so
+      # an image bump makes every cached binary unusable. Keyed on vcpkg.json
+      # alone, that cache still hit exactly, the save was skipped, and every run
+      # since the 20260922 image (cl 19.51.36256 -> 36257) logged `Restored 0
+      # package(s)` and rebuilt all 84 ports. Same fix as scorbitd 8c43d27.
+      - name: resolve the toolchain for cache keys
+        id: toolchain
+        shell: pwsh
+        run: |
+          # Never fail the job over a cache key: each lookup falls back to
+          # "unknown", which only makes the key less specific.
+          $vs = "unknown"; $cl = "unknown"; $cmake = "unknown"
+          try { $cmake = ((cmake --version | Select-Object -First 1) -replace '[^0-9.]','') } catch {}
+          try {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vs = (& $vswhere -latest -property catalog_productSemanticVersion)
+              $root = (& $vswhere -latest -property installationPath)
+              $exe = Get-ChildItem "$root\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe" |
+                Sort-Object FullName | Select-Object -Last 1
+              if ($exe) { $cl = $exe.VersionInfo.ProductVersion }
+            }
+          } catch {}
+          $pwsh = "$($PSVersionTable.PSVersion)"
+          $id = "msvc$vs-cl$cl-cmake$cmake-pwsh$pwsh"
+          "id=$id" >> $env:GITHUB_OUTPUT
+          Write-Host "toolchain key component: $id"
+
       # Restore and save are SPLIT deliberately. actions/cache saves in a post
       # step that is SKIPPED when the job fails, so a single actions/cache step
       # never writes the cache while the build is red -- which is precisely when
@@ -56,24 +85,49 @@ jobs:
       # ~14 minutes to rebuild every port, with `Post cache vcpkg binaries ->
       # skipped` as the only evidence that nothing had been stored.
       #
-      # `if: always()` on the save is the whole fix. The ports that did build are
-      # worth keeping regardless of what failed afterwards.
-      #
-      # Keyed on vcpkg.json, which carries builtin-baseline, so a port list or
-      # baseline change invalidates the cache and nothing else does.
+      # Keyed on the toolchain and vcpkg.json (which carries builtin-baseline).
+      # The fallback stays within one toolchain: binaries from another are
+      # unusable, and restoring them only grows the next save.
       - name: restore vcpkg binaries
         id: vcpkg_cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/vcpkg_cache
-          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ steps.toolchain.outputs.id }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-
+            vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ steps.toolchain.outputs.id }}-
 
-      - uses: actions/cache@v4
+      # CPM sources, split for the same reason. The build directories and the
+      # cache itself are excluded from the hash: configure writes .cmake and
+      # CMakeLists.txt files there, so a key computed after it would differ.
+      - name: restore CPM sources
+        id: cpm
+        uses: actions/cache/restore@v4
         with:
-          path: "**/cpm_modules"
-          key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          path: ${{ github.workspace }}/cpm_modules
+          key: cpm-windows-v2-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake', '!build/**', '!build-tests/**', '!cpm_modules/**') }}
+          restore-keys: |
+            cpm-windows-v2-
+
+      # The configured build trees, so MSBuild skips dependencies it already
+      # compiled -- the CPM cache holds sources only, so centrifugo-cpp, cpr and
+      # friends recompiled every run. It relies on a timestamp asymmetry:
+      # checkout gives our sources fresh mtimes, so they always rebuild, while
+      # dependency sources come out of the restored tar with their original
+      # mtimes and their objects still look up to date. scorbitd measured
+      # ~26m -> ~8m with this (SB-4970).
+      #
+      # No restore-keys: a prefix match could restore a tree configured against
+      # dependencies the current CMakeLists no longer declares, which builds the
+      # wrong thing rather than a slow one. The build tree is exact-key only.
+      - name: restore build trees
+        id: tree
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ github.workspace }}/build
+            ${{ github.workspace }}/build-tests
+          key: buildtree-windows-${{ steps.toolchain.outputs.id }}-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake', 'vcpkg.json', '!build/**', '!build-tests/**', '!cpm_modules/**') }}
 
       # No generator is specified, so this uses the Visual Studio generator,
       # which locates MSVC unaided. That is a deliberate deviation from the
@@ -128,6 +182,7 @@ jobs:
           "VCPKG_TOOLCHAIN=$toolchain" >> $env:GITHUB_ENV
 
       - name: configure the SDK
+        id: configure_sdk
         shell: pwsh
         run: |
           cmake -S . -B build `
@@ -143,6 +198,7 @@ jobs:
       # vcpkg looks for vcpkg.json beside the -S directory, so configuring the
       # tests project would look for tests/vcpkg.json and install nothing.
       - name: configure the tests
+        id: configure_tests
         shell: pwsh
         run: |
           cmake -S tests -B build-tests `
@@ -151,6 +207,7 @@ jobs:
             "-DVCPKG_MANIFEST_DIR=${{ github.workspace }}"
 
       - name: build the tests
+        id: build_tests
         run: cmake --build build-tests --config Release
 
       # Run from the build root that actually registered the tests. `ctest` in a
@@ -159,11 +216,41 @@ jobs:
       - name: test
         run: ctest --test-dir build-tests -C Release --no-tests=error --output-on-failure
 
-      # Runs on failure too -- see the note on the restore step. Skipped only on
-      # an exact key hit, since re-uploading an unchanged cache is pure cost.
+      # Every save below runs on a red build too -- see the note on the vcpkg
+      # restore -- but only once the stage it banks has completed, and each takes
+      # its key from the restore step rather than recomputing it.
+
+      # After the SDK configure, every port is installed, so the cache is
+      # complete even if compiling fails later. Saving one from a configure that
+      # died mid-install would bank a partial cache under the exact key, and an
+      # exact hit is never re-saved. Skipped on an exact hit, since re-uploading
+      # an unchanged cache is pure cost.
       - name: save vcpkg binaries
-        if: always() && steps.vcpkg_cache.outputs.cache-hit != 'true'
+        if: always() && steps.configure_sdk.outcome == 'success' && steps.vcpkg_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ github.workspace }}/vcpkg_cache
-          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_TARGET_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          key: ${{ steps.vcpkg_cache.outputs.cache-primary-key }}
+
+      # After the tests configure, every CPM fetch has finished. A tree saved
+      # from a configure that died mid-download poisons later runs: CPM finds the
+      # directory, skips the fetch, and the package defines no target.
+      - name: save CPM sources
+        if: always() && steps.configure_tests.outcome == 'success' && steps.cpm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/cpm_modules
+          key: ${{ steps.cpm.outputs.cache-primary-key }}
+
+      # Gated on the BUILD, not configure: a tree saved from a failed build holds
+      # half-written objects, and restoring those is worse than recompiling. Our
+      # own objects go stale as soon as the source changes, so the entry is only
+      # written when the key is new -- a new toolchain or a CMake change.
+      - name: save build trees
+        if: always() && steps.build_tests.outcome == 'success' && steps.tree.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ github.workspace }}/build
+            ${{ github.workspace }}/build-tests
+          key: ${{ steps.tree.outputs.cache-primary-key }}
