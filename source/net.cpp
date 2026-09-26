@@ -292,7 +292,8 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice, m_deviceInfo.workerThreadCount)
     , m_heartbeat(m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost,
-                  m_deviceInfo.heartbeatPort, [this] { onHeartbeatWake(); })
+                  m_deviceInfo.heartbeatPort, [this] { onHeartbeatWake(); },
+                  defaultHeartbeatHost(m_deviceInfo.hostname))
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
