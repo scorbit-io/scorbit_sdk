@@ -104,6 +104,8 @@ target_sources(
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp
+        ../../source/event_ops.h
+        ../../source/event_ops.cpp
         source/test_modes.cpp
         source/test_game_state.cpp
         source/test_probes_manager.cpp
