@@ -209,6 +209,9 @@ target_sources(
         source/achievements/progress.h
         source/achievements/json_codec.h
         source/achievements/json_codec.cpp
+        source/achievements/timeline_row.h
+        source/achievements/player_facts.h
+        source/achievements/player_facts.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
