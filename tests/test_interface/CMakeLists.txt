@@ -61,6 +61,7 @@ target_sources(
         source/test_version.cpp
         source/test_device_info.cpp
         source/test_log.cpp
+        source/test_achievements_c.cpp
 )
 
 target_link_libraries(
