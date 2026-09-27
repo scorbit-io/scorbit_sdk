@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "player_facts.h"
 #include "../event_ops.h"
 #include <algorithm>

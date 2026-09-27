@@ -309,6 +309,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
 
         REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.id == 1 && _1.isGameActive).TIMES(1);
         mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
     SECTION("a reply after the game ended sends nothing")
     {
@@ -319,6 +320,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
         mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
     SECTION("a reply after the next game started sends nothing for either")
     {
@@ -330,6 +332,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
         mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
 }
 

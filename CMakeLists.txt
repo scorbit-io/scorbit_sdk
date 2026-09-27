@@ -185,6 +185,7 @@ target_sources(
         include/scorbit_sdk/leaderboard_c.h
         include/scorbit_sdk/table_mappings.h
         include/scorbit_sdk/table_mappings_c.h
+        include/scorbit_sdk/achievements_c.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
@@ -225,6 +226,8 @@ target_sources(
         source/achievements/report_outbox.cpp
         source/achievements/achievement_storage.h
         source/achievements/achievement_storage.cpp
+        source/achievements/achievement_service.h
+        source/achievements/achievement_service.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h

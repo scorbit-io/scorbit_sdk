@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "event_ops.h"
 #include <fmt/format.h>
 

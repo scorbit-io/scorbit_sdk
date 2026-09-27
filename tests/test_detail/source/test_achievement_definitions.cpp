@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include <../source/achievements/json_codec.h>
 #include <../source/achievements/definition_check.h>
 #include <catch2/catch_test_macros.hpp>
@@ -32,13 +31,19 @@ namespace {
 
 json rule(const char *type, const char *comparison, int64_t target, const char *reference = "")
 {
-    return {{"type", type}, {"comparison", comparison}, {"target", target}, {"reference", reference}};
+    return {{"type", type},
+            {"comparison", comparison},
+            {"target", target},
+            {"reference", reference}};
 }
 
 // nlohmann turns a one-element brace list into that element, so arrays are built explicitly
 json achievement(const char *key, std::vector<json> rules, const char *evaluation = "in_session")
 {
-    return {{"key", key}, {"name", key}, {"scope", "game"}, {"evaluation", evaluation},
+    return {{"key", key},
+            {"name", key},
+            {"scope", "game"},
+            {"evaluation", evaluation},
             {"rules", json(std::move(rules))}};
 }
 
@@ -134,8 +139,8 @@ TEST_CASE("Null optional fields read as absent", "[achievements]")
 
 TEST_CASE("Targets are int64", "[achievements]")
 {
-    const auto set = parse({achievement("game-bop-billion", {rule("SCORE", "GE", 5'000'000'000)},
-                                        "unlimited")});
+    const auto set = parse(
+            {achievement("game-bop-billion", {rule("SCORE", "GE", 5'000'000'000)}, "unlimited")});
     REQUIRE(set.size() == 1);
     CHECK(set.all().front().rules[0].target == 5'000'000'000);
     CHECK(set.all().front().evaluation == EvaluationClass::Unlimited);
@@ -143,10 +148,11 @@ TEST_CASE("Targets are int64", "[achievements]")
 
 TEST_CASE("MODE_STACK reference is split and de-duplicated", "[achievements]")
 {
-    const auto set =
-            parse({achievement("game-stack", {rule("MODE_STACK", "GE", 3, "multiball,wizard,multiball")})});
+    const auto set = parse({achievement(
+            "game-stack", {rule("MODE_STACK", "GE", 3, "multiball,wizard,multiball")})});
     REQUIRE(set.size() == 1);
-    CHECK(set.all().front().rules[0].stackModes == std::vector<std::string> {"multiball", "wizard"});
+    CHECK(set.all().front().rules[0].stackModes
+          == std::vector<std::string> {"multiball", "wizard"});
 }
 
 TEST_CASE("Malformed and unevaluable definitions are skipped, the rest kept", "[achievements]")
@@ -156,14 +162,13 @@ TEST_CASE("Malformed and unevaluable definitions are skipped, the rest kept", "[
             json {{"key", "game-no-scope"}, {"evaluation", "in_session"}, {"rules", json::array()}},
             achievement("game-unknown-type", {rule("PROGRESS", "GE", 1)}),
             achievement("game-strict-gt", {rule("SCORE", ">", 1)}),
-            achievement("game-target-string", {json {{"type", "SCORE"}, {"comparison", "GE"},
-                                                     {"target", "big"}}}),
+            achievement("game-target-string",
+                        {json {{"type", "SCORE"}, {"comparison", "GE"}, {"target", "big"}}}),
             achievement("game-no-rules", {}),
             achievement("game-mode-no-ref", {rule("MODE", "GE", 1)}),
             achievement("game-stack-of-one", {rule("MODE_STACK", "GE", 1, "multiball")}),
             achievement("game-lonely-ball", {rule("BALL", "EQ", 1)}),
-            achievement("game-ball-with-score",
-                        {rule("SCORE", "GE", 1), rule("BALL", "EQ", 1)}),
+            achievement("game-ball-with-score", {rule("SCORE", "GE", 1), rule("BALL", "EQ", 1)}),
             achievement("game-between-ok",
                         {rule("MODE", "GE", 2, "multiball"), rule("TIMER_BETWEEN", "LE", 30000)}),
             json("not an object"),

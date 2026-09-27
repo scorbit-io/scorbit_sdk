@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "rule_evaluator.h"
 #include <algorithm>
 #include <map>
@@ -73,7 +72,8 @@ RuleProgress resolveObservation(std::vector<int64_t> values, const Rule &rule,
 
     if (values.empty()) {
         // Never happened means zero; a qualifier with nothing to qualify is unsatisfied
-        return RuleProgress {0, !isQualifier(rule.type) && satisfies(0, rule.comparison, rule.target)};
+        return RuleProgress {0,
+                             !isQualifier(rule.type) && satisfies(0, rule.comparison, rule.target)};
     }
 
     return RuleProgress {bestValue(values, rule), satisfied};
@@ -128,8 +128,8 @@ private:
         case RuleType::Mode:
         case RuleType::ModeCompleted:
         case RuleType::ModeStack:
-            return resolveAccumulator(
-                    carried + static_cast<int64_t>(occurrences(rule).size()), rule);
+            return resolveAccumulator(carried + static_cast<int64_t>(occurrences(rule).size()),
+                                      rule);
 
         case RuleType::Event: {
             int64_t total = carried;
@@ -159,8 +159,8 @@ private:
             return resolveObservation(durationValues(m_facts.ballDurations()), rule, baseline);
 
         case RuleType::TimerMode:
-            return resolveObservation(
-                    durationValues(m_facts.activationDurations(rule.reference)), rule, baseline);
+            return resolveObservation(durationValues(m_facts.activationDurations(rule.reference)),
+                                      rule, baseline);
 
         case RuleType::TimerBetween:
             return resolveObservation(spans(index), rule, baseline);

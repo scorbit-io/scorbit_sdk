@@ -27,6 +27,7 @@
 #include "download_options.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
+#include "event_queue.h"
 #include "session_flags.h"
 #include "table_mappings_internal.h"
 #include <boost/signals2.hpp>
@@ -235,6 +236,9 @@ public:
         (void)delay;
         (void)fn;
     }
+
+    /** Delivers @p event to game code through the event callback. */
+    virtual void publishEvent(EventPtr event) { (void)event; }
 
     /** @p callback is invoked from a network thread whenever player profiles change. */
     virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
