@@ -434,3 +434,22 @@ TEST_CASE("The DMD frame bundle is downloaded when its version changes", "[achie
     CHECK(net->framesDownloads == 0);
     CHECK(game.achievements().frame("game-cv-boom"));
 }
+
+TEST_CASE("Definitions are revalidated at every game start", "[achievements]")
+{
+    TempDir dir;
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+
+    // The boot fetch never succeeded, e.g. the machine was not paired yet
+    net->definitionsReply(ApiReply {Error::NotPaired, 0, {}, {}});
+    game.runPendingPosts();
+    net->definitionsReply = {};
+
+    game.setGameStarted(GameStartOrigin::StartButton);
+    REQUIRE(net->definitionsReply);
+    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, "\"v1\""});
+    game.runPendingPosts();
+    CHECK(game.achievements().view()->definitions->size() == 2);
+}
