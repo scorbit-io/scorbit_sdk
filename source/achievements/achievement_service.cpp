@@ -72,12 +72,18 @@ AchievementService::~AchievementService()
 
 void AchievementService::refreshDefinitions()
 {
+    if (m_fetchingDefinitions) {
+        return;
+    }
+    m_fetchingDefinitions = true;
+
     m_net.fetchAchievementDefinitions(
             m_etag, [this, alive = std::weak_ptr(m_alive)](ApiReply reply) {
                 m_poster([this, alive, reply = std::move(reply)]() mutable {
                     if (alive.expired()) {
                         return;
                     }
+                    m_fetchingDefinitions = false;
                     if (reply.error != Error::Success) {
                         WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
                         return;
@@ -168,6 +174,8 @@ void AchievementService::onSessionStarted(int sessionId, const TimelineRow &firs
     m_current->gameSessionId = sessionId;
     m_current->facts.apply(firstRow);
     updateView();
+
+    refreshDefinitions();
 }
 
 void AchievementService::onSessionCreated(int sessionId, const std::string &sessionUuid)
