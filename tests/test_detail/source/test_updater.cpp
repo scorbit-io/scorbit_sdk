@@ -61,7 +61,7 @@ public:
     void requestUnpair(StringCallback) override {};
     void authenticate() override {};
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
-                       std::function<void()>) override {};
+                       scorbit::detail::SessionCreatedCallback) override {};
     void submitGameData(const GameData &, SessionFlags) override {};
     void getConfig() override {};
 

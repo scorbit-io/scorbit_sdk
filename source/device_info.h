@@ -66,6 +66,9 @@ struct DeviceInfo {
     /// realtime connection run on their own threads and are not affected by this.
     int workerThreadCount {DEFAULT_WORKER_THREADS};
 
+    /// Writable, persistent directory for SDK data (achievements cache); empty = temp directory.
+    std::string dataDir;
+
     // Authentication - one of these must be set
     std::string encryptedKey;
     sb_signer_callback_t signerCallback {nullptr};

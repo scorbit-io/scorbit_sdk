@@ -25,7 +25,23 @@
 namespace scorbit {
 namespace detail {
 
-bool extract(const std::string &archivePath, const std::string &outputDir);
+/** How far an archive's content is trusted when extracting it. */
+enum class ArchiveTrust {
+    /** Produced by Scorbit's own release pipeline, e.g. firmware updates. */
+    Trusted,
+    /**
+     * Any other content. Additionally refuses to extract through a symlink on disk, so an archive
+     * cannot plant a link and then write through it outside the output directory.
+     */
+    Untrusted,
+};
+
+/**
+ * Extracts @p archivePath into @p outputDir. An entry with an absolute path or a `..` component
+ * is refused whatever the trust level, so nothing is ever written outside @p outputDir.
+ */
+bool extract(const std::string &archivePath, const std::string &outputDir,
+             ArchiveTrust trust = ArchiveTrust::Trusted);
 
 struct ArchiveFileEntry {
     std::string archivePath; // path inside archive (e.g. "logs/scorbitd.log")

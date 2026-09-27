@@ -22,6 +22,7 @@
 
 #include "definition.h"
 #include "progress.h"
+#include "report.h"
 #include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
@@ -61,6 +62,20 @@ std::optional<Baselines> parseProgressResponse(const nlohmann::json &json);
  * reported — are left out, so an absent index always means "no measurement".
  */
 RuleProgressMap parseRuleProgress(const nlohmann::json &json);
+
+/**
+ * Encodes a `POST /achievements/report/` body (§10.5). `rule_progress` is sparse and names each
+ * rule by `index`; `achieved` is omitted when the machine has no verdict.
+ */
+std::string encodeReportRequest(const ReportRequest &request);
+
+/**
+ * Parses the report response (§10.5): `{results: [{key, status, code?, detail?}...]}`. An item
+ * with an unknown status is skipped with a warning.
+ *
+ * @return std::nullopt when the document itself is not a report response.
+ */
+std::optional<std::vector<ReportOutcome>> parseReportResponse(const nlohmann::json &json);
 
 } // namespace achievements
 } // namespace detail
