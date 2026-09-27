@@ -57,6 +57,7 @@ add_executable(${PROJECT_NAME})
 target_sources(
     ${PROJECT_NAME}
     PRIVATE source/test_game_state_c.cpp source/test_version.cpp source/test_device_info.cpp
+            source/test_achievements_c.cpp
 )
 
 target_link_libraries(

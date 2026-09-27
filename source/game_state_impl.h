@@ -129,6 +129,9 @@ public:
                                    HttpStatusCallback callback);
 
     achievements::AchievementService &achievements() { return *m_achievements; }
+
+    /** Fetches @p userId's stored achievements state as the raw progress document. */
+    void fetchPlayerAchievements(const std::string &userId, StringCallback callback);
     const achievements::AchievementService &achievements() const { return *m_achievements; }
 
 private:

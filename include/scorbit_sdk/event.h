@@ -8,6 +8,7 @@
 #pragma once
 
 #include "event_types.h"
+#include "achievements.h"
 #include "player_info.h"
 #include "pricing_info.h"
 #include <scorbit_sdk/event_helpers_c.h>
@@ -136,6 +137,43 @@ public:
     bool getPairingStatusChanged(bool &isPaired) const
     {
         return ::sb_event_pairing_status_changed(m_event, &isPaired);
+    }
+
+    // ------------------------------------------------------------------
+    // Achievements
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process an achievement updated event.
+     *
+     * The event type must be @ref scorbit::EventType::AchievementUpdated, otherwise the function
+     * returns false. See @ref sb_event_achievement_updated.
+     *
+     * @param update [OUT] The achievement, player, status and judged rules.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAchievementUpdated(AchievementUpdate &update) const
+    {
+        const char *key = nullptr;
+        const char *userId = nullptr;
+        sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
+        if (!::sb_event_achievement_updated(m_event, &key, &update.player, &userId, &status)) {
+            return false;
+        }
+
+        update.key = key ? key : "";
+        update.userId = userId ? userId : "";
+        update.status = static_cast<AchievementStatus>(status);
+        update.rules.clear();
+        const size_t count = ::sb_event_achievement_rules_count(m_event);
+        for (size_t i = 0; i < count; ++i) {
+            AchievementUpdate::Rule rule;
+            if (::sb_event_achievement_rule(m_event, i, &rule.index, &rule.value,
+                                            &rule.satisfied)) {
+                update.rules.push_back(rule);
+            }
+        }
+        return true;
     }
 
     /**

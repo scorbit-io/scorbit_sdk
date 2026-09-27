@@ -18,6 +18,7 @@
  */
 
 #include <scorbit_sdk/log_c.h>
+#include <scorbit_sdk/scorbit_sdk_c.h> // every public C header must compile as C
 
 #include <munit.h>
 #include <stdio.h>
@@ -65,12 +66,27 @@ static MunitResult test_sb_logger_callbacks_supported(const MunitParameter param
     return MUNIT_OK;
 }
 
+static MunitResult test_achievement_event_helpers_reject_null(const MunitParameter params[],
+                                                              void *user_data)
+{
+    (void)params;
+    (void)user_data;
+
+    const char *key = NULL;
+    sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
+    munit_assert(!sb_event_achievement_updated(NULL, &key, NULL, NULL, &status));
+    munit_assert(sb_event_achievement_rules_count(NULL) == 0);
+    return MUNIT_OK;
+}
+
 // Test suite setup
 static MunitTest tests[] = {
     {"/sb_add_logger_callback/add_callback", test_sb_add_logger_callback, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {"/sb_logger_callbacks_supported/matches_build", test_sb_logger_callbacks_supported, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
+    {"/achievements/event_helpers_reject_null", test_achievement_event_helpers_reject_null, NULL,
+     NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };
 

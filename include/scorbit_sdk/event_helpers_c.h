@@ -21,6 +21,7 @@
 
 #include "scorbit_sdk/event_types_c.h"
 #include "scorbit_sdk/common_types_c.h"
+#include "scorbit_sdk/achievements_c.h"
 #include <scorbit_sdk/export.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -331,6 +332,47 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
  */
 SCORBIT_SDK_EXPORT
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired);
+
+/**
+ * @brief Helper function to process an achievement updated event.
+ *
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_UPDATED, otherwise the function returns false.
+ * On @ref SB_ACHIEVEMENT_UNLOCKED_LOCALLY the unlock may be presented at once; on @ref
+ * SB_ACHIEVEMENT_RETRACTED a presented unlock must be withdrawn. Any output pointer may be NULL.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key The achievement key; valid during the callback only.
+ * @param [OUT] player The player number the update is for.
+ * @param [OUT] user_id The player's user id; valid during the callback only.
+ * @param [OUT] status What happened.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_updated(const sb_event_t *event, const char **key, sb_player_t *player,
+                                  const char **user_id, sb_achievement_status_t *status);
+
+/**
+ * @brief Number of rule progress entries carried by an achievement updated event.
+ *
+ * Only rules the machine could judge have an entry, so this may be less than the achievement's
+ * rule count; each entry names its rule by index.
+ */
+SCORBIT_SDK_EXPORT
+size_t sb_event_achievement_rules_count(const sb_event_t *event);
+
+/**
+ * @brief Reads rule progress entry @p i of an achievement updated event.
+ *
+ * @param [IN] event The event.
+ * @param [IN] i The entry, from 0 to @ref sb_event_achievement_rules_count - 1.
+ * @param [OUT] index The rule's index in the achievement definition.
+ * @param [OUT] value The measured value (lifetime value for an unlimited achievement).
+ * @param [OUT] satisfied Whether the rule is satisfied.
+ * @return Returns true on success, false for a wrong event type or entry.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_rule(const sb_event_t *event, size_t i, size_t *index, int64_t *value,
+                               bool *satisfied);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

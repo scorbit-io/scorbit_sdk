@@ -61,6 +61,16 @@ const PlayerTracker::Record *PlayerTracker::record(const std::string &key) const
     return it == m_records.end() ? nullptr : &it->second;
 }
 
+std::map<std::string, PlayerTracker::Record> PlayerTracker::records() const
+{
+    std::map<std::string, Record> rv;
+    for (const auto &[key, record] : m_records) {
+        auto &copy = rv.emplace(key, record).first->second;
+        copy.held = m_held.count(key) != 0;
+    }
+    return rv;
+}
+
 void PlayerTracker::startTracking(const Definition &definition)
 {
     const auto baselineIt = m_baselines.find(definition.key);

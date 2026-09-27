@@ -365,6 +365,30 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_ACHIEVEMENT_UPDATED: {
+        // Achievements are evaluated by the SDK on every commit; this reports what happened.
+        const char *key = NULL;
+        sb_player_t player = 0;
+        sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
+        if (sb_event_achievement_updated(event, &key, &player, NULL, &status)) {
+            switch (status) {
+            case SB_ACHIEVEMENT_UNLOCKED_LOCALLY:
+                // Decided on this machine: it may be celebrated right away
+                printf("Player %u unlocked achievement %s\n", player, key);
+                break;
+            case SB_ACHIEVEMENT_CONFIRMED:
+                printf("Achievement %s of player %u confirmed by the server\n", key, player);
+                break;
+            case SB_ACHIEVEMENT_RETRACTED:
+                // The server refused it: withdraw anything shown for it
+                printf("Achievement %s of player %u retracted\n", key, player);
+                break;
+            default:
+                break;
+            }
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;
@@ -667,6 +691,10 @@ int main(void)
             if (i % 10 == 3) {
                 sb_set_mode_completed(gs, "NA:The Tale of the Forty Thieves");
             }
+
+            // Events are named counters the game adds to, e.g. spinner spins. Like completed
+            // modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            sb_add_event(gs, "spins", 3);
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {
