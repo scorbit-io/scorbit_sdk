@@ -22,6 +22,7 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "player_state.h"
 #include "modes.h"
+#include "event_ops.h"
 #include <map>
 #include <chrono>
 
@@ -44,6 +45,12 @@ struct GameData {
      */
     Modes completedModes;
 
+    /**
+     * Event register operations applied since the previous update. Like @ref completedModes, a
+     * one-shot list recorded in the session history CSV (`events` column) and cleared afterwards.
+     */
+    EventOps events;
+
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 };
 
@@ -51,7 +58,8 @@ inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::deta
 {
     return lhs.isGameActive == rhs.isGameActive && lhs.ball == rhs.ball
         && lhs.activePlayer == rhs.activePlayer && lhs.modes == rhs.modes
-        && lhs.completedModes == rhs.completedModes && lhs.players == rhs.players;
+        && lhs.completedModes == rhs.completedModes && lhs.events == rhs.events
+        && lhs.players == rhs.players;
 }
 
 inline bool operator!=(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)

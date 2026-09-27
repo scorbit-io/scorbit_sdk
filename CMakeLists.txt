@@ -200,6 +200,8 @@ target_sources(
         source/player_state.cpp
         source/modes.h
         source/modes.cpp
+        source/event_ops.h
+        source/event_ops.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
