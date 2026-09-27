@@ -183,10 +183,7 @@ void Heartbeat::send()
 void Heartbeat::awaitReply()
 {
     m_isAwaitingReply = true;
-
-    m_socket.async_receive_from(
-            boost::asio::buffer(m_reply), m_senderEndpoint,
-            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+    receive();
 
     // UDP has no delivery guarantee, so bound the wait. Cancelling the socket completes the receive
     // above with operation_aborted.
@@ -201,24 +198,43 @@ void Heartbeat::awaitReply()
     });
 }
 
+void Heartbeat::receive()
+{
+    m_socket.async_receive_from(
+            boost::asio::buffer(m_reply), m_senderEndpoint,
+            [this](const boost::system::error_code &ec, std::size_t bytes) { onReply(ec, bytes); });
+}
+
 void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
 {
+    // Anyone can send to this port. A datagram from anywhere but the server is skipped and the wait
+    // goes on to the same deadline, so stray traffic can neither wake the device nor swallow the
+    // server's reply.
+    if (!ec && m_senderEndpoint != m_endpoint) {
+        DBG("API-HB ignoring a datagram from {}", toString(m_senderEndpoint));
+        receive();
+        return;
+    }
+
     m_isAwaitingReply = false;
     m_replyTimer.cancel();
 
-    if (ec == boost::asio::error::operation_aborted) {
-        // Either the reply timed out or we are stopping; the next tick retries
-        WRN("API-HB no reply within {}", REPLY_TIMEOUT);
-        return;
-    }
+    if (ec || bytes < m_reply.size()) {
+        if (ec == boost::asio::error::operation_aborted) {
+            // Either the reply timed out or we are stopping; the next tick retries
+            WRN("API-HB no reply within {}", REPLY_TIMEOUT);
+        } else if (ec) {
+            ERR("API-HB receive failed: {}", ec.message());
+        } else {
+            WRN("API-HB truncated reply, {} bytes", bytes);
+        }
 
-    if (ec) {
-        ERR("API-HB receive failed: {}", ec.message());
-        return;
-    }
-
-    if (bytes < m_reply.size()) {
-        WRN("API-HB truncated reply, {} bytes", bytes);
+        // The server may still answer this send. On a socket kept open, that late reply would queue
+        // and be read as the answer to the next send, and every reply after it one heartbeat late,
+        // wakes included (SB-5170). Closed, the kernel drops the late reply and the next send opens
+        // a fresh socket with an empty queue (SB-5172).
+        boost::system::error_code ignored;
+        m_socket.close(ignored);
         return;
     }
 
