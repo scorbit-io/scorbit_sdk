@@ -455,6 +455,56 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
     return true;
 }
 
+bool sb_event_achievement_updated(const sb_event_t *event, const char **key, sb_player_t *player,
+                                  const char **user_id, sb_achievement_status_t *status)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUpdatedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (key) {
+        *key = derived->key().c_str();
+    }
+    if (player) {
+        *player = derived->player();
+    }
+    if (user_id) {
+        *user_id = derived->userId().c_str();
+    }
+    if (status) {
+        *status = derived->status();
+    }
+    return true;
+}
+
+size_t sb_event_achievement_rules_count(const sb_event_t *event)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUpdatedEvent *>(event);
+    return derived ? derived->rules().size() : 0;
+}
+
+bool sb_event_achievement_rule(const sb_event_t *event, size_t i, size_t *index, int64_t *value,
+                               bool *satisfied)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUpdatedEvent *>(event);
+    if (!derived || i >= derived->rules().size()) {
+        return false;
+    }
+
+    const auto &rule = derived->rules()[i];
+    if (index) {
+        *index = rule.index;
+    }
+    if (value) {
+        *value = rule.value;
+    }
+    if (satisfied) {
+        *satisfied = rule.satisfied;
+    }
+    return true;
+}
+
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
 {
     if (!event || !is_paired) {

@@ -454,6 +454,15 @@ void GameStateImpl::reportDeviceState(const std::string &type, const std::string
     m_net->updateConfig(type, version, installed, std::move(log), std::move(callback));
 }
 
+void GameStateImpl::fetchPlayerAchievements(const std::string &userId, StringCallback callback)
+{
+    m_net->fetchAchievementProgress(userId, [callback = std::move(callback)](ApiReply reply) {
+        if (callback) {
+            callback(reply.error, reply.body);
+        }
+    });
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

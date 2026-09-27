@@ -19,11 +19,23 @@
 
 #pragma once
 
-#include <scorbit_sdk/version.h>
-#include "achievements.h"
-#include "game_state.h"
-#include "game_state_factory.h"
-#include "leaderboard.h"
-#include "log.h"
-#include "net_types.h"
-#include "event.h"
+#include <scorbit_sdk/common_types_c.h>
+#include <functional>
+
+namespace scorbit {
+namespace detail {
+
+class GameStateImpl;
+
+/**
+ * Access to a C API game handle for the other C API translation units. Game state lives on the
+ * handle's dispatcher thread: only read-only, thread-safe members may be used directly, anything
+ * else goes through @ref postToGameState.
+ */
+GameStateImpl &gameStateOf(sb_game_handle_t handle);
+
+/** Runs @p fn on the handle's dispatcher thread, after the calls queued before it. */
+void postToGameState(sb_game_handle_t handle, std::function<void()> fn);
+
+} // namespace detail
+} // namespace scorbit

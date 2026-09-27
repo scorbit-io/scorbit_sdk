@@ -93,6 +93,9 @@ public:
 
     struct Record {
         EvaluationClass evaluation {EvaluationClass::InSession};
+
+        /** The player holds it: at claim time, or earned this game and not retracted. */
+        bool held {false};
         bool isTrophy {false};
         RuleProgressMap rules;
         bool allSatisfied {false};
@@ -110,7 +113,7 @@ public:
     const Record *record(const std::string &key) const;
 
     /** Every tracked record, by key. */
-    std::map<std::string, Record> records() const { return {m_records.begin(), m_records.end()}; }
+    std::map<std::string, Record> records() const;
 
     /** Whether the player holds @p key: at claim time, or earned and not retracted since. */
     bool holds(const std::string &key) const { return m_held.count(key) != 0; }

@@ -310,6 +310,29 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::AchievementUpdated: {
+        // Achievements are evaluated by the SDK on every commit; this reports what happened.
+        scorbit::AchievementUpdate update;
+        if (event.getAchievementUpdated(update)) {
+            switch (update.status) {
+            case scorbit::AchievementStatus::UnlockedLocally:
+                // Decided on this machine: it may be celebrated right away
+                cout << "Player " << update.player << " unlocked achievement " << update.key
+                     << endl;
+                break;
+            case scorbit::AchievementStatus::Confirmed:
+                cout << "Achievement " << update.key << " confirmed by the server" << endl;
+                break;
+            case scorbit::AchievementStatus::Retracted:
+                // The server refused it: withdraw anything shown for it
+                cout << "Achievement " << update.key << " retracted" << endl;
+                break;
+            default:
+                break;
+            }
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {
@@ -535,6 +558,10 @@ int main()
             if (i % 10 == 3) {
                 gs.setModeCompleted("NA:The Tale of the Forty Thieves");
             }
+
+            // Events are named counters the game adds to, e.g. spinner spins. Like completed
+            // modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            gs.addEvent("spins", 3);
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {

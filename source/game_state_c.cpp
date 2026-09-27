@@ -24,6 +24,7 @@
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
 #include "game_state_impl.h"
+#include "game_state_c_internal.h"
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "net.h"
@@ -690,3 +691,19 @@ void sb_report_device_state(sb_game_handle_t handle, const char *type, const cha
                                              log ? std::optional<std::string> {log} : std::nullopt,
                                              callback, user_data});
 }
+
+namespace scorbit {
+namespace detail {
+
+GameStateImpl &gameStateOf(sb_game_handle_t handle)
+{
+    return handle->gameState;
+}
+
+void postToGameState(sb_game_handle_t handle, std::function<void()> fn)
+{
+    handle->postApiJob(scorbit_c_api_queue::JobRunOnDispatcher {std::move(fn)});
+}
+
+} // namespace detail
+} // namespace scorbit
