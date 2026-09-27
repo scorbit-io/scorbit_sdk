@@ -25,6 +25,10 @@
 #include <string>
 #include <thread>
 
+#ifdef _WIN32
+#include <mstcpip.h> // SIO_UDP_CONNRESET
+#endif
+
 // clazy:excludeall=non-pod-global-static
 
 using namespace scorbit::detail;
@@ -72,6 +76,29 @@ std::string exchange(boost::asio::io_context &ioc, udp::socket &server, std::uin
     ioc.run_for(2s);
 
     // Drop the receive if it is still pending, so a later exchange() starts clean
+    server.cancel();
+    ioc.restart();
+    ioc.run();
+
+    return payload;
+}
+
+/// Stand-in heartbeat server that takes one datagram and does not answer it.
+/// @return the payload received, or an empty string when nothing arrived in time.
+std::string swallow(boost::asio::io_context &ioc, udp::socket &server, udp::endpoint &client)
+{
+    std::array<char, 64> buffer {};
+    std::string payload;
+
+    server.async_receive_from(boost::asio::buffer(buffer), client,
+                              [&](const boost::system::error_code &ec, std::size_t bytes) {
+                                  if (!ec) {
+                                      payload.assign(buffer.data(), bytes);
+                                  }
+                              });
+
+    ioc.restart();
+    ioc.run_for(2s);
     server.cancel();
     ioc.restart();
     ioc.run();
@@ -164,16 +191,28 @@ TEST_CASE("Heartbeat", "[stale reply]")
     Heartbeat heartbeat(worker.heartbeatStrand(), "127.0.0.1", server.local_endpoint().port(),
                         [&wakeCount] { ++wakeCount; });
 
+#ifdef _WIN32
+    // The late reply below goes to a closed port on purpose. Windows reports the ICMP "port
+    // unreachable" that comes back as WSAECONNRESET on the server's next receive, which would end
+    // the following exchange() before the heartbeat's datagram arrives.
+    BOOL reportConnReset = FALSE;
+    DWORD ignoredBytes = 0;
+    REQUIRE(WSAIoctl(server.native_handle(), SIO_UDP_CONNRESET, &reportConnReset,
+                     sizeof(reportConnReset), nullptr, 0, &ignoredBytes, nullptr, nullptr) == 0);
+#endif
+
+    // The server takes the datagram but answers only after the heartbeat's 5 s wait has given up
     udp::endpoint client;
     heartbeat.start(DEVICE_UUID);
-    REQUIRE(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK, &client) == DEVICE_UUID);
-    std::this_thread::sleep_for(100ms);
+    REQUIRE(swallow(serverIoc, server, client) == DEVICE_UUID);
+    std::this_thread::sleep_for(6s); // past the 5 s reply timeout; swallow() returns on receipt
 
-    // SB-5170: a wake reply that lands after the wait gave up sits in the socket queue. The next
-    // heartbeat must read the reply to its own datagram, not this one.
+    // SB-5170/SB-5172: the late wake reply must not be read as the answer to the next heartbeat.
+    // The failed wait closed the socket, so the kernel drops it instead of queueing it.
     const std::uint8_t late = HEARTBEAT_FLAG_ACK | HEARTBEAT_FLAG_WAKE;
     server.send_to(boost::asio::buffer(&late, 1), client);
     std::this_thread::sleep_for(100ms);
+    CHECK(wakeCount == 0);
 
     heartbeat.start(DEVICE_UUID);
     CHECK(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK) == DEVICE_UUID);

@@ -25,7 +25,6 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/post.hpp>
 #include <algorithm>
-#include <array>
 #include <cstdlib>
 
 namespace scorbit {
@@ -49,9 +48,6 @@ constexpr auto REPLY_TIMEOUT = 5s;
 /// DNS for the heartbeat host is resolved lazily; back off while it is unreachable.
 constexpr auto RESOLVE_INITIAL_BACKOFF = 2s;
 constexpr auto RESOLVE_MAX_BACKOFF = 5min;
-/// A late reply or two is what the drain is for; the cap keeps a flood to this port from holding
-/// the strand. Anything past it is still refused by the sender check in onReply().
-constexpr int MAX_DRAIN = 64;
 
 /// Endpoint parts in precedence order: configured value, then environment, then built-in default.
 /// The environment path exists for development against a local heartbeat server.
@@ -173,8 +169,6 @@ void Heartbeat::send()
         }
     }
 
-    drainStale();
-
     // The server identifies the device solely by the 36 character uuid in the datagram
     m_socket.send_to(boost::asio::buffer(m_deviceUuid), m_endpoint, 0, ec);
     if (ec) {
@@ -184,26 +178,6 @@ void Heartbeat::send()
 
     DBG("API-HB sent to {}", toString(m_endpoint));
     awaitReply();
-}
-
-void Heartbeat::drainStale()
-{
-    boost::system::error_code ec;
-    std::array<std::uint8_t, 64> scratch {};
-    udp::endpoint from;
-    int dropped = 0;
-
-    while (dropped < MAX_DRAIN && m_socket.available(ec) > 0 && !ec) {
-        m_socket.receive_from(boost::asio::buffer(scratch), from, 0, ec);
-        if (ec) {
-            break;
-        }
-        ++dropped;
-    }
-
-    if (dropped > 0) {
-        DBG("API-HB dropped {} stale datagram(s)", dropped);
-    }
 }
 
 void Heartbeat::awaitReply()
@@ -245,19 +219,22 @@ void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
     m_isAwaitingReply = false;
     m_replyTimer.cancel();
 
-    if (ec == boost::asio::error::operation_aborted) {
-        // Either the reply timed out or we are stopping; the next tick retries
-        WRN("API-HB no reply within {}", REPLY_TIMEOUT);
-        return;
-    }
+    if (ec || bytes < m_reply.size()) {
+        if (ec == boost::asio::error::operation_aborted) {
+            // Either the reply timed out or we are stopping; the next tick retries
+            WRN("API-HB no reply within {}", REPLY_TIMEOUT);
+        } else if (ec) {
+            ERR("API-HB receive failed: {}", ec.message());
+        } else {
+            WRN("API-HB truncated reply, {} bytes", bytes);
+        }
 
-    if (ec) {
-        ERR("API-HB receive failed: {}", ec.message());
-        return;
-    }
-
-    if (bytes < m_reply.size()) {
-        WRN("API-HB truncated reply, {} bytes", bytes);
+        // The server may still answer this send. On a socket kept open, that late reply would queue
+        // and be read as the answer to the next send, and every reply after it one heartbeat late,
+        // wakes included (SB-5170). Closed, the kernel drops the late reply and the next send opens
+        // a fresh socket with an empty queue (SB-5172).
+        boost::system::error_code ignored;
+        m_socket.close(ignored);
         return;
     }
 
