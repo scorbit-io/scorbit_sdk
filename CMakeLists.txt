@@ -214,6 +214,8 @@ target_sources(
         source/achievements/player_facts.cpp
         source/achievements/rule_evaluator.h
         source/achievements/rule_evaluator.cpp
+        source/achievements/player_tracker.h
+        source/achievements/player_tracker.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h

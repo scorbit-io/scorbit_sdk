@@ -114,6 +114,9 @@ target_sources(
         ../../source/achievements/player_facts.cpp
         ../../source/achievements/rule_evaluator.h
         ../../source/achievements/rule_evaluator.cpp
+        ../../source/achievements/player_tracker.h
+        ../../source/achievements/player_tracker.cpp
+        source/test_achievement_tracker.cpp
         source/achievement_test_support.h
         source/test_achievement_evaluator.cpp
         source/test_achievement_facts.cpp
