@@ -87,13 +87,11 @@ public:
     /** Time spent at the machine: the sum of this player's turns, not wall clock. */
     int64_t sessionTimeMs() const;
 
-    /** Every value this player's score took, as (min, max, latest); nullopt if never scored. */
-    struct Scores {
-        int64_t min {0};
-        int64_t max {0};
-        int64_t latest {0};
-    };
-    std::optional<Scores> scores() const { return m_scores; }
+    /** Every distinct value this player's score column took this session. */
+    const std::set<int64_t> &scoreValues() const { return m_scoreValues; }
+
+    /** The player's current score; nullopt if the column never had a value. */
+    std::optional<int64_t> latestScore() const { return m_latestScore; }
 
 private:
     friend class SessionFacts;
@@ -119,7 +117,8 @@ private:
     std::unordered_map<std::string, std::vector<Occurrence>> m_completions;
     std::unordered_map<std::string, std::vector<Occurrence>> m_eventOps;
     std::vector<BallSpan> m_balls;
-    std::optional<Scores> m_scores;
+    std::set<int64_t> m_scoreValues;
+    std::optional<int64_t> m_latestScore;
 
     int64_t m_closedTurnsMs {0};
     std::optional<int64_t> m_openTurnStartMs;
