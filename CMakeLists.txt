@@ -202,6 +202,13 @@ target_sources(
         source/modes.cpp
         source/event_ops.h
         source/event_ops.cpp
+        source/achievements/definition.h
+        source/achievements/definition.cpp
+        source/achievements/definition_check.h
+        source/achievements/definition_check.cpp
+        source/achievements/progress.h
+        source/achievements/json_codec.h
+        source/achievements/json_codec.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
