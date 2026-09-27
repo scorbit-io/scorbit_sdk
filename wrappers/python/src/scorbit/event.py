@@ -13,11 +13,11 @@ An :class:`Event` instance is only valid during the event callback invocation.
 Do **not** store it for later use; extract the data you need inside the callback.
 """
 
-from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_size_t, c_uint, c_uint8
+from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint, c_uint8
 
 from ._bindings import _lib
-from ._enums import EventType
-from ._types import BundlePrice, PlayerInfo, PricingInfo
+from ._enums import AchievementStatus, EventType
+from ._types import AchievementUpdate, BundlePrice, PlayerInfo, PricingInfo
 
 
 class Event(object):
@@ -164,6 +164,53 @@ class Event(object):
         if _lib.sb_event_pairing_status_changed(self._ptr, byref(is_paired)):
             return bool(is_paired.value)
         return None
+
+    # ------------------------------------------------------------------
+    # Achievements
+    # ------------------------------------------------------------------
+
+    def get_achievement_updated(self):
+        # type: () -> AchievementUpdate | None
+        """Parse an ``AchievementUpdated`` event.
+
+        On ``AchievementStatus.UnlockedLocally`` the unlock may be presented
+        at once; on ``AchievementStatus.Retracted`` it must be withdrawn.
+
+        Returns:
+            An :class:`AchievementUpdate`, or ``None`` if the event type does
+            not match.
+        """
+        key = c_char_p()
+        player = c_uint(0)
+        user_id = c_char_p()
+        status = c_int(0)
+        if not _lib.sb_event_achievement_updated(
+            self._ptr, byref(key), byref(player), byref(user_id), byref(status)
+        ):
+            return None
+
+        rules = []
+        for i in range(_lib.sb_event_achievement_rules_count(self._ptr)):
+            index = c_size_t(0)
+            value = c_int64(0)
+            satisfied = c_bool(False)
+            if _lib.sb_event_achievement_rule(
+                self._ptr, i, byref(index), byref(value), byref(satisfied)
+            ):
+                rules.append((int(index.value), int(value.value), bool(satisfied.value)))
+
+        def decode(raw):
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="replace")
+            return raw or ""
+
+        return AchievementUpdate(
+            decode(key.value),
+            int(player.value),
+            decode(user_id.value),
+            AchievementStatus(status.value),
+            rules,
+        )
 
     # ------------------------------------------------------------------
     # Config

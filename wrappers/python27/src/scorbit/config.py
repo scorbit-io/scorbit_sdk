@@ -208,6 +208,16 @@ class Config(object):
         _lib.sb_config_set_threads_priority(self._handle, priority)
         return self
 
+    def set_data_dir(self, path):
+        # type: (str) -> Config
+        """Set a writable, persistent directory for SDK data.
+
+        The achievements cache (definitions and DMD frame bundle) is kept
+        there across reboots. Defaults to a temporary directory.
+        """
+        _lib.sb_config_set_data_dir(self._handle, _encode(path))
+        return self
+
     def set_worker_thread_count(self, count):
         # type: (int) -> Config
         """Set how many threads the SDK uses for blocking work.
