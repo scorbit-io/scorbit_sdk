@@ -73,6 +73,24 @@ int copy_data(struct archive *ar, struct archive *aw)
     }
 }
 
+/** Whether an entry path stays inside the directory it is extracted to. */
+bool isContainedEntryPath(const char *entryPath)
+{
+    if (!entryPath || !*entryPath) {
+        return false;
+    }
+    const fs::path path(entryPath);
+    if (path.is_absolute() || path.has_root_path()) {
+        return false;
+    }
+    for (const auto &component : path) {
+        if (component == "..") {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string archiveErrorString(archive *a)
 {
     const char *msg = archive_error_string(a);
@@ -87,12 +105,16 @@ std::string archiveErrorString(archive *a)
 namespace scorbit {
 namespace detail {
 
-bool extract(const std::string &archivePath, const std::string &outputDir)
+bool extract(const std::string &archivePath, const std::string &outputDir, ArchiveTrust trust)
 {
+    // Entries are written below the canonical directory: with no symlink left in the base path,
+    // ARCHIVE_EXTRACT_SECURE_SYMLINKS only has the archive's own content to judge
+    fs::path baseDir;
     try {
         if (!fs::exists(outputDir)) {
             fs::create_directories(outputDir);
         }
+        baseDir = fs::canonical(outputDir);
     } catch (const fs::filesystem_error &e) {
         ERR("Failed to create output directory '{}': {}", outputDir, e.what());
         return false;
@@ -110,7 +132,10 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
     archive_read_support_format_all(reader.get());
 
     int flags = ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL
-              | ARCHIVE_EXTRACT_FFLAGS;
+              | ARCHIVE_EXTRACT_FFLAGS | ARCHIVE_EXTRACT_SECURE_NODOTDOT;
+    if (trust == ArchiveTrust::Untrusted) {
+        flags |= ARCHIVE_EXTRACT_SECURE_SYMLINKS;
+    }
 
     archive_write_disk_set_options(writer.get(), flags);
     archive_write_disk_set_standard_lookup(writer.get());
@@ -123,21 +148,30 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
 
     struct archive_entry *entry = nullptr;
     int r = ARCHIVE_OK;
+    bool entriesOk = true;
 
     while ((r = archive_read_next_header(reader.get(), &entry)) == ARCHIVE_OK) {
-        // Prepend outputDir to the pathname
+        // Prepend outputDir to the pathname, which must stay inside it
         const char *entryPath = archive_entry_pathname(entry);
-        fs::path fullPath = fs::path(outputDir) / entryPath;
+        if (!isContainedEntryPath(entryPath)) {
+            ERR("Refusing archive entry outside the output directory: '{}'",
+                entryPath ? entryPath : "");
+            r = ARCHIVE_FATAL;
+            break;
+        }
+        fs::path fullPath = baseDir / entryPath;
         archive_entry_set_pathname(entry, fullPath.string().c_str());
 
         // Write header and content
         r = archive_write_header(writer.get(), entry);
         if (r < ARCHIVE_OK) {
             ERR("Failed to write header: {}", archiveErrorString(writer.get()));
+            entriesOk = false;
         } else if (archive_entry_size(entry) > 0) {
             r = copy_data(reader.get(), writer.get());
             if (r < ARCHIVE_OK) {
                 ERR("Data copy error: {}", archiveErrorString(writer.get()));
+                entriesOk = false;
             }
         }
 
@@ -152,7 +186,7 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
         ERR("Archive read error: {}", archiveErrorString(reader.get()));
     }
 
-    return r == ARCHIVE_EOF;
+    return r == ARCHIVE_EOF && entriesOk;
 }
 
 bool createTarGz(const std::string &outputPath, const std::vector<ArchiveFileEntry> &files,

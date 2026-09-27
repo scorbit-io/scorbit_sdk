@@ -200,3 +200,29 @@ TEST_CASE("createTarGz edge cases")
         CHECK(createTarGz(archivePath, files));
     }
 }
+
+TEST_CASE("extract refuses entries escaping the output directory")
+{
+    TempDir tmpDir;
+    auto extractDir = (tmpDir.path() / "extracted").string();
+    fs::create_directories(extractDir);
+
+    SECTION("Parent directory traversal")
+    {
+        auto archivePath = (tmpDir.path() / "dotdot.tar.gz").string();
+        REQUIRE(createTarGz(archivePath, {}, {{"../escaped.txt", "evil"}}));
+
+        CHECK_FALSE(extract(archivePath, extractDir, ArchiveTrust::Untrusted));
+        CHECK_FALSE(fs::exists(tmpDir.path() / "escaped.txt"));
+    }
+
+    SECTION("Absolute path")
+    {
+        const auto target = tmpDir.path() / "absolute.txt";
+        auto archivePath = (tmpDir.path() / "absolute.tar.gz").string();
+        REQUIRE(createTarGz(archivePath, {}, {{target.string(), "evil"}}));
+
+        CHECK_FALSE(extract(archivePath, extractDir, ArchiveTrust::Untrusted));
+        CHECK_FALSE(fs::exists(target));
+    }
+}

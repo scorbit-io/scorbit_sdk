@@ -511,7 +511,7 @@ void Net::updateConfig(const std::string &type, const std::string &version, bool
 }
 
 void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
-                        std::function<void()> onCreated)
+                        SessionCreatedCallback onCreated)
 {
     {
         std::scoped_lock lock(m_gameSessionsMutex);
@@ -1496,6 +1496,99 @@ void Net::cancelModeExpiryTimer()
     m_worker.stopTimer(Worker::Timer::ModeExpiry);
 }
 
+void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback)
+{
+    auto receivedEtag = std::make_shared<std::string>();
+
+    auto replyCallback = [callback = std::move(callback), receivedEtag](
+                                 Error error, int httpStatus, const std::string &reply) {
+        callback(ApiReply {error, httpStatus, reply, *receivedEtag});
+    };
+
+    auto deferredSetup = [this] {
+        return std::make_tuple(url(URL_ACHIEVEMENTS_DEFINITIONS), cpr::Parameters {});
+    };
+
+    m_worker.post(createHttpRequestTask(
+            REST_GET, HttpStatusCallback {std::move(replyCallback)}, std::move(deferredSetup),
+            [this, etag = std::move(etag), receivedEtag](
+                    const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
+                    const cpr::Timeout &timeout, bool /*resilient*/) {
+                if (!etag.empty()) {
+                    header[HDR_KEY_IF_NONE_MATCH] = etag;
+                }
+                auto r = HttpSessionPool::instance().Get(url, params, header, timeout,
+                                                         sslOptions());
+                if (const auto it = r.header.find(HDR_KEY_ETAG); it != r.header.end()) {
+                    *receivedEtag = it->second;
+                }
+                return r;
+            }));
+}
+
+void Net::fetchAchievementProgress(std::string userId, ApiReplyCallback callback)
+{
+    auto replyCallback = [callback = std::move(callback)](Error error, int httpStatus,
+                                                          const std::string &reply) {
+        callback(ApiReply {error, httpStatus, reply, {}});
+    };
+
+    auto deferredSetup = [this, userId = std::move(userId)] {
+        return std::make_tuple(url(URL_ACHIEVEMENTS_PROGRESS),
+                               cpr::Parameters {{QUERY_ACHIEVEMENTS_USER_ID, userId}});
+    };
+
+    m_worker.post(createHttpRequestTask(
+            REST_GET, HttpStatusCallback {std::move(replyCallback)}, std::move(deferredSetup),
+            [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return HttpSessionPool::instance().Get(url, params, header, timeout,
+                                                       sslOptions());
+            }));
+}
+
+void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
+{
+    auto replyCallback = [callback = std::move(callback)](Error error, int httpStatus,
+                                                          const std::string &reply) {
+        callback(ApiReply {error, httpStatus, reply, {}});
+    };
+
+    auto deferredSetup = [this, body = std::move(body)] {
+        return std::make_tuple(url(URL_ACHIEVEMENTS_REPORT), cpr::Body {body});
+    };
+
+    m_worker.post(createPostRequestTask(HttpStatusCallback {std::move(replyCallback)},
+                                        std::move(deferredSetup)));
+}
+
+void Net::downloadAchievementFrames(std::string gameSlug, std::string filename,
+                                    ApiReplyCallback callback)
+{
+    const auto endpoint = fmt::format(fmt::runtime(URL_ACHIEVEMENTS_FRAMES),
+                                      fmt::arg(ARG_GAME_SLUG, gameSlug));
+
+    download(
+            true,
+            [callback = std::move(callback)](Error error, const std::string &reply) {
+                callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
+            },
+            endpoint, filename, {});
+}
+
+void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
+                                   std::function<void()> fn)
+{
+    m_worker.stopTimer(Worker::Timer::AchievementRetry);
+    m_worker.startTimer(Worker::Timer::AchievementRetry, delay, std::move(fn));
+}
+
+void Net::setPlayersChangedCallback(PlayersChangedCallback callback)
+{
+    std::scoped_lock lock(m_playersChangedCallbackMutex);
+    m_playersChangedCallback = std::move(callback);
+}
+
 void Net::uploadDiagnostics(std::vector<std::string> logPaths,
                             std::vector<std::string> recordingPaths, std::string logString,
                             std::optional<std::uint64_t> requestGeneration)
@@ -1873,7 +1966,7 @@ task_t Net::updateConfigTask(const std::string &type, const std::string &version
 }
 
 task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
-                                    std::function<void()> onCreated)
+                                    SessionCreatedCallback onCreated)
 {
     INF("API session create for id: {}, started by: {} ...", sessionId, origin);
     int sessionCounter;
@@ -1924,6 +2017,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
 
                     std::string newSessionUuid;
                     it->get_to(newSessionUuid);
+                    const auto createdSessionUuid = newSessionUuid;
 
                     bool sessionUpdated = false;
                     {
@@ -1952,7 +2046,7 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
 
                     if (onCreated && !m_stop && sessionUpdated) {
                         try {
-                            onCreated();
+                            onCreated(createdSessionUuid);
                         } catch (const std::exception &e) {
                             ERR("API create session onCreated: {}", e.what());
                         }
@@ -2727,7 +2821,8 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             reply = std::move(r.text);
             httpStatus = r.status_code;
 
-            if (r.status_code >= 200 && r.status_code < 300) {
+            // 304 only ever answers a conditional request, which asked precisely for it
+            if ((r.status_code >= 200 && r.status_code < 300) || r.status_code == 304) {
                 DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
                 error = Error::Success;
                 noteRestSuccess(r.header);
@@ -3175,6 +3270,12 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
 
     // Process players profiles
     if (auto changedProfiles = m_playersManager.setProfiles(val, m_machineInfo.machineUuid)) {
+        {
+            std::scoped_lock lock(m_playersChangedCallbackMutex);
+            if (m_playersChangedCallback) {
+                m_playersChangedCallback(*changedProfiles);
+            }
+        }
         m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
     }
 

@@ -477,7 +477,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     // Create session and send initial game data later when session uuid will be available,
     // so it will publish initial state (which maybe 0) to centrifugo channel.
     // This prevents situation when just started game doesn't publish 0 and app stuck waiting
-    m_net->sessionCreate(m_data, origin, [this]() { submitGameData(true); });
+    m_net->sessionCreate(m_data, origin, [this](const std::string &) { submitGameData(true); });
 
     return true;
 }

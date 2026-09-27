@@ -53,6 +53,7 @@ public:
         AuthGate,
         ScorbitronRetry,
         PairCode,
+        AchievementRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

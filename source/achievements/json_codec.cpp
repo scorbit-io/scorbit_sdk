@@ -68,6 +68,32 @@ constexpr auto KEY_INDEX = "index";
 constexpr auto KEY_VALUE = "value";
 constexpr auto KEY_SATISFIED = "satisfied";
 
+// Report request / response (§10.5)
+constexpr auto KEY_USER_ID = "user_id";
+constexpr auto KEY_SESSION_UUID = "session_uuid";
+constexpr auto KEY_SEQUENCE = "sequence";
+constexpr auto KEY_ACHIEVEMENTS = "achievements";
+constexpr auto KEY_STATUS = "status";
+constexpr auto KEY_CODE = "code";
+constexpr auto KEY_DETAIL = "detail";
+
+std::optional<ReportStatus> reportStatusFromString(std::string_view str)
+{
+    if (str == "unlocked") {
+        return ReportStatus::Unlocked;
+    }
+    if (str == "in_progress") {
+        return ReportStatus::InProgress;
+    }
+    if (str == "already_held") {
+        return ReportStatus::AlreadyHeld;
+    }
+    if (str == "rejected") {
+        return ReportStatus::Rejected;
+    }
+    return std::nullopt;
+}
+
 /** The field's value, or std::nullopt when absent or null. Throws json::type_error on mismatch. */
 template<typename T>
 std::optional<T> field(const json &object, const char *key)
@@ -290,6 +316,61 @@ std::optional<Baselines> parseProgressResponse(const json &document)
         }
     }
     return baselines;
+}
+
+std::string encodeReportRequest(const ReportRequest &request)
+{
+    json achievements = json::array();
+    for (const auto &item : request.items) {
+        json progress = json::array();
+        for (const auto &[index, rule] : item.rules) {
+            progress.push_back(
+                    {{KEY_INDEX, index}, {KEY_VALUE, rule.value}, {KEY_SATISFIED, rule.satisfied}});
+        }
+
+        json entry {{KEY_KEY, item.key}, {KEY_RULE_PROGRESS, std::move(progress)}};
+        if (item.achieved) {
+            entry[KEY_ACHIEVED] = *item.achieved;
+        }
+        achievements.push_back(std::move(entry));
+    }
+
+    return json {{KEY_USER_ID, request.userId},
+                 {KEY_SESSION_UUID, request.sessionUuid},
+                 {KEY_SEQUENCE, request.sequence},
+                 {KEY_ACHIEVEMENTS, std::move(achievements)}}
+            .dump();
+}
+
+std::optional<std::vector<ReportOutcome>> parseReportResponse(const json &document)
+{
+    if (!document.is_object()) {
+        ERR("Achievements: report response is not an object");
+        return std::nullopt;
+    }
+
+    const auto results = document.find(KEY_RESULTS);
+    if (results == document.end() || !results->is_array()) {
+        ERR("Achievements: report response has no 'results' array");
+        return std::nullopt;
+    }
+
+    std::vector<ReportOutcome> outcomes;
+    for (const auto &entry : *results) {
+        try {
+            const auto statusStr = requiredField<std::string>(entry, KEY_STATUS);
+            const auto status = reportStatusFromString(statusStr);
+            if (!status) {
+                throw std::invalid_argument(fmt::format("unknown status '{}'", statusStr));
+            }
+            outcomes.push_back(ReportOutcome {requiredField<std::string>(entry, KEY_KEY), *status,
+                                              fieldOr<std::string>(entry, KEY_CODE, {}),
+                                              fieldOr<std::string>(entry, KEY_DETAIL, {})});
+        } catch (const std::exception &e) {
+            WRN("Achievements: skipping malformed report result: {}", e.what());
+        }
+    }
+    return outcomes;
 }
 
 } // namespace achievements

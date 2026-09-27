@@ -44,6 +44,12 @@ constexpr auto URL_DIAGNOSTICS_WIFI_EVENT_PATH {"internal/api/diagnostics/wifi-e
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
+constexpr auto URL_ACHIEVEMENTS_DEFINITIONS {"api/v2/achievements/scorbitron/"};
+constexpr auto URL_ACHIEVEMENTS_PROGRESS {"api/v2/achievements/scorbitron/progress/"};
+constexpr auto URL_ACHIEVEMENTS_REPORT {"api/v2/achievements/report/"};
+constexpr auto QUERY_ACHIEVEMENTS_USER_ID {"user_id"};
+constexpr auto URL_ACHIEVEMENTS_FRAMES {"api/v2/games/{game_slug}/achievements/frames-zip/"};
+
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"
                                  "&machineid={scorbit_machine_id}&uuid={scorbitron_uuid}"
@@ -87,6 +93,8 @@ constexpr auto HDR_KEY_CACHE_CONTROL {"Cache-Control"};
 constexpr auto HDR_VAL_NO_CACHE {"no-cache"};
 
 constexpr auto HDR_KEY_FINGERPRINT_HASH {"X-Fingerprint-Hash"};
+constexpr auto HDR_KEY_IF_NONE_MATCH {"If-None-Match"};
+constexpr auto HDR_KEY_ETAG {"ETag"};
 
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};

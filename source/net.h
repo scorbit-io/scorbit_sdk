@@ -160,7 +160,7 @@ public:
                       std::optional<std::string> log = std::nullopt,
                       HttpStatusCallback callback = {}) override;
     void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
-                       std::function<void()> onCreated) override;
+                       SessionCreatedCallback onCreated) override;
     void submitGameData(const detail::GameData &data, SessionFlags flags) override;
     void getConfig() override;
     void requestPairCode(StringCallback callback) override;
@@ -206,12 +206,21 @@ public:
                            std::vector<std::string> recordingPaths, std::string logString,
                            std::optional<std::uint64_t> requestGeneration = std::nullopt) override;
 
+    void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback) override;
+    void fetchAchievementProgress(std::string userId, ApiReplyCallback callback) override;
+    void postAchievementReport(std::string body, ApiReplyCallback callback) override;
+    void downloadAchievementFrames(std::string gameSlug, std::string filename,
+                                   ApiReplyCallback callback) override;
+    void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
+                                  std::function<void()> fn) override;
+    void setPlayersChangedCallback(PlayersChangedCallback callback) override;
+
 private:
     task_t createAuthenticateTask();
     task_t updateConfigTask(const std::string &type, const std::string &version, bool installed,
                             std::optional<std::string> log, HttpStatusCallback callback);
     task_t createSessionCreateTask(int sessionId, GameStartOrigin origin,
-                                   std::function<void()> onCreated);
+                                   SessionCreatedCallback onCreated);
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
 
     void sessionUpdate(int sessionId, SessionFlags flags);
@@ -536,6 +545,8 @@ private:
 
     Updater m_updater;
     PlayerProfilesManager m_playersManager;
+    PlayersChangedCallback m_playersChangedCallback;
+    std::mutex m_playersChangedCallbackMutex;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 
