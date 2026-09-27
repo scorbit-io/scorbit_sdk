@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #pragma once
 
 #include "progress.h"
@@ -34,7 +33,8 @@ namespace achievements {
 struct ReportItem {
     std::string key;
 
-    /** The claim: true asks for the grant, false says "evaluated, not earned", nullopt = no verdict. */
+    /** The claim: true asks for the grant, false says "evaluated, not earned", nullopt = no
+     * verdict. */
     std::optional<bool> achieved;
 
     /** Sparse: only rules the machine could judge. */

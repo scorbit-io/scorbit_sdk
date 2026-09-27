@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "json_codec.h"
 #include "definition_check.h"
 #include <fmt/format.h>

@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "achievement_storage.h"
 #include "../event_ops.h"
 #include "../utils/archiver.h"

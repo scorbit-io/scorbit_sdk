@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #pragma once
 
 #include <../source/achievements/definition.h>

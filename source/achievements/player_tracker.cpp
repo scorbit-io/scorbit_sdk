@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "player_tracker.h"
 #include <utility>
 
@@ -37,8 +36,8 @@ RuleProgressMap zeroState(const Definition &definition)
     RuleProgressMap rules;
     for (size_t i = 0; i < definition.rules.size(); ++i) {
         const auto &rule = definition.rules[i];
-        rules[i] = RuleProgress {
-                0, !isQualifier(rule.type) && satisfies(0, rule.comparison, rule.target)};
+        rules[i] = RuleProgress {0, !isQualifier(rule.type)
+                                            && satisfies(0, rule.comparison, rule.target)};
     }
     return rules;
 }
@@ -136,8 +135,7 @@ bool PlayerTracker::evaluateAll(const PlayerFacts &facts, const DefinitionSet &d
 void PlayerTracker::reevaluate(const PlayerFacts &facts, const DefinitionSet &definitions)
 {
     // Each pass can only add to the held set, so this terminates within one pass per record
-    while (evaluateAll(facts, definitions)) {
-    }
+    while (evaluateAll(facts, definitions)) { }
 }
 
 std::vector<ReportItem> PlayerTracker::takeClaims()
@@ -156,7 +154,8 @@ std::vector<ReportItem> PlayerTracker::collectReport()
 {
     std::vector<ReportItem> items;
     for (const auto &[key, record] : m_records) {
-        if (record.evaluation != EvaluationClass::Unlimited || record.rules == record.acknowledged) {
+        if (record.evaluation != EvaluationClass::Unlimited
+            || record.rules == record.acknowledged) {
             continue;
         }
         items.push_back(reportItem(key, record));
@@ -200,8 +199,8 @@ void PlayerTracker::withdrawUnsupported(const PlayerFacts &facts, const Definiti
             }
             const auto baselineIt = m_baselines.find(key);
             const EvaluationContext context {
-                    facts, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second,
-                    m_held, definitions};
+                    facts, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second, m_held,
+                    definitions};
             if (!evaluate(*definition, context).allSatisfied) {
                 retract(key, record);
                 changed = true;
