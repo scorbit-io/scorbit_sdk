@@ -121,8 +121,11 @@ target_sources(
         ../../source/achievements/report_outbox.cpp
         ../../source/achievements/achievement_storage.h
         ../../source/achievements/achievement_storage.cpp
+        ../../source/achievements/achievement_service.h
+        ../../source/achievements/achievement_service.cpp
         source/test_achievement_tracker.cpp
         source/test_achievement_reporting.cpp
+        source/test_game_state_achievements.cpp
         source/achievement_test_support.h
         source/test_achievement_evaluator.cpp
         source/test_achievement_facts.cpp

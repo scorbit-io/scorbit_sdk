@@ -20,6 +20,7 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
+#include "scorbit_sdk/achievements_c.h"
 #include "player_profiles_manager.h"
 #include "identifiers.h"
 #include <logger/logger.h>
@@ -29,6 +30,7 @@
 #include <functional>
 #include <optional>
 #include <iterator>
+#include <vector>
 
 struct sb_event_t {
     virtual ~sb_event_t() = default;
@@ -387,6 +389,42 @@ public:
 
 private:
     bool m_isPaired;
+};
+
+// ---------------- AchievementUpdated implementation ----------------
+
+class AchievementUpdatedEvent : public EventBase
+{
+public:
+    struct Rule {
+        size_t index {0};
+        int64_t value {0};
+        bool satisfied {false};
+    };
+
+    AchievementUpdatedEvent(std::string key, sb_player_t player, std::string userId,
+                            sb_achievement_status_t status, std::vector<Rule> rules)
+        : EventBase(EventType::AchievementUpdated, EventPriority::High)
+        , m_key {std::move(key)}
+        , m_player {player}
+        , m_userId {std::move(userId)}
+        , m_status {status}
+        , m_rules {std::move(rules)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_key; }
+    auto player() const -> sb_player_t { return m_player; }
+    auto userId() const -> const std::string & { return m_userId; }
+    auto status() const -> sb_achievement_status_t { return m_status; }
+    auto rules() const -> const std::vector<Rule> & { return m_rules; }
+
+private:
+    std::string m_key;
+    sb_player_t m_player;
+    std::string m_userId;
+    sb_achievement_status_t m_status;
+    std::vector<Rule> m_rules;
 };
 
 } // namespace detail

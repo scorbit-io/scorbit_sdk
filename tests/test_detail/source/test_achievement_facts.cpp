@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "achievement_test_support.h"
 #include <catch2/catch_test_macros.hpp>
 
@@ -83,10 +82,10 @@ TEST_CASE("A running activation is closed at ball end with its real duration", "
 TEST_CASE("Ball durations and multiplayer session time", "[achievements]")
 {
     Timeline t;
-    t.at(0).score(2, 0).commit();          // p1 ball 1
-    t.at(10000).player(2).commit();        // p2 ball 1
+    t.at(0).score(2, 0).commit();           // p1 ball 1
+    t.at(10000).player(2).commit();         // p2 ball 1
     t.at(25000).player(1).ball(2).commit(); // p1 ball 2
-    t.at(30000).player(2).commit();        // p2 ball 2
+    t.at(30000).player(2).commit();         // p2 ball 2
     t.facts.finish(32000);
 
     const auto &p1 = t.facts.player(1);

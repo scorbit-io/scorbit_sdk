@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "achievement_test_support.h"
 #include <../source/achievements/player_tracker.h>
 #include <catch2/catch_test_macros.hpp>
@@ -242,9 +241,12 @@ TEST_CASE("A same-title chain resolves in one pass", "[achievements]")
     s.commit();
 
     const auto updates = s.tracker.takeUpdates();
-    CHECK(statusesOf(updates, "game-tom-tenball") == std::vector {AchievementStatus::UnlockedLocally});
-    CHECK(statusesOf(updates, "game-tom-spinner") == std::vector {AchievementStatus::UnlockedLocally});
-    CHECK(statusesOf(updates, "game-tom-devotee") == std::vector {AchievementStatus::UnlockedLocally});
+    CHECK(statusesOf(updates, "game-tom-tenball")
+          == std::vector {AchievementStatus::UnlockedLocally});
+    CHECK(statusesOf(updates, "game-tom-spinner")
+          == std::vector {AchievementStatus::UnlockedLocally});
+    CHECK(statusesOf(updates, "game-tom-devotee")
+          == std::vector {AchievementStatus::UnlockedLocally});
 }
 
 TEST_CASE("A prerequisite not delivered withholds the claim", "[achievements]")

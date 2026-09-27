@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "achievement_test_support.h"
 #include <../source/achievements/rule_evaluator.h>
 #include <catch2/catch_test_macros.hpp>
@@ -83,8 +82,8 @@ TEST_CASE("Billionaires Club: lifetime score", "[achievements]")
 
 TEST_CASE("Grand Finale: complete the mode", "[achievements]")
 {
-    const auto def = inSession("game-tom-finale",
-                               {rule(RuleType::ModeCompleted, GE, 1, "Grand Finale")});
+    const auto def =
+            inSession("game-tom-finale", {rule(RuleType::ModeCompleted, GE, 1, "Grand Finale")});
     Evaluator ev;
     ev.timeline.at(0).commit();
     ev.timeline.at(1000).modes({"Grand Finale"}).commit();
@@ -96,7 +95,8 @@ TEST_CASE("Grand Finale: complete the mode", "[achievements]")
 
 TEST_CASE("Marathon Multiball: one activation for sixty seconds", "[achievements]")
 {
-    const auto def = inSession("game-marathon", {rule(RuleType::TimerMode, GE, 60000, "multiball")});
+    const auto def =
+            inSession("game-marathon", {rule(RuleType::TimerMode, GE, 60000, "multiball")});
     Evaluator ev;
     ev.timeline.at(0).commit();
     ev.timeline.at(1000).modes({"multiball"}).commit();
@@ -148,10 +148,10 @@ TEST_CASE("Double Trouble: two multiballs within thirty seconds", "[achievements
 
 TEST_CASE("Quick Hands: two different facts close together, either order", "[achievements]")
 {
-    const auto def = inSession("game-quick-hands",
-                               {rule(RuleType::Mode, GE, 1, "multiball"),
-                                rule(RuleType::ModeCompleted, GE, 1, "ramp combo"),
-                                rule(RuleType::TimerBetween, LE, 180000)});
+    const auto def =
+            inSession("game-quick-hands", {rule(RuleType::Mode, GE, 1, "multiball"),
+                                           rule(RuleType::ModeCompleted, GE, 1, "ramp combo"),
+                                           rule(RuleType::TimerBetween, LE, 180000)});
     Evaluator ev;
     ev.timeline.at(0).commit();
 
@@ -256,9 +256,9 @@ TEST_CASE("The Long Haul: any session of thirty minutes", "[achievements]")
 
 TEST_CASE("First try: complete a mode on its only activation", "[achievements]")
 {
-    const auto def = inSession("game-first-try",
-                               {rule(RuleType::Mode, EQ, 1, "Grand Finale"),
-                                rule(RuleType::ModeCompleted, GE, 1, "Grand Finale")});
+    const auto def =
+            inSession("game-first-try", {rule(RuleType::Mode, EQ, 1, "Grand Finale"),
+                                         rule(RuleType::ModeCompleted, GE, 1, "Grand Finale")});
     Evaluator ev;
     ev.timeline.at(0).commit();
     ev.timeline.at(1000).modes({"Grand Finale"}).commit();
@@ -320,8 +320,8 @@ TEST_CASE("An in_session window ignores the stored value", "[achievements]")
 
 TEST_CASE("Stack Attack: two modes together, three times", "[achievements]")
 {
-    const auto def = inSession("game-stack-attack",
-                               {rule(RuleType::ModeStack, GE, 3, "multiball,wizard")});
+    const auto def =
+            inSession("game-stack-attack", {rule(RuleType::ModeStack, GE, 3, "multiball,wizard")});
     Evaluator ev;
     ev.timeline.at(0).commit();
     for (int i = 0; i < 3; ++i) {
@@ -340,9 +340,9 @@ TEST_CASE("LE rules are not paired implicitly (§6.3)", "[achievements]")
 
     SECTION("The wrong rule set passes for a player who did nothing about gem X")
     {
-        const auto wrong = inSession("game-taf-gem-wrong",
-                                     {rule(RuleType::TimerMode, LE, 60000, "gemX"),
-                                      rule(RuleType::TimerSession, GE, 180000)});
+        const auto wrong =
+                inSession("game-taf-gem-wrong", {rule(RuleType::TimerMode, LE, 60000, "gemX"),
+                                                 rule(RuleType::TimerSession, GE, 180000)});
         const auto result = ev(wrong);
         CHECK(result.allSatisfied);
         CHECK(result.rules.at(0) == RuleProgress {0, true});
@@ -350,28 +350,29 @@ TEST_CASE("LE rules are not paired implicitly (§6.3)", "[achievements]")
 
     SECTION("The existence rule makes it correct")
     {
-        const auto right = inSession("game-taf-gem",
-                                     {rule(RuleType::Mode, GE, 1, "gemX"),
-                                      rule(RuleType::TimerMode, LE, 60000, "gemX"),
-                                      rule(RuleType::TimerSession, GE, 180000)});
+        const auto right = inSession("game-taf-gem", {rule(RuleType::Mode, GE, 1, "gemX"),
+                                                      rule(RuleType::TimerMode, LE, 60000, "gemX"),
+                                                      rule(RuleType::TimerSession, GE, 180000)});
         CHECK_FALSE(ev(right).allSatisfied);
     }
 }
 
 TEST_CASE("ACHIEVEMENT rules", "[achievements]")
 {
-    const auto parent = unlimited("game-tom-devotee",
-                                  {rule(RuleType::Achievement, GE, 1, "game-tom-tenball"),
-                                   rule(RuleType::Achievement, GE, 1, "game-tom-spinner")});
+    const auto parent =
+            unlimited("game-tom-devotee", {rule(RuleType::Achievement, GE, 1, "game-tom-tenball"),
+                                           rule(RuleType::Achievement, GE, 1, "game-tom-spinner")});
     Evaluator ev;
     ev.timeline.at(0).commit();
 
     SECTION("Both prerequisites delivered")
     {
-        ev.definitions = DefinitionSet {"tom", 0,
-                                        {inSession("game-tom-tenball", {rule(RuleType::Mode, GE, 10, "multiball")}),
-                                         unlimited("game-tom-spinner", {rule(RuleType::Event, GE, 10000, "spins")}),
-                                         parent}};
+        ev.definitions = DefinitionSet {
+                "tom",
+                0,
+                {inSession("game-tom-tenball", {rule(RuleType::Mode, GE, 10, "multiball")}),
+                 unlimited("game-tom-spinner", {rule(RuleType::Event, GE, 10000, "spins")}),
+                 parent}};
         ev.held = {"game-tom-spinner"};
         auto result = ev(parent);
         CHECK_FALSE(result.allSatisfied);
@@ -397,7 +398,8 @@ TEST_CASE("Never happened means zero", "[achievements]")
     Evaluator ev;
     ev.timeline.at(0).commit();
 
-    CHECK(ev(inSession("a", {rule(RuleType::Mode, GE, 1, "x")})).rules.at(0) == RuleProgress {0, false});
+    CHECK(ev(inSession("a", {rule(RuleType::Mode, GE, 1, "x")})).rules.at(0)
+          == RuleProgress {0, false});
     CHECK(ev(inSession("b", {rule(RuleType::TimerMode, LE, 60000, "x")})).rules.at(0)
           == RuleProgress {0, true});
     CHECK(ev(inSession("c", {rule(RuleType::Event, Comparison::Ne, 1, "x")})).rules.at(0)
@@ -418,11 +420,12 @@ TEST_CASE("Observation value is the best one for the predicate", "[achievements]
     Evaluator ev;
     ev.timeline.at(0).commit();
     ev.timeline.at(1000).modes({"m"}).commit();
-    ev.timeline.at(11000).modes({}).commit();  // 10 s
+    ev.timeline.at(11000).modes({}).commit(); // 10 s
     ev.timeline.at(12000).modes({"m"}).commit();
-    ev.timeline.at(15000).modes({}).commit();  // 3 s
+    ev.timeline.at(15000).modes({}).commit(); // 3 s
 
-    CHECK(ev(inSession("ge", {rule(RuleType::TimerMode, GE, 60000, "m")})).rules.at(0).value == 10000);
+    CHECK(ev(inSession("ge", {rule(RuleType::TimerMode, GE, 60000, "m")})).rules.at(0).value
+          == 10000);
     CHECK(ev(inSession("le", {rule(RuleType::TimerMode, LE, 5000, "m")})).rules.at(0)
           == RuleProgress {3000, true});
     CHECK(ev(inSession("eq", {rule(RuleType::TimerMode, EQ, 10000, "m")})).rules.at(0)
