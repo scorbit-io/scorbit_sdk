@@ -81,7 +81,10 @@ public:
     AchievementService(const AchievementService &) = delete;
     AchievementService &operator=(const AchievementService &) = delete;
 
-    /** Loads the cached definitions and revalidates them with the API. */
+    /**
+     * Revalidates the cached definitions with the API. Also done at every game start, so a
+     * machine paired after boot, or an achievement published since, needs no reboot.
+     */
     void refreshDefinitions();
 
     /** Game @p sessionId (game state's own id) started; @p firstRow is its initial state. */
@@ -162,6 +165,7 @@ private:
     Session *m_current {nullptr};
     uint64_t m_lastSessionId {0};
 
+    bool m_fetchingDefinitions {false};
     bool m_downloadingFrames {false};
 
     /** Guards the service against replies arriving after it was destroyed. */
