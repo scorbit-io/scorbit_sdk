@@ -163,20 +163,39 @@ TEST_CASE("Game history to csv", "[gameHistoryToCsv]")
     data.modes.addMode("MB:Multiball2");
     history.push_back(data);
 
-    // Completed modes are events, they are reported in a single row only
+    // Completed modes and events are edges, each is reported in a single row only
     data.timestamp = std::chrono::system_clock::time_point(25s);
     data.completedModes.addMode("MB:Multiball");
     data.completedModes.addMode("NA:SomeMode");
     history.push_back(data);
 
+    data.timestamp = std::chrono::system_clock::time_point(25123ms);
+    data.completedModes.clear();
+    data.events.push_back(EventOp {"spins", 3});
+    data.events.push_back(EventOp {"ramps", -1});
+    history.push_back(data);
+
     std::string csv = gameHistoryToCsv(history);
     std::string expectedCsv =
-            "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes,completed_modes\n"
-            "10,100,,,,,,1,1,,\n"
-            "15,200,,,,,,1,1,,\n"
-            "20,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",\n"
-            "25,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",\"MB:Multiball;NA:SomeMode\"\n";
+            "time,p1,p2,p3,p4,p5,p6,player,ball,game_modes,completed_modes,events\n"
+            "10000,100,,,,,,1,1,,,\n"
+            "15000,200,,,,,,1,1,,,\n"
+            "20000,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",,\n"
+            "25000,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",\"MB:Multiball;NA:SomeMode\",\n"
+            "25123,200,1000,,,,,2,3,\"MB:Multiball;MB:Multiball2\",,\"spins+=3;ramps+=-1\"\n";
     CHECK(csv == expectedCsv);
+}
+
+TEST_CASE("Timeline name validation", "[gameHistoryToCsv]")
+{
+    CHECK(isValidTimelineName("spins"));
+    CHECK(isValidTimelineName("NA:The Tale of the Forty Thieves"));
+    CHECK_FALSE(isValidTimelineName(""));
+    CHECK_FALSE(isValidTimelineName("a;b"));
+    CHECK_FALSE(isValidTimelineName("a=b"));
+    CHECK_FALSE(isValidTimelineName("a,b"));
+    CHECK_FALSE(isValidTimelineName("a\"b"));
+    CHECK_FALSE(isValidTimelineName("a\nb"));
 }
 
 TEST_CASE("parseActionGetUrl, happy path")

@@ -163,6 +163,20 @@ void GameStateImpl::setModeCompleted(std::string mode)
     m_data.completedModes.addMode(std::move(mode));
 }
 
+void GameStateImpl::addEvent(std::string name, int64_t value)
+{
+    if (!m_data.isGameActive) {
+        return;
+    }
+
+    if (!isValidTimelineName(name)) {
+        WRN("Ignoring event with invalid name '{}'", name);
+        return;
+    }
+
+    m_data.events.push_back(EventOp {std::move(name), value});
+}
+
 void GameStateImpl::tickModeExpiries()
 {
     if (!m_data.isGameActive) {
@@ -359,9 +373,12 @@ void GameStateImpl::submitGameData(bool forceSending)
                     // Use previous active player as current active player and prev ball
                     tempData.activePlayer = prevActivePlayer;
                     tempData.ball = m_prevData.ball;
-                    // Completed modes belong to the real update below, not to this synthetic
-                    // bonus score row, otherwise they would be reported twice.
+                    // Modes, completed modes and events belong to the real update below, not to
+                    // this synthetic bonus score row: otherwise edges would be reported twice, and
+                    // a mode started in this update would be attributed to the previous player.
+                    tempData.modes = m_prevData.modes;
                     tempData.completedModes.clear();
+                    tempData.events.clear();
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
@@ -402,11 +419,13 @@ void GameStateImpl::submitGameData(bool forceSending)
 
         m_prevData = m_data;
 
-        // Completed modes are one-shot events: they are reported in the update just published and
-        // must not be repeated in the following ones. Clearing both keeps isChanged() false, so an
-        // otherwise unchanged game state doesn't produce an extra update.
+        // Completed modes and events are one-shot edges: they are reported in the update just
+        // published and must not be repeated in the following ones. Clearing both keeps
+        // isChanged() false, so an otherwise unchanged game state doesn't produce an extra update.
         m_data.completedModes.clear();
         m_prevData.completedModes.clear();
+        m_data.events.clear();
+        m_prevData.events.clear();
     }
 }
 

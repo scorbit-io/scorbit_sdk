@@ -65,6 +65,12 @@ public:
      */
     void setModeCompleted(std::string mode);
 
+    /**
+     * Add @p value (may be negative) to the event register @p name (achievements input). The
+     * operation is recorded in the `events` column of the next history row only.
+     */
+    void addEvent(std::string name, int64_t value);
+
     /** Called from C API thread when the worker timer fires. */
     void tickModeExpiries();
 

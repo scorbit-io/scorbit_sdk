@@ -143,6 +143,11 @@ bool Modes::contains(const string &mode) const
     return std::ranges::find(m_modes, mode) != end(m_modes);
 }
 
+vector<string> Modes::names() const
+{
+    return {begin(m_modes), end(m_modes)};
+}
+
 string Modes::str() const
 {
     if (m_modes.empty())

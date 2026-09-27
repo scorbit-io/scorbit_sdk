@@ -235,6 +235,33 @@ SCORBIT_SDK_EXPORT
 void sb_set_mode_completed(sb_game_handle_t handle, const char *mode);
 
 /**
+ * @brief Add a value to a named event register.
+ *
+ * An event is a named 64-bit counter that the game accumulates: spinner spins, ramps, targets
+ * hit. Unlike a mode, which is a state with a lifetime, an event is a running total the game adds
+ * to. Events are matched against achievement conditions (e.g. "10,000 spins, for life").
+ *
+ * @note Like completed modes, event operations are one-shot: each call is recorded in the
+ * `events` column of the history row produced by the next @ref sb_commit only, and is not
+ * repeated afterwards. Several calls before a commit are all recorded in that one row. Adding an
+ * event makes the game state changed, so the next @ref sb_commit sends an update even if nothing
+ * else has changed.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param name The event name (e.g., "spins"). It must not be empty and must not contain `;`,
+ * `=`, `,`, `"` or a newline; such a call is ignored. Names are case-sensitive.
+ * @param value The amount to add; it may be negative to reduce the register.
+ *
+ * Example:
+ * @code
+ * sb_add_event(handle, "spins", 3);
+ * sb_commit(handle);
+ * @endcode
+ */
+SCORBIT_SDK_EXPORT
+void sb_add_event(sb_game_handle_t handle, const char *name, int64_t value);
+
+/**
  * @brief Remove a mode from the game.
  *
  * Removes a mode from the game's active mode list. If the mode does not exist, the function skips
