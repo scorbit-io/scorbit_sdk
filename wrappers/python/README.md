@@ -142,6 +142,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
 | `set_mode_completed(mode)` | Mark a mode as completed (used as condition for achievements). |
+| `add_event(name, value)` | Add to a named event register, e.g. spinner spins (achievements input). |
 | `remove_mode(mode)` | Remove mode. |
 | `clear_modes()` | Clear all modes. |
 | `commit()` | Push updates to the cloud. |
@@ -158,6 +159,26 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__` cleanup.
 | `download(url, file, ct, cb)` | Async file download. |
 | `download_buffer(url, size, ct, cb)` | Async buffer download. |
 | `destroy()` | Free resources (also from `__exit__`). |
+
+### Achievements
+
+Achievements are evaluated automatically on every `commit()` for each player who claimed a
+slot; what happens is delivered to the event callback as `EventType.AchievementUpdated`
+(`event.get_achievement_updated()` returns an `AchievementUpdate`). With status
+`AchievementStatus.UnlockedLocally` the unlock may be presented at once; with
+`AchievementStatus.Retracted` it must be withdrawn.
+
+| Method | Description |
+|--------|-------------|
+| `get_achievements()` | Cached definitions (`Achievement`, with full `rules`). |
+| `find_achievement(key)` | One definition, or `None`. |
+| `get_achievement_progress(player, key)` | Live `AchievementProgress` of a claimed player, or `None`. |
+| `refresh_achievements()` | Revalidate definitions now (normally automatic). |
+| `fetch_player_achievements(user_id, cb)` | Async stored state of a player, as JSON. |
+| `flush_achievement_reports()` | Report progress now instead of at ball end. |
+| `download_achievement_frames()` / `get_achievement_frame(key)` | DMD frame bundle. |
+
+Use `Config.set_data_dir(path)` to keep the achievements cache across reboots.
 
 ### `Event`
 
