@@ -187,6 +187,22 @@ class GameState(object):
         """
         _lib.sb_set_mode_completed(self._handle, _encode(mode))
 
+    def add_event(self, name, value):
+        # type: (str, int) -> None
+        """Add *value* to the named event register.
+
+        An event is a named 64-bit counter the game accumulates (spinner
+        spins, ramps, ...), matched against achievement conditions.  Like a
+        completed mode it is one-shot: it is recorded only in the history
+        row produced by the next :meth:`commit`.
+
+        Args:
+            name: e.g. ``"spins"``.  Must not be empty or contain ``;``,
+                ``=``, ``,``, ``"`` or a newline; such a call is ignored.
+            value: amount to add; may be negative.
+        """
+        _lib.sb_add_event(self._handle, _encode(name), value)
+
     def remove_mode(self, mode):
         # type: (str) -> None
         """Remove a mode from the active list (no-op if absent)."""

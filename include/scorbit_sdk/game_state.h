@@ -214,6 +214,24 @@ public:
     }
 
     /**
+     * @brief Add a value to a named event register.
+     *
+     * An event is a named 64-bit counter that the game accumulates: spinner spins, ramps, targets
+     * hit. Events are matched against achievement conditions (e.g. "10,000 spins, for life").
+     *
+     * @note Event operations are one-shot, like completed modes: each call is recorded only in the
+     * history row produced by the next @ref commit. Adding an event makes the game state changed.
+     *
+     * @param name The event name (e.g., "spins"). It must not be empty and must not contain `;`,
+     * `=`, `,`, `"` or a newline; such a call is ignored. Names are case-sensitive.
+     * @param value The amount to add; it may be negative to reduce the register.
+     */
+    void addEvent(const std::string &name, int64_t value)
+    {
+        sb_add_event(m_handle.get(), name.c_str(), value);
+    }
+
+    /**
      * @brief Remove a mode from the game.
      *
      * Removes a mode from the game's active mode list. If the mode does not exist, it is skipped.

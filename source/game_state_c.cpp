@@ -114,6 +114,12 @@ struct JobSetModeCompleted {
     std::string mode;
 };
 
+struct JobAddEvent {
+    sb_game_state_struct *h;
+    std::string name;
+    int64_t value;
+};
+
 struct JobTickModeExpiries {
     sb_game_state_struct *h;
 };
@@ -228,7 +234,7 @@ struct JobSubmitHardwareProbeResult {
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                     JobSetModeCompleted, JobTickModeExpiries, JobRemoveMode, JobClearModes,
+                     JobSetModeCompleted, JobAddEvent, JobTickModeExpiries, JobRemoveMode, JobClearModes,
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
@@ -319,6 +325,7 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobAddModeExpiring &&j) {
                         j.h->gameState.addModeExpiring(std::move(j.mode), j.duration_seconds);
                     },
+                    [](JobAddEvent &&j) { j.h->gameState.addEvent(std::move(j.name), j.value); },
                     [](JobSetModeCompleted &&j) {
                         j.h->gameState.setModeCompleted(std::move(j.mode));
                     },
@@ -521,6 +528,11 @@ void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t du
 void sb_set_mode_completed(sb_game_handle_t handle, const char *mode)
 {
     handle->postApiJob(JobSetModeCompleted {handle, copyCStr(mode)});
+}
+
+void sb_add_event(sb_game_handle_t handle, const char *name, int64_t value)
+{
+    handle->postApiJob(JobAddEvent {handle, copyCStr(name), value});
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)
