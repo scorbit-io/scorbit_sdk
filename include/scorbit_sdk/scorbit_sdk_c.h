@@ -20,6 +20,7 @@
 #pragma once
 
 #include <scorbit_sdk/version.h>
+#include "achievements_c.h"
 #include "config_c.h"
 #include "game_state_c.h"
 #include "leaderboard_c.h"

@@ -184,6 +184,9 @@ target_sources(
         include/scorbit_sdk/leaderboard.h
         include/scorbit_sdk/leaderboard_c.h
         include/scorbit_sdk/achievements_c.h
+        include/scorbit_sdk/achievements.h
+        source/achievements_c.cpp
+        source/game_state_c_internal.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
