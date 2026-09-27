@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #pragma once
 
 #include "definition.h"
@@ -25,6 +24,7 @@
 #include "progress.h"
 #include "report.h"
 #include "rule_evaluator.h"
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -108,6 +108,9 @@ public:
 
     /** The record for @p key, or nullptr if it is not tracked. */
     const Record *record(const std::string &key) const;
+
+    /** Every tracked record, by key. */
+    std::map<std::string, Record> records() const { return {m_records.begin(), m_records.end()}; }
 
     /** Whether the player holds @p key: at claim time, or earned and not retracted since. */
     bool holds(const std::string &key) const { return m_held.count(key) != 0; }

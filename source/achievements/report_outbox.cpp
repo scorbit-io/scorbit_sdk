@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "report_outbox.h"
 #include <algorithm>
 #include <utility>

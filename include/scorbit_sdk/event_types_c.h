@@ -92,6 +92,12 @@ typedef enum {
      */
     SB_EVT_PAIRING_STATUS_CHANGED,
 
+    /**
+     * @brief An achievement was unlocked, confirmed, retracted or progressed for a player.
+     * Use @ref sb_event_achievement_updated and the rule progress getters to process this event.
+     */
+    SB_EVT_ACHIEVEMENT_UPDATED,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

@@ -231,6 +231,7 @@ public:
     void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn) override;
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
+    void publishEvent(EventPtr event) override;
 
 private:
     task_t createAuthenticateTask();

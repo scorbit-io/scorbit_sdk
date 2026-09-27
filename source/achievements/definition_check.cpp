@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "definition_check.h"
 #include "../event_ops.h"
 #include <fmt/format.h>
@@ -44,13 +43,12 @@ std::optional<std::string> findRuleProblem(const Definition &definition, size_t 
 
     if (rule.type == RuleType::ModeStack) {
         if (rule.stackModes.size() < 2) {
-            return fmt::format("rule {} (MODE_STACK) must name two or more modes, got '{}'",
-                               index, rule.reference);
+            return fmt::format("rule {} (MODE_STACK) must name two or more modes, got '{}'", index,
+                               rule.reference);
         }
         for (const auto &mode : rule.stackModes) {
             if (!isValidTimelineName(mode)) {
-                return fmt::format("rule {} (MODE_STACK) has invalid mode name '{}'", index,
-                                   mode);
+                return fmt::format("rule {} (MODE_STACK) has invalid mode name '{}'", index, mode);
             }
         }
     }

@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include "definition.h"
 #include <array>
 #include <utility>
@@ -63,8 +62,7 @@ std::optional<Enum> lookup(const std::array<std::pair<Enum, std::string_view>, N
 }
 
 template<typename Enum, size_t N>
-std::string_view lookup(const std::array<std::pair<Enum, std::string_view>, N> &table,
-                        Enum value)
+std::string_view lookup(const std::array<std::pair<Enum, std::string_view>, N> &table, Enum value)
 {
     for (const auto &[v, name] : table) {
         if (v == value) {
@@ -158,8 +156,7 @@ bool isRankingRule(RuleType type)
 
 bool isSingleModeRule(RuleType type)
 {
-    return type == RuleType::Mode || type == RuleType::ModeCompleted
-        || type == RuleType::TimerMode;
+    return type == RuleType::Mode || type == RuleType::ModeCompleted || type == RuleType::TimerMode;
 }
 
 std::optional<RuleType> ruleTypeFromString(std::string_view str)

@@ -1575,8 +1575,8 @@ void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callbac
 {
     auto receivedEtag = std::make_shared<std::string>();
 
-    auto replyCallback = [callback = std::move(callback), receivedEtag](
-                                 Error error, int httpStatus, const std::string &reply) {
+    auto replyCallback = [callback = std::move(callback), receivedEtag](Error error, int httpStatus,
+                                                                        const std::string &reply) {
         callback(ApiReply {error, httpStatus, reply, *receivedEtag});
     };
 
@@ -1586,14 +1586,14 @@ void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callbac
 
     m_worker.post(createHttpRequestTask(
             REST_GET, HttpStatusCallback {std::move(replyCallback)}, std::move(deferredSetup),
-            [this, etag = std::move(etag), receivedEtag](
-                    const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
-                    const cpr::Timeout &timeout, bool /*resilient*/) {
+            [this, etag = std::move(etag),
+             receivedEtag](const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
+                           const cpr::Timeout &timeout, bool /*resilient*/) {
                 if (!etag.empty()) {
                     header[HDR_KEY_IF_NONE_MATCH] = etag;
                 }
-                auto r = HttpSessionPool::instance().Get(url, params, header, timeout,
-                                                         sslOptions());
+                auto r =
+                        HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
                 if (const auto it = r.header.find(HDR_KEY_ETAG); it != r.header.end()) {
                     *receivedEtag = it->second;
                 }
@@ -1617,8 +1617,7 @@ void Net::fetchAchievementProgress(std::string userId, ApiReplyCallback callback
             REST_GET, HttpStatusCallback {std::move(replyCallback)}, std::move(deferredSetup),
             [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
                    const cpr::Timeout &timeout, bool /*resilient*/) {
-                return HttpSessionPool::instance().Get(url, params, header, timeout,
-                                                       sslOptions());
+                return HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
             }));
 }
 
@@ -1640,15 +1639,14 @@ void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
 void Net::downloadAchievementFrames(std::string gameSlug, std::string filename,
                                     ApiReplyCallback callback)
 {
-    const auto endpoint = fmt::format(fmt::runtime(URL_ACHIEVEMENTS_FRAMES),
-                                      fmt::arg(ARG_GAME_SLUG, gameSlug));
+    const auto endpoint =
+            fmt::format(fmt::runtime(URL_ACHIEVEMENTS_FRAMES), fmt::arg(ARG_GAME_SLUG, gameSlug));
 
-    download(
-            true,
-            [callback = std::move(callback)](Error error, const std::string &reply) {
-                callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
-            },
-            endpoint, filename, {});
+    download(true,
+             [callback = std::move(callback)](Error error, const std::string &reply) {
+                 callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
+             },
+             endpoint, filename, {});
 }
 
 void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
@@ -1656,6 +1654,11 @@ void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
 {
     m_worker.stopTimer(Worker::Timer::AchievementRetry);
     m_worker.startTimer(Worker::Timer::AchievementRetry, delay, std::move(fn));
+}
+
+void Net::publishEvent(EventPtr event)
+{
+    m_eventManager->push(std::move(event));
 }
 
 void Net::setPlayersChangedCallback(PlayersChangedCallback callback)

@@ -120,6 +120,11 @@ struct JobAddEvent {
     int64_t value;
 };
 
+/** A function to run on the dispatcher thread, e.g. a network reply for game state. */
+struct JobRunOnDispatcher {
+    std::function<void()> fn;
+};
+
 struct JobTickModeExpiries {
     sb_game_state_struct *h;
 };
@@ -234,11 +239,11 @@ struct JobSubmitHardwareProbeResult {
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                     JobSetModeCompleted, JobAddEvent, JobTickModeExpiries, JobRemoveMode, JobClearModes,
-                     JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
-                     JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
-                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
-                     JobSubmitHardwareProbeResult>;
+                     JobSetModeCompleted, JobAddEvent, JobRunOnDispatcher, JobTickModeExpiries,
+                     JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores,
+                     JobRequestPairCode, JobRequestUnpair, JobSetCapabilities, JobPairMachine,
+                     JobCreditsDropped, JobCreditsStatus, JobDownload, JobDownloadBuffer,
+                     JobUploadDiagnostics, JobReportDeviceState, JobSubmitHardwareProbeResult>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -326,6 +331,11 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.addModeExpiring(std::move(j.mode), j.duration_seconds);
                     },
                     [](JobAddEvent &&j) { j.h->gameState.addEvent(std::move(j.name), j.value); },
+                    [](JobRunOnDispatcher &&j) {
+                        if (j.fn) {
+                            j.fn();
+                        }
+                    },
                     [](JobSetModeCompleted &&j) {
                         j.h->gameState.setModeCompleted(std::move(j.mode));
                     },
@@ -403,6 +413,12 @@ sb_game_state_struct::sb_game_state_struct(std::unique_ptr<NetBase> net)
             return;
         }
         cApiQueue.enqueue(ApiQueueItem {JobTickModeExpiries {this}});
+    });
+    gameState.setDispatcherPoster([this](std::function<void()> fn) {
+        if (!cApiAccepting.load(std::memory_order_relaxed)) {
+            return;
+        }
+        cApiQueue.enqueue(ApiQueueItem {JobRunOnDispatcher {std::move(fn)}});
     });
 }
 

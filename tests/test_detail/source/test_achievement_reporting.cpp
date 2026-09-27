@@ -17,7 +17,6 @@
  * SOFTWARE.
  */
 
-
 #include <../source/achievements/report_outbox.h>
 #include <../source/achievements/json_codec.h>
 #include <../source/achievements/achievement_storage.h>
@@ -158,9 +157,10 @@ TEST_CASE("Outbox drops a request the server refused outright", "[achievements]"
 TEST_CASE("Report request encoding", "[achievements]")
 {
     ReportRequest request {"3f1c", "9ab2", 4, {}};
-    request.items.push_back(ReportItem {"game-cv-boom-balloon", true, {{0, RuleProgress {1, true}}}});
-    request.items.push_back(ReportItem {"game-cv-chain-finale", std::nullopt,
-                                        {{0, RuleProgress {3, true}}}});
+    request.items.push_back(
+            ReportItem {"game-cv-boom-balloon", true, {{0, RuleProgress {1, true}}}});
+    request.items.push_back(
+            ReportItem {"game-cv-chain-finale", std::nullopt, {{0, RuleProgress {3, true}}}});
 
     const auto body = json::parse(encodeReportRequest(request));
     CHECK(body["user_id"] == "3f1c");
@@ -171,8 +171,7 @@ TEST_CASE("Report request encoding", "[achievements]")
     const auto &boom = body["achievements"][0];
     CHECK(boom["key"] == "game-cv-boom-balloon");
     CHECK(boom["achieved"] == true);
-    CHECK(boom["rule_progress"]
-          == json::parse(R"([{"index":0,"value":1,"satisfied":true}])"));
+    CHECK(boom["rule_progress"] == json::parse(R"([{"index":0,"value":1,"satisfied":true}])"));
 
     const auto &finale = body["achievements"][1];
     CHECK_FALSE(finale.contains("achieved")); // no verdict: omitted, never null
@@ -219,7 +218,8 @@ TEST_CASE("A frame bundle installs and serves frames by key", "[achievements]")
     CHECK_FALSE(storage.framesVersion());
 
     const auto archive = storage.framesDownloadPath();
-    REQUIRE(createTarGz(archive, {}, {{"game-cv-boom.png", "PNGDATA"}, {"128x32/game-cv-blast.bin", "BIN"}}));
+    REQUIRE(createTarGz(archive, {},
+                        {{"game-cv-boom.png", "PNGDATA"}, {"128x32/game-cv-blast.bin", "BIN"}}));
 
     REQUIRE(storage.installFrames(archive, 7));
     CHECK(storage.framesVersion() == 7);
