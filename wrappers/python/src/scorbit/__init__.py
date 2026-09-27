@@ -41,6 +41,11 @@ from ._version import __version__
 # -- public API ---------------------------------------------------------------
 
 from ._enums import (
+    AchievementComparison,
+    AchievementEvaluation,
+    AchievementRuleType,
+    AchievementScope,
+    AchievementStatus,
     AuthStatus,
     Capability,
     Error,
@@ -52,6 +57,11 @@ from ._enums import (
     LogLevel,
 )
 from ._types import (
+    Achievement,
+    AchievementProgress,
+    AchievementRule,
+    AchievementRuleProgress,
+    AchievementUpdate,
     BundlePrice,
     LeaderboardEntry,
     LeaderboardPlayer,
@@ -118,6 +128,11 @@ __all__ = [
     # Version
     "__version__",
     # Enums
+    "AchievementComparison",
+    "AchievementEvaluation",
+    "AchievementRuleType",
+    "AchievementScope",
+    "AchievementStatus",
     "AuthStatus",
     "Capability",
     "Error",
@@ -128,6 +143,11 @@ __all__ = [
     "LeaderboardVpinFilter",
     "LogLevel",
     # Types
+    "Achievement",
+    "AchievementProgress",
+    "AchievementRule",
+    "AchievementRuleProgress",
+    "AchievementUpdate",
     "BundlePrice",
     "LeaderboardEntry",
     "LeaderboardPlayer",

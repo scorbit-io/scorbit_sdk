@@ -30,6 +30,7 @@ from ctypes import (
     c_uint32,
     c_uint64,
     c_void_p,
+    Structure,
 )
 
 from ._loader import _lib
@@ -152,6 +153,10 @@ _lib.sb_config_set_auto_download_player_pics.argtypes = [sb_config_t, c_bool]
 # void sb_config_set_threads_priority(sb_config_t, int)
 _lib.sb_config_set_threads_priority.restype = None
 _lib.sb_config_set_threads_priority.argtypes = [sb_config_t, c_int]
+
+# void sb_config_set_data_dir(sb_config_t, const char*)
+_lib.sb_config_set_data_dir.restype = None
+_lib.sb_config_set_data_dir.argtypes = [sb_config_t, c_char_p]
 
 # void sb_config_set_worker_thread_count(sb_config_t, int)
 _lib.sb_config_set_worker_thread_count.restype = None
@@ -518,6 +523,130 @@ _lib.sb_report_device_state.restype = None
 _lib.sb_report_device_state.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, c_bool,
     c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# ---------------------------------------------------------------------------
+# achievements_c.h
+# ---------------------------------------------------------------------------
+
+
+class sb_achievement_t(Structure):
+    _fields_ = [
+        ("key", c_char_p),
+        ("name", c_char_p),
+        ("description", c_char_p),
+        ("scope", c_int),
+        ("evaluation", c_int),
+        ("is_trophy", c_bool),
+        ("visible", c_bool),
+        ("obscure", c_bool),
+        ("notify_when_achieved", c_bool),
+        ("icon_url", c_char_p),
+        ("obscure_image_url", c_char_p),
+        ("has_group", c_bool),
+        ("group_id", c_int64),
+        ("display_position", c_int64),
+        ("rules_count", c_size_t),
+    ]
+
+
+class sb_achievement_rule_t(Structure):
+    _fields_ = [
+        ("type", c_int),
+        ("comparison", c_int),
+        ("target", c_int64),
+        ("reference", c_char_p),
+    ]
+
+
+class sb_achievement_progress_t(Structure):
+    _fields_ = [
+        ("held", c_bool),
+        ("all_satisfied", c_bool),
+        ("confirmed", c_bool),
+    ]
+
+
+class sb_achievement_rule_progress_t(Structure):
+    _fields_ = [
+        ("judged", c_bool),
+        ("value", c_int64),
+        ("target", c_int64),
+        ("satisfied", c_bool),
+    ]
+
+
+# size_t sb_achievements_count(sb_game_handle_t)
+_lib.sb_achievements_count.restype = c_size_t
+_lib.sb_achievements_count.argtypes = [sb_game_handle_t]
+
+# bool sb_achievement_at(sb_game_handle_t, size_t, sb_achievement_t*)
+_lib.sb_achievement_at.restype = c_bool
+_lib.sb_achievement_at.argtypes = [sb_game_handle_t, c_size_t, POINTER(sb_achievement_t)]
+
+# bool sb_achievement_find(sb_game_handle_t, const char*, sb_achievement_t*)
+_lib.sb_achievement_find.restype = c_bool
+_lib.sb_achievement_find.argtypes = [sb_game_handle_t, c_char_p, POINTER(sb_achievement_t)]
+
+# bool sb_achievement_rule_at(sb_game_handle_t, const char*, size_t, sb_achievement_rule_t*)
+_lib.sb_achievement_rule_at.restype = c_bool
+_lib.sb_achievement_rule_at.argtypes = [
+    sb_game_handle_t, c_char_p, c_size_t, POINTER(sb_achievement_rule_t)
+]
+
+# bool sb_achievement_player_progress(sb_game_handle_t, sb_player_t, const char*,
+#                                     sb_achievement_progress_t*)
+_lib.sb_achievement_player_progress.restype = c_bool
+_lib.sb_achievement_player_progress.argtypes = [
+    sb_game_handle_t, c_uint, c_char_p, POINTER(sb_achievement_progress_t)
+]
+
+# bool sb_achievement_player_rule_progress(sb_game_handle_t, sb_player_t, const char*, size_t,
+#                                          sb_achievement_rule_progress_t*)
+_lib.sb_achievement_player_rule_progress.restype = c_bool
+_lib.sb_achievement_player_rule_progress.argtypes = [
+    sb_game_handle_t, c_uint, c_char_p, c_size_t, POINTER(sb_achievement_rule_progress_t)
+]
+
+# void sb_refresh_achievements(sb_game_handle_t)
+_lib.sb_refresh_achievements.restype = None
+_lib.sb_refresh_achievements.argtypes = [sb_game_handle_t]
+
+# void sb_fetch_player_achievements(sb_game_handle_t, const char*, sb_string_callback_t, void*)
+_lib.sb_fetch_player_achievements.restype = None
+_lib.sb_fetch_player_achievements.argtypes = [
+    sb_game_handle_t, c_char_p, sb_string_callback_t, c_void_p
+]
+
+# void sb_flush_achievement_reports(sb_game_handle_t)
+_lib.sb_flush_achievement_reports.restype = None
+_lib.sb_flush_achievement_reports.argtypes = [sb_game_handle_t]
+
+# void sb_download_achievement_frames(sb_game_handle_t)
+_lib.sb_download_achievement_frames.restype = None
+_lib.sb_download_achievement_frames.argtypes = [sb_game_handle_t]
+
+# bool sb_achievement_frame(sb_game_handle_t, const char*, const uint8_t**, size_t*)
+_lib.sb_achievement_frame.restype = c_bool
+_lib.sb_achievement_frame.argtypes = [
+    sb_game_handle_t, c_char_p, POINTER(POINTER(c_uint8)), POINTER(c_size_t)
+]
+
+# bool sb_event_achievement_updated(const sb_event_t*, const char**, sb_player_t*,
+#                                   const char**, sb_achievement_status_t*)
+_lib.sb_event_achievement_updated.restype = c_bool
+_lib.sb_event_achievement_updated.argtypes = [
+    c_void_p, POINTER(c_char_p), POINTER(c_uint), POINTER(c_char_p), POINTER(c_int)
+]
+
+# size_t sb_event_achievement_rules_count(const sb_event_t*)
+_lib.sb_event_achievement_rules_count.restype = c_size_t
+_lib.sb_event_achievement_rules_count.argtypes = [c_void_p]
+
+# bool sb_event_achievement_rule(const sb_event_t*, size_t, size_t*, int64_t*, bool*)
+_lib.sb_event_achievement_rule.restype = c_bool
+_lib.sb_event_achievement_rule.argtypes = [
+    c_void_p, c_size_t, POINTER(c_size_t), POINTER(c_int64), POINTER(c_bool)
 ]
 
 # ---------------------------------------------------------------------------

@@ -155,6 +155,19 @@ def events_callback(event):
             for bundle in pricing.bundles:
                 print(f"  Bundle: {bundle.credits} credits for {bundle.price}")
 
+    elif event.type == scorbit.EventType.AchievementUpdated:
+        # Achievements are evaluated by the SDK on every commit; this reports what happened.
+        update = event.get_achievement_updated()
+        if update is not None:
+            if update.status == scorbit.AchievementStatus.UnlockedLocally:
+                # Decided on this machine: it may be celebrated right away
+                print(f"Player {update.player} unlocked achievement {update.key}")
+            elif update.status == scorbit.AchievementStatus.Confirmed:
+                print(f"Achievement {update.key} confirmed by the server")
+            elif update.status == scorbit.AchievementStatus.Retracted:
+                # The server refused it: withdraw anything shown for it
+                print(f"Achievement {update.key} retracted")
+
     elif event.type == scorbit.EventType.PairingStatusChanged:
         is_paired = event.get_pairing_status_changed()
         if is_paired is not None:
@@ -319,6 +332,10 @@ def main():
             # achievements.
             if i % 10 == 3:
                 gs.set_mode_completed("NA:The Tale of the Forty Thieves")
+
+            # Events are named counters the game adds to, e.g. spinner spins. Like completed
+            # modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            gs.add_event("spins", 3)
 
             if time_to_clear_modes():
                 gs.clear_modes()

@@ -121,6 +121,7 @@ class EventType(IntEnum):
     DiagnosticsUploaded = 7
     PricingReceived = 8
     PairingStatusChanged = 9
+    AchievementUpdated = 10
 
     # Internal / scorbitd events
     _None = 1000
@@ -136,3 +137,64 @@ class LogLevel(IntEnum):
     Info = 1
     Warn = 2
     Error = 3
+
+
+class AchievementStatus(IntEnum):
+    """What happened to an achievement (``AchievementUpdated`` event)."""
+
+    Progress = 0
+    """Progress changed; reported at ball boundaries."""
+
+    UnlockedLocally = 1
+    """The machine decided the player earned it; it may be presented now."""
+
+    Confirmed = 2
+    """The server granted it."""
+
+    AlreadyHeld = 3
+    """The server says the player already held it: do not celebrate again."""
+
+    Retracted = 4
+    """The server refused an unlock the machine decided: withdraw it."""
+
+
+class AchievementRuleType(IntEnum):
+    """The twelve achievement rule types."""
+
+    Mode = 0
+    ModeCompleted = 1
+    ModeStack = 2
+    Score = 3
+    Event = 4
+    Session = 5
+    TimerSession = 6
+    TimerBall = 7
+    TimerMode = 8
+    TimerBetween = 9
+    Ball = 10
+    Achievement = 11
+
+
+class AchievementComparison(IntEnum):
+    """Rule predicates; all inclusive."""
+
+    Eq = 0
+    Le = 1
+    Ge = 2
+    Ne = 3
+
+
+class AchievementEvaluation(IntEnum):
+    """The window an achievement's rules are measured over."""
+
+    InSession = 0
+    Unlimited = 1
+
+
+class AchievementScope(IntEnum):
+    """What an achievement attaches to."""
+
+    Game = 0
+    Venue = 1
+    Event = 2
+    Global = 3
