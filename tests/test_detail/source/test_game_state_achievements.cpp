@@ -20,6 +20,7 @@
 #include "game_state_impl.h"
 #include "net_base.h"
 #include "event_classes.h"
+#include "utils/archiver.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <boost/filesystem.hpp>
@@ -93,6 +94,14 @@ public:
     {
         reports.push_back({json::parse(body), std::move(cb)});
     }
+    void downloadAchievementFrames(std::string gameSlug, std::string filename,
+                                   ApiReplyCallback cb) override
+    {
+        framesGame = std::move(gameSlug);
+        framesFile = std::move(filename);
+        framesReply = std::move(cb);
+        ++framesDownloads;
+    }
     void scheduleAchievementRetry(std::chrono::steady_clock::duration,
                                   std::function<void()> fn) override
     {
@@ -144,6 +153,10 @@ public:
     PlayersChangedCallback playersChanged;
     std::vector<Update> updates;
     int rows {0};
+    std::string framesGame;
+    std::string framesFile;
+    ApiReplyCallback framesReply;
+    int framesDownloads {0};
 
 private:
     DeviceInfo m_info;
@@ -385,4 +398,39 @@ TEST_CASE("A session uuid arriving after the game ended still releases its repor
     firstCreated("old-uuid"); // late reply for the first game
     game.runPendingPosts();
     CHECK(game.achievements().view()->players.empty()); // not bound to the running game
+}
+
+TEST_CASE("The DMD frame bundle is downloaded when its version changes", "[achievements]")
+{
+    const std::string definitions = R"({"game": "cactus-canyon", "frames_version": 3, "results": [
+        {"key": "game-cv-boom", "scope": "game", "evaluation": "in_session",
+         "rules": [{"type": "MODE", "comparison": "GE", "target": 1, "reference": "balloon"}]}]})";
+
+    TempDir dir;
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto *net = fake.get();
+        GameStateImpl game(std::move(fake));
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions, "\"v3\""});
+        game.runPendingPosts();
+
+        REQUIRE(net->framesDownloads == 1);
+        CHECK(net->framesGame == "cactus-canyon");
+        REQUIRE(createTarGz(net->framesFile, {}, {{"game-cv-boom.bin", "FRAME"}}));
+        net->framesReply(ApiReply {Error::Success, 200, {}, {}});
+        game.runPendingPosts();
+
+        const auto frame = game.achievements().frame("game-cv-boom");
+        REQUIRE(frame);
+        CHECK(std::string(frame->begin(), frame->end()) == "FRAME");
+    }
+
+    // Same version on the next boot: nothing to download
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    net->definitionsReply(ApiReply {Error::Success, 304, {}, {}});
+    game.runPendingPosts();
+    CHECK(net->framesDownloads == 0);
+    CHECK(game.achievements().frame("game-cv-boom"));
 }
