@@ -112,6 +112,10 @@ target_sources(
         ../../source/achievements/timeline_row.h
         ../../source/achievements/player_facts.h
         ../../source/achievements/player_facts.cpp
+        ../../source/achievements/rule_evaluator.h
+        ../../source/achievements/rule_evaluator.cpp
+        source/achievement_test_support.h
+        source/test_achievement_evaluator.cpp
         source/test_achievement_facts.cpp
         source/test_achievement_definitions.cpp
         source/test_modes.cpp

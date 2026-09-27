@@ -18,69 +18,14 @@
  */
 
 
-#include <../source/achievements/player_facts.h>
+#include "achievement_test_support.h"
 #include <catch2/catch_test_macros.hpp>
 
 // clazy:excludeall=non-pod-global-static
 
 using namespace scorbit::detail::achievements;
 
-namespace {
-
-/** Builds timeline rows fluently; each row carries the state of the previous one. */
-class Timeline
-{
-public:
-    Timeline &at(int64_t timeMs)
-    {
-        m_row.timeMs = timeMs;
-        return *this;
-    }
-    Timeline &player(PlayerNumber p)
-    {
-        m_row.player = p;
-        return *this;
-    }
-    Timeline &ball(BallNumber b)
-    {
-        m_row.ball = b;
-        return *this;
-    }
-    Timeline &score(PlayerNumber p, int64_t s)
-    {
-        m_row.scores[p] = s;
-        return *this;
-    }
-    Timeline &modes(std::vector<std::string> m)
-    {
-        m_row.modes = std::move(m);
-        return *this;
-    }
-    Timeline &completed(std::vector<std::string> m)
-    {
-        m_row.completedModes = std::move(m);
-        return *this;
-    }
-    Timeline &event(std::string name, int64_t value)
-    {
-        m_row.events.emplace_back(std::move(name), value);
-        return *this;
-    }
-    Timeline &commit()
-    {
-        facts.apply(m_row);
-        m_row.completedModes.clear();
-        m_row.events.clear();
-        return *this;
-    }
-
-    SessionFacts facts;
-
-private:
-    TimelineRow m_row {0, 1, 1, {{1, 0}}, {}, {}, {}};
-};
-
-} // namespace
+using achievement_test::Timeline;
 
 TEST_CASE("Mode activations are counted on absent-to-present transitions", "[achievements]")
 {
@@ -226,11 +171,9 @@ TEST_CASE("Scores track every value the column took", "[achievements]")
     t.at(2000).score(1, 300).commit(); // e.g. a correction
     t.at(3000).score(1, 900).commit();
 
-    const auto scores = t.facts.player(1).scores();
-    REQUIRE(scores);
-    CHECK(scores->min == 0);
-    CHECK(scores->max == 900);
-    CHECK(scores->latest == 900);
+    const auto &p1 = t.facts.player(1);
+    CHECK(p1.scoreValues() == std::set<int64_t> {0, 300, 500, 900});
+    CHECK(p1.latestScore() == 900);
 }
 
 TEST_CASE("Invalid names and players beyond the timeline are ignored", "[achievements]")

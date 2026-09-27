@@ -250,13 +250,8 @@ void SessionFacts::apply(const TimelineRow &row)
     // Scores: every value each player's column takes
     for (const auto &[number, score] : row.scores) {
         if (auto *f = facts(number)) {
-            if (!f->m_scores) {
-                f->m_scores = PlayerFacts::Scores {score, score, score};
-            } else {
-                f->m_scores->min = std::min(f->m_scores->min, score);
-                f->m_scores->max = std::max(f->m_scores->max, score);
-                f->m_scores->latest = score;
-            }
+            f->m_scoreValues.insert(score);
+            f->m_latestScore = score;
             f->m_nowMs = row.timeMs;
         }
     }
