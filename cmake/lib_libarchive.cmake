@@ -18,6 +18,32 @@ find_package(LibArchive QUIET)
 
 if(LibArchive_FOUND)
     message(STATUS "libarchive: using the system copy (${LibArchive_LIBRARIES})")
+
+    # SB-5150. From vcpkg under a multi-config generator, CMAKE_BUILD_TYPE is unset, so
+    # vcpkg.cmake searches debug/ before the release tree. FindLibArchive then records that one
+    # archive.lib (built /MDd) as the IMPORTED_LOCATION for every configuration, and a Release
+    # scorbit_sdk.dll links the debug CRT (LNK4098 MSVCRTD). Give the target a library per config.
+    if(TARGET LibArchive::LibArchive AND DEFINED _VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+        set(_scorbit_vcpkg_root "${_VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+        find_library(SCORBIT_LIBARCHIVE_RELEASE NAMES archive libarchive
+                     PATHS "${_scorbit_vcpkg_root}/lib" NO_DEFAULT_PATH)
+        find_library(SCORBIT_LIBARCHIVE_DEBUG NAMES archive libarchive
+                     PATHS "${_scorbit_vcpkg_root}/debug/lib" NO_DEFAULT_PATH)
+
+        if(SCORBIT_LIBARCHIVE_RELEASE)
+            set_target_properties(LibArchive::LibArchive PROPERTIES
+                IMPORTED_LOCATION "${SCORBIT_LIBARCHIVE_RELEASE}"
+                IMPORTED_LOCATION_RELEASE "${SCORBIT_LIBARCHIVE_RELEASE}"
+                IMPORTED_LOCATION_RELWITHDEBINFO "${SCORBIT_LIBARCHIVE_RELEASE}"
+                IMPORTED_LOCATION_MINSIZEREL "${SCORBIT_LIBARCHIVE_RELEASE}")
+            if(SCORBIT_LIBARCHIVE_DEBUG)
+                set_property(TARGET LibArchive::LibArchive
+                             PROPERTY IMPORTED_LOCATION_DEBUG "${SCORBIT_LIBARCHIVE_DEBUG}")
+            endif()
+            message(STATUS "libarchive: per-config from vcpkg, release ${SCORBIT_LIBARCHIVE_RELEASE}, "
+                           "debug ${SCORBIT_LIBARCHIVE_DEBUG}")
+        endif()
+    endif()
     return()
 endif()
 
