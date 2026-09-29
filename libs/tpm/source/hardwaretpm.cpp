@@ -7,14 +7,19 @@
 
 #include "tpm/hardwaretpm.h"
 #include "tpm_identity.h"
+#include "tpm_locate.h"
 
 #include <logger/logger.h>
 
+#include <utility>
+
 using ByteArray = utils::ByteArray;
 
-HardwareTpm::HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath)
+HardwareTpm::HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath,
+                         UsbLocator locateUsb)
     : m_busFlags(busFlags)
     , m_usbDevicePath(usbDevicePath)
+    , m_locateUsb(std::move(locateUsb))
 {
     readIdentity();
     m_identityRead = true;
@@ -94,10 +99,15 @@ ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
  * so each attempt was poking an unrelated device.
  *
  * So a cached location that stops working is dropped rather than retried
- * forever, and the next call falls back to full discovery. Tpm's USB path
- * scans libusb for CDC devices, which survives ttyACM renumbering. On success
- * the cache is refreshed so the recovery costs one failed open, not one per
+ * forever, and the next call falls back to full discovery. On success the
+ * cache is refreshed so the recovery costs one failed open, not one per
  * signature.
+ *
+ * Tpm's own libusb CDC scan cannot follow the move on a host with cdc-acm,
+ * which owns those interfaces (every Spike2), so when discovery fails the
+ * locator is asked where the chip answers now and that node is tried. On 22727
+ * a replugged tap pad came back with the TPM on ttyACM2 and ttyACM1 reused by
+ * the NFC port, and without this only a restart recovered it (SB-4407).
  *
  * m_usbDevicePath survives the drop on purpose. It stays the first thing
  * discovery tries, which is all a platform without the libusb CDC scan has to
@@ -124,6 +134,13 @@ Tpm HardwareTpm::tpm() const
     }
 
     Tpm discovered {m_busFlags, m_usbDevicePath, accept};
+    if (!discovered.ok() && m_busFlags.hasFlag(TpmBus::USB)) {
+        if (const auto moved = tpm_locate::movedPath(m_usbDevicePath, m_locateUsb);
+            !moved.empty()) {
+            INF("TPM CDC port moved from {} to {}", m_usbDevicePath, moved);
+            discovered = Tpm {TpmBus::USB, moved, accept};
+        }
+    }
     if (discovered.ok()) {
         remember(discovered.device());
     }

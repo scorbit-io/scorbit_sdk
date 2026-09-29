@@ -5,4 +5,5 @@ set(sources
     source/test_libusb_cdc.cpp
     source/test_softwaretpm.cpp
     source/test_probetpm.cpp
+    source/test_tpm_locate.cpp
 )

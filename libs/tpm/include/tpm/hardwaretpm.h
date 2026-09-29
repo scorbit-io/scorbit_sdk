@@ -9,13 +9,19 @@
 
 #include "itpm.h"
 #include "tpm.h"
+#include <functional>
 #include <memory>
 #include <mutex>
 
 class HardwareTpm : public ITpm
 {
 public:
-    HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath = {});
+    /// Finds the CDC node the TPM answers on now (e.g. CdcTpm::DiscoverTpmDevice), or empty.
+    using UsbLocator = std::function<std::string()>;
+
+    /// @p locateUsb lets rediscovery follow a TPM that re-enumerated onto another ttyACM node.
+    HardwareTpm(TpmBusFlags busFlags, const std::string &usbDevicePath = {},
+                UsbLocator locateUsb = {});
     ~HardwareTpm() override;
     // Holds the cached route and its mutex; shared by pointer, never copied.
     HardwareTpm(const HardwareTpm &) = delete;
@@ -46,6 +52,7 @@ private:
     /// the const signing path, and guarded because a signature can be asked
     /// for from more than one thread.
     mutable std::string m_usbDevicePath;
+    UsbLocator m_locateUsb;
     mutable TpmDevice m_device;
     mutable std::mutex m_deviceMutex;
 
