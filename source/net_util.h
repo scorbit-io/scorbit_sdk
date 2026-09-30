@@ -139,6 +139,18 @@ bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time
 bool wifiIngestStatusEndsRun(int httpStatus);
 
 /**
+ * Whether a hardware probe run_id is safe to use as a URL path segment: alphanumerics and '-'
+ * only, at most 64 characters. It arrives over the wire and ends up in the result POST path.
+ */
+bool isValidHardwareProbeRunId(std::string_view runId);
+
+/**
+ * Whether @p replyTo is the result path for @p runId, with or without a leading '/'. The SDK only
+ * ever POSTs to that path, so a firmware_probe naming any other reply_to is refused.
+ */
+bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId);
+
+/**
  * Build the wifi-sample ingest body for @p sample.
  *
  * Extracted from Net purely so the payload SHAPE can be tested. The server's serializer silently

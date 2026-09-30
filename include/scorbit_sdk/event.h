@@ -278,6 +278,16 @@ public:
         return true;
     }
 
+    bool eventHardwareProbeRequested(std::string &runId, bool &forceReDetect) const
+    {
+        const char *runIdCStr = nullptr;
+        if (!::sb_event_hardware_probe_requested(m_event, &runIdCStr, &forceReDetect)) {
+            return false;
+        }
+        runId = runIdCStr ? std::string(runIdCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

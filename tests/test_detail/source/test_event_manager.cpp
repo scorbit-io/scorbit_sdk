@@ -945,3 +945,34 @@ TEST_CASE("PairingStatusChangedEvent ordering")
         CHECK(receivedEvents[2] == EventType::ConfigReceived);
     }
 }
+
+TEST_CASE("HardwareProbeRequestedEvent C helper round trip")
+{
+    HardwareProbeRequestedEvent event("run-42", true);
+    CHECK(sb_event_type(&event) == SB_EVT_HARDWARE_PROBE_REQUESTED);
+
+    const char *runId = nullptr;
+    bool force = false;
+    REQUIRE(sb_event_hardware_probe_requested(&event, &runId, &force));
+    CHECK(std::string(runId) == "run-42");
+    CHECK(force);
+
+    CHECK_FALSE(sb_event_hardware_probe_requested(&event, nullptr, &force));
+    CHECK_FALSE(sb_event_hardware_probe_requested(nullptr, &runId, &force));
+
+    GameStartRequestedEvent wrongEvent(2);
+    CHECK_FALSE(sb_event_hardware_probe_requested(&wrongEvent, &runId, &force));
+}
+
+TEST_CASE("HardwareProbeRequestedEvent C++ Event wrapper")
+{
+    HardwareProbeRequestedEvent event("run-42", false);
+    std::string runId;
+    bool force = true;
+    CHECK(Event(&event).eventHardwareProbeRequested(runId, force));
+    CHECK(runId == "run-42");
+    CHECK_FALSE(force);
+
+    GameStartRequestedEvent wrongEvent(2);
+    CHECK_FALSE(Event(&wrongEvent).eventHardwareProbeRequested(runId, force));
+}

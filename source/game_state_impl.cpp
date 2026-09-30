@@ -316,6 +316,13 @@ void GameStateImpl::reportDeviceState(const std::string &type, const std::string
     m_net->updateConfig(type, version, installed, std::move(log), std::move(callback));
 }
 
+void GameStateImpl::submitHardwareProbeResult(const std::string &runId,
+                                              const std::string &resultJson,
+                                              HttpStatusCallback callback)
+{
+    m_net->submitHardwareProbeResult(runId, resultJson, std::move(callback));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

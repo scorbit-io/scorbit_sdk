@@ -106,6 +106,9 @@ public:
     void reportDeviceState(const std::string &type, const std::string &version, bool installed,
                            std::optional<std::string> log, HttpStatusCallback callback);
 
+    void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                   HttpStatusCallback callback);
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);

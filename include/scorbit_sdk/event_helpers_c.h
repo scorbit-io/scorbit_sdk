@@ -347,6 +347,18 @@ bool sb_event_scorbitd_updated(const sb_event_t *event, const char **version,
 SCORBIT_SDK_EXPORT
 bool sb_event_firmwares_list_received(const sb_event_t *event, const char **firmwares_list);
 
+/**
+ * @brief Helper function to process a @ref SB_EVT_HARDWARE_PROBE_REQUESTED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] run_id Receives the probe run id; valid only during the event callback.
+ * @param [OUT] force_re_detect Receives whether cached hardware detection must be bypassed.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_hardware_probe_requested(const sb_event_t *event, const char **run_id,
+                                       bool *force_re_detect);
+
 #ifdef __cplusplus
 }
 #endif
