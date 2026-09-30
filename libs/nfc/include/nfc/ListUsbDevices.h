@@ -38,6 +38,7 @@
 #    include <cstdint>
 #    if defined(__linux__)
 #        include <cstdio>
+#        include <mutex>
 #        if defined(__has_include)
 #            if __has_include(<libusb-1.0/libusb.h>)
 #                include <libusb-1.0/libusb.h>
@@ -66,6 +67,8 @@ inline libusb_context* probeLibusbContext()
     struct LibusbContext
     {
         libusb_context* ctx = nullptr;
+        // Probe enumeration and TPM rediscovery can make the first call from different threads.
+        std::mutex mutex;
 
         LibusbContext() = default;
 
@@ -77,6 +80,7 @@ inline libusb_context* probeLibusbContext()
 
         libusb_context* get()
         {
+            const std::lock_guard<std::mutex> lock {mutex};
             if (!ctx && libusb_init(&ctx) < 0)
                 ctx = nullptr;
             return ctx;
