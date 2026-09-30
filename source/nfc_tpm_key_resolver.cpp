@@ -40,7 +40,8 @@ bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
         INF("TPM CDC device found at {}", tpmDevicePath);
     }
 
-    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB, tpmDevicePath);
+    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB, tpmDevicePath,
+                                             [] { return CdcTpm().DiscoverTpmDevice(); });
     if (!tpm->hasTpm() || !tpm->isValid()) {
         INF("NFC TPM not found or not valid");
         tpm.reset();
