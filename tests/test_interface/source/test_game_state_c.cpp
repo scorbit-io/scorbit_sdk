@@ -22,7 +22,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <atomic>
+#include <chrono>
 #include <string>
+#include <thread>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -188,6 +191,40 @@ TEST_CASE("sb_report_device_state accepts an absent log and an absent callback",
 
     // With a log attached.
     sb_report_device_state(h, "sdk", "1.2.3", false, "some log text", nullptr, nullptr);
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}
+
+TEST_CASE("sb_submit_hardware_probe_result answers invalid JSON without sending",
+          "[GameState][Diagnostics]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    struct Seen {
+        std::atomic<int> calls {0};
+        std::atomic<int> error {-1};
+        std::atomic<int> status {-1};
+    } seen;
+    auto callback = [](sb_error_t error, int httpStatus, const char *, void *userData) {
+        auto *s = static_cast<Seen *>(userData);
+        s->error = error;
+        s->status = httpStatus;
+        ++s->calls;
+    };
+
+    sb_submit_hardware_probe_result(h, "3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55", "not json", callback,
+                                    &seen);
+    sb_submit_hardware_probe_result(h, "", "{}", nullptr, nullptr); // NULL callback is allowed
+
+    for (int i = 0; i < 200 && seen.calls == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(seen.calls == 1);
+    CHECK(seen.error == SB_EC_UNKNOWN);
+    CHECK(seen.status == 0);
 
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);

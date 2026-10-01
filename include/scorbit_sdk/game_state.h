@@ -544,6 +544,29 @@ public:
     }
 
     /**
+     * @brief Submit the result of a hardware probe requested by
+     * @ref EventType::HardwareProbeRequested.
+     *
+     * POSTs @p resultJson verbatim, with device authentication, to the result endpoint derived
+     * from @p runId. Nothing is sent when @p runId is invalid or @p resultJson is not a JSON
+     * object; @p callback then gets @ref Error::Unknown with HTTP status 0.
+     *
+     * @note The SDK retries only transport failures and a 401 (by re-authenticating). The caller
+     * owns any further retry or queueing policy; the API accepts an identical resubmission (same
+     * end_reason) idempotently. Typical statuses: 202 accepted, 409 conflicting end_reason, 404
+     * unknown or foreign run, 400 invalid, 413 too large, 0 no response.
+     *
+     * @note The callback is invoked asynchronously, on a thread other than the caller's.
+     */
+    void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                   HttpStatusCallback callback = {})
+    {
+        auto cbPair = prepareHttpStatusCallback(std::move(callback));
+        sb_submit_hardware_probe_result(m_handle.get(), runId.c_str(), resultJson.c_str(),
+                                        cbPair.first, cbPair.second);
+    }
+
+    /**
      * @brief Download a file from a URL and save it to local storage.
      *
      * @note The callback function is invoked asynchronously when the operation completes, running

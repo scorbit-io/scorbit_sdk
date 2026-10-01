@@ -41,6 +41,8 @@ constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 constexpr auto URL_DIAGNOSTICS_WIFI_SAMPLE_PATH {
         "internal/api/diagnostics/wifi-sample/{run_id}/"};
 constexpr auto URL_DIAGNOSTICS_WIFI_EVENT_PATH {"internal/api/diagnostics/wifi-event/{run_id}/"};
+constexpr auto URL_DIAGNOSTICS_HARDWARE_PROBE_RESULT_PATH {
+        "internal/api/diagnostics/hardware-probe-result/{run_id}/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
@@ -151,6 +153,7 @@ constexpr auto JVAL_CHN_TYPE_ADD_CREDITS {"add_credits"};
 constexpr auto JVAL_CHN_TYPE_DIAG_PROBE {"diag_probe"};
 constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_START {"diag_capture_start"};
 constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_STOP {"diag_capture_stop"};
+constexpr auto JVAL_CHN_TYPE_FIRMWARE_PROBE {"firmware_probe"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
@@ -173,6 +176,8 @@ constexpr auto JVAL_SCR_GAME_END {"game_end"};
 // device_egress ack POSTed to /internal/api/diagnostics/ack/.
 constexpr auto JKEY_DIAG_TRACE_ID {"trace_id"};
 constexpr auto JKEY_DIAG_RUN_ID {"run_id"};
+constexpr auto JKEY_DIAG_REPLY_TO {"reply_to"};
+constexpr auto JKEY_DIAG_FORCE_RE_DETECT {"force_re_detect"};
 constexpr auto JKEY_DIAG_DEADLINE_SECONDS {"deadline_seconds"};
 constexpr auto JKEY_DIAG_REQUESTED_DURATION {"requested_duration"};
 constexpr auto JKEY_DIAG_HOP {"hop"};

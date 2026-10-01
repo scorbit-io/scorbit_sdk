@@ -86,6 +86,8 @@ public:
     void setCapabilities(Capabilities) override {};
     void setCreditsDropped(int, const std::string &, bool) override {};
     void setCreditsStatus(bool, int, int, const char *) override {};
+    MAKE_MOCK3(submitHardwareProbeResult,
+               void(const std::string &, const std::string &, HttpStatusCallback), override);
 
     void scheduleDelayedOnWorker(std::chrono::steady_clock::duration delay,
                                  std::function<void()> fn) override
@@ -1091,4 +1093,20 @@ TEST_CASE("GameStateImpl getMachineSerial delegates to Net")
     ALLOW_CALL(mockNetRef, authenticate());
     GameStateImpl gameState(std::move(mockNet));
     CHECK(gameState.getMachineSerial() == 0);
+}
+
+TEST_CASE("GameStateImpl submitHardwareProbeResult delegates to Net")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+    ALLOW_CALL(mockNetRef, authenticate());
+    REQUIRE_CALL(mockNetRef, submitHardwareProbeResult(eq("run-1"), eq(R"({"a":1})"), _))
+            .SIDE_EFFECT(_3(Error::Success, 202, ""));
+    GameStateImpl gameState(std::move(mockNet));
+
+    int seenStatus = -1;
+    gameState.submitHardwareProbeResult(
+            "run-1", R"({"a":1})",
+            [&](Error, int httpStatus, const std::string &) { seenStatus = httpStatus; });
+    CHECK(seenStatus == 202);
 }

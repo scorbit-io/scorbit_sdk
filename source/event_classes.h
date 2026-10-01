@@ -214,6 +214,26 @@ private:
     std::string m_firmwaresList;
 };
 
+// ---------------- HardwareProbeRequested implementation ----------------
+
+class HardwareProbeRequestedEvent : public EventBase
+{
+public:
+    HardwareProbeRequestedEvent(const std::string &runId, bool forceReDetect)
+        : EventBase(EventType::HardwareProbeRequested, EventPriority::Normal)
+        , m_runId {runId}
+        , m_forceReDetect {forceReDetect}
+    {
+    }
+
+    auto runId() const -> const std::string & { return m_runId; }
+    auto forceReDetect() const -> bool { return m_forceReDetect; }
+
+private:
+    std::string m_runId;
+    bool m_forceReDetect;
+};
+
 // ---------------- PlayersUpdated implementation ----------------
 
 class PlayersUpdatedEvent : public EventBase

@@ -449,6 +449,10 @@ _lib.sb_event_scorbitd_updated.argtypes = [c_void_p, POINTER(c_char_p), POINTER(
 _lib.sb_event_firmwares_list_received.restype = c_bool
 _lib.sb_event_firmwares_list_received.argtypes = [c_void_p, POINTER(c_char_p)]
 
+# bool sb_event_hardware_probe_requested(const sb_event_t*, const char**, bool*)
+_lib.sb_event_hardware_probe_requested.restype = c_bool
+_lib.sb_event_hardware_probe_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_bool)]
+
 # bool sb_event_diagnostics_upload_requested(const sb_event_t*, bool*)
 _lib.sb_event_diagnostics_upload_requested.restype = c_bool
 _lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)]
@@ -525,6 +529,13 @@ _lib.sb_report_device_state.restype = None
 _lib.sb_report_device_state.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, c_bool,
     c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# void sb_submit_hardware_probe_result(sb_game_handle_t, const char*, const char*,
+#                                      sb_http_status_callback_t, void*)
+_lib.sb_submit_hardware_probe_result.restype = None
+_lib.sb_submit_hardware_probe_result.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
 ]
 
 # ---------------------------------------------------------------------------

@@ -53,6 +53,10 @@ public:
         sessionCreated = std::move(cb);
     }
     void submitGameData(const GameData &, SessionFlags) override { ++rows; }
+    void submitHardwareProbeResult(const std::string &, const std::string &,
+                                   HttpStatusCallback) override
+    {
+    }
     void getConfig() override { }
     void requestPairCode(StringCallback) override { }
     const std::string &getMachineUuid() const override { return m_empty; }

@@ -229,6 +229,14 @@ struct JobReportDeviceState {
     void *user_data;
 };
 
+struct JobSubmitHardwareProbeResult {
+    sb_game_state_struct *h;
+    std::string run_id;
+    std::string result_json;
+    sb_http_status_callback_t callback;
+    void *user_data;
+};
+
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
@@ -236,7 +244,8 @@ using ApiQueueItem =
                      JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores,
                      JobRequestPairCode, JobRequestUnpair, JobSetCapabilities, JobPairMachine,
                      JobCreditsDropped, JobCreditsStatus, JobDownload, JobDownloadBuffer,
-                     JobUploadDiagnostics, JobReportDeviceState>;
+                     JobUploadDiagnostics, JobReportDeviceState,
+                     JobSubmitHardwareProbeResult>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -382,6 +391,11 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobReportDeviceState &&j) {
                         j.h->gameState.reportDeviceState(
                                 j.type, j.version, j.installed, std::move(j.log),
+                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSubmitHardwareProbeResult &&j) {
+                        j.h->gameState.submitHardwareProbeResult(
+                                j.run_id, j.result_json,
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
                     },
             },
@@ -707,3 +721,11 @@ void postToGameState(sb_game_handle_t handle, std::function<void()> fn)
 
 } // namespace detail
 } // namespace scorbit
+
+void sb_submit_hardware_probe_result(sb_game_handle_t handle, const char *run_id,
+                                     const char *result_json, sb_http_status_callback_t callback,
+                                     void *user_data)
+{
+    handle->postApiJob(JobSubmitHardwareProbeResult {handle, copyCStr(run_id),
+                                                     copyCStr(result_json), callback, user_data});
+}

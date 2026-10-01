@@ -108,6 +108,12 @@ typedef enum {
 
     SB_EVT_FIRMWARES_LIST_RECEIVED,
 
+    /**
+     * @brief The Scorbit backend requested a hardware probe snapshot.
+     * Use @ref sb_event_hardware_probe_requested, then @ref sb_submit_hardware_probe_result.
+     */
+    SB_EVT_HARDWARE_PROBE_REQUESTED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

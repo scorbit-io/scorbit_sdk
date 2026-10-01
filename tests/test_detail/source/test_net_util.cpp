@@ -429,6 +429,37 @@ TEST_CASE("A 404 or 410 on capture ingest ends the run; nothing else does", "[wi
     CHECK_FALSE(wifiIngestStatusEndsRun(503));
 }
 
+TEST_CASE("isValidHardwareProbeRunId accepts only a URL-safe run_id", "[hardwareProbe]")
+{
+    CHECK(isValidHardwareProbeRunId("3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55"));
+    CHECK(isValidHardwareProbeRunId("3f2b8c1e8d4a4a579a3e2c6f1d0b7e55"));
+
+    CHECK_FALSE(isValidHardwareProbeRunId(""));
+    CHECK_FALSE(isValidHardwareProbeRunId("../x"));
+    CHECK_FALSE(isValidHardwareProbeRunId("a/b"));
+    CHECK_FALSE(isValidHardwareProbeRunId("a?b=c"));
+    CHECK_FALSE(isValidHardwareProbeRunId(std::string(65, 'a')));
+}
+
+TEST_CASE("hardwareProbeReplyToMatches requires the run's own result path", "[hardwareProbe]")
+{
+    const std::string runId = "abc-123";
+    CHECK(hardwareProbeReplyToMatches("/internal/api/diagnostics/hardware-probe-result/abc-123/",
+                                      runId));
+    CHECK(hardwareProbeReplyToMatches("internal/api/diagnostics/hardware-probe-result/abc-123/",
+                                      runId));
+
+    CHECK_FALSE(hardwareProbeReplyToMatches("", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "//internal/api/diagnostics/hardware-probe-result/abc-123/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "/internal/api/diagnostics/hardware-probe-result/abc-124/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "https://example.com/internal/api/diagnostics/hardware-probe-result/abc-123/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "/internal/api/diagnostics/hardware-probe-result/abc-123", runId));
+}
+
 
 // --- wifi capture sample payload -------------------------------------------
 //

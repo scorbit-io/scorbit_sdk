@@ -97,6 +97,11 @@ struct NetTestAccess {
     /// Sets the auth status to @p from, then runs the signer-failure retry's state change.
     static bool rearmAuthAfterFailure(Net &net, AuthStatus from);
     static AuthStatus status(const Net &net);
+    static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
+    static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
+    /// The production hardware probe result request, sent through @p transport.
+    static task_t hardwareProbeResult(Net &net, const std::string &runId, std::string body,
+                                      HttpStatusCallback callback, TestTransport transport);
 
 private:
     template<typename CallbackT>
@@ -215,6 +220,9 @@ public:
                                   std::function<void()> fn) override;
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void publishEvent(EventPtr event) override;
+
+    void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                   HttpStatusCallback callback = {}) override;
 
 private:
     task_t createAuthenticateTask();
@@ -414,6 +422,12 @@ private:
                            std::optional<std::chrono::steady_clock::time_point> deadline);
     void handleDiagnosticCaptureStart(const nlohmann::json &payload);
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
+    void handleHardwareProbe(const nlohmann::json &payload);
+    // Halves of the result POST, split so NetTestAccess can run them over a scripted transport.
+    HttpStatusCallback hardwareProbeResultReply(const std::string &runId,
+                                                HttpStatusCallback callback) const;
+    deferred_post_setup_t hardwareProbeResultSetup(const std::string &runId,
+                                                   std::string body) const;
     /**
      * POST a capture sample. @p runClosed is the run's shared closed-flag: a 410 from ingest sets
      * it, which is how the sampler learns the server has ended this run (SPEC-0007: 410 is
@@ -539,6 +553,9 @@ private:
     std::atomic<uint64_t> m_diagProbeSequence {0};
     std::unordered_set<std::string> m_seenDiagTraceIds;
     mutable std::mutex m_seenDiagTraceIdsMutex;
+    // Same bounded dedupe for firmware_probe run_ids.
+    std::unordered_set<std::string> m_seenHardwareProbeRunIds;
+    std::mutex m_seenHardwareProbeRunIdsMutex;
     /// Guards the pointer only. Never held across stop() or the destructor -- both join.
     std::mutex m_networkMonitorMutex;
     std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;

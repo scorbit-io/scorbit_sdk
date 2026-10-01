@@ -129,10 +129,14 @@ cpr::Response makeResponse(int statusCode, std::string body = {})
 struct ScriptedTransport {
     std::vector<cpr::Response> script;
     int calls = 0;
+    std::string lastUrl;
+    std::string lastBody;
 
-    cpr::Response operator()(const cpr::Url &, const cpr::Body &, const cpr::Header &,
+    cpr::Response operator()(const cpr::Url &url, const cpr::Body &body, const cpr::Header &,
                              const cpr::Timeout &, bool)
     {
+        lastUrl = url.str();
+        lastBody = body.str();
         const auto index = std::min<size_t>(static_cast<size_t>(calls), script.size() - 1);
         ++calls;
         return script[index];
@@ -421,5 +425,160 @@ TEST_CASE("A signer-failure retry leaves an authentication that has moved on alo
         CAPTURE(static_cast<int>(moved));
         CHECK_FALSE(NetTestAccess::rearmAuthAfterFailure(net, moved));
         CHECK(NetTestAccess::status(net) == moved);
+    }
+}
+
+// --------------------------- D: hardware probe (firmware_probe) -------------------------------
+
+namespace {
+
+constexpr auto PROBE_RUN_ID = "3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55";
+constexpr auto PROBE_REPLY_TO =
+        "/internal/api/diagnostics/hardware-probe-result/3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55/";
+
+/// A Net whose events run on a local io_context: an unprovisioned Net never starts its worker.
+/// io is declared first so it outlives the net's event manager, which holds a strand on it.
+struct ProbeNet {
+    boost::asio::io_context io;
+    std::vector<std::pair<std::string, bool>> received;
+    Net net {DeviceInfo {}, {}};
+
+    ProbeNet()
+    {
+        auto onEvent = [this](const EventBase &event) {
+            std::string runId;
+            bool force = false;
+            if (Event(&event).eventHardwareProbeRequested(runId, force)) {
+                received.emplace_back(runId, force);
+            }
+        };
+        NetTestAccess::setEventManager(
+                net, std::make_shared<EventManager>(boost::asio::make_strand(io), onEvent));
+    }
+
+    void handle(const nlohmann::json &payload) { NetTestAccess::handleHardwareProbe(net, payload); }
+    void drain() { io.run_for(std::chrono::milliseconds(50)); }
+};
+
+nlohmann::json probePayload(std::string replyTo = PROBE_REPLY_TO, bool force = false)
+{
+    return {{"run_id", PROBE_RUN_ID}, {"reply_to", std::move(replyTo)}, {"force_re_detect", force}};
+}
+
+} // namespace
+
+TEST_CASE("firmware_probe raises HardwareProbeRequested with run_id and force_re_detect")
+{
+    ProbeNet probe;
+
+    probe.handle(probePayload(PROBE_REPLY_TO, true));
+    probe.drain();
+
+    REQUIRE(probe.received.size() == 1);
+    CHECK(probe.received[0].first == PROBE_RUN_ID);
+    CHECK(probe.received[0].second);
+}
+
+TEST_CASE("firmware_probe accepts reply_to without the leading slash")
+{
+    ProbeNet probe;
+
+    probe.handle(probePayload(std::string {PROBE_REPLY_TO}.substr(1)));
+    probe.drain();
+
+    REQUIRE(probe.received.size() == 1);
+    CHECK_FALSE(probe.received[0].second);
+}
+
+TEST_CASE("firmware_probe with a mismatched reply_to raises no event")
+{
+    for (const std::string replyTo :
+         {"", "https://evil.example/internal/api/diagnostics/hardware-probe-result/x/",
+          "/internal/api/diagnostics/hardware-probe-result/other-run/",
+          "/internal/api/diagnostics/wifi-event/3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55/"}) {
+        CAPTURE(replyTo);
+        ProbeNet probe;
+
+        probe.handle(probePayload(replyTo));
+        probe.drain();
+
+        CHECK(probe.received.empty());
+    }
+}
+
+TEST_CASE("firmware_probe redelivered with the same run_id raises one event")
+{
+    ProbeNet probe;
+
+    probe.handle(probePayload());
+    probe.handle(probePayload());
+    probe.drain();
+
+    CHECK(probe.received.size() == 1);
+}
+
+TEST_CASE("firmware_probe without a usable run_id raises no event")
+{
+    ProbeNet probe;
+
+    auto missing = probePayload();
+    missing.erase("run_id");
+    auto notString = probePayload();
+    notString["run_id"] = 42;
+    auto traversal = probePayload("/internal/api/diagnostics/hardware-probe-result/../../x/");
+    traversal["run_id"] = "../../x";
+
+    probe.handle(missing);
+    probe.handle(notString);
+    probe.handle(traversal);
+    probe.drain();
+
+    CHECK(probe.received.empty());
+}
+
+TEST_CASE("submitHardwareProbeResult POSTs the body verbatim to the run's result path")
+{
+    Net net {DeviceInfo {}, {}};
+    const std::string body = R"({"end_reason":"completed","devices":[]})";
+    ScriptedTransport transport {{makeResponse(409, R"({"detail":"conflict"})")}};
+
+    Error seenError {Error::Success};
+    int seenStatus = -1;
+    HttpStatusCallback callback = [&](Error error, int httpStatus, const std::string &) {
+        seenError = error;
+        seenStatus = httpStatus;
+    };
+
+    NetTestAccess::hardwareProbeResult(net, PROBE_RUN_ID, body, std::move(callback),
+                                       std::ref(transport))();
+
+    CHECK(transport.calls == 1);
+    CHECK(transport.lastUrl == net.hostname() + PROBE_REPLY_TO);
+    CHECK(transport.lastBody == body);
+    CHECK(seenStatus == 409);
+    CHECK(seenError == Error::ApiError);
+}
+
+TEST_CASE("submitHardwareProbeResult rejects invalid input without sending")
+{
+    Net net {DeviceInfo {}, {}};
+
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {PROBE_RUN_ID, "not json"}, {PROBE_RUN_ID, "[1]"}, {"", "{}"}, {"a/b", "{}"}};
+    for (const auto &[runId, resultJson] : cases) {
+        CAPTURE(runId, resultJson);
+        int calls = 0;
+        Error seenError {Error::Success};
+        int seenStatus = -1;
+        net.submitHardwareProbeResult(runId, resultJson,
+                                      [&](Error error, int httpStatus, const std::string &) {
+                                          ++calls;
+                                          seenError = error;
+                                          seenStatus = httpStatus;
+                                      });
+        // Answered synchronously: nothing was queued for the worker.
+        CHECK(calls == 1);
+        CHECK(seenError == Error::Unknown);
+        CHECK(seenStatus == 0);
     }
 }

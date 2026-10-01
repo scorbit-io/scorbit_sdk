@@ -197,6 +197,14 @@ public:
     /** @p callback is invoked from a network thread whenever player profiles change. */
     virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
 
+    /**
+     * POSTs a hardware probe result (@p resultJson, sent verbatim) for @p runId. @p callback gets
+     * the HTTP status of the final attempt, 0 when none was received. Invalid input is answered
+     * with Error::Unknown and status 0 without sending anything.
+     */
+    virtual void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                           HttpStatusCallback callback = {}) = 0;
+
     // ---------------------------------------------------------------------------------
 
     virtual void setProbesManager(std::shared_ptr<nfc::ProbesManager> manager) { (void)manager; };

@@ -131,6 +131,9 @@ public:
     void fetchPlayerAchievements(const std::string &userId, StringCallback callback);
     const achievements::AchievementService &achievements() const { return *m_achievements; }
 
+    void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                   HttpStatusCallback callback);
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
