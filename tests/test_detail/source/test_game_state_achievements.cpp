@@ -351,6 +351,22 @@ TEST_CASE("A failed report is retried with a fresh sequence", "[achievements]")
     CHECK(f.net->reports.front().body["achievements"][0]["key"] == "game-cv-boom");
 }
 
+TEST_CASE("A refused report is dropped, not retried", "[achievements]")
+{
+    Fixture f;
+    f.game->addMode("balloon");
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+
+    f.net->reports.front().reply(ApiReply {
+            Error::ApiError, 400,
+            R"({"code":"not_claimed","detail":"The user is not claimed on that session."})"});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+    CHECK_FALSE(f.net->retry);
+    CHECK(f.net->reports.empty());
+}
+
 TEST_CASE("A rejected unlock is retracted", "[achievements]")
 {
     Fixture f;
@@ -358,10 +374,12 @@ TEST_CASE("A rejected unlock is retracted", "[achievements]")
     f.game->commit();
     REQUIRE(f.net->reports.size() == 1);
 
-    f.net->reports.front().reply(ApiReply {Error::Success, 200,
-                                           reply({{{"key", "game-cv-boom"},
-                                                   {"status", "rejected"},
-                                                   {"code", "scope_mismatch"}}})});
+    f.net->reports.front().reply(
+            ApiReply {Error::Success, 200,
+                      reply({{{"key", "game-cv-boom"},
+                              {"status", "rejected"},
+                              {"code", "scope_mismatch"},
+                              {"detail", "The achievement's scope does not permit it here."}}})});
     f.game->runPendingPosts();
     CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_RETRACTED));
 }
