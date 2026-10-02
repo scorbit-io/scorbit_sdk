@@ -31,8 +31,7 @@ namespace achievements {
 /**
  * The machine's on-disk achievements cache, under `<data dir>/achievements/`:
  *
- * - the last definitions response and its `ETag`, so a boot can revalidate with `If-None-Match`
- *   instead of refetching (§10.1);
+ * - the last definitions response, so a machine that boots offline still evaluates;
  * - the extracted DMD frame bundle and its version, so a frame is local before it is needed and
  *   is downloaded again only when the version changes (§3.9).
  *
@@ -41,15 +40,11 @@ namespace achievements {
 class AchievementStorage
 {
 public:
+    /** Also removes the definitions ETag an older SDK left behind. */
     explicit AchievementStorage(std::string dataDir);
 
-    struct CachedDefinitions {
-        std::string body;
-        std::string etag;
-    };
-
-    std::optional<CachedDefinitions> loadDefinitions() const;
-    bool saveDefinitions(const std::string &body, const std::string &etag) const;
+    std::optional<std::string> loadDefinitions() const;
+    bool saveDefinitions(const std::string &body) const;
 
     /** The version of the installed frame bundle, if one is installed. */
     std::optional<int64_t> framesVersion() const;
