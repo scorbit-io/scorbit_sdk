@@ -45,6 +45,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include "net_util.h"
 #include <optional>
 
 namespace scorbit {
@@ -541,10 +542,10 @@ private:
     // bounded in-memory dedupe so a duplicate probe (Centrifugo history
     // replay after a restart, etc.) cannot double-publish.
     std::atomic<uint64_t> m_diagProbeSequence {0};
-    std::unordered_set<std::string> m_seenDiagTraceIds;
+    RecentIds m_seenDiagTraceIds {10};
     mutable std::mutex m_seenDiagTraceIdsMutex;
     // Same bounded dedupe for firmware_probe run_ids.
-    std::unordered_set<std::string> m_seenHardwareProbeRunIds;
+    RecentIds m_seenHardwareProbeRunIds {10};
     std::mutex m_seenHardwareProbeRunIdsMutex;
     /// Guards the pointer only. Never held across stop() or the destructor -- both join.
     std::mutex m_networkMonitorMutex;

@@ -420,6 +420,29 @@ TEST_CASE("isValidHardwareProbeRunId accepts only a URL-safe run_id", "[hardware
     CHECK_FALSE(isValidHardwareProbeRunId("a/b"));
     CHECK_FALSE(isValidHardwareProbeRunId("a?b=c"));
     CHECK_FALSE(isValidHardwareProbeRunId(std::string(65, 'a')));
+    // The neighbours of each accepted ASCII range, and bytes a Latin-1 locale calls letters.
+    for (const char *id : {"a@", "a[", "a`", "a{", "a/", "a:", "a\xE9", "a\xC0", "a\xB5"}) {
+        CHECK_FALSE(isValidHardwareProbeRunId(id));
+    }
+}
+
+TEST_CASE("RecentIds refuses a replay of any of the last N ids and evicts the oldest",
+          "[hardwareProbe]")
+{
+    RecentIds seen {10};
+    for (int i = 0; i < 25; ++i) {
+        const auto id = "run-" + std::to_string(i);
+        REQUIRE(seen.insert(id));
+        // The id just added is never the one evicted.
+        CHECK_FALSE(seen.insert(id));
+    }
+    for (int i = 15; i < 25; ++i) {
+        CHECK_FALSE(seen.insert("run-" + std::to_string(i)));
+    }
+    CHECK(seen.insert("run-14"));
+    // run-14 evicted run-15, the oldest.
+    CHECK(seen.insert("run-15"));
+    CHECK_FALSE(seen.insert("run-24"));
 }
 
 TEST_CASE("hardwareProbeReplyToMatches requires the run's own result path", "[hardwareProbe]")

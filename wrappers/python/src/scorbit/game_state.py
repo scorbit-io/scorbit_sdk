@@ -592,6 +592,17 @@ class GameState(object):
             None,
         )
 
+    # ------------------------------------------------------------------
+    # Internal / scorbitd
+    # ------------------------------------------------------------------
+
+    def request_pair_machine(self, machine_uuid, owner_uuid, callback):
+        # type: (str, str, ...) -> None
+        cb = self._make_string_cb(callback)
+        _lib.sb_game_request_pair_machine(
+            self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
+        )
+
     def submit_hardware_probe_result(self, run_id, result_json, callback=None):
         # type: (str, str, ...) -> None
         """POST a hardware probe result (serialized JSON object, sent verbatim).
@@ -610,17 +621,6 @@ class GameState(object):
         cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
         _lib.sb_submit_hardware_probe_result(
             self._handle, _encode(run_id), _encode(result_json), cb, None
-        )
-
-    # ------------------------------------------------------------------
-    # Internal / scorbitd
-    # ------------------------------------------------------------------
-
-    def request_pair_machine(self, machine_uuid, owner_uuid, callback):
-        # type: (str, str, ...) -> None
-        cb = self._make_string_cb(callback)
-        _lib.sb_game_request_pair_machine(
-            self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
         )
 
 

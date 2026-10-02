@@ -22,11 +22,13 @@
 #include "game_data.h"
 #include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
+#include <deque>
 #include <diagnostics/wifi/wifi_diagnostics.h>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace scorbit {
@@ -149,6 +151,24 @@ bool isValidHardwareProbeRunId(std::string_view runId);
  * ever POSTs to that path, so a firmware_probe naming any other reply_to is refused.
  */
 bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId);
+
+/**
+ * The last @p capacity ids in arrival order, to refuse a Centrifugo history replay. Evicts the
+ * oldest, never the id just added. Not thread-safe.
+ */
+class RecentIds
+{
+public:
+    explicit RecentIds(size_t capacity);
+
+    /// False if @p id is still remembered.
+    bool insert(const std::string &id);
+
+private:
+    size_t m_capacity;
+    std::deque<std::string> m_order;
+    std::unordered_set<std::string> m_ids;
+};
 
 /**
  * Build the wifi-sample ingest body for @p sample.

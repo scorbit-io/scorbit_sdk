@@ -1100,20 +1100,9 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
 
     {
         std::lock_guard<std::mutex> lock(m_seenDiagTraceIdsMutex);
-        const auto [_, inserted] = m_seenDiagTraceIds.insert(traceId);
-        if (!inserted) {
+        if (!m_seenDiagTraceIds.insert(traceId)) {
             WRN("DIAG: probe trace_id={} already seen, refusing duplicate", traceId);
             return;
-        }
-        // Cap the dedupe set so it cannot grow unbounded across long process
-        // lifetimes. Real-world cadence is at most a few traces per device
-        // per day; clearing the half at 10 keeps memory trivial.
-        if (m_seenDiagTraceIds.size() > 10) {
-            const auto half = m_seenDiagTraceIds.size() / 2;
-            auto it = m_seenDiagTraceIds.begin();
-            for (size_t i = 0; i < half && it != m_seenDiagTraceIds.end(); ++i) {
-                it = m_seenDiagTraceIds.erase(it);
-            }
         }
     }
 
@@ -1357,19 +1346,10 @@ void Net::handleHardwareProbe(const nlohmann::json &payload)
     }
 
     {
-        // Same history-replay dedupe and cap as m_seenDiagTraceIds in handleDiagnosticProbe.
         std::lock_guard<std::mutex> lock(m_seenHardwareProbeRunIdsMutex);
-        const auto [_, inserted] = m_seenHardwareProbeRunIds.insert(runId);
-        if (!inserted) {
+        if (!m_seenHardwareProbeRunIds.insert(runId)) {
             WRN("DIAG: hardware probe run_id={} already seen, refusing duplicate", runId);
             return;
-        }
-        if (m_seenHardwareProbeRunIds.size() > 10) {
-            const auto half = m_seenHardwareProbeRunIds.size() / 2;
-            auto it = m_seenHardwareProbeRunIds.begin();
-            for (size_t i = 0; i < half && it != m_seenHardwareProbeRunIds.end(); ++i) {
-                it = m_seenHardwareProbeRunIds.erase(it);
-            }
         }
     }
 

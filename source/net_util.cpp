@@ -296,7 +296,11 @@ bool isValidHardwareProbeRunId(std::string_view runId)
     constexpr size_t MAX_RUN_ID_LENGTH = 64;
     return !runId.empty() && runId.size() <= MAX_RUN_ID_LENGTH
         && std::all_of(runId.begin(), runId.end(),
-                       [](unsigned char c) { return std::isalnum(c) || c == '-'; });
+                       [](char c) {
+                           // Explicit ASCII: std::isalnum follows the host's locale.
+                           return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                               || (c >= '0' && c <= '9') || c == '-';
+                       });
 }
 
 bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId)
@@ -307,6 +311,24 @@ bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &ru
         replyTo.remove_prefix(1);
     }
     return replyTo == expected;
+}
+
+RecentIds::RecentIds(size_t capacity)
+    : m_capacity(capacity)
+{
+}
+
+bool RecentIds::insert(const std::string &id)
+{
+    if (!m_ids.insert(id).second) {
+        return false;
+    }
+    m_order.push_back(id);
+    if (m_order.size() > m_capacity) {
+        m_ids.erase(m_order.front());
+        m_order.pop_front();
+    }
+    return true;
 }
 
 nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
