@@ -180,8 +180,12 @@ TEST_CASE("Report request encoding", "[achievements]")
 
 TEST_CASE("Report response parsing", "[achievements]")
 {
+    // As the API's report endpoint renders it (SB-4967)
     const auto outcomes = parseReportResponse(json::parse(R"({"results":[
-        {"key":"game-cv-boom-balloon","status":"unlocked","user_achievement":{}},
+        {"key":"game-cv-boom-balloon","status":"unlocked","user_achievement":{
+            "key":"game-cv-boom-balloon","achieved":true,"achieved_time":"2026-10-02T18:22:41.318Z",
+            "venue":{"id":"v1","name":"Free Gold Watch"},"machine":null,"is_holder":null,
+            "percent":100,"rule_progress":[{"index":0,"value":1,"target":1,"satisfied":true}]}},
         {"key":"game-cv-spin-master","status":"in_progress"},
         {"key":"game-cv-marathon","status":"already_held"},
         {"key":"game-cv-retired","status":"rejected","code":"not_published","detail":"Nope."},
@@ -204,8 +208,8 @@ TEST_CASE("Definitions persist", "[achievements]")
     AchievementStorage storage {dir.path().string()};
     CHECK_FALSE(storage.loadDefinitions());
 
-    REQUIRE(storage.saveDefinitions(R"({"results":[]})"));
-    CHECK(AchievementStorage {dir.path().string()}.loadDefinitions() == R"({"results":[]})");
+    REQUIRE(storage.saveDefinitions("[]"));
+    CHECK(AchievementStorage {dir.path().string()}.loadDefinitions() == "[]");
 }
 
 TEST_CASE("Frames install per key and track their version", "[achievements]")
