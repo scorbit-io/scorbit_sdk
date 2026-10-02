@@ -43,10 +43,10 @@ constexpr std::array<std::pair<RuleType, std::string_view>, 12> RULE_TYPE_NAMES 
 }};
 
 constexpr std::array<std::pair<Comparison, std::string_view>, 4> COMPARISON_NAMES {{
-        {Comparison::Eq, "EQ"},
-        {Comparison::Le, "LE"},
-        {Comparison::Ge, "GE"},
-        {Comparison::Ne, "NE"},
+        {Comparison::Eq, "="},
+        {Comparison::Le, "<="},
+        {Comparison::Ge, ">="},
+        {Comparison::Ne, "!="},
 }};
 
 template<typename Enum, size_t N>
@@ -174,17 +174,6 @@ std::optional<Comparison> comparisonFromString(std::string_view str)
 std::string_view toString(Comparison comparison)
 {
     return lookup(COMPARISON_NAMES, comparison);
-}
-
-std::optional<EvaluationClass> evaluationClassFromString(std::string_view str)
-{
-    if (str == "in_session") {
-        return EvaluationClass::InSession;
-    }
-    if (str == "unlimited") {
-        return EvaluationClass::Unlimited;
-    }
-    return std::nullopt;
 }
 
 std::optional<Scope> scopeFromString(std::string_view str)

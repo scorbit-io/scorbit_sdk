@@ -185,14 +185,27 @@ private:
     boost::filesystem::path m_path;
 };
 
-const char *DEFINITIONS = R"({
-  "game": "cactus-canyon", "frames_version": 0,
-  "results": [
-    {"key": "game-cv-boom", "scope": "game", "evaluation": "in_session",
-     "rules": [{"type": "MODE", "comparison": "GE", "target": 1, "reference": "balloon"}]},
-    {"key": "game-cv-spins", "scope": "game", "evaluation": "unlimited",
-     "rules": [{"type": "EVENT", "comparison": "GE", "target": 100, "reference": "spins"}]}
-  ]})";
+const char *DEFINITIONS = R"([
+    {"key": "game-cv-boom", "scope": "game", "is_single_session": true,
+     "frame": null, "frame_version": 0,
+     "rules": [{"type": "MODE", "comparison": ">=", "target": 1, "reference": "balloon",
+                "subachievement": null}]},
+    {"key": "game-cv-spins", "scope": "game", "is_single_session": false,
+     "frame": null, "frame_version": 0,
+     "rules": [{"type": "EVENT", "comparison": ">=", "target": 100, "reference": "spins",
+                "subachievement": null}]}
+  ])";
+
+/** A progress entry as the API renders it. */
+json progressEntry(const std::string &key, bool achieved, double currentValue)
+{
+    return {{"id", "6d1f2a90"},
+            {"achievement", {{"id", "0b7c4f0e"}, {"key", key}, {"scope", "game"}}},
+            {"current_value", currentValue},
+            {"achieved", achieved},
+            {"achieved_time", nullptr},
+            {"progress", 0}};
+}
 
 std::string reply(const json &results)
 {
@@ -229,8 +242,7 @@ struct Fixture {
         game->runPendingPosts();
 
         REQUIRE(net->progressUserId == "3f1c");
-        net->progressReply(ApiReply {Error::Success, 200,
-                                     json {{"user_id", "3f1c"}, {"results", baseline}}.dump()});
+        net->progressReply(ApiReply {Error::Success, 200, baseline.dump()});
         game->runPendingPosts();
     }
 };
@@ -256,7 +268,7 @@ TEST_CASE("Definitions are cached and refetched at boot", "[achievements]")
     CHECK(net->definitionsFetches == 1);
     CHECK(game.achievements().view()->definitions->size() == 2);
 
-    net->definitionsReply(ApiReply {Error::Success, 200, R"({"results": []})"});
+    net->definitionsReply(ApiReply {Error::Success, 200, "[]"});
     game.runPendingPosts();
     CHECK(game.achievements().view()->definitions->empty());
 }
@@ -286,16 +298,15 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
 
 TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]")
 {
-    Fixture f(json::array(
-            {{{"key", "game-cv-spins"},
-              {"achieved", false},
-              {"rule_progress", {{{"index", 0}, {"value", 90}, {"satisfied", false}}}}}}));
+    // current_value is the legacy /unlock/ count, not a per-rule baseline
+    Fixture f(json::array({progressEntry("game-cv-spins", false, 90.0)}));
 
-    f.game->addEvent("spins", 4);
+    f.game->addEvent("spins", 40);
     f.game->commit();
     CHECK(f.net->reports.empty()); // not streamed
+    CHECK_FALSE(hasUpdate(*f.net, "game-cv-spins", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
 
-    f.game->addEvent("spins", 6);
+    f.game->addEvent("spins", 60);
     f.game->commit();
     CHECK(hasUpdate(*f.net, "game-cv-spins", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
     CHECK(f.net->reports.empty());
@@ -307,7 +318,17 @@ TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]
     const auto &item = f.net->reports.front().body["achievements"][0];
     CHECK(item["key"] == "game-cv-spins");
     CHECK(item["achieved"] == true);
-    CHECK(item["rule_progress"][0]["value"] == 100); // lifetime: 90 + 4 + 6
+    CHECK(item["rule_progress"][0]["value"] == 100); // 40 + 60
+}
+
+TEST_CASE("A baseline already achieved is not claimed again", "[achievements]")
+{
+    Fixture f(json::array({progressEntry("game-cv-boom", true, 0.0)}));
+
+    f.game->addMode("balloon");
+    f.game->commit();
+    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
+    CHECK(f.net->reports.empty());
 }
 
 TEST_CASE("A failed report is retried with a fresh sequence", "[achievements]")
@@ -377,7 +398,7 @@ TEST_CASE("A player claiming mid-game gets the facts of the whole session", "[ac
 
     net->claim(1, "3f1c");
     game.runPendingPosts();
-    net->progressReply(ApiReply {Error::Success, 200, reply(json::array())});
+    net->progressReply(ApiReply {Error::Success, 200, "[]"});
     game.runPendingPosts();
 
     CHECK(hasUpdate(*net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
@@ -411,35 +432,35 @@ TEST_CASE("DMD frames are downloaded per achievement when their version changes"
         json results = json::array();
         results.push_back({{"key", "game-cv-boom"},
                            {"scope", "game"},
-                           {"evaluation", "in_session"},
+                           {"is_single_session", true},
                            {"frame", "https://cdn.example/achievement_frame/game-cv-boom_3.png"},
                            {"frame_version", boomVersion},
                            {"rules", json::array({{{"type", "MODE"},
-                                                   {"comparison", "GE"},
+                                                   {"comparison", ">="},
                                                    {"target", 1},
                                                    {"reference", "balloon"}}})}});
         if (withBlast) {
             results.push_back(
                     {{"key", "game-cv-blast"},
                      {"scope", "game"},
-                     {"evaluation", "in_session"},
+                     {"is_single_session", true},
                      {"frame", "https://cdn.example/achievement_frame/game-cv-blast_1.bin?sig=a"},
                      {"frame_version", 1},
                      {"rules", json::array({{{"type", "MODE"},
-                                             {"comparison", "GE"},
+                                             {"comparison", ">="},
                                              {"target", 1},
                                              {"reference", "blast"}}})}});
         }
         results.push_back({{"key", "game-cv-plain"},
                            {"scope", "game"},
-                           {"evaluation", "in_session"},
+                           {"is_single_session", true},
                            {"frame", nullptr},
                            {"frame_version", 0},
                            {"rules", json::array({{{"type", "MODE"},
-                                                   {"comparison", "GE"},
+                                                   {"comparison", ">="},
                                                    {"target", 1},
                                                    {"reference", "plain"}}})}});
-        return json {{"results", results}}.dump();
+        return results.dump();
     };
     const auto frameOf = [](const GameStateImpl &game, const std::string &key) {
         const auto frame = game.achievements().frame(key);
