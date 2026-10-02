@@ -59,7 +59,7 @@ AchievementService::AchievementService(NetBase &net, AchievementStorage storage,
     , m_sink {std::move(sink)}
 {
     if (const auto cached = m_storage.loadDefinitions()) {
-        applyDefinitions(cached->body, cached->etag, false);
+        applyDefinitions(*cached, false);
     }
 }
 
@@ -77,30 +77,23 @@ void AchievementService::refreshDefinitions()
     }
     m_fetchingDefinitions = true;
 
-    m_net.fetchAchievementDefinitions(
-            m_etag, [this, alive = std::weak_ptr(m_alive)](ApiReply reply) {
-                m_poster([this, alive, reply = std::move(reply)]() mutable {
-                    if (alive.expired()) {
-                        return;
-                    }
-                    m_fetchingDefinitions = false;
-                    if (reply.error != Error::Success) {
-                        WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
-                        return;
-                    }
-                    if (reply.httpStatus == 304) {
-                        INF("Achievements: definitions not modified");
-                        refreshFrames();
-                        return;
-                    }
-                    applyDefinitions(reply.body, reply.etag, true);
-                    refreshFrames();
-                });
-            });
+    m_net.fetchAchievementDefinitions([this, alive = std::weak_ptr(m_alive)](ApiReply reply) {
+        m_poster([this, alive, reply = std::move(reply)]() mutable {
+            if (alive.expired()) {
+                return;
+            }
+            m_fetchingDefinitions = false;
+            if (reply.error != Error::Success) {
+                WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
+                return;
+            }
+            applyDefinitions(reply.body, true);
+            refreshFrames();
+        });
+    });
 }
 
-void AchievementService::applyDefinitions(const std::string &body, const std::string &etag,
-                                          bool persist)
+void AchievementService::applyDefinitions(const std::string &body, bool persist)
 {
     auto definitions = parseJson<DefinitionSet>(body, &parseDefinitionsResponse);
     if (!definitions) {
@@ -109,9 +102,8 @@ void AchievementService::applyDefinitions(const std::string &body, const std::st
 
     INF("Achievements: {} definitions for '{}'", definitions->size(), definitions->game());
     m_definitions = std::make_shared<const DefinitionSet>(std::move(*definitions));
-    m_etag = etag;
     if (persist) {
-        m_storage.saveDefinitions(body, etag);
+        m_storage.saveDefinitions(body);
     }
 
     // A running session picks the new definitions up from the next evaluation

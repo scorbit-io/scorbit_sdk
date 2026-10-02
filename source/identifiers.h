@@ -93,8 +93,6 @@ constexpr auto HDR_KEY_CACHE_CONTROL {"Cache-Control"};
 constexpr auto HDR_VAL_NO_CACHE {"no-cache"};
 
 constexpr auto HDR_KEY_FINGERPRINT_HASH {"X-Fingerprint-Hash"};
-constexpr auto HDR_KEY_IF_NONE_MATCH {"If-None-Match"};
-constexpr auto HDR_KEY_ETAG {"ETag"};
 
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};

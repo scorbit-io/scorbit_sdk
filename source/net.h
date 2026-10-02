@@ -206,7 +206,7 @@ public:
                            std::vector<std::string> recordingPaths, std::string logString,
                            std::optional<std::uint64_t> requestGeneration = std::nullopt) override;
 
-    void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback) override;
+    void fetchAchievementDefinitions(ApiReplyCallback callback) override;
     void fetchAchievementProgress(std::string userId, ApiReplyCallback callback) override;
     void postAchievementReport(std::string body, ApiReplyCallback callback) override;
     void downloadAchievementFrames(std::string gameSlug, std::string filename,

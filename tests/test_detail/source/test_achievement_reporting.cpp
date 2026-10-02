@@ -198,17 +198,14 @@ TEST_CASE("Report response parsing", "[achievements]")
     CHECK_FALSE(parseReportResponse(json::parse(R"({"detail":"x"})")));
 }
 
-TEST_CASE("Definitions and their ETag persist", "[achievements]")
+TEST_CASE("Definitions persist", "[achievements]")
 {
     TempDir dir;
     AchievementStorage storage {dir.path().string()};
     CHECK_FALSE(storage.loadDefinitions());
 
-    REQUIRE(storage.saveDefinitions(R"({"results":[]})", "\"a1b2c3\""));
-    const auto cached = AchievementStorage {dir.path().string()}.loadDefinitions();
-    REQUIRE(cached);
-    CHECK(cached->body == R"({"results":[]})");
-    CHECK(cached->etag == "\"a1b2c3\"");
+    REQUIRE(storage.saveDefinitions(R"({"results":[]})"));
+    CHECK(AchievementStorage {dir.path().string()}.loadDefinitions() == R"({"results":[]})");
 }
 
 TEST_CASE("A frame bundle installs and serves frames by key", "[achievements]")

@@ -172,9 +172,9 @@ void sb_config_set_threads_priority(sb_config_t config, int priority);
 /**
  * @brief Set a writable directory the SDK may keep persistent data in.
  *
- * The SDK stores its achievements cache there — the last achievement definitions with their
- * validator, and the DMD frame bundle — so that a reboot revalidates the definitions instead of
- * downloading them again, and a frame is already local when it has to be shown.
+ * The SDK stores its achievements cache there — the last achievement definitions and the DMD
+ * frame bundle — so that a machine booting offline still evaluates achievements, and a frame is
+ * already local when it has to be shown.
  *
  * The directory should survive reboots. When it is not set, a directory under the system
  * temporary directory is used, which works but may be cleared on reboot.

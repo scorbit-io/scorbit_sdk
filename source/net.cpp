@@ -1496,43 +1496,29 @@ void Net::cancelModeExpiryTimer()
     m_worker.stopTimer(Worker::Timer::ModeExpiry);
 }
 
-void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback)
+void Net::fetchAchievementDefinitions(ApiReplyCallback callback)
 {
-    auto receivedEtag = std::make_shared<std::string>();
-
-    auto replyCallback = [callback = std::move(callback), receivedEtag](Error error, int httpStatus,
-                                                                        const std::string &reply) {
-        if (error != Error::Success) {
+    auto replyCallback = [callback = std::move(callback)](Error error, int httpStatus,
+                                                          const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API achievement definitions: ok, status: {}, {} bytes", httpStatus, reply.size());
+        } else {
             WRN("API achievement definitions: failed, error code: {}, status: {}, reply: {}",
                 static_cast<int>(error), httpStatus, reply);
-        } else if (httpStatus == 304) {
-            INF("API achievement definitions: not modified");
-        } else {
-            INF("API achievement definitions: ok, status: {}, etag: {}, {} bytes", httpStatus,
-                *receivedEtag, reply.size());
         }
-        callback(ApiReply {error, httpStatus, reply, *receivedEtag});
+        callback(ApiReply {error, httpStatus, reply});
     };
 
-    auto deferredSetup = [this, etag] {
-        INF("API fetching achievement definitions, etag: {}", etag.empty() ? "none" : etag);
+    auto deferredSetup = [this] {
+        INF("API fetching achievement definitions");
         return std::make_tuple(url(URL_ACHIEVEMENTS_DEFINITIONS), cpr::Parameters {});
     };
 
     m_worker.post(createHttpRequestTask(
             REST_GET, HttpStatusCallback {std::move(replyCallback)}, std::move(deferredSetup),
-            [this, etag = std::move(etag),
-             receivedEtag](const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
-                           const cpr::Timeout &timeout, bool /*resilient*/) {
-                if (!etag.empty()) {
-                    header[HDR_KEY_IF_NONE_MATCH] = etag;
-                }
-                auto r =
-                        HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
-                if (const auto it = r.header.find(HDR_KEY_ETAG); it != r.header.end()) {
-                    *receivedEtag = it->second;
-                }
-                return r;
+            [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
             }));
 }
 
@@ -1547,7 +1533,7 @@ void Net::fetchAchievementProgress(std::string userId, ApiReplyCallback callback
                 "reply: {}",
                 userId, static_cast<int>(error), httpStatus, reply);
         }
-        callback(ApiReply {error, httpStatus, reply, {}});
+        callback(ApiReply {error, httpStatus, reply});
     };
 
     auto deferredSetup = [this, userId = std::move(userId)] {
@@ -1574,7 +1560,7 @@ void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
             WRN("API achievement report: failed, error code: {}, status: {}, reply: {}",
                 static_cast<int>(error), httpStatus, reply);
         }
-        callback(ApiReply {error, httpStatus, reply, {}});
+        callback(ApiReply {error, httpStatus, reply});
     };
 
     auto deferredSetup = [this, body = std::move(body)] {
@@ -1602,7 +1588,7 @@ void Net::downloadAchievementFrames(std::string gameSlug, std::string filename,
                      WRN("API achievement frames: failed, game: {}, error code: {}, reply: {}",
                          gameSlug, static_cast<int>(error), reply);
                  }
-                 callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
+                 callback(ApiReply {error, error == Error::Success ? 200 : 0, reply});
              },
              endpoint, filename, {});
 }
@@ -2857,8 +2843,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             reply = std::move(r.text);
             httpStatus = r.status_code;
 
-            // 304 only ever answers a conditional request, which asked precisely for it
-            if ((r.status_code >= 200 && r.status_code < 300) || r.status_code == 304) {
+            if (r.status_code >= 200 && r.status_code < 300) {
                 DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
                 error = Error::Success;
                 noteRestSuccess(r.header);
