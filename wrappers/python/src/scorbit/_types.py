@@ -282,12 +282,14 @@ class Achievement(object):
         "scope",
         "evaluation",
         "is_trophy",
+        "is_badge",
         "visible",
         "obscure",
         "notify_when_achieved",
         "icon_url",
         "obscure_image_url",
         "group_id",
+        "level",
         "display_position",
         "rules",
     )
@@ -300,12 +302,14 @@ class Achievement(object):
         self.scope = 0
         self.evaluation = 0
         self.is_trophy = False
+        self.is_badge = False
         self.visible = True
         self.obscure = False
         self.notify_when_achieved = False
         self.icon_url = ""
         self.obscure_image_url = ""
         self.group_id = None  # type: int | None
+        self.level = None  # type: int | None
         self.display_position = None  # type: int | None
         self.rules = []  # type: list
 

@@ -118,6 +118,7 @@ typedef struct {
     sb_achievement_scope_t scope;
     sb_achievement_evaluation_t evaluation;
     bool is_trophy; ///< Held by one player at a time; decided by the server only
+    bool is_badge;  ///< Presented as a badge
     bool visible;   ///< When false, an ingredient: never shown to players
     bool obscure;   ///< When true, show the obscure image and mask the text until earned
     bool notify_when_achieved;
@@ -125,6 +126,7 @@ typedef struct {
     const char *obscure_image_url;
     bool has_group;           ///< Whether the achievement belongs to a group (tier ladder)
     int64_t group_id;         ///< Valid when has_group
+    int64_t level;            ///< Sparse tier order in the group, e.g. 1000; valid when has_group
     int64_t display_position; ///< Dense 1, 2, 3... position in the group; valid when has_group
     size_t rules_count;       ///< Use @ref sb_achievement_rule_at to read each rule
 } sb_achievement_t;

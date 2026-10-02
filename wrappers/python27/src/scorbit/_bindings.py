@@ -540,6 +540,7 @@ class sb_achievement_t(Structure):
         ("scope", c_int),
         ("evaluation", c_int),
         ("is_trophy", c_bool),
+        ("is_badge", c_bool),
         ("visible", c_bool),
         ("obscure", c_bool),
         ("notify_when_achieved", c_bool),
@@ -547,6 +548,7 @@ class sb_achievement_t(Structure):
         ("obscure_image_url", c_char_p),
         ("has_group", c_bool),
         ("group_id", c_int64),
+        ("level", c_int64),
         ("display_position", c_int64),
         ("rules_count", c_size_t),
     ]

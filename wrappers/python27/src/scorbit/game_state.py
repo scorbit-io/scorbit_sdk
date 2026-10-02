@@ -485,6 +485,7 @@ class GameState(object):
         a.scope = AchievementScope(c.scope)
         a.evaluation = AchievementEvaluation(c.evaluation)
         a.is_trophy = bool(c.is_trophy)
+        a.is_badge = bool(c.is_badge)
         a.visible = bool(c.visible)
         a.obscure = bool(c.obscure)
         a.notify_when_achieved = bool(c.notify_when_achieved)
@@ -492,6 +493,7 @@ class GameState(object):
         a.obscure_image_url = decode(c.obscure_image_url)
         if c.has_group:
             a.group_id = int(c.group_id)
+            a.level = int(c.level)
             a.display_position = int(c.display_position)
 
         # Copied first: the next call may invalidate the definition's strings
