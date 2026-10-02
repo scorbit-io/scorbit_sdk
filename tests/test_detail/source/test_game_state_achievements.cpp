@@ -80,9 +80,9 @@ public:
     void setCreditsDropped(int, const std::string &, bool) override { }
     void setCreditsStatus(bool, int, int, const char *) override { }
 
-    void fetchAchievementDefinitions(std::string etag, ApiReplyCallback cb) override
+    void fetchAchievementDefinitions(ApiReplyCallback cb) override
     {
-        definitionsEtag = std::move(etag);
+        ++definitionsFetches;
         definitionsReply = std::move(cb);
     }
     void fetchAchievementProgress(std::string userId, ApiReplyCallback cb) override
@@ -144,7 +144,7 @@ public:
     };
 
     SessionCreatedCallback sessionCreated;
-    std::string definitionsEtag;
+    int definitionsFetches {0};
     ApiReplyCallback definitionsReply;
     std::string progressUserId;
     ApiReplyCallback progressReply;
@@ -213,7 +213,7 @@ struct Fixture {
         game = std::make_unique<GameStateImpl>(std::move(fake));
 
         REQUIRE(net->definitionsReply);
-        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, "\"v1\""});
+        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
         game->runPendingPosts();
 
         game->setGameStarted(GameStartOrigin::StartButton);
@@ -223,36 +223,36 @@ struct Fixture {
         game->runPendingPosts();
 
         REQUIRE(net->progressUserId == "3f1c");
-        net->progressReply(ApiReply {
-                Error::Success, 200, json {{"user_id", "3f1c"}, {"results", baseline}}.dump(), {}});
+        net->progressReply(ApiReply {Error::Success, 200,
+                                     json {{"user_id", "3f1c"}, {"results", baseline}}.dump()});
         game->runPendingPosts();
     }
 };
 
 } // namespace
 
-TEST_CASE("Definitions are cached and revalidated with their ETag", "[achievements]")
+TEST_CASE("Definitions are cached and refetched at boot", "[achievements]")
 {
     TempDir dir;
     {
         auto fake = std::make_unique<FakeNet>(dir.str());
         auto *net = fake.get();
         GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, "\"v1\""});
+        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
         game.runPendingPosts();
         CHECK(game.achievements().view()->definitions->size() == 2);
     }
 
-    // Next boot: the cache is loaded before the network answers, and revalidated with the ETag
+    // Next boot: the cache is loaded before the network answers, then replaced by the fetch
     auto fake = std::make_unique<FakeNet>(dir.str());
     auto *net = fake.get();
     GameStateImpl game(std::move(fake));
-    CHECK(net->definitionsEtag == "\"v1\"");
+    CHECK(net->definitionsFetches == 1);
     CHECK(game.achievements().view()->definitions->size() == 2);
 
-    net->definitionsReply(ApiReply {Error::Success, 304, {}, {}});
+    net->definitionsReply(ApiReply {Error::Success, 200, R"({"results": []})"});
     game.runPendingPosts();
-    CHECK(game.achievements().view()->definitions->size() == 2);
+    CHECK(game.achievements().view()->definitions->empty());
 }
 
 TEST_CASE("An in_session unlock is decided on commit and reported at once", "[achievements]")
@@ -273,7 +273,7 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
     CHECK(body["achievements"][0]["achieved"] == true);
 
     f.net->reports.front().reply(ApiReply {
-            Error::Success, 200, reply({{{"key", "game-cv-boom"}, {"status", "unlocked"}}}), {}});
+            Error::Success, 200, reply({{{"key", "game-cv-boom"}, {"status", "unlocked"}}})});
     f.game->runPendingPosts();
     CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_CONFIRMED));
 }
@@ -311,7 +311,7 @@ TEST_CASE("A failed report is retried with a fresh sequence", "[achievements]")
     f.game->commit();
     REQUIRE(f.net->reports.size() == 1);
 
-    f.net->reports.front().reply(ApiReply {Error::ApiError, 503, "busy", {}});
+    f.net->reports.front().reply(ApiReply {Error::ApiError, 503, "busy"});
     f.net->reports.pop_front();
     f.game->runPendingPosts();
     CHECK(f.net->reports.empty());
@@ -331,11 +331,10 @@ TEST_CASE("A rejected unlock is retracted", "[achievements]")
     f.game->commit();
     REQUIRE(f.net->reports.size() == 1);
 
-    f.net->reports.front().reply(ApiReply {
-            Error::Success,
-            200,
-            reply({{{"key", "game-cv-boom"}, {"status", "rejected"}, {"code", "scope_mismatch"}}}),
-            {}});
+    f.net->reports.front().reply(ApiReply {Error::Success, 200,
+                                           reply({{{"key", "game-cv-boom"},
+                                                   {"status", "rejected"},
+                                                   {"code", "scope_mismatch"}}})});
     f.game->runPendingPosts();
     CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_RETRACTED));
 }
@@ -359,7 +358,7 @@ TEST_CASE("A player claiming mid-game gets the facts of the whole session", "[ac
     auto fake = std::make_unique<FakeNet>(dir.str());
     auto *net = fake.get();
     GameStateImpl game(std::move(fake));
-    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, {}});
+    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
     game.runPendingPosts();
 
     game.setGameStarted(GameStartOrigin::StartButton);
@@ -372,7 +371,7 @@ TEST_CASE("A player claiming mid-game gets the facts of the whole session", "[ac
 
     net->claim(1, "3f1c");
     game.runPendingPosts();
-    net->progressReply(ApiReply {Error::Success, 200, reply(json::array()), {}});
+    net->progressReply(ApiReply {Error::Success, 200, reply(json::array())});
     game.runPendingPosts();
 
     CHECK(hasUpdate(*net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
@@ -387,7 +386,7 @@ TEST_CASE("A session uuid arriving after the game ended still releases its repor
     auto fake = std::make_unique<FakeNet>(dir.str());
     auto *net = fake.get();
     GameStateImpl game(std::move(fake));
-    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, {}});
+    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
     game.runPendingPosts();
 
     game.setGameStarted(GameStartOrigin::StartButton);
@@ -411,13 +410,13 @@ TEST_CASE("The DMD frame bundle is downloaded when its version changes", "[achie
         auto fake = std::make_unique<FakeNet>(dir.str());
         auto *net = fake.get();
         GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions, "\"v3\""});
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions});
         game.runPendingPosts();
 
         REQUIRE(net->framesDownloads == 1);
         CHECK(net->framesGame == "cactus-canyon");
         REQUIRE(createTarGz(net->framesFile, {}, {{"game-cv-boom.bin", "FRAME"}}));
-        net->framesReply(ApiReply {Error::Success, 200, {}, {}});
+        net->framesReply(ApiReply {Error::Success, 200, {}});
         game.runPendingPosts();
 
         const auto frame = game.achievements().frame("game-cv-boom");
@@ -429,7 +428,7 @@ TEST_CASE("The DMD frame bundle is downloaded when its version changes", "[achie
     auto fake = std::make_unique<FakeNet>(dir.str());
     auto *net = fake.get();
     GameStateImpl game(std::move(fake));
-    net->definitionsReply(ApiReply {Error::Success, 304, {}, {}});
+    net->definitionsReply(ApiReply {Error::Success, 200, definitions});
     game.runPendingPosts();
     CHECK(net->framesDownloads == 0);
     CHECK(game.achievements().frame("game-cv-boom"));
@@ -443,13 +442,13 @@ TEST_CASE("Definitions are revalidated at every game start", "[achievements]")
     GameStateImpl game(std::move(fake));
 
     // The boot fetch never succeeded, e.g. the machine was not paired yet
-    net->definitionsReply(ApiReply {Error::NotPaired, 0, {}, {}});
+    net->definitionsReply(ApiReply {Error::NotPaired, 0, {}});
     game.runPendingPosts();
     net->definitionsReply = {};
 
     game.setGameStarted(GameStartOrigin::StartButton);
     REQUIRE(net->definitionsReply);
-    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, "\"v1\""});
+    net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
     game.runPendingPosts();
     CHECK(game.achievements().view()->definitions->size() == 2);
 }

@@ -284,27 +284,6 @@ TEST_CASE("A 4xx is reported and not retried")
     CHECK(transport.calls == 1); // the SDK must not retry a 4xx
 }
 
-TEST_CASE("A 304 answering a conditional request is a success")
-{
-    DeviceInfo info;
-    Net net {std::move(info), {}};
-
-    ScriptedTransport transport {{makeResponse(304)}};
-
-    int seenStatus = -1;
-    Error seenError {Error::ApiError};
-    HttpStatusCallback callback = [&](Error error, int httpStatus, const std::string &) {
-        seenError = error;
-        seenStatus = httpStatus;
-    };
-
-    NetTestAccess::request(net, std::move(callback), std::ref(transport), "{}")();
-
-    CHECK(seenError == Error::Success);
-    CHECK(seenStatus == 304);
-    CHECK(transport.calls == 1);
-}
-
 TEST_CASE("A 401 is retried unlike every other 4xx")
 {
     DeviceInfo info;
