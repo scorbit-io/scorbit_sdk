@@ -86,6 +86,7 @@ struct Achievement {
     AchievementScope scope {AchievementScope::Game};
     AchievementEvaluation evaluation {AchievementEvaluation::InSession};
     bool isTrophy {false};
+    bool isBadge {false};
     bool visible {true};
     bool obscure {false};
     bool notifyWhenAchieved {false};
@@ -93,6 +94,7 @@ struct Achievement {
     std::string obscureImageUrl;
     bool hasGroup {false};
     int64_t groupId {0};
+    int64_t level {0};
     int64_t displayPosition {0};
     std::vector<AchievementRule> rules;
 };
@@ -139,6 +141,7 @@ inline Achievement fromC(sb_game_handle_t handle, const sb_achievement_t &c)
     a.scope = static_cast<AchievementScope>(c.scope);
     a.evaluation = static_cast<AchievementEvaluation>(c.evaluation);
     a.isTrophy = c.is_trophy;
+    a.isBadge = c.is_badge;
     a.visible = c.visible;
     a.obscure = c.obscure;
     a.notifyWhenAchieved = c.notify_when_achieved;
@@ -146,6 +149,7 @@ inline Achievement fromC(sb_game_handle_t handle, const sb_achievement_t &c)
     a.obscureImageUrl = c.obscure_image_url ? c.obscure_image_url : "";
     a.hasGroup = c.has_group;
     a.groupId = c.group_id;
+    a.level = c.level;
     a.displayPosition = c.display_position;
 
     // Copied before reading the rules: the next call may invalidate the definition's strings
