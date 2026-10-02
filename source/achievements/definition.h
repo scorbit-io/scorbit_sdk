@@ -28,8 +28,9 @@
 #include <vector>
 
 /**
- * Achievement definitions: the rule set an achievement is earned by, as delivered by the API
- * (Achievements Platform Contract v1, §3, §5, §10.2). Pure data, no behaviour beyond predicates.
+ * Achievement definitions: the rule set an achievement is earned by, as delivered by the API's
+ * `GET achievements/scorbitron/` (Achievements Platform Contract v1, §3, §5). Pure data, no
+ * behaviour beyond predicates.
  */
 namespace scorbit {
 namespace detail {
@@ -51,10 +52,10 @@ enum class RuleType {
     Achievement,   ///< Whether the referenced prerequisite achievement is held
 };
 
-/** The four inclusive predicates (§6.1). */
+/** The four inclusive predicates (§6.1); `=`, `<=`, `>=`, `!=` on the wire. */
 enum class Comparison { Eq, Le, Ge, Ne };
 
-/** The measurement window (§3.4). */
+/** The measurement window (§3.4); `is_single_session` on the wire. */
 enum class EvaluationClass { InSession, Unlimited };
 
 /** What the achievement attaches to (§3.2). */
@@ -79,6 +80,7 @@ struct Definition {
     Scope scope {Scope::Game};
     EvaluationClass evaluation {EvaluationClass::InSession};
     bool isTrophy {false};
+    bool isBadge {false};
     bool visible {true};
     bool obscure {false};
     bool notifyWhenAchieved {false};
@@ -142,7 +144,6 @@ std::string_view toString(RuleType type);
 std::optional<Comparison> comparisonFromString(std::string_view str);
 std::string_view toString(Comparison comparison);
 
-std::optional<EvaluationClass> evaluationClassFromString(std::string_view str);
 std::optional<Scope> scopeFromString(std::string_view str);
 
 } // namespace achievements

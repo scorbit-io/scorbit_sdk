@@ -27,16 +27,17 @@
 #include <string>
 
 /**
- * Wire format of the achievements API (§10) ⇄ domain types. A JSON `null` is treated exactly like
- * an absent key; every number is read as `int64`.
+ * Wire format of the achievements API ⇄ domain types, as the API serves it today (reads follow its
+ * serializers, the report follows §10.5). A JSON `null` is treated exactly like an absent key;
+ * every number is read as `int64`.
  */
 namespace scorbit {
 namespace detail {
 namespace achievements {
 
 /**
- * Parses the device definitions response (§10.3): `{results: [...]}`, each achievement carrying
- * its own `frame` and `frame_version`.
+ * Parses the device definitions response, `GET achievements/scorbitron/`: a bare array of
+ * achievements, each with its `rules`.
  *
  * A definition that is malformed, or that the machine cannot evaluate, is skipped with a warning
  * and the rest are kept — one bad definition must not cost the device its whole cache (§6.7).
@@ -46,22 +47,18 @@ namespace achievements {
  */
 std::optional<DefinitionSet> parseDefinitionsResponse(const nlohmann::json &json);
 
-/** Parses one Achievement object (§10.2); std::nullopt, with @p error set, if malformed. */
+/** Parses one achievement object; std::nullopt, with @p error set, if malformed. */
 std::optional<Definition> parseDefinition(const nlohmann::json &json, std::string &error);
 
 /**
- * Parses the device progress response (§10.4): `{user_id, results: [UserAchievement...]}`.
- * Malformed entries are skipped with a warning.
+ * Parses the device progress response, `GET achievements/scorbitron/progress/`: a sparse, bare
+ * array of `{achievement: {key, ...}, achieved, ...}`. The API carries no per-rule values there,
+ * so every @ref Baseline has only its `achieved` latch. Malformed entries are skipped with a
+ * warning.
  *
  * @return std::nullopt when the document itself is not a progress response.
  */
 std::optional<Baselines> parseProgressResponse(const nlohmann::json &json);
-
-/**
- * Parses the `rule_progress` array of a UserAchievement. Entries whose `value` is null — never
- * reported — are left out, so an absent index always means "no measurement".
- */
-RuleProgressMap parseRuleProgress(const nlohmann::json &json);
 
 /**
  * Encodes a `POST /achievements/report/` body (§10.5). `rule_progress` is sparse and names each

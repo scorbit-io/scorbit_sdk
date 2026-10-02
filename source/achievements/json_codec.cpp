@@ -23,6 +23,7 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <string_view>
 
 namespace scorbit {
 namespace detail {
@@ -32,17 +33,18 @@ using json = nlohmann::json;
 
 namespace {
 
-// Achievement (§10.2)
+// Achievement (API ScorbitronAchievementSerializer)
 constexpr auto KEY_KEY = "key";
 constexpr auto KEY_NAME = "name";
 constexpr auto KEY_DESCRIPTION = "description";
 constexpr auto KEY_SCOPE = "scope";
-constexpr auto KEY_EVALUATION = "evaluation";
+constexpr auto KEY_IS_SINGLE_SESSION = "is_single_session";
 constexpr auto KEY_IS_TROPHY = "is_trophy";
+constexpr auto KEY_IS_BADGE = "is_badge";
 constexpr auto KEY_VISIBLE = "visible";
 constexpr auto KEY_OBSCURE = "obscure";
-constexpr auto KEY_ICON_URL = "icon_url";
-constexpr auto KEY_OBSCURE_IMAGE_URL = "obscure_image_url";
+constexpr auto KEY_ICON = "icon";
+constexpr auto KEY_OBSCURE_IMAGE = "obscure_image";
 constexpr auto KEY_GROUP_ID = "group_id";
 constexpr auto KEY_LEVEL = "level";
 constexpr auto KEY_DISPLAY_POSITION = "display_position";
@@ -57,17 +59,16 @@ constexpr auto KEY_COMPARISON = "comparison";
 constexpr auto KEY_TARGET = "target";
 constexpr auto KEY_REFERENCE = "reference";
 
-// Definitions / progress responses (§10.3, §10.4)
-constexpr auto KEY_RESULTS = "results";
-
-// UserAchievement
+// Progress entry (API UserAchievementV2Serializer)
+constexpr auto KEY_ACHIEVEMENT = "achievement";
 constexpr auto KEY_ACHIEVED = "achieved";
+
+// Report request / response (§10.5)
+constexpr auto KEY_RESULTS = "results";
 constexpr auto KEY_RULE_PROGRESS = "rule_progress";
 constexpr auto KEY_INDEX = "index";
 constexpr auto KEY_VALUE = "value";
 constexpr auto KEY_SATISFIED = "satisfied";
-
-// Report request / response (§10.5)
 constexpr auto KEY_USER_ID = "user_id";
 constexpr auto KEY_SESSION_UUID = "session_uuid";
 constexpr auto KEY_SEQUENCE = "sequence";
@@ -121,7 +122,21 @@ T requiredField(const json &object, const char *key)
     return std::move(*value);
 }
 
-/** Splits a MODE_STACK reference on commas; names are compared byte-for-byte, so no trimming. */
+std::string trimmed(std::string_view str)
+{
+    constexpr std::string_view whitespace {" \t\r\n\f\v"};
+    const auto first = str.find_first_not_of(whitespace);
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    const auto last = str.find_last_not_of(whitespace);
+    return std::string {str.substr(first, last - first + 1)};
+}
+
+/**
+ * Splits a MODE_STACK reference on commas. Each name is trimmed, as the API does when it validates
+ * the list; otherwise names are compared byte-for-byte.
+ */
 std::vector<std::string> splitStack(const std::string &reference)
 {
     std::vector<std::string> modes;
@@ -129,7 +144,7 @@ std::vector<std::string> splitStack(const std::string &reference)
     while (start <= reference.size()) {
         const auto comma = reference.find(',', start);
         const auto end = comma == std::string::npos ? reference.size() : comma;
-        std::string mode = reference.substr(start, end - start);
+        auto mode = trimmed(std::string_view {reference}.substr(start, end - start));
         if (std::ranges::find(modes, mode) == modes.end()) {
             modes.push_back(std::move(mode));
         }
@@ -187,19 +202,17 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
         }
         definition.scope = *scope;
 
-        const auto evaluationStr = requiredField<std::string>(object, KEY_EVALUATION);
-        const auto evaluation = evaluationClassFromString(evaluationStr);
-        if (!evaluation) {
-            throw std::invalid_argument(fmt::format("unknown evaluation '{}'", evaluationStr));
-        }
-        definition.evaluation = *evaluation;
+        definition.evaluation = requiredField<bool>(object, KEY_IS_SINGLE_SESSION)
+                                      ? EvaluationClass::InSession
+                                      : EvaluationClass::Unlimited;
 
         definition.isTrophy = fieldOr<bool>(object, KEY_IS_TROPHY, false);
+        definition.isBadge = fieldOr<bool>(object, KEY_IS_BADGE, false);
         definition.visible = fieldOr<bool>(object, KEY_VISIBLE, true);
         definition.obscure = fieldOr<bool>(object, KEY_OBSCURE, false);
         definition.notifyWhenAchieved = fieldOr<bool>(object, KEY_NOTIFY_WHEN_ACHIEVED, false);
-        definition.iconUrl = fieldOr<std::string>(object, KEY_ICON_URL, {});
-        definition.obscureImageUrl = fieldOr<std::string>(object, KEY_OBSCURE_IMAGE_URL, {});
+        definition.iconUrl = fieldOr<std::string>(object, KEY_ICON, {});
+        definition.obscureImageUrl = fieldOr<std::string>(object, KEY_OBSCURE_IMAGE, {});
         definition.groupId = field<int64_t>(object, KEY_GROUP_ID);
         definition.level = field<int64_t>(object, KEY_LEVEL);
         definition.displayPosition = field<int64_t>(object, KEY_DISPLAY_POSITION);
@@ -223,23 +236,17 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
 
 std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
 {
-    if (!document.is_object()) {
-        ERR("Achievements: definitions response is not an object but {}: {}", document.type_name(),
+    if (!document.is_array()) {
+        ERR("Achievements: definitions response is not an array but {}: {}", document.type_name(),
             document.dump());
         return std::nullopt;
     }
 
-    const auto results = document.find(KEY_RESULTS);
-    if (results == document.end() || !results->is_array()) {
-        ERR("Achievements: definitions response has no 'results' array: {}", document.dump());
-        return std::nullopt;
-    }
-
     std::vector<Definition> definitions;
-    definitions.reserve(results->size());
-    for (size_t i = 0; i < results->size(); ++i) {
+    definitions.reserve(document.size());
+    for (size_t i = 0; i < document.size(); ++i) {
         std::string error;
-        auto definition = parseDefinition((*results)[i], error);
+        auto definition = parseDefinition(document[i], error);
         if (!definition) {
             WRN("Achievements: skipping malformed definition #{}: {}", i, error);
             continue;
@@ -259,51 +266,27 @@ std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
     return DefinitionSet {std::move(definitions)};
 }
 
-RuleProgressMap parseRuleProgress(const json &array)
-{
-    RuleProgressMap rules;
-    if (!array.is_array()) {
-        return rules;
-    }
-
-    for (const auto &entry : array) {
-        try {
-            const auto index = requiredField<size_t>(entry, KEY_INDEX);
-            const auto value = field<int64_t>(entry, KEY_VALUE);
-            if (!value) {
-                continue; // Never reported (§10.2): no measurement
-            }
-            rules[index] = RuleProgress {*value, fieldOr<bool>(entry, KEY_SATISFIED, false)};
-        } catch (const std::exception &e) {
-            WRN("Achievements: skipping malformed rule_progress entry: {}", e.what());
-        }
-    }
-    return rules;
-}
-
 std::optional<Baselines> parseProgressResponse(const json &document)
 {
-    if (!document.is_object()) {
-        ERR("Achievements: progress response is not an object but {}: {}", document.type_name(),
+    if (!document.is_array()) {
+        ERR("Achievements: progress response is not an array but {}: {}", document.type_name(),
             document.dump());
         return std::nullopt;
     }
 
-    const auto results = document.find(KEY_RESULTS);
-    if (results == document.end() || !results->is_array()) {
-        ERR("Achievements: progress response has no 'results' array: {}", document.dump());
-        return std::nullopt;
-    }
-
     Baselines baselines;
-    for (const auto &entry : *results) {
+    for (const auto &entry : document) {
         try {
-            auto key = requiredField<std::string>(entry, KEY_KEY);
+            const auto achievement = entry.find(KEY_ACHIEVEMENT);
+            if (achievement == entry.end() || !achievement->is_object()) {
+                throw std::invalid_argument("missing 'achievement' object");
+            }
+            auto key = requiredField<std::string>(*achievement, KEY_KEY);
+
+            // `current_value` is not read: /report/ stores per-rule values elsewhere, so it only
+            // holds what the legacy /unlock/ `count` once wrote
             Baseline baseline;
             baseline.achieved = fieldOr<bool>(entry, KEY_ACHIEVED, false);
-            if (const auto it = entry.find(KEY_RULE_PROGRESS); it != entry.end()) {
-                baseline.rules = parseRuleProgress(*it);
-            }
             baselines.insert_or_assign(std::move(key), std::move(baseline));
         } catch (const std::exception &e) {
             WRN("Achievements: skipping malformed progress entry: {}", e.what());

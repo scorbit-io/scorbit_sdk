@@ -44,8 +44,9 @@ inline bool operator==(const RuleProgress &lhs, const RuleProgress &rhs)
 using RuleProgressMap = std::map<size_t, RuleProgress>;
 
 /**
- * A player's stored state for one achievement, as fetched when the player claims a slot
- * (§10.4). A rule the server holds as `null` — never reported — has no entry in @ref rules.
+ * A player's stored state for one achievement, as fetched when the player claims a slot. A rule
+ * with no stored measurement has no entry in @ref rules; the API's device progress read carries no
+ * per-rule values today, so a fetched baseline has only @ref achieved.
  */
 struct Baseline {
     bool achieved {false};

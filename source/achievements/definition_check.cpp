@@ -53,6 +53,12 @@ std::optional<std::string> findRuleProblem(const Definition &definition, size_t 
         }
     }
 
+    // The API names which score in the reference; blank and "score" are the total score, the
+    // only one the timeline carries (e.g. "ball_score" is not evaluable here)
+    if (rule.type == RuleType::Score && !rule.reference.empty() && rule.reference != "score") {
+        return fmt::format("rule {} (SCORE) has unsupported reference '{}'", index, rule.reference);
+    }
+
     if (rule.type == RuleType::Achievement && rule.reference.empty()) {
         return fmt::format("rule {} (ACHIEVEMENT) has no prerequisite key", index);
     }
