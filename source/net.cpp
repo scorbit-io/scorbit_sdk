@@ -1100,20 +1100,9 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
 
     {
         std::lock_guard<std::mutex> lock(m_seenDiagTraceIdsMutex);
-        const auto [_, inserted] = m_seenDiagTraceIds.insert(traceId);
-        if (!inserted) {
+        if (!m_seenDiagTraceIds.insert(traceId)) {
             WRN("DIAG: probe trace_id={} already seen, refusing duplicate", traceId);
             return;
-        }
-        // Cap the dedupe set so it cannot grow unbounded across long process
-        // lifetimes. Real-world cadence is at most a few traces per device
-        // per day; clearing the half at 10 keeps memory trivial.
-        if (m_seenDiagTraceIds.size() > 10) {
-            const auto half = m_seenDiagTraceIds.size() / 2;
-            auto it = m_seenDiagTraceIds.begin();
-            for (size_t i = 0; i < half && it != m_seenDiagTraceIds.end(); ++i) {
-                it = m_seenDiagTraceIds.erase(it);
-            }
         }
     }
 
@@ -1330,6 +1319,92 @@ void Net::handleDiagnosticCaptureStop(const nlohmann::json &payload)
     // Returns immediately; the join happens on the worker, not the dispatcher.
     retireNetworkMonitor("manual_stop");
     INF("DIAG: capture stopped: run_id={}", runId);
+}
+
+void Net::handleHardwareProbe(const nlohmann::json &payload)
+{
+    std::string runId;
+    std::string replyTo;
+    bool forceReDetect = false;
+    try {
+        runId = payload.value(JKEY_DIAG_RUN_ID, std::string {});
+        replyTo = payload.value(JKEY_DIAG_REPLY_TO, std::string {});
+        forceReDetect = payload.value(JKEY_DIAG_FORCE_RE_DETECT, false);
+    } catch (const std::exception &e) {
+        WRN("DIAG: hardware probe payload error: {}", e.what());
+        return;
+    }
+    if (!isValidHardwareProbeRunId(runId)) {
+        WRN("DIAG: hardware probe missing or invalid run_id, dropping");
+        return;
+    }
+    // Never POST where the wire says: the result path is derived from run_id alone, and a
+    // reply_to naming anything else means this message did not come from the API.
+    if (!hardwareProbeReplyToMatches(replyTo, runId)) {
+        WRN("DIAG: hardware probe run_id={} has unexpected reply_to={}, dropping", runId, replyTo);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_seenHardwareProbeRunIdsMutex);
+        if (!m_seenHardwareProbeRunIds.insert(runId)) {
+            WRN("DIAG: hardware probe run_id={} already seen, refusing duplicate", runId);
+            return;
+        }
+    }
+
+    INF("DIAG: hardware probe requested run_id={} force_re_detect={}", runId, forceReDetect);
+    m_eventManager->push(std::make_shared<HardwareProbeRequestedEvent>(runId, forceReDetect));
+}
+
+void Net::submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
+                                    HttpStatusCallback callback)
+{
+    const auto parsed = json::parse(resultJson, nullptr, false);
+    if (!isValidHardwareProbeRunId(runId) || parsed.is_discarded() || !parsed.is_object()) {
+        WRN("DIAG: hardware probe result not sent: invalid run_id or result JSON");
+        if (callback) {
+            callback(Error::Unknown, 0, "invalid run_id or result_json");
+        }
+        return;
+    }
+
+    INF("API post hardware probe result, run_id={}", runId);
+    m_worker.post(createPostRequestTask(hardwareProbeResultReply(runId, std::move(callback)),
+                                        hardwareProbeResultSetup(runId, resultJson),
+                                        {
+                                                AuthStatus::AuthenticatedUnpaired,
+                                                AuthStatus::AuthenticatedPaired,
+                                        }));
+}
+
+HttpStatusCallback Net::hardwareProbeResultReply(const std::string &runId,
+                                                 HttpStatusCallback callback) const
+{
+    return [runId, callback = std::move(callback)](Error error, int httpStatus,
+                                                   const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API hardware probe result: ok, run_id={}, http status: {}", runId, httpStatus);
+        } else {
+            WRN("API hardware probe result: failed, run_id={}, error code: {}, http status: {}, "
+                "reply: {}",
+                runId, static_cast<int>(error), httpStatus, reply);
+        }
+        if (callback) {
+            callback(error, httpStatus, reply);
+        }
+    };
+}
+
+Net::deferred_post_setup_t Net::hardwareProbeResultSetup(const std::string &runId,
+                                                         std::string body) const
+{
+    return [this, runId, body = std::move(body)]() {
+        const auto endpoint =
+                url(URL_DIAGNOSTICS_HARDWARE_PROBE_RESULT_PATH, fmt::arg(ARG_RUN_ID, runId));
+        INF("API sending hardware probe result: run_id={}, {} bytes", runId, body.size());
+        return std::make_tuple(endpoint, cpr::Body {body});
+    };
 }
 
 void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample,
@@ -2811,6 +2886,30 @@ AuthStatus NetTestAccess::status(const Net &net)
     return net.m_status;
 }
 
+void NetTestAccess::setEventManager(Net &net, std::shared_ptr<EventManager> eventManager)
+{
+    net.m_eventManager = std::move(eventManager);
+}
+
+void NetTestAccess::handleHardwareProbe(Net &net, const nlohmann::json &payload)
+{
+    net.handleHardwareProbe(payload);
+}
+
+task_t NetTestAccess::hardwareProbeResult(Net &net, const std::string &runId, std::string body,
+                                          HttpStatusCallback callback, TestTransport transport)
+{
+    return net.createHttpRequestTask(
+            "TEST", net.hardwareProbeResultReply(runId, std::move(callback)),
+            net.hardwareProbeResultSetup(runId, std::move(body)),
+            [transport = std::move(transport)](const cpr::Url &url, const cpr::Body &body,
+                                               const cpr::Header &header,
+                                               const cpr::Timeout &timeout, bool resilient) {
+                return transport(url, body, header, timeout, resilient);
+            },
+            std::vector<AuthStatus> {AuthStatus::NotAuthenticated});
+}
+
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses)
 {
@@ -3498,6 +3597,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                         handleDiagnosticCaptureStart(*payloadIt);
                     } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_STOP) {
                         handleDiagnosticCaptureStop(*payloadIt);
+                    } else if (type == JVAL_CHN_TYPE_FIRMWARE_PROBE) {
+                        handleHardwareProbe(*payloadIt);
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
                     }

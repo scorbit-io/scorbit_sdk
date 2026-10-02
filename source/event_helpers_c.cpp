@@ -154,6 +154,23 @@ bool sb_event_firmwares_list_received(const sb_event_t *event, const char **firm
     return true;
 }
 
+bool sb_event_hardware_probe_requested(const sb_event_t *event, const char **run_id,
+                                       bool *force_re_detect)
+{
+    if (!event || !run_id || !force_re_detect) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::HardwareProbeRequestedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *run_id = derived->runId().c_str();
+    *force_re_detect = derived->forceReDetect();
+    return true;
+}
+
 // ----------------------- PlayersUpdated helpers -----------------------
 
 static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,

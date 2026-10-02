@@ -279,6 +279,17 @@ class Event(object):
             return val or ""
         return None
 
+    def get_hardware_probe_requested(self):
+        """Extract ``(run_id, force_re_detect)`` from a ``HardwareProbeRequested`` event."""
+        run_id = c_char_p()
+        force = c_bool(False)
+        if _lib.sb_event_hardware_probe_requested(self._ptr, byref(run_id), byref(force)):
+            val = run_id.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", "replace")
+            return (val or ""), bool(force.value)
+        return None
+
     # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------

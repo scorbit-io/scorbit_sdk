@@ -26,6 +26,8 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <cmrc/cmrc.hpp>
+#include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <regex>
 
@@ -287,6 +289,46 @@ bool diagProbeDeadlinePassed(const std::optional<std::chrono::steady_clock::time
 bool wifiIngestStatusEndsRun(int httpStatus)
 {
     return httpStatus == HTTP_STATUS_GONE || httpStatus == HTTP_STATUS_NOT_FOUND;
+}
+
+bool isValidHardwareProbeRunId(std::string_view runId)
+{
+    constexpr size_t MAX_RUN_ID_LENGTH = 64;
+    return !runId.empty() && runId.size() <= MAX_RUN_ID_LENGTH
+        && std::all_of(runId.begin(), runId.end(),
+                       [](char c) {
+                           // Explicit ASCII: std::isalnum follows the host's locale.
+                           return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                               || (c >= '0' && c <= '9') || c == '-';
+                       });
+}
+
+bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId)
+{
+    const auto expected = fmt::format(fmt::runtime(URL_DIAGNOSTICS_HARDWARE_PROBE_RESULT_PATH),
+                                      fmt::arg(ARG_RUN_ID, runId));
+    if (replyTo.starts_with('/')) {
+        replyTo.remove_prefix(1);
+    }
+    return replyTo == expected;
+}
+
+RecentIds::RecentIds(size_t capacity)
+    : m_capacity(capacity)
+{
+}
+
+bool RecentIds::insert(const std::string &id)
+{
+    if (!m_ids.insert(id).second) {
+        return false;
+    }
+    m_order.push_back(id);
+    if (m_order.size() > m_capacity) {
+        m_ids.erase(m_order.front());
+        m_order.pop_front();
+    }
+    return true;
 }
 
 nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)

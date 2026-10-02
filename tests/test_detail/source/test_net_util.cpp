@@ -410,6 +410,60 @@ TEST_CASE("A 404 or 410 on capture ingest ends the run; nothing else does", "[wi
     CHECK_FALSE(wifiIngestStatusEndsRun(503));
 }
 
+TEST_CASE("isValidHardwareProbeRunId accepts only a URL-safe run_id", "[hardwareProbe]")
+{
+    CHECK(isValidHardwareProbeRunId("3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55"));
+    CHECK(isValidHardwareProbeRunId("3f2b8c1e8d4a4a579a3e2c6f1d0b7e55"));
+
+    CHECK_FALSE(isValidHardwareProbeRunId(""));
+    CHECK_FALSE(isValidHardwareProbeRunId("../x"));
+    CHECK_FALSE(isValidHardwareProbeRunId("a/b"));
+    CHECK_FALSE(isValidHardwareProbeRunId("a?b=c"));
+    CHECK_FALSE(isValidHardwareProbeRunId(std::string(65, 'a')));
+    // The neighbours of each accepted ASCII range, and bytes a Latin-1 locale calls letters.
+    for (const char *id : {"a@", "a[", "a`", "a{", "a/", "a:", "a\xE9", "a\xC0", "a\xB5"}) {
+        CHECK_FALSE(isValidHardwareProbeRunId(id));
+    }
+}
+
+TEST_CASE("RecentIds refuses a replay of any of the last N ids and evicts the oldest",
+          "[hardwareProbe]")
+{
+    RecentIds seen {10};
+    for (int i = 0; i < 25; ++i) {
+        const auto id = "run-" + std::to_string(i);
+        REQUIRE(seen.insert(id));
+        // The id just added is never the one evicted.
+        CHECK_FALSE(seen.insert(id));
+    }
+    for (int i = 15; i < 25; ++i) {
+        CHECK_FALSE(seen.insert("run-" + std::to_string(i)));
+    }
+    CHECK(seen.insert("run-14"));
+    // run-14 evicted run-15, the oldest.
+    CHECK(seen.insert("run-15"));
+    CHECK_FALSE(seen.insert("run-24"));
+}
+
+TEST_CASE("hardwareProbeReplyToMatches requires the run's own result path", "[hardwareProbe]")
+{
+    const std::string runId = "abc-123";
+    CHECK(hardwareProbeReplyToMatches("/internal/api/diagnostics/hardware-probe-result/abc-123/",
+                                      runId));
+    CHECK(hardwareProbeReplyToMatches("internal/api/diagnostics/hardware-probe-result/abc-123/",
+                                      runId));
+
+    CHECK_FALSE(hardwareProbeReplyToMatches("", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "//internal/api/diagnostics/hardware-probe-result/abc-123/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "/internal/api/diagnostics/hardware-probe-result/abc-124/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "https://example.com/internal/api/diagnostics/hardware-probe-result/abc-123/", runId));
+    CHECK_FALSE(hardwareProbeReplyToMatches(
+            "/internal/api/diagnostics/hardware-probe-result/abc-123", runId));
+}
+
 
 // --- wifi capture sample payload -------------------------------------------
 //

@@ -601,6 +601,26 @@ class GameState(object):
             self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
         )
 
+    def submit_hardware_probe_result(self, run_id, result_json, callback=None):
+        # type: (str, str, ...) -> None
+        """POST a hardware probe result (serialized JSON object, sent verbatim).
+
+        Nothing is sent for an invalid ``run_id`` or a ``result_json`` that is
+        not a JSON object; the callback then gets ``Error.Unknown`` and status 0.
+        The SDK retries only transport failures and a 401; any further retry
+        policy is the caller's, and the API accepts an identical resubmission.
+
+        Args:
+            run_id: The run id from ``Event.get_hardware_probe_requested``.
+            result_json: The serialized result object.
+            callback: ``(error: Error, http_status: int, reply: str) -> None``.
+                ``http_status`` is 0 when no HTTP response was received.
+        """
+        cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
+        _lib.sb_submit_hardware_probe_result(
+            self._handle, _encode(run_id), _encode(result_json), cb, None
+        )
+
 
 def create_game_state(config):
     # type: (Config) -> GameState

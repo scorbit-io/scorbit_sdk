@@ -42,6 +42,7 @@ enum class EventType {
     ScorbitdUpdateReceived = SB_EVT_SCORBITD_UPDATE_RECEIVED,
     ScorbitdUpdated = SB_EVT_SCORBITD_UPDATED,
     FirmwaresListReceived = SB_EVT_FIRMWARES_LIST_RECEIVED,
+    HardwareProbeRequested = SB_EVT_HARDWARE_PROBE_REQUESTED,
 };
 
 } // namespace scorbit
