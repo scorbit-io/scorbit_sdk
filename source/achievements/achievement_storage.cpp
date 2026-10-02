@@ -35,11 +35,13 @@ namespace fs = boost::filesystem;
 namespace {
 
 constexpr auto DEFINITIONS_FILE = "definitions.json";
-constexpr auto ETAG_FILE = "definitions.etag";
 constexpr auto FRAMES_DIR = "frames";
 constexpr auto FRAMES_VERSION_FILE = "frames.version";
 constexpr auto FRAMES_DOWNLOAD_FILE = "frames.zip";
 constexpr auto FRAMES_STAGING_DIR = "frames.new";
+
+// Left by older SDKs, which revalidated with an ETag
+constexpr auto LEGACY_ETAG_FILE = "definitions.etag";
 
 std::optional<std::string> readFile(const fs::path &path)
 {
@@ -76,24 +78,18 @@ bool writeFileAtomically(const fs::path &path, const std::string &content)
 AchievementStorage::AchievementStorage(std::string dataDir)
     : m_root {(fs::path(dataDir) / "achievements").string()}
 {
+    boost::system::error_code ec;
+    fs::remove(fs::path(m_root) / LEGACY_ETAG_FILE, ec);
 }
 
-std::optional<AchievementStorage::CachedDefinitions> AchievementStorage::loadDefinitions() const
+std::optional<std::string> AchievementStorage::loadDefinitions() const
 {
-    auto body = readFile(fs::path(m_root) / DEFINITIONS_FILE);
-    if (!body) {
-        return std::nullopt;
-    }
-    return CachedDefinitions {std::move(*body),
-                              readFile(fs::path(m_root) / ETAG_FILE).value_or(std::string {})};
+    return readFile(fs::path(m_root) / DEFINITIONS_FILE);
 }
 
-bool AchievementStorage::saveDefinitions(const std::string &body, const std::string &etag) const
+bool AchievementStorage::saveDefinitions(const std::string &body) const
 {
-    // The ETag is written last: a crash in between leaves a body without a validator, which only
-    // costs one full refetch
-    return writeFileAtomically(fs::path(m_root) / DEFINITIONS_FILE, body)
-        && writeFileAtomically(fs::path(m_root) / ETAG_FILE, etag);
+    return writeFileAtomically(fs::path(m_root) / DEFINITIONS_FILE, body);
 }
 
 std::optional<int64_t> AchievementStorage::framesVersion() const

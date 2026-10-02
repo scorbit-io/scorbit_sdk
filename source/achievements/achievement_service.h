@@ -133,7 +133,7 @@ private:
         bool finished {false};
     };
 
-    void applyDefinitions(const std::string &body, const std::string &etag, bool persist);
+    void applyDefinitions(const std::string &body, bool persist);
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
@@ -159,7 +159,6 @@ private:
     NotificationSink m_sink;
 
     std::shared_ptr<const DefinitionSet> m_definitions = std::make_shared<DefinitionSet>();
-    std::string m_etag;
 
     std::vector<std::unique_ptr<Session>> m_sessions;
     Session *m_current {nullptr};
