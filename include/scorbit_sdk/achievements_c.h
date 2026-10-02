@@ -227,7 +227,8 @@ void sb_flush_achievement_reports(sb_game_handle_t handle);
 // ---- DMD frames ------------------------------------------------------------------------------
 
 /**
- * @brief Downloads the machine's DMD frame bundle if the server has a newer one.
+ * @brief Downloads every achievement DMD frame that changed on the server, and removes the frames
+ * of achievements no longer delivered.
  *
  * Done automatically with the definitions; frames are then already local when needed.
  */
@@ -235,14 +236,14 @@ SCORBIT_SDK_EXPORT
 void sb_download_achievement_frames(sb_game_handle_t handle);
 
 /**
- * @brief Reads the DMD frame of achievement @p key from the local bundle.
+ * @brief Reads the locally stored DMD frame of achievement @p key (a PNG today).
  *
  * @param handle The game handle.
  * @param key The achievement key.
  * @param data [OUT] The frame bytes, valid until the next call of this header's functions from
  * the same thread.
  * @param size [OUT] Their size.
- * @return false if the bundle has no frame for @p key.
+ * @return false if no frame is stored for @p key.
  */
 SCORBIT_SDK_EXPORT
 bool sb_achievement_frame(sb_game_handle_t handle, const char *key, const uint8_t **data,

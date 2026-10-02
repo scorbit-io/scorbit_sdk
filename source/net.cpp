@@ -1572,21 +1572,33 @@ void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
                                         std::move(deferredSetup)));
 }
 
-void Net::downloadAchievementFrames(std::string gameSlug, std::string filename,
-                                    ApiReplyCallback callback)
+void Net::downloadAchievementFrame(std::string url, std::string filename, ApiReplyCallback callback)
 {
-    const auto endpoint =
-            fmt::format(fmt::runtime(URL_ACHIEVEMENTS_FRAMES), fmt::arg(ARG_GAME_SLUG, gameSlug));
+    // download() formats the URL as an endpoint: a root-relative media path is joined to the API
+    // host, and a literal brace must survive the formatting
+    if (url.starts_with('/')) {
+        url.erase(0, 1);
+    }
+    std::string endpoint;
+    endpoint.reserve(url.size());
+    for (const char c : url) {
+        endpoint += c;
+        if (c == '{' || c == '}') {
+            endpoint += c;
+        }
+    }
 
-    INF("API downloading achievement frames, game: {}, to: {}", gameSlug, filename);
+    // A signed storage URL carries its credentials in the query: only the elided form is logged
+    INF("API downloading achievement frame {} to {}", elideUrl(url), filename);
     download(true,
-             [callback = std::move(callback), gameSlug, filename](Error error,
-                                                                  const std::string &reply) {
+             [callback = std::move(callback), url = elideUrl(url),
+              filename](Error error, const std::string &reply) {
                  if (error == Error::Success) {
-                     INF("API achievement frames: ok, game: {}, saved to {}", gameSlug, filename);
+                     INF("API achievement frame: ok, {} saved to {}", url, filename);
                  } else {
-                     WRN("API achievement frames: failed, game: {}, error code: {}, reply: {}",
-                         gameSlug, static_cast<int>(error), reply);
+                     // The reply repeats the full URL; the download task logged the status
+                     WRN("API achievement frame: failed, {}, error code: {}", url,
+                         static_cast<int>(error));
                  }
                  callback(ApiReply {error, error == Error::Success ? 200 : 0, reply});
              },

@@ -148,7 +148,7 @@ public:
         (void)requestGeneration;
     }
 
-    // ---- Achievements (contract v1, §10) --------------------------------------------
+    // ---- Achievements -------------------------------------------------------------
 
     /** `GET achievements/scorbitron/`. */
     virtual void fetchAchievementDefinitions(ApiReplyCallback callback) { (void)callback; }
@@ -167,11 +167,11 @@ public:
         (void)callback;
     }
 
-    /** Downloads the DMD frame bundle of title @p gameSlug to @p filename. */
-    virtual void downloadAchievementFrames(std::string gameSlug, std::string filename,
-                                           ApiReplyCallback callback)
+    /** Downloads one achievement's DMD frame from its `frame` @p url to @p filename. */
+    virtual void downloadAchievementFrame(std::string url, std::string filename,
+                                          ApiReplyCallback callback)
     {
-        (void)gameSlug;
+        (void)url;
         (void)filename;
         (void)callback;
     }

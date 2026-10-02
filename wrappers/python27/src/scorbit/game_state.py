@@ -587,7 +587,7 @@ class GameState(object):
 
     def download_achievement_frames(self):
         # type: () -> None
-        """Download a newer DMD frame bundle, if any."""
+        """Download the achievement DMD frames that changed on the server."""
         _lib.sb_download_achievement_frames(self._handle)
 
     def get_achievement_frame(self, key):

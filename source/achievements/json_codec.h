@@ -35,7 +35,8 @@ namespace detail {
 namespace achievements {
 
 /**
- * Parses the device definitions response (§10.3): `{game, frames_version, results: [...]}`.
+ * Parses the device definitions response (§10.3): `{results: [...]}`, each achievement carrying
+ * its own `frame` and `frame_version`.
  *
  * A definition that is malformed, or that the machine cannot evaluate, is skipped with a warning
  * and the rest are kept — one bad definition must not cost the device its whole cache (§6.7).

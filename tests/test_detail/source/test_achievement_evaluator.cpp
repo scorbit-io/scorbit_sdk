@@ -368,8 +368,6 @@ TEST_CASE("ACHIEVEMENT rules", "[achievements]")
     SECTION("Both prerequisites delivered")
     {
         ev.definitions = DefinitionSet {
-                "tom",
-                0,
                 {inSession("game-tom-tenball", {rule(RuleType::Mode, GE, 10, "multiball")}),
                  unlimited("game-tom-spinner", {rule(RuleType::Event, GE, 10000, "spins")}),
                  parent}};
@@ -385,7 +383,7 @@ TEST_CASE("ACHIEVEMENT rules", "[achievements]")
 
     SECTION("A prerequisite not delivered is not judged")
     {
-        ev.definitions = DefinitionSet {"tom", 0, {parent}};
+        ev.definitions = DefinitionSet {{parent}};
         ev.held = {"game-tom-tenball", "game-tom-spinner"};
         const auto result = ev(parent);
         CHECK(result.rules.empty());
