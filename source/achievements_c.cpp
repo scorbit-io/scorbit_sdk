@@ -73,6 +73,7 @@ void fill(const Definition &definition, sb_achievement_t *out)
     out->scope = static_cast<sb_achievement_scope_t>(definition.scope);
     out->evaluation = static_cast<sb_achievement_evaluation_t>(definition.evaluation);
     out->is_trophy = definition.isTrophy;
+    out->is_badge = definition.isBadge;
     out->visible = definition.visible;
     out->obscure = definition.obscure;
     out->notify_when_achieved = definition.notifyWhenAchieved;
@@ -80,6 +81,7 @@ void fill(const Definition &definition, sb_achievement_t *out)
     out->obscure_image_url = definition.obscureImageUrl.c_str();
     out->has_group = definition.groupId.has_value();
     out->group_id = definition.groupId.value_or(0);
+    out->level = definition.level.value_or(0);
     out->display_position = definition.displayPosition.value_or(0);
     out->rules_count = definition.rules.size();
 }

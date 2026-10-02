@@ -35,6 +35,12 @@ class TestAchievementsExports(unittest.TestCase):
         ):
             self.assertTrue(hasattr(scorbit, name), name)
 
+    def test_achievement_fields(self):
+        achievement = scorbit.Achievement()
+        self.assertFalse(achievement.is_badge)
+        self.assertIsNone(achievement.level)
+        self.assertIsNone(achievement.group_id)
+
 
 class TestAchievementsGameState(unittest.TestCase):
     def setUp(self):
