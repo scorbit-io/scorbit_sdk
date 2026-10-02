@@ -49,9 +49,7 @@ json achievement(const char *key, std::vector<json> rules, const char *evaluatio
 
 DefinitionSet parse(std::vector<json> results)
 {
-    auto set = parseDefinitionsResponse({{"game", "cactus-canyon"},
-                                         {"frames_version", 7},
-                                         {"results", json(std::move(results))}});
+    auto set = parseDefinitionsResponse({{"results", json(std::move(results))}});
     REQUIRE(set);
     return *set;
 }
@@ -72,8 +70,6 @@ TEST_CASE("Predicates are inclusive", "[achievements]")
 TEST_CASE("Parse a full definitions response", "[achievements]")
 {
     const json document = {
-            {"game", "cactus-canyon"},
-            {"frames_version", 7},
             {"results",
              {{{"key", "game-cv-boom-balloon"},
                {"name", "Boom Balloon"},
@@ -90,14 +86,14 @@ TEST_CASE("Parse a full definitions response", "[achievements]")
                {"group_id", 42},
                {"level", 1000},
                {"display_position", 1},
+               {"frame", "https://cdn.example/achievement_frame/game-cv-boom-balloon_3.png"},
+               {"frame_version", 4},
                {"notify_when_achieved", true},
                {"rules", json::array({rule("MODE", "GE", 1, "balloon")})}}}},
     };
 
     const auto set = parseDefinitionsResponse(document);
     REQUIRE(set);
-    CHECK(set->game() == "cactus-canyon");
-    CHECK(set->framesVersion() == 7);
     REQUIRE(set->size() == 1);
 
     const auto *def = set->find("game-cv-boom-balloon");
@@ -111,6 +107,8 @@ TEST_CASE("Parse a full definitions response", "[achievements]")
     CHECK(def->groupId == 42);
     CHECK(def->level == 1000);
     CHECK(def->displayPosition == 1);
+    CHECK(def->frameUrl == "https://cdn.example/achievement_frame/game-cv-boom-balloon_3.png");
+    CHECK(def->frameVersion == 4);
     CHECK(def->notifyWhenAchieved);
     REQUIRE(def->rules.size() == 1);
     CHECK(def->rules[0].type == RuleType::Mode);
@@ -126,6 +124,7 @@ TEST_CASE("Null optional fields read as absent", "[achievements]")
     def["level"] = nullptr;
     def["visible"] = nullptr;
     def["icon_url"] = nullptr;
+    def["frame"] = nullptr;
     def["rules"][0]["reference"] = nullptr;
 
     const auto set = parse({def});
@@ -134,6 +133,7 @@ TEST_CASE("Null optional fields read as absent", "[achievements]")
     CHECK_FALSE(d.groupId);
     CHECK_FALSE(d.level);
     CHECK(d.visible); // default
+    CHECK(d.frameUrl.empty());
     CHECK(d.rules[0].reference.empty());
 }
 

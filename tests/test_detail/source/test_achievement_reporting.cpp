@@ -20,11 +20,11 @@
 #include <../source/achievements/report_outbox.h>
 #include <../source/achievements/json_codec.h>
 #include <../source/achievements/achievement_storage.h>
-#include <../source/utils/archiver.h>
 #include <catch2/catch_test_macros.hpp>
 #include <boost/filesystem.hpp>
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include <map>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -208,23 +208,85 @@ TEST_CASE("Definitions persist", "[achievements]")
     CHECK(AchievementStorage {dir.path().string()}.loadDefinitions() == R"({"results":[]})");
 }
 
-TEST_CASE("A frame bundle installs and serves frames by key", "[achievements]")
+TEST_CASE("Frames install per key and track their version", "[achievements]")
 {
     TempDir dir;
     AchievementStorage storage {dir.path().string()};
-    CHECK_FALSE(storage.framesVersion());
+    CHECK(storage.frameVersions().empty());
 
-    const auto archive = storage.framesDownloadPath();
-    REQUIRE(createTarGz(archive, {},
-                        {{"game-cv-boom.png", "PNGDATA"}, {"128x32/game-cv-blast.bin", "BIN"}}));
+    const auto install = [&](const std::string &key, const std::string &content,
+                             const std::string &extension, int64_t version) {
+        const auto path = storage.frameDownloadPath(key);
+        std::ofstream(path, std::ios::binary) << content;
+        return storage.installFrame(key, path, extension, version);
+    };
 
-    REQUIRE(storage.installFrames(archive, 7));
-    CHECK(storage.framesVersion() == 7);
+    REQUIRE(install("game-cv-boom", "PNG1", ".png", 3));
+    REQUIRE(install("game-cv-blast", "BIN", ".bin", 1));
+    CHECK(storage.frameVersions()
+          == std::map<std::string, int64_t> {{"game-cv-blast", 1}, {"game-cv-boom", 3}});
 
     const auto boom = storage.frame("game-cv-boom");
     REQUIRE(boom);
-    CHECK(std::string(boom->begin(), boom->end()) == "PNGDATA");
-    CHECK(storage.frame("game-cv-blast"));
+    CHECK(std::string(boom->begin(), boom->end()) == "PNG1");
     CHECK_FALSE(storage.frame("game-cv-missing"));
     CHECK_FALSE(storage.frame("../definitions"));
+
+    SECTION("A new version replaces the frame, whatever its extension")
+    {
+        REQUIRE(install("game-cv-boom", "GIF2", ".gif", 4));
+        const auto again = AchievementStorage {dir.path().string()};
+        CHECK(again.frameVersions().at("game-cv-boom") == 4);
+        const auto frame = again.frame("game-cv-boom");
+        REQUIRE(frame);
+        CHECK(std::string(frame->begin(), frame->end()) == "GIF2");
+        CHECK_FALSE(boost::filesystem::exists(dir.path() / "achievements/frames/game-cv-boom.png"));
+    }
+
+    SECTION("A removed frame is gone with its version")
+    {
+        REQUIRE(storage.removeFrame("game-cv-boom"));
+        CHECK_FALSE(storage.frame("game-cv-boom"));
+        CHECK(storage.frameVersions() == std::map<std::string, int64_t> {{"game-cv-blast", 1}});
+        CHECK(storage.removeFrame("game-cv-never"));
+    }
+
+    SECTION("A key that can't name a file is refused")
+    {
+        const auto path = storage.frameDownloadPath("x");
+        std::ofstream(path, std::ios::binary) << "X";
+        CHECK_FALSE(storage.installFrame("../escape", path, ".png", 1));
+    }
+}
+
+TEST_CASE("An older SDK's cache is cleaned up", "[achievements]")
+{
+    TempDir dir;
+    const auto root = dir.path() / "achievements";
+    boost::filesystem::create_directories(root / "frames/128x32");
+    std::ofstream((root / "definitions.etag").string()) << "\"v1\"";
+    std::ofstream((root / "frames.version").string()) << "7";
+    std::ofstream((root / "frames.zip").string()) << "zip";
+    std::ofstream((root / "frames/128x32/game-cv-boom.png").string()) << "old";
+    std::ofstream((root / "definitions.json").string()) << "[]";
+
+    AchievementStorage storage {dir.path().string()};
+    CHECK_FALSE(boost::filesystem::exists(root / "definitions.etag"));
+    CHECK_FALSE(boost::filesystem::exists(root / "frames.version"));
+    CHECK_FALSE(boost::filesystem::exists(root / "frames.zip"));
+    CHECK_FALSE(boost::filesystem::exists(root / "frames"));
+    CHECK_FALSE(storage.frame("game-cv-boom"));
+    CHECK(storage.loadDefinitions() == "[]");
+}
+
+TEST_CASE("Frame extension comes from the URL path", "[achievements]")
+{
+    CHECK(frameExtension("https://cdn.example/achievement_frame/game-cv-boom_3.png") == ".png");
+    CHECK(frameExtension("https://s3.example/a/game-cv-boom_3.PNG?X-Amz-Signature=ab.cd")
+          == ".png");
+    CHECK(frameExtension("https://cdn.example/a/game-cv-boom_3.gif#x") == ".gif");
+    CHECK(frameExtension("https://cdn.example/a/game-cv-boom") == ".png");
+    CHECK(frameExtension("https://cdn.example/a.b/frame") == ".png");
+    CHECK(frameExtension("https://cdn.example/a/x.p/ng") == ".png");
+    CHECK(frameExtension("/media/a/x.toolongextension") == ".png");
 }

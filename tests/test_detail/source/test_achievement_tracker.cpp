@@ -51,7 +51,7 @@ std::vector<AchievementStatus> statusesOf(const std::vector<AchievementUpdate> &
 /** Plays the role of the service: one player, one set of definitions. */
 struct Session {
     Session(std::vector<Definition> defs, Baselines baselines = {})
-        : definitions {"cactus-canyon", 0, std::move(defs)}
+        : definitions {std::move(defs)}
         , tracker {"3f1c", std::move(baselines)}
     {
         timeline.at(0).commit();

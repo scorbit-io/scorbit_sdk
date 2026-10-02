@@ -20,13 +20,13 @@
 #include "game_state_impl.h"
 #include "net_base.h"
 #include "event_classes.h"
-#include "utils/archiver.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <boost/filesystem.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <deque>
+#include <fstream>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -94,13 +94,10 @@ public:
     {
         reports.push_back({json::parse(body), std::move(cb)});
     }
-    void downloadAchievementFrames(std::string gameSlug, std::string filename,
-                                   ApiReplyCallback cb) override
+    void downloadAchievementFrame(std::string url, std::string filename,
+                                  ApiReplyCallback cb) override
     {
-        framesGame = std::move(gameSlug);
-        framesFile = std::move(filename);
-        framesReply = std::move(cb);
-        ++framesDownloads;
+        frames.push_back({std::move(url), std::move(filename), std::move(cb)});
     }
     void scheduleAchievementRetry(std::chrono::steady_clock::duration,
                                   std::function<void()> fn) override
@@ -142,6 +139,18 @@ public:
         sb_player_t player;
         sb_achievement_status_t status;
     };
+    struct FrameDownload {
+        std::string url;
+        std::string filename;
+        ApiReplyCallback reply;
+
+        /** Writes @p content where the download goes, as the transfer would, and answers. */
+        void complete(const std::string &content) const
+        {
+            std::ofstream(filename, std::ios::binary) << content;
+            reply(ApiReply {Error::Success, 200, {}});
+        }
+    };
 
     SessionCreatedCallback sessionCreated;
     int definitionsFetches {0};
@@ -153,10 +162,7 @@ public:
     PlayersChangedCallback playersChanged;
     std::vector<Update> updates;
     int rows {0};
-    std::string framesGame;
-    std::string framesFile;
-    ApiReplyCallback framesReply;
-    int framesDownloads {0};
+    std::deque<FrameDownload> frames;
 
 private:
     DeviceInfo m_info;
@@ -399,39 +405,122 @@ TEST_CASE("A session uuid arriving after the game ended still releases its repor
     CHECK(game.achievements().view()->players.empty()); // not bound to the running game
 }
 
-TEST_CASE("The DMD frame bundle is downloaded when its version changes", "[achievements]")
+TEST_CASE("DMD frames are downloaded per achievement when their version changes", "[achievements]")
 {
-    const std::string definitions = R"({"game": "cactus-canyon", "frames_version": 3, "results": [
-        {"key": "game-cv-boom", "scope": "game", "evaluation": "in_session",
-         "rules": [{"type": "MODE", "comparison": "GE", "target": 1, "reference": "balloon"}]}]})";
+    const auto definitions = [](int64_t boomVersion, bool withBlast) {
+        json results = json::array();
+        results.push_back({{"key", "game-cv-boom"},
+                           {"scope", "game"},
+                           {"evaluation", "in_session"},
+                           {"frame", "https://cdn.example/achievement_frame/game-cv-boom_3.png"},
+                           {"frame_version", boomVersion},
+                           {"rules", json::array({{{"type", "MODE"},
+                                                   {"comparison", "GE"},
+                                                   {"target", 1},
+                                                   {"reference", "balloon"}}})}});
+        if (withBlast) {
+            results.push_back(
+                    {{"key", "game-cv-blast"},
+                     {"scope", "game"},
+                     {"evaluation", "in_session"},
+                     {"frame", "https://cdn.example/achievement_frame/game-cv-blast_1.bin?sig=a"},
+                     {"frame_version", 1},
+                     {"rules", json::array({{{"type", "MODE"},
+                                             {"comparison", "GE"},
+                                             {"target", 1},
+                                             {"reference", "blast"}}})}});
+        }
+        results.push_back({{"key", "game-cv-plain"},
+                           {"scope", "game"},
+                           {"evaluation", "in_session"},
+                           {"frame", nullptr},
+                           {"frame_version", 0},
+                           {"rules", json::array({{{"type", "MODE"},
+                                                   {"comparison", "GE"},
+                                                   {"target", 1},
+                                                   {"reference", "plain"}}})}});
+        return json {{"results", results}}.dump();
+    };
+    const auto frameOf = [](const GameStateImpl &game, const std::string &key) {
+        const auto frame = game.achievements().frame(key);
+        return frame ? std::string(frame->begin(), frame->end()) : std::string {};
+    };
 
     TempDir dir;
     {
         auto fake = std::make_unique<FakeNet>(dir.str());
         auto *net = fake.get();
         GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions});
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions(4, true)});
         game.runPendingPosts();
 
-        REQUIRE(net->framesDownloads == 1);
-        CHECK(net->framesGame == "cactus-canyon");
-        REQUIRE(createTarGz(net->framesFile, {}, {{"game-cv-boom.bin", "FRAME"}}));
-        net->framesReply(ApiReply {Error::Success, 200, {}});
+        // One at a time, achievements without a frame skipped
+        REQUIRE(net->frames.size() == 1);
+        CHECK(net->frames.front().url
+              == "https://cdn.example/achievement_frame/game-cv-boom_3.png");
+        net->frames.front().complete("BOOM4");
+        net->frames.pop_front();
         game.runPendingPosts();
 
-        const auto frame = game.achievements().frame("game-cv-boom");
-        REQUIRE(frame);
-        CHECK(std::string(frame->begin(), frame->end()) == "FRAME");
+        REQUIRE(net->frames.size() == 1);
+        CHECK(net->frames.front().url
+              == "https://cdn.example/achievement_frame/game-cv-blast_1.bin?sig=a");
+        net->frames.front().complete("BLAST1");
+        net->frames.pop_front();
+        game.runPendingPosts();
+        CHECK(net->frames.empty());
+
+        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
+        CHECK(frameOf(game, "game-cv-blast") == "BLAST1");
+        CHECK(frameOf(game, "game-cv-plain").empty());
     }
 
-    // Same version on the next boot: nothing to download
-    auto fake = std::make_unique<FakeNet>(dir.str());
-    auto *net = fake.get();
-    GameStateImpl game(std::move(fake));
-    net->definitionsReply(ApiReply {Error::Success, 200, definitions});
-    game.runPendingPosts();
-    CHECK(net->framesDownloads == 0);
-    CHECK(game.achievements().frame("game-cv-boom"));
+    SECTION("Unchanged versions download nothing")
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto *net = fake.get();
+        GameStateImpl game(std::move(fake));
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions(4, true)});
+        game.runPendingPosts();
+        CHECK(net->frames.empty());
+        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
+    }
+
+    SECTION("A bumped version is downloaded again; a dropped achievement loses its frame")
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto *net = fake.get();
+        GameStateImpl game(std::move(fake));
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions(5, false)});
+        game.runPendingPosts();
+        CHECK(frameOf(game, "game-cv-blast").empty());
+
+        REQUIRE(net->frames.size() == 1);
+        CHECK(frameOf(game, "game-cv-boom") == "BOOM4"); // kept until the new one arrives
+        net->frames.front().complete("BOOM5");
+        net->frames.pop_front();
+        game.runPendingPosts();
+        CHECK(frameOf(game, "game-cv-boom") == "BOOM5");
+    }
+
+    SECTION("A failed download is not retried until the next refresh")
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto *net = fake.get();
+        GameStateImpl game(std::move(fake));
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions(5, true)});
+        game.runPendingPosts();
+
+        REQUIRE(net->frames.size() == 1);
+        net->frames.front().reply(ApiReply {Error::ApiError, 404, {}});
+        net->frames.pop_front();
+        game.runPendingPosts();
+        CHECK(net->frames.empty());
+        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
+
+        game.achievements().refreshFrames();
+        CHECK(net->frames.size() == 1);
+    }
 }
 
 TEST_CASE("Definitions are revalidated at every game start", "[achievements]")

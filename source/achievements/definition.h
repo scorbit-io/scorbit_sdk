@@ -88,6 +88,12 @@ struct Definition {
     std::optional<int64_t> level;
     std::optional<int64_t> displayPosition;
 
+    /** The achievement's DMD frame, empty when it has none (§3.9). */
+    std::string frameUrl;
+
+    /** Bumped by the API whenever the frame changes. */
+    int64_t frameVersion {0};
+
     /** In definition order; the order fixes each rule's `index` (§10.2). */
     std::vector<Rule> rules;
 };
@@ -97,10 +103,7 @@ class DefinitionSet
 {
 public:
     DefinitionSet() = default;
-    DefinitionSet(std::string game, int64_t framesVersion, std::vector<Definition> definitions);
-
-    const std::string &game() const { return m_game; }
-    int64_t framesVersion() const { return m_framesVersion; }
+    explicit DefinitionSet(std::vector<Definition> definitions);
 
     const std::vector<Definition> &all() const { return m_definitions; }
     bool empty() const { return m_definitions.empty(); }
@@ -111,8 +114,6 @@ public:
     bool contains(std::string_view key) const { return find(key) != nullptr; }
 
 private:
-    std::string m_game;
-    int64_t m_framesVersion {0};
     std::vector<Definition> m_definitions;
     std::unordered_map<std::string, size_t> m_index;
 };

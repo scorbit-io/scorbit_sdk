@@ -46,6 +46,8 @@ constexpr auto KEY_OBSCURE_IMAGE_URL = "obscure_image_url";
 constexpr auto KEY_GROUP_ID = "group_id";
 constexpr auto KEY_LEVEL = "level";
 constexpr auto KEY_DISPLAY_POSITION = "display_position";
+constexpr auto KEY_FRAME = "frame";
+constexpr auto KEY_FRAME_VERSION = "frame_version";
 constexpr auto KEY_NOTIFY_WHEN_ACHIEVED = "notify_when_achieved";
 constexpr auto KEY_RULES = "rules";
 
@@ -56,8 +58,6 @@ constexpr auto KEY_TARGET = "target";
 constexpr auto KEY_REFERENCE = "reference";
 
 // Definitions / progress responses (§10.3, §10.4)
-constexpr auto KEY_GAME = "game";
-constexpr auto KEY_FRAMES_VERSION = "frames_version";
 constexpr auto KEY_RESULTS = "results";
 
 // UserAchievement
@@ -203,6 +203,8 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
         definition.groupId = field<int64_t>(object, KEY_GROUP_ID);
         definition.level = field<int64_t>(object, KEY_LEVEL);
         definition.displayPosition = field<int64_t>(object, KEY_DISPLAY_POSITION);
+        definition.frameUrl = fieldOr<std::string>(object, KEY_FRAME, {});
+        definition.frameVersion = fieldOr<int64_t>(object, KEY_FRAME_VERSION, 0);
 
         const auto rules = object.find(KEY_RULES);
         if (rules == object.end() || !rules->is_array()) {
@@ -233,15 +235,6 @@ std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
         return std::nullopt;
     }
 
-    std::string game;
-    int64_t framesVersion = 0;
-    try {
-        game = fieldOr<std::string>(document, KEY_GAME, {});
-        framesVersion = fieldOr<int64_t>(document, KEY_FRAMES_VERSION, 0);
-    } catch (const std::exception &e) {
-        WRN("Achievements: definitions response header is malformed: {}", e.what());
-    }
-
     std::vector<Definition> definitions;
     definitions.reserve(results->size());
     for (size_t i = 0; i < results->size(); ++i) {
@@ -263,7 +256,7 @@ std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
         WRN("Achievements: skipping '{}', its ACHIEVEMENT rules form a cycle", key);
     }
 
-    return DefinitionSet {std::move(game), framesVersion, std::move(definitions)};
+    return DefinitionSet {std::move(definitions)};
 }
 
 RuleProgressMap parseRuleProgress(const json &array)

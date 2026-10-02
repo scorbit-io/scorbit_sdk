@@ -207,7 +207,7 @@ class Config(object):
         # type: (str) -> Config
         """Set a writable, persistent directory for SDK data.
 
-        The achievements cache (definitions and DMD frame bundle) is kept
+        The achievements cache (definitions and DMD frames) is kept
         there across reboots. Defaults to a temporary directory.
         """
         _lib.sb_config_set_data_dir(self._handle, _encode(path))
