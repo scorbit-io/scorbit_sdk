@@ -222,13 +222,14 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
 std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
 {
     if (!document.is_object()) {
-        ERR("Achievements: definitions response is not an object");
+        ERR("Achievements: definitions response is not an object but {}: {}", document.type_name(),
+            document.dump());
         return std::nullopt;
     }
 
     const auto results = document.find(KEY_RESULTS);
     if (results == document.end() || !results->is_array()) {
-        ERR("Achievements: definitions response has no 'results' array");
+        ERR("Achievements: definitions response has no 'results' array: {}", document.dump());
         return std::nullopt;
     }
 
@@ -290,13 +291,14 @@ RuleProgressMap parseRuleProgress(const json &array)
 std::optional<Baselines> parseProgressResponse(const json &document)
 {
     if (!document.is_object()) {
-        ERR("Achievements: progress response is not an object");
+        ERR("Achievements: progress response is not an object but {}: {}", document.type_name(),
+            document.dump());
         return std::nullopt;
     }
 
     const auto results = document.find(KEY_RESULTS);
     if (results == document.end() || !results->is_array()) {
-        ERR("Achievements: progress response has no 'results' array");
+        ERR("Achievements: progress response has no 'results' array: {}", document.dump());
         return std::nullopt;
     }
 
@@ -344,13 +346,14 @@ std::string encodeReportRequest(const ReportRequest &request)
 std::optional<std::vector<ReportOutcome>> parseReportResponse(const json &document)
 {
     if (!document.is_object()) {
-        ERR("Achievements: report response is not an object");
+        ERR("Achievements: report response is not an object but {}: {}", document.type_name(),
+            document.dump());
         return std::nullopt;
     }
 
     const auto results = document.find(KEY_RESULTS);
     if (results == document.end() || !results->is_array()) {
-        ERR("Achievements: report response has no 'results' array");
+        ERR("Achievements: report response has no 'results' array: {}", document.dump());
         return std::nullopt;
     }
 

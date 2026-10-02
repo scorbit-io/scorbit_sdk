@@ -1577,10 +1577,20 @@ void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callbac
 
     auto replyCallback = [callback = std::move(callback), receivedEtag](Error error, int httpStatus,
                                                                         const std::string &reply) {
+        if (error != Error::Success) {
+            WRN("API achievement definitions: failed, error code: {}, status: {}, reply: {}",
+                static_cast<int>(error), httpStatus, reply);
+        } else if (httpStatus == 304) {
+            INF("API achievement definitions: not modified");
+        } else {
+            INF("API achievement definitions: ok, status: {}, etag: {}, {} bytes", httpStatus,
+                *receivedEtag, reply.size());
+        }
         callback(ApiReply {error, httpStatus, reply, *receivedEtag});
     };
 
-    auto deferredSetup = [this] {
+    auto deferredSetup = [this, etag] {
+        INF("API fetching achievement definitions, etag: {}", etag.empty() ? "none" : etag);
         return std::make_tuple(url(URL_ACHIEVEMENTS_DEFINITIONS), cpr::Parameters {});
     };
 
@@ -1603,12 +1613,20 @@ void Net::fetchAchievementDefinitions(std::string etag, ApiReplyCallback callbac
 
 void Net::fetchAchievementProgress(std::string userId, ApiReplyCallback callback)
 {
-    auto replyCallback = [callback = std::move(callback)](Error error, int httpStatus,
-                                                          const std::string &reply) {
+    auto replyCallback = [callback = std::move(callback), userId](Error error, int httpStatus,
+                                                                  const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API achievement progress: ok, user_id={}, {}", userId, reply);
+        } else {
+            WRN("API achievement progress: failed, user_id={}, error code: {}, status: {}, "
+                "reply: {}",
+                userId, static_cast<int>(error), httpStatus, reply);
+        }
         callback(ApiReply {error, httpStatus, reply, {}});
     };
 
     auto deferredSetup = [this, userId = std::move(userId)] {
+        INF("API fetching achievement progress, user_id={}", userId);
         return std::make_tuple(url(URL_ACHIEVEMENTS_PROGRESS),
                                cpr::Parameters {{QUERY_ACHIEVEMENTS_USER_ID, userId}});
     };
@@ -1625,10 +1643,17 @@ void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
 {
     auto replyCallback = [callback = std::move(callback)](Error error, int httpStatus,
                                                           const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API achievement report: ok, {}", reply);
+        } else {
+            WRN("API achievement report: failed, error code: {}, status: {}, reply: {}",
+                static_cast<int>(error), httpStatus, reply);
+        }
         callback(ApiReply {error, httpStatus, reply, {}});
     };
 
     auto deferredSetup = [this, body = std::move(body)] {
+        INF("API sending achievement report: {}", body);
         return std::make_tuple(url(URL_ACHIEVEMENTS_REPORT), cpr::Body {body});
     };
 
@@ -1642,8 +1667,16 @@ void Net::downloadAchievementFrames(std::string gameSlug, std::string filename,
     const auto endpoint =
             fmt::format(fmt::runtime(URL_ACHIEVEMENTS_FRAMES), fmt::arg(ARG_GAME_SLUG, gameSlug));
 
+    INF("API downloading achievement frames, game: {}, to: {}", gameSlug, filename);
     download(true,
-             [callback = std::move(callback)](Error error, const std::string &reply) {
+             [callback = std::move(callback), gameSlug, filename](Error error,
+                                                                  const std::string &reply) {
+                 if (error == Error::Success) {
+                     INF("API achievement frames: ok, game: {}, saved to {}", gameSlug, filename);
+                 } else {
+                     WRN("API achievement frames: failed, game: {}, error code: {}, reply: {}",
+                         gameSlug, static_cast<int>(error), reply);
+                 }
                  callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
              },
              endpoint, filename, {});
