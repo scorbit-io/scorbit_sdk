@@ -19,6 +19,7 @@
 
 #include "achievement_service.h"
 #include "json_codec.h"
+#include <fmt/format.h>
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -36,6 +37,20 @@ bool isRetryable(const ApiReply &reply)
 {
     return reply.httpStatus == 0 || reply.httpStatus == 408 || reply.httpStatus == 429
         || reply.httpStatus >= 500;
+}
+
+/** The flat `{code, detail}` of a refused request, or the raw body when it has none. */
+std::string describeRefusal(const std::string &body)
+{
+    try {
+        const auto document = nlohmann::json::parse(body);
+        if (document.is_object() && document.contains("code")) {
+            return fmt::format("{}: {}", document.value("code", std::string {}),
+                               document.value("detail", std::string {}));
+        }
+    } catch (const std::exception &) {
+    }
+    return body;
 }
 
 template<typename T>
@@ -463,7 +478,8 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
                 });
             });
         } else {
-            ERR("Achievements: report refused (status {}): {}", reply.httpStatus, reply.body);
+            ERR("Achievements: report refused (status {}): {}", reply.httpStatus,
+                describeRefusal(reply.body));
             pump(outbox);
         }
         return;
