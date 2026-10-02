@@ -44,7 +44,7 @@ std::optional<T> parseJson(const std::string &body,
     try {
         return parse(nlohmann::json::parse(body));
     } catch (const std::exception &e) {
-        ERR("Achievements: invalid JSON reply: {}", e.what());
+        ERR("Achievements: invalid JSON reply: {}, body: {}", e.what(), body);
         return std::nullopt;
     }
 }
@@ -89,7 +89,7 @@ void AchievementService::refreshDefinitions()
                         return;
                     }
                     if (reply.httpStatus == 304) {
-                        DBG("Achievements: definitions not modified");
+                        INF("Achievements: definitions not modified");
                         refreshFrames();
                         return;
                     }
@@ -397,7 +397,7 @@ void AchievementService::pump(const std::shared_ptr<ReportOutbox> &outbox)
         return;
     }
 
-    DBG("Achievements: reporting {} item(s) for {}, sequence {}", request->items.size(),
+    INF("Achievements: reporting {} item(s) for {}, sequence {}", request->items.size(),
         request->userId, request->sequence);
 
     m_net.postAchievementReport(
