@@ -74,11 +74,8 @@ std::string_view lookup(const std::array<std::pair<Enum, std::string_view>, N> &
 
 } // namespace
 
-DefinitionSet::DefinitionSet(std::string game, int64_t framesVersion,
-                             std::vector<Definition> definitions)
-    : m_game {std::move(game)}
-    , m_framesVersion {framesVersion}
-    , m_definitions {std::move(definitions)}
+DefinitionSet::DefinitionSet(std::vector<Definition> definitions)
+    : m_definitions {std::move(definitions)}
 {
     m_index.reserve(m_definitions.size());
     for (size_t i = 0; i < m_definitions.size(); ++i) {

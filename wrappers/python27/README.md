@@ -187,7 +187,7 @@ slot; what happens is delivered to the event callback as `EventType.AchievementU
 | `refresh_achievements()` | Revalidate definitions now (normally automatic). |
 | `fetch_player_achievements(user_id, cb)` | Async stored state of a player, as JSON. |
 | `flush_achievement_reports()` | Report progress now instead of at ball end. |
-| `download_achievement_frames()` / `get_achievement_frame(key)` | DMD frame bundle. |
+| `download_achievement_frames()` / `get_achievement_frame(key)` | Per-achievement DMD frames, kept locally. |
 
 Use `Config.set_data_dir(path)` to keep the achievements cache across reboots.
 

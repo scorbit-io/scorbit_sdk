@@ -22,6 +22,7 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cstdio>
 #include <utility>
 
 namespace scorbit {
@@ -100,7 +101,7 @@ void AchievementService::applyDefinitions(const std::string &body, bool persist)
         return;
     }
 
-    INF("Achievements: {} definitions for '{}'", definitions->size(), definitions->game());
+    INF("Achievements: {} definitions", definitions->size());
     m_definitions = std::make_shared<const DefinitionSet>(std::move(*definitions));
     if (persist) {
         m_storage.saveDefinitions(body);
@@ -121,28 +122,61 @@ void AchievementService::applyDefinitions(const std::string &body, bool persist)
 
 void AchievementService::refreshFrames()
 {
-    const auto wanted = m_definitions->framesVersion();
-    const auto &game = m_definitions->game();
-    if (wanted <= 0 || game.empty() || m_downloadingFrames || m_storage.framesVersion() == wanted) {
+    for (const auto &[key, version] : m_storage.frameVersions()) {
+        const auto *definition = m_definitions->find(key);
+        if (!definition || definition->frameUrl.empty()) {
+            INF("Achievements: removing frame of '{}'", key);
+            m_storage.removeFrame(key);
+        }
+    }
+
+    m_frameFailures.clear();
+    downloadNextFrame();
+}
+
+void AchievementService::downloadNextFrame()
+{
+    if (m_downloadingFrames) {
+        return;
+    }
+
+    const auto installed = m_storage.frameVersions();
+    const auto &definitions = m_definitions->all();
+    const auto next = std::ranges::find_if(definitions, [&](const Definition &definition) {
+        if (definition.frameUrl.empty() || m_frameFailures.contains(definition.key)) {
+            return false;
+        }
+        const auto it = installed.find(definition.key);
+        return it == installed.end() || it->second != definition.frameVersion;
+    });
+    if (next == definitions.end()) {
         return;
     }
 
     m_downloadingFrames = true;
-    const auto archive = m_storage.framesDownloadPath();
-    m_net.downloadAchievementFrames(
-            game, archive, [this, alive = std::weak_ptr(m_alive), archive, wanted](ApiReply reply) {
-                m_poster([this, alive, archive, wanted, reply = std::move(reply)] {
+    const auto key = next->key;
+    const auto version = next->frameVersion;
+    const auto extension = frameExtension(next->frameUrl);
+    const auto path = m_storage.frameDownloadPath(key);
+    m_net.downloadAchievementFrame(
+            next->frameUrl, path,
+            [this, alive = std::weak_ptr(m_alive), key, version, extension, path](ApiReply reply) {
+                m_poster([this, alive, key, version, extension, path, reply = std::move(reply)] {
                     if (alive.expired()) {
                         return;
                     }
                     m_downloadingFrames = false;
                     if (reply.error != Error::Success) {
-                        WRN("Achievements: can't download frame bundle v{}", wanted);
-                        return;
+                        WRN("Achievements: can't download frame of '{}' v{}", key, version);
+                        std::remove(path.c_str());
+                        m_frameFailures.insert(key);
+                    } else if (m_storage.installFrame(key, path, extension, version)) {
+                        INF("Achievements: frame of '{}' v{} installed", key, version);
+                    } else {
+                        std::remove(path.c_str());
+                        m_frameFailures.insert(key);
                     }
-                    if (m_storage.installFrames(archive, wanted)) {
-                        INF("Achievements: frame bundle v{} installed", wanted);
-                    }
+                    downloadNextFrame();
                 });
             });
 }

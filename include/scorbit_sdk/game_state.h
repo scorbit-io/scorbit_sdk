@@ -696,12 +696,12 @@ public:
     /** @brief Reports changed progress now (see @ref sb_flush_achievement_reports). */
     void flushAchievementReports() { sb_flush_achievement_reports(m_handle.get()); }
 
-    /** @brief Downloads a newer DMD frame bundle (see @ref sb_download_achievement_frames). */
+    /** @brief Downloads changed DMD frames (see @ref sb_download_achievement_frames). */
     void downloadAchievementFrames() { sb_download_achievement_frames(m_handle.get()); }
 
     /**
-     * @brief Reads the DMD frame of achievement @p key from the local bundle.
-     * @return false if the bundle has no frame for @p key.
+     * @brief Reads the locally stored DMD frame of achievement @p key.
+     * @return false if no frame is stored for @p key.
      */
     bool getAchievementFrame(const std::string &key, std::vector<uint8_t> &frame) const
     {

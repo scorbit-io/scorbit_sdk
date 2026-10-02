@@ -50,7 +50,6 @@ constexpr auto URL_ACHIEVEMENTS_DEFINITIONS {"api/v2/achievements/scorbitron/"};
 constexpr auto URL_ACHIEVEMENTS_PROGRESS {"api/v2/achievements/scorbitron/progress/"};
 constexpr auto URL_ACHIEVEMENTS_REPORT {"api/v2/achievements/report/"};
 constexpr auto QUERY_ACHIEVEMENTS_USER_ID {"user_id"};
-constexpr auto URL_ACHIEVEMENTS_FRAMES {"api/v2/games/{game_slug}/achievements/frames-zip/"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
                                  "qrcode?$deeplink_path={manufacturer_prefix}"

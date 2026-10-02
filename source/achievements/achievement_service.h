@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -108,10 +109,13 @@ public:
     /** Reports every changed record now instead of waiting for the ball to end. */
     void flushReports();
 
-    /** Downloads the DMD frame bundle if the definitions announce a newer version. */
+    /**
+     * Brings the installed DMD frames in line with the definitions: downloads each frame whose
+     * `frame_version` changed, one at a time, and removes those no longer delivered.
+     */
     void refreshFrames();
 
-    /** The frame for achievement @p key, if the installed bundle has one. */
+    /** The frame for achievement @p key, if one is installed. */
     std::optional<std::vector<uint8_t>> frame(const std::string &key) const;
 
     std::shared_ptr<const AchievementsView> view() const;
@@ -134,6 +138,7 @@ private:
     };
 
     void applyDefinitions(const std::string &body, bool persist);
+    void downloadNextFrame();
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
@@ -166,6 +171,9 @@ private:
 
     bool m_fetchingDefinitions {false};
     bool m_downloadingFrames {false};
+
+    /** Frames that failed since the last @ref refreshFrames, so they aren't retried in a loop. */
+    std::set<std::string> m_frameFailures;
 
     /** Guards the service against replies arriving after it was destroyed. */
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
