@@ -2843,6 +2843,12 @@ void Net::setPlayersChangedCallback(PlayersChangedCallback callback)
     m_playersChangedCallback = std::move(callback);
 }
 
+void Net::setTokenRefreshedCallback(TokenRefreshedCallback callback)
+{
+    std::scoped_lock lock(m_tokenRefreshedCallbackMutex);
+    m_tokenRefreshedCallback = std::move(callback);
+}
+
 void Net::uploadDiagnostics(std::vector<std::string> logPaths,
                             std::vector<std::string> recordingPaths, std::string logString,
                             std::optional<std::uint64_t> requestGeneration)
@@ -3155,6 +3161,11 @@ task_t Net::createAuthenticateTask()
                     } else {
                         INF("API token refreshed successful!");
                         requestReleaseTrackInfo();
+
+                        std::scoped_lock lock(m_tokenRefreshedCallbackMutex);
+                        if (m_tokenRefreshedCallback) {
+                            m_tokenRefreshedCallback();
+                        }
                     }
                     break;
                 } catch (const std::exception &e) {
