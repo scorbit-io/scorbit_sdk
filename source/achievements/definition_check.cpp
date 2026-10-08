@@ -63,6 +63,14 @@ std::optional<std::string> findRuleProblem(const Definition &definition, size_t 
         return fmt::format("rule {} (ACHIEVEMENT) has no prerequisite key", index);
     }
 
+    // A prerequisite rule asks that the prerequisite is held, nothing else (§6.4)
+    if (rule.type == RuleType::Achievement
+        && ((rule.comparison != Comparison::Ge && rule.comparison != Comparison::Eq)
+            || rule.target != 1)) {
+        return fmt::format("rule {} (ACHIEVEMENT) must be GE 1 or EQ 1, got {} {}", index,
+                           toString(rule.comparison), rule.target);
+    }
+
     if (isQualifier(rule.type)) {
         if (definition.rules.size() < 2) {
             return fmt::format("rule {} ({}) needs at least one sibling rule", index,
