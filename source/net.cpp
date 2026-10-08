@@ -47,6 +47,7 @@
 #include <boost/url/parse.hpp>
 #include <algorithm>
 #include <ranges>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <future>
@@ -3027,49 +3028,55 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
         std::string reply;
         int statusCode = 0;
 
-        std::ofstream file(filename, std::ios::binary);
-        if (!file.is_open()) {
-            ERR("API Can't open file for writing: {}", filename);
-            error = Error::FileError;
-        } else {
-            const auto fullUrl = this->url(url);
-            const bool isInternal =
-                    isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
+        const auto fullUrl = this->url(url);
+        const bool isInternal = isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
 
-            const auto elidedUrl = elideUrl(fullUrl.str());
+        const auto elidedUrl = elideUrl(fullUrl.str());
 
-            for (int i = 0; i < NUM_RETRIES; ++i) {
-                INF("API Download file: {}", elidedUrl);
+        for (int i = 0; i < NUM_RETRIES; ++i) {
+            // Truncate on every attempt so a retry never appends to partial bytes.
+            std::ofstream file(filename, std::ios::binary | std::ios::trunc);
+            if (!file.is_open()) {
+                ERR("API Can't open file for writing: {}", filename);
+                error = Error::FileError;
+                break;
+            }
 
-                auto headers = isInternal ? authHeader() : cpr::Header {};
-                for (const auto &[k, v] : extraHeaders) {
-                    headers[k] = v;
-                }
+            INF("API Download file: {}", elidedUrl);
 
-                auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
-                                       cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
-                                       cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
-                                                      NET_TRANSFER_LOW_SPEED_STALL_TIME},
-                                       headers, sslOptions());
-                reply = std::move(r.text);
-                statusCode = r.status_code;
+            auto headers = isInternal ? authHeader() : cpr::Header {};
+            for (const auto &[k, v] : extraHeaders) {
+                headers[k] = v;
+            }
 
-                if (statusCode == 200) {
-                    DBG("API Download file: ok, {}", reply);
-                    error = Error::Success;
-                    break;
-                }
+            auto r = cpr::Download(
+                    file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                    cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                    cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS, NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                    headers, sslOptions());
+            file.close();
+            reply = std::move(r.text);
+            statusCode = r.status_code;
 
-                error = Error::ApiError;
-                ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}",
-                    statusCode, r.error.message, reply, elidedUrl);
+            if (statusCode == 200) {
+                DBG("API Download file: ok, {}", reply);
+                error = Error::Success;
+                break;
+            }
 
-                if (statusCode >= 400) {
-                    break;
-                }
+            error = Error::ApiError;
+            ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}", statusCode,
+                r.error.message, reply, elidedUrl);
+
+            if (statusCode >= 400) {
+                break;
             }
         }
-        file.close();
+
+        if (error != Error::Success) {
+            std::error_code ec;
+            std::filesystem::remove(filename, ec);
+        }
 
         if (callback) {
             callback(error,
