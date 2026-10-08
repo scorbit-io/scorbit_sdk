@@ -2875,6 +2875,13 @@ task_t NetTestAccess::request(Net &net, StringCallback callback, TestTransport t
     return make(net, std::move(callback), std::move(transport), std::move(payload));
 }
 
+task_t NetTestAccess::downloadFile(Net &net, StringCallback callback, std::string url,
+                                   std::string filename, DownloadTransport transport)
+{
+    return net.createDownloadFileTask(std::move(callback), std::move(url), std::move(filename), {},
+                                      std::move(transport));
+}
+
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
 {
     net.m_status = from;
@@ -3019,57 +3026,98 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                   std::string filename, HttpHeaders extraHeaders)
+                                   std::string filename, HttpHeaders extraHeaders,
+                                   NetTestAccess::DownloadTransport transport)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url),
-            filename = std::move(filename), extraHeaders = std::move(extraHeaders)]() {
+            filename = std::move(filename), extraHeaders = std::move(extraHeaders),
+            transport = std::move(transport)]() {
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
+        bool openedFile = false;
 
-        std::ofstream file(filename, std::ios::binary);
-        if (!file.is_open()) {
-            ERR("API Can't open file for writing: {}", filename);
+        const auto fullUrl = this->url(url);
+        const bool isInternal = isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
+
+        const auto elidedUrl = elideUrl(fullUrl.str());
+
+        // Download into a private sibling and rename on success, so @c filename is only ever
+        // replaced by a complete file.
+        boost::system::error_code pathEc;
+        const auto suffix = fs::unique_path("%%%%-%%%%-%%%%-%%%%", pathEc);
+        const std::string tempName = filename + ".part-" + suffix.string();
+        if (pathEc) {
+            ERR("API Can't name a temporary file for: {}, {}", filename, pathEc.message());
             error = Error::FileError;
-        } else {
-            const auto fullUrl = this->url(url);
-            const bool isInternal =
-                    isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
+        }
 
-            const auto elidedUrl = elideUrl(fullUrl.str());
+        for (int i = 0; i < NUM_RETRIES && !pathEc; ++i) {
+            // Truncate on every attempt so a retry never appends to partial bytes.
+            std::ofstream file(tempName, std::ios::binary | std::ios::trunc);
+            if (!file.is_open()) {
+                ERR("API Can't open file for writing: {}", tempName);
+                error = Error::FileError;
+                break;
+            }
+            openedFile = true;
 
-            for (int i = 0; i < NUM_RETRIES; ++i) {
-                INF("API Download file: {}", elidedUrl);
+            INF("API Download file: {}", elidedUrl);
 
-                auto headers = isInternal ? authHeader() : cpr::Header {};
-                for (const auto &[k, v] : extraHeaders) {
-                    headers[k] = v;
-                }
+            auto headers = isInternal ? authHeader() : cpr::Header {};
+            for (const auto &[k, v] : extraHeaders) {
+                headers[k] = v;
+            }
 
-                auto r = cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
-                                       cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
-                                       cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
-                                                      NET_TRANSFER_LOW_SPEED_STALL_TIME},
-                                       headers, sslOptions());
-                reply = std::move(r.text);
-                statusCode = r.status_code;
+            auto r = transport
+                           ? transport(file, fullUrl, headers)
+                           : cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                           cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                           cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                          NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                           headers, sslOptions());
+            file.close();
+            reply = std::move(r.text);
+            statusCode = r.status_code;
 
-                if (statusCode == 200) {
+            // cpr ignores write failures (e.g. disk full), so check the stream ourselves.
+            if (file.fail()) {
+                ERR("API Download file: write failed: {}, code={}", tempName, statusCode);
+                error = Error::FileError;
+                break;
+            }
+
+            // curl keeps the 200 when the connection drops mid-body, so the status alone is not
+            // proof that the whole body arrived.
+            if (statusCode == 200 && r.error.code == cpr::ErrorCode::OK) {
+                boost::system::error_code ec;
+                fs::rename(tempName, filename, ec);
+                if (ec) {
+                    ERR("API Can't move download into place: {}, {}", filename, ec.message());
+                    error = Error::FileError;
+                } else {
                     DBG("API Download file: ok, {}", reply);
                     error = Error::Success;
-                    break;
                 }
+                break;
+            }
 
-                error = Error::ApiError;
-                ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}",
-                    statusCode, r.error.message, reply, elidedUrl);
+            error = Error::ApiError;
+            ERR("API Download file failed: code={}, message: {}, reply: {}, url: {}", statusCode,
+                r.error.message, reply, elidedUrl);
 
-                if (statusCode >= 400) {
-                    break;
-                }
+            if (statusCode >= 400) {
+                break;
             }
         }
-        file.close();
+
+        if (error != Error::Success && openedFile) {
+            boost::system::error_code ec;
+            fs::remove(tempName, ec);
+            if (ec) {
+                WRN("API Can't remove partial download: {}, {}", tempName, ec.message());
+            }
+        }
 
         if (callback) {
             callback(error,

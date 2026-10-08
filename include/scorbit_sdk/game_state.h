@@ -555,6 +555,8 @@ public:
      *
      * @param url The URL to download from.
      * @param filename The local filename to save the downloaded file to.
+     * The file at @p filename is replaced only when the download succeeds; on failure it is left
+     * unchanged.
      * @param headers Optional HTTP headers to include in the request.
      * @param callback A callback function of type @ref StringCallback that receives the result.
      * Returns @ref Error::Success if the download was successful. On success, the reply string

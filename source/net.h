@@ -37,6 +37,7 @@
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <functional>
 #include <chrono>
@@ -90,6 +91,13 @@ struct NetTestAccess {
     using TestTransport = std::function<cpr::Response(
             const cpr::Url &, const cpr::Body &, const cpr::Header &, const cpr::Timeout &, bool)>;
 
+    /// Stands in for cpr::Download: writes the body to the stream and returns the response.
+    using DownloadTransport =
+            std::function<cpr::Response(std::ofstream &, const cpr::Url &, const cpr::Header &)>;
+
+    /// Builds the production file-download task, reaching @p transport instead of the network.
+    static task_t downloadFile(Net &net, StringCallback callback, std::string url,
+                               std::string filename, DownloadTransport transport);
     /// Builds a PATCH-shaped request task that reaches @p transport instead of the network.
     static task_t request(Net &net, HttpStatusCallback callback, TestTransport transport,
                           std::string payload);
@@ -300,7 +308,8 @@ private:
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
             bool includeFingerprintHash = false);
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                  std::string filename, HttpHeaders extraHeaders);
+                                  std::string filename, HttpHeaders extraHeaders,
+                                  NetTestAccess::DownloadTransport transport = {});
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
                                     size_t reserveBufferSize, HttpHeaders extraHeaders);
 

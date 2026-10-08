@@ -571,6 +571,8 @@ void sb_submit_hardware_probe_result(sb_game_handle_t handle, const char *run_id
  * @param handle The game handle created using @ref sb_create_game_state.
  * @param url The URL to download from.
  * @param filename The local filename to save the downloaded file to.
+ * The file at @p filename is replaced only when the download succeeds; on failure it is left
+ * unchanged.
  * @param headers Optional array of HTTP headers to include in the request. Pass NULL if not used.
  * @param headers_count Number of elements in the @p headers array. Pass 0 if not used.
  * @param callback A callback function of @ref sb_string_callback_t that receives the result.
