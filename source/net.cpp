@@ -3061,7 +3061,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
             // cpr ignores write failures (e.g. disk full), so check the stream ourselves.
             if (file.fail()) {
-                ERR("API Download file: write failed: {}", filename);
+                ERR("API Download file: write failed: {}, code={}", filename, statusCode);
                 error = Error::FileError;
                 break;
             }
