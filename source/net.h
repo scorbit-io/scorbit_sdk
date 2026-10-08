@@ -231,6 +231,7 @@ public:
     void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn) override;
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
+    void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
     void publishEvent(EventPtr event) override;
 
 private:
@@ -575,6 +576,8 @@ private:
     PlayerProfilesManager m_playersManager;
     PlayersChangedCallback m_playersChangedCallback;
     std::mutex m_playersChangedCallbackMutex;
+    TokenRefreshedCallback m_tokenRefreshedCallback;
+    std::mutex m_tokenRefreshedCallbackMutex;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

@@ -52,6 +52,9 @@ using SessionCreatedCallback = std::function<void(const std::string &sessionUuid
 /** Called with the new player profiles whenever a player claims or leaves a slot. */
 using PlayersChangedCallback = std::function<void(const std::vector<PlayerProfile> &profiles)>;
 
+/** Called after the scheduled refresh of the API token succeeded. */
+using TokenRefreshedCallback = std::function<void()>;
+
 /** Outcome of an achievements API request. */
 struct ApiReply {
     Error error {Error::ApiError};
@@ -197,6 +200,9 @@ public:
 
     /** @p callback is invoked from a network thread whenever player profiles change. */
     virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
+
+    /** @p callback is invoked from a network thread after each scheduled token refresh. */
+    virtual void setTokenRefreshedCallback(TokenRefreshedCallback callback) { (void)callback; }
 
     // ---------------------------------------------------------------------------------
 

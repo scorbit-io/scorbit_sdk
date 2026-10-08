@@ -112,6 +112,10 @@ public:
     {
         playersChanged = std::move(cb);
     }
+    void setTokenRefreshedCallback(TokenRefreshedCallback cb) override
+    {
+        tokenRefreshed = std::move(cb);
+    }
     void publishEvent(EventPtr event) override
     {
         if (auto *e = dynamic_cast<AchievementUpdatedEvent *>(event.get())) {
@@ -164,6 +168,7 @@ public:
     std::deque<Report> reports;
     std::function<void()> retry;
     PlayersChangedCallback playersChanged;
+    TokenRefreshedCallback tokenRefreshed;
     std::vector<Update> updates;
     int rows {0};
     std::deque<FrameDownload> frames;
@@ -566,7 +571,7 @@ TEST_CASE("DMD frames are downloaded per achievement when their version changes"
     }
 }
 
-TEST_CASE("Definitions are revalidated at every game start", "[achievements]")
+TEST_CASE("Definitions are refetched on token refresh, not at game start", "[achievements]")
 {
     TempDir dir;
     auto fake = std::make_unique<FakeNet>(dir.str());
@@ -579,8 +584,54 @@ TEST_CASE("Definitions are revalidated at every game start", "[achievements]")
     net->definitionsReply = {};
 
     game.setGameStarted(GameStartOrigin::StartButton);
+    game.setGameFinished();
+    CHECK(net->definitionsFetches == 1);
+
+    REQUIRE(net->tokenRefreshed);
+    net->tokenRefreshed();
+    game.runPendingPosts();
+    CHECK(net->definitionsFetches == 2);
     REQUIRE(net->definitionsReply);
     net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
     game.runPendingPosts();
     CHECK(game.achievements().view()->definitions->size() == 2);
+}
+
+TEST_CASE("Definitions fetched during a game apply from the next game", "[achievements]")
+{
+    Fixture f;
+
+    auto refreshed = json::parse(DEFINITIONS);
+    refreshed.push_back({{"key", "game-cv-blast"},
+                         {"scope", "game"},
+                         {"is_single_session", true},
+                         {"frame", nullptr},
+                         {"frame_version", 0},
+                         {"rules", json::array({{{"type", "MODE"},
+                                                 {"comparison", ">="},
+                                                 {"target", 1},
+                                                 {"reference", "blast"}}})}});
+    f.net->tokenRefreshed();
+    f.game->runPendingPosts();
+    REQUIRE(f.net->definitionsReply);
+    f.net->definitionsReply(ApiReply {Error::Success, 200, refreshed.dump()});
+    f.game->runPendingPosts();
+    CHECK(f.game->achievements().view()->definitions->size() == 2);
+
+    f.game->addMode("blast");
+    f.game->commit();
+    CHECK_FALSE(hasUpdate(*f.net, "game-cv-blast", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
+
+    f.game->setGameFinished();
+    CHECK(f.game->achievements().view()->definitions->size() == 3);
+
+    f.game->setGameStarted(GameStartOrigin::StartButton);
+    f.net->sessionCreated("9ab3");
+    f.game->runPendingPosts();
+    f.net->progressReply(ApiReply {Error::Success, 200, "[]"});
+    f.game->runPendingPosts();
+
+    f.game->addMode("blast");
+    f.game->commit();
+    CHECK(hasUpdate(*f.net, "game-cv-blast", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
 }

@@ -159,8 +159,11 @@ typedef struct {
 /**
  * @brief Number of achievement definitions cached for this machine.
  *
- * Definitions are downloaded automatically once the device is authenticated and paired, and kept
- * across reboots in the directory set with @ref sb_config_set_data_dir.
+ * Definitions are downloaded automatically once the device is authenticated and paired, revalidated
+ * with every token refresh, and kept across reboots in the directory set with
+ * @ref sb_config_set_data_dir. A game in progress keeps the definitions it started with: these
+ * functions return them until it ends, and definitions downloaded meanwhile apply from the next
+ * game.
  */
 SCORBIT_SDK_EXPORT
 size_t sb_achievements_count(sb_game_handle_t handle);
@@ -198,7 +201,12 @@ bool sb_achievement_player_rule_progress(sb_game_handle_t handle, sb_player_t pl
 
 // ---- Network ---------------------------------------------------------------------------------
 
-/** @brief Revalidates the cached definitions with the server now (normally done at start). */
+/**
+ * @brief Revalidates the cached definitions with the server now.
+ *
+ * Normally done at boot and with every token refresh. Definitions received during a game apply
+ * from the next game.
+ */
 SCORBIT_SDK_EXPORT
 void sb_refresh_achievements(sb_game_handle_t handle);
 

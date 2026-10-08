@@ -138,6 +138,10 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->setPlayersChangedCallback([this](const std::vector<PlayerProfile> &) {
         post([this] { m_achievements->onPlayersChanged(); });
     });
+
+    // Definitions are fetched at boot and revalidated with every token refresh (~25 min)
+    m_net->setTokenRefreshedCallback(
+            [this] { post([this] { m_achievements->refreshDefinitions(); }); });
     m_achievements->refreshDefinitions();
 }
 

@@ -83,8 +83,10 @@ public:
     AchievementService &operator=(const AchievementService &) = delete;
 
     /**
-     * Revalidates the cached definitions with the API. Also done at every game start, so a
-     * machine paired after boot, or an achievement published since, needs no reboot.
+     * Revalidates the cached definitions with the API. Done at boot and after every token
+     * refresh, so a machine paired after boot, or an achievement published since, needs no
+     * reboot. A game in progress keeps the definitions it started with; new ones apply from the
+     * next game.
      */
     void refreshDefinitions();
 
@@ -131,6 +133,8 @@ private:
     struct Session {
         uint64_t id {0};
         int gameSessionId {0};
+        /** The definitions when the game started: one received mid-game waits for the next. */
+        std::shared_ptr<const DefinitionSet> definitions;
         SessionFacts facts;
         std::map<PlayerNumber, Claim> claims;
         std::shared_ptr<ReportOutbox> outbox = std::make_shared<ReportOutbox>();

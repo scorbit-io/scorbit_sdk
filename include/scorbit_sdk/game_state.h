@@ -680,7 +680,11 @@ public:
         return true;
     }
 
-    /** @brief Revalidates the cached definitions now (see @ref sb_refresh_achievements). */
+    /**
+     * @brief Revalidates the cached definitions now; normally done at boot and with every token
+     * refresh. Definitions received during a game apply from the next game
+     * (see @ref sb_refresh_achievements).
+     */
     void refreshAchievements() { sb_refresh_achievements(m_handle.get()); }
 
     /**

@@ -122,14 +122,7 @@ void AchievementService::applyDefinitions(const std::string &body, bool persist)
         m_storage.saveDefinitions(body);
     }
 
-    // A running session picks the new definitions up from the next evaluation
-    if (auto *session = current()) {
-        for (auto &[player, claim] : session->claims) {
-            if (claim.tracker) {
-                evaluate(*session, player, claim);
-            }
-        }
-    }
+    // Not applied to a game in progress: it keeps the definitions it started with (§10.3)
     updateView();
 }
 
@@ -213,10 +206,9 @@ void AchievementService::onSessionStarted(int sessionId, const TimelineRow &firs
     m_current = m_sessions.back().get();
     m_current->id = ++m_lastSessionId;
     m_current->gameSessionId = sessionId;
+    m_current->definitions = m_definitions;
     m_current->facts.apply(firstRow);
     updateView();
-
-    refreshDefinitions();
 }
 
 void AchievementService::onSessionCreated(int sessionId, const std::string &sessionUuid)
@@ -381,7 +373,7 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
 
 void AchievementService::evaluate(Session &session, PlayerNumber player, Claim &claim)
 {
-    claim.tracker->reevaluate(session.facts.player(player), *m_definitions);
+    claim.tracker->reevaluate(session.facts.player(player), *session.definitions);
     publish(session, player, claim);
 }
 
@@ -502,7 +494,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
         for (auto &[player, claim] : session->claims) {
             if (claim.userId == request.userId && claim.tracker) {
                 claim.tracker->applyOutcome(*sent, outcome, session->facts.player(player),
-                                            *m_definitions);
+                                            *session->definitions);
                 publish(*session, player, claim);
             }
         }
@@ -541,7 +533,8 @@ AchievementService::sessionOf(const std::shared_ptr<ReportOutbox> &outbox)
 void AchievementService::updateView()
 {
     auto view = std::make_shared<AchievementsView>();
-    view->definitions = m_definitions;
+    // While a game runs, the definitions it is evaluated against; a newer set shows once it ends
+    view->definitions = m_current ? m_current->definitions : m_definitions;
     if (const auto *session = m_current) {
         for (const auto &[player, claim] : session->claims) {
             auto &entry = view->players[player];

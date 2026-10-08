@@ -568,7 +568,11 @@ class GameState(object):
 
     def refresh_achievements(self):
         # type: () -> None
-        """Revalidate the cached achievement definitions now."""
+        """Revalidate the cached achievement definitions now.
+
+        Normally done at boot and with every token refresh. Definitions received
+        during a game apply from the next game.
+        """
         _lib.sb_refresh_achievements(self._handle)
 
     def fetch_player_achievements(self, user_id, callback):
