@@ -19,6 +19,7 @@
 
 #include "net.h"
 #include <scorbit_sdk/scorbit_sdk.h>
+#include <boost/filesystem.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
 #include <nlohmann/json.hpp>
@@ -605,8 +606,9 @@ cpr::Response downloadResponse(int status, cpr::ErrorCode code = cpr::ErrorCode:
 }
 
 struct DownloadFixture {
-    std::filesystem::path dir {std::filesystem::temp_directory_path()
-                               / ("sdk_dl_test_" + std::to_string(std::rand()))};
+    std::filesystem::path dir {
+            std::filesystem::temp_directory_path()
+            / boost::filesystem::unique_path("sdk_dl_test_%%%%-%%%%-%%%%").string()};
     std::filesystem::path dest {dir / "out.bin"};
     DeviceInfo info;
     Net net {std::move(info), {}};
@@ -640,6 +642,7 @@ struct DownloadFixture {
 TEST_CASE("A download retried after a truncated 200 yields only the second body")
 {
     DownloadFixture f;
+    f.seedDestination("ORIGINAL");
     ScriptedDownload transport {{{"PARTIAL", downloadResponse(200, cpr::ErrorCode::PARTIAL_FILE)},
                                  {"FULL-BODY", downloadResponse(200)}}};
 
