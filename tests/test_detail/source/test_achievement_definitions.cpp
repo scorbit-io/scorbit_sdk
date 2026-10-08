@@ -239,6 +239,22 @@ TEST_CASE("Malformed and unevaluable definitions are skipped, the rest kept", "[
     CHECK(set.contains("game-between-ok"));
 }
 
+TEST_CASE("ACHIEVEMENT rules require the prerequisite to be held", "[achievements]")
+{
+    const auto set = parse({
+            achievement("game-ge-1", {rule("ACHIEVEMENT", ">=", 1, "elsewhere")}, UNLIMITED),
+            achievement("game-eq-1", {rule("ACHIEVEMENT", "=", 1, "elsewhere")}, UNLIMITED),
+            achievement("game-eq-0", {rule("ACHIEVEMENT", "=", 0, "elsewhere")}, UNLIMITED),
+            achievement("game-ge-2", {rule("ACHIEVEMENT", ">=", 2, "elsewhere")}, UNLIMITED),
+            achievement("game-le-1", {rule("ACHIEVEMENT", "<=", 1, "elsewhere")}, UNLIMITED),
+            achievement("game-ne-1", {rule("ACHIEVEMENT", "!=", 1, "elsewhere")}, UNLIMITED),
+    });
+
+    CHECK(set.size() == 2);
+    CHECK(set.contains("game-ge-1"));
+    CHECK(set.contains("game-eq-1"));
+}
+
 TEST_CASE("Achievements depending on an ACHIEVEMENT cycle are skipped", "[achievements]")
 {
     const auto set = parse({
