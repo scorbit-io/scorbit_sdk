@@ -47,7 +47,6 @@
 #include <boost/url/parse.hpp>
 #include <algorithm>
 #include <ranges>
-#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <future>
@@ -3027,6 +3026,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
+        bool openedFile = false;
 
         const auto fullUrl = this->url(url);
         const bool isInternal = isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
@@ -3041,6 +3041,7 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                 error = Error::FileError;
                 break;
             }
+            openedFile = true;
 
             INF("API Download file: {}", elidedUrl);
 
@@ -3058,6 +3059,13 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             reply = std::move(r.text);
             statusCode = r.status_code;
 
+            // cpr ignores write failures (e.g. disk full), so check the stream ourselves.
+            if (file.fail()) {
+                ERR("API Download file: write failed: {}", filename);
+                error = Error::FileError;
+                break;
+            }
+
             if (statusCode == 200) {
                 DBG("API Download file: ok, {}", reply);
                 error = Error::Success;
@@ -3073,9 +3081,12 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             }
         }
 
-        if (error != Error::Success) {
-            std::error_code ec;
-            std::filesystem::remove(filename, ec);
+        if (error != Error::Success && openedFile) {
+            boost::system::error_code ec;
+            fs::remove(filename, ec);
+            if (ec) {
+                WRN("API Can't remove partial download: {}, {}", filename, ec.message());
+            }
         }
 
         if (callback) {
