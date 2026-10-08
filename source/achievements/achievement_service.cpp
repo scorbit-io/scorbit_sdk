@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cstdio>
+#include <sstream>
 #include <utility>
 
 namespace scorbit {
@@ -51,6 +52,26 @@ std::string describeRefusal(const std::string &body)
     } catch (const std::exception &) {
     }
     return body;
+}
+
+/**
+ * Logs @p body pretty-printed, one line per message: the logger cuts messages longer than its
+ * limit (512 by default), and a whole reply is easily longer.
+ */
+void logJsonLines(const std::string &title, const std::string &body)
+{
+    std::string pretty;
+    try {
+        pretty = nlohmann::json::parse(body).dump(2);
+    } catch (const std::exception &) {
+        pretty = body;
+    }
+
+    INF("{}:", title);
+    std::istringstream lines(pretty);
+    for (std::string line; std::getline(lines, line);) {
+        INF("  {}", line);
+    }
 }
 
 template<typename T>
@@ -342,6 +363,10 @@ void AchievementService::fetchBaseline(PlayerNumber player, const std::string &u
 void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
                                     const std::string &userId, ApiReply reply)
 {
+    if (reply.error == Error::Success) {
+        logJsonLines(fmt::format("Achievements: state of {} as received", userId), reply.body);
+    }
+
     // The session may have ended and the slot may have changed hands in the meantime
     auto *session = current();
     if (!session || session->id != sessionId) {
