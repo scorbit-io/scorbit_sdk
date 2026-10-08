@@ -79,6 +79,10 @@ public:
     void setCapabilities(Capabilities) override { }
     void setCreditsDropped(int, const std::string &, bool) override { }
     void setCreditsStatus(bool, int, int, const char *) override { }
+    void submitHardwareProbeResult(const std::string &, const std::string &,
+                                   HttpStatusCallback) override
+    {
+    }
 
     void fetchAchievementDefinitions(ApiReplyCallback cb) override
     {
