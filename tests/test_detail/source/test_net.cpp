@@ -23,6 +23,9 @@
 #include <catch2/trompeloeil.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <optional>
 #include <string>
@@ -560,4 +563,158 @@ TEST_CASE("submitHardwareProbeResult rejects invalid input without sending")
         CHECK(seenError == Error::Unknown);
         CHECK(seenStatus == 0);
     }
+}
+
+// ------------------------------ File download task --------------------------------------------
+
+namespace {
+
+std::string readFile(const std::filesystem::path &path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+/// Replays one scripted attempt per call: writes `body` to the stream, then returns `response`.
+struct ScriptedDownload {
+    struct Attempt {
+        std::string body;
+        cpr::Response response;
+        bool breakStream {false};
+    };
+
+    std::vector<Attempt> attempts;
+    int calls {0};
+
+    cpr::Response operator()(std::ofstream &file, const cpr::Url &, const cpr::Header &)
+    {
+        const auto &a = attempts[std::min<size_t>(calls++, attempts.size() - 1)];
+        file << a.body;
+        if (a.breakStream) {
+            file.setstate(std::ios::badbit);
+        }
+        return a.response;
+    }
+};
+
+cpr::Response downloadResponse(int status, cpr::ErrorCode code = cpr::ErrorCode::OK)
+{
+    cpr::Response r = makeResponse(status);
+    r.error.code = code;
+    return r;
+}
+
+struct DownloadFixture {
+    std::filesystem::path dir {std::filesystem::temp_directory_path()
+                               / ("sdk_dl_test_" + std::to_string(std::rand()))};
+    std::filesystem::path dest {dir / "out.bin"};
+    DeviceInfo info;
+    Net net {std::move(info), {}};
+    Error seenError {Error::Success};
+
+    DownloadFixture() { std::filesystem::create_directories(dir); }
+    ~DownloadFixture()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    void seedDestination(const std::string &content) { std::ofstream(dest) << content; }
+
+    void run(ScriptedDownload &transport)
+    {
+        NetTestAccess::downloadFile(
+                net, [this](Error e, const std::string &) { seenError = e; }, "http://x.invalid/f",
+                dest.string(), std::ref(transport))();
+    }
+
+    size_t entries() const
+    {
+        return std::distance(std::filesystem::directory_iterator(dir),
+                             std::filesystem::directory_iterator());
+    }
+};
+
+} // namespace
+
+TEST_CASE("A download retried after a truncated 200 yields only the second body")
+{
+    DownloadFixture f;
+    ScriptedDownload transport {{{"PARTIAL", downloadResponse(200, cpr::ErrorCode::PARTIAL_FILE)},
+                                 {"FULL-BODY", downloadResponse(200)}}};
+
+    f.run(transport);
+
+    CHECK(transport.calls == 2);
+    CHECK(f.seenError == Error::Success);
+    CHECK(readFile(f.dest) == "FULL-BODY");
+    CHECK(f.entries() == 1); // no temp file left behind
+}
+
+TEST_CASE("A download retried after a transport failure yields only the second body")
+{
+    DownloadFixture f;
+    ScriptedDownload transport {
+            {{"PARTIAL", downloadResponse(0, cpr::ErrorCode::OPERATION_TIMEDOUT)},
+             {"FULL-BODY", downloadResponse(200)}}};
+
+    f.run(transport);
+
+    CHECK(f.seenError == Error::Success);
+    CHECK(readFile(f.dest) == "FULL-BODY");
+}
+
+TEST_CASE("A download that always fails leaves no file and keeps an existing destination")
+{
+    DownloadFixture f;
+    f.seedDestination("ORIGINAL");
+    ScriptedDownload transport {
+            {{"JUNK", downloadResponse(0, cpr::ErrorCode::OPERATION_TIMEDOUT)}}};
+
+    f.run(transport);
+
+    CHECK(transport.calls > 1);
+    CHECK(f.seenError == Error::ApiError);
+    CHECK(readFile(f.dest) == "ORIGINAL");
+    CHECK(f.entries() == 1);
+}
+
+TEST_CASE("A failed download with no existing destination leaves the directory empty")
+{
+    DownloadFixture f;
+    ScriptedDownload transport {
+            {{"JUNK", downloadResponse(0, cpr::ErrorCode::OPERATION_TIMEDOUT)}}};
+
+    f.run(transport);
+
+    CHECK(f.seenError == Error::ApiError);
+    CHECK(f.entries() == 0);
+}
+
+TEST_CASE("A write failure is a FileError even when the status is 200")
+{
+    DownloadFixture f;
+    f.seedDestination("ORIGINAL");
+    ScriptedDownload transport {{{"X", downloadResponse(200), true}}};
+
+    f.run(transport);
+
+    CHECK(transport.calls == 1); // not retried
+    CHECK(f.seenError == Error::FileError);
+    CHECK(readFile(f.dest) == "ORIGINAL");
+    CHECK(f.entries() == 1);
+}
+
+TEST_CASE("A 4xx download is not retried and leaves the destination unchanged")
+{
+    DownloadFixture f;
+    f.seedDestination("ORIGINAL");
+    ScriptedDownload transport {{{"error page", downloadResponse(404)}}};
+
+    f.run(transport);
+
+    CHECK(transport.calls == 1);
+    CHECK(f.seenError == Error::ApiError);
+    CHECK(readFile(f.dest) == "ORIGINAL");
+    CHECK(f.entries() == 1);
 }

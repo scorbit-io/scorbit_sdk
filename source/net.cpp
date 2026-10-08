@@ -114,7 +114,7 @@ constexpr auto AUTH_GATE_TIMEOUT = 2min;
 /// How long a pair-code request waits for the code to arrive with the scorbitron reply.
 constexpr auto PAIR_CODE_TIMEOUT = 2min;
 
-auto noop_task = []() { };
+auto noop_task = []() {};
 
 /// True when @p CallbackT wants the HTTP status alongside the reply (@ref HttpStatusCallback),
 /// false for a plain @ref StringCallback.
@@ -291,9 +291,9 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice, m_deviceInfo.workerThreadCount)
-    , m_heartbeat(m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost,
-                  m_deviceInfo.heartbeatPort, [this] { onHeartbeatWake(); },
-                  defaultHeartbeatHost(m_deviceInfo.hostname))
+    , m_heartbeat(
+              m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost, m_deviceInfo.heartbeatPort,
+              [this] { onHeartbeatWake(); }, defaultHeartbeatHost(m_deviceInfo.hostname))
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
@@ -1265,7 +1265,8 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
 
     // One flag per run, shared by the monitor and by every POST callback belonging to it. A 404 or
     // 410 on any ingest call retires the run (wifiIngestStatusEndsRun); see
-    // NetworkMonitor::Options::runClosed for why this is a flag rather than a call into the monitor.
+    // NetworkMonitor::Options::runClosed for why this is a flag rather than a call into the
+    // monitor.
     auto runClosed = std::make_shared<std::atomic_bool>(false);
     options.runClosed = runClosed;
 
@@ -1278,8 +1279,7 @@ void Net::handleDiagnosticCaptureStart(const nlohmann::json &payload)
     };
 
     // start() spawns threads -- never under the pointer's mutex.
-    auto monitor =
-            std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
+    auto monitor = std::make_unique<wifi::NetworkMonitor>(std::move(options), std::move(callbacks));
     if (!monitor->start()) {
         WRN("DIAG: capture start failed: run_id={}", runId);
         return;
@@ -1408,7 +1408,7 @@ Net::deferred_post_setup_t Net::hardwareProbeResultSetup(const std::string &runI
 }
 
 void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample,
-                               std::shared_ptr<std::atomic_bool> runClosed)
+                                std::shared_ptr<std::atomic_bool> runClosed)
 {
     m_worker.post(createPostRequestTask(
             [runId, runClosed](Error error, int httpStatus, const std::string &reply) {
@@ -1428,14 +1428,15 @@ void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sa
                 // Shape lives in net_util so it can be tested; see buildWifiSamplePayload().
                 const auto j = buildWifiSamplePayload(sample);
 
-                const auto endpoint = url(URL_DIAGNOSTICS_WIFI_SAMPLE_PATH, fmt::arg(ARG_RUN_ID, runId));
+                const auto endpoint =
+                        url(URL_DIAGNOSTICS_WIFI_SAMPLE_PATH, fmt::arg(ARG_RUN_ID, runId));
                 INF("API sending wifi capture sample: run_id={}, final={}", runId, sample.isFinal);
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));
 }
 
 void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &event,
-                              std::shared_ptr<std::atomic_bool> runClosed)
+                               std::shared_ptr<std::atomic_bool> runClosed)
 {
     m_worker.post(createPostRequestTask(
             [runId, runClosed, kind = event.kind](Error error, int httpStatus,
@@ -1470,7 +1471,8 @@ void Net::postWifiCaptureEvent(const std::string &runId, const wifi::Event &even
                     j[JKEY_DIAG_REASON_CODE] = *event.reasonCode;
                 }
 
-                const auto endpoint = url(URL_DIAGNOSTICS_WIFI_EVENT_PATH, fmt::arg(ARG_RUN_ID, runId));
+                const auto endpoint =
+                        url(URL_DIAGNOSTICS_WIFI_EVENT_PATH, fmt::arg(ARG_RUN_ID, runId));
                 INF("API sending wifi capture event: run_id={}, kind={}", runId, event.kind);
                 return std::make_tuple(endpoint, cpr::Body {j.dump()});
             }));
@@ -2875,6 +2877,13 @@ task_t NetTestAccess::request(Net &net, StringCallback callback, TestTransport t
     return make(net, std::move(callback), std::move(transport), std::move(payload));
 }
 
+task_t NetTestAccess::downloadFile(Net &net, StringCallback callback, std::string url,
+                                   std::string filename, DownloadTransport transport)
+{
+    return net.createDownloadFileTask(std::move(callback), std::move(url), std::move(filename), {},
+                                      std::move(transport));
+}
+
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
 {
     net.m_status = from;
@@ -3019,10 +3028,12 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 }
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
-                                   std::string filename, HttpHeaders extraHeaders)
+                                   std::string filename, HttpHeaders extraHeaders,
+                                   NetTestAccess::DownloadTransport transport)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url),
-            filename = std::move(filename), extraHeaders = std::move(extraHeaders)]() {
+            filename = std::move(filename), extraHeaders = std::move(extraHeaders),
+            transport = std::move(transport)]() {
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
@@ -3033,11 +3044,16 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 
+        // Download into a private sibling and rename on success, so @c filename is only ever
+        // replaced by a complete file.
+        const std::string tempName =
+                filename + ".part-" + fs::unique_path("%%%%-%%%%-%%%%-%%%%").string();
+
         for (int i = 0; i < NUM_RETRIES; ++i) {
             // Truncate on every attempt so a retry never appends to partial bytes.
-            std::ofstream file(filename, std::ios::binary | std::ios::trunc);
+            std::ofstream file(tempName, std::ios::binary | std::ios::trunc);
             if (!file.is_open()) {
-                ERR("API Can't open file for writing: {}", filename);
+                ERR("API Can't open file for writing: {}", tempName);
                 error = Error::FileError;
                 break;
             }
@@ -3050,25 +3066,36 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
                 headers[k] = v;
             }
 
-            auto r = cpr::Download(
-                    file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
-                    cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
-                    cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS, NET_TRANSFER_LOW_SPEED_STALL_TIME},
-                    headers, sslOptions());
+            auto r = transport
+                           ? transport(file, fullUrl, headers)
+                           : cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                           cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                           cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                          NET_TRANSFER_LOW_SPEED_STALL_TIME},
+                                           headers, sslOptions());
             file.close();
             reply = std::move(r.text);
             statusCode = r.status_code;
 
             // cpr ignores write failures (e.g. disk full), so check the stream ourselves.
             if (file.fail()) {
-                ERR("API Download file: write failed: {}, code={}", filename, statusCode);
+                ERR("API Download file: write failed: {}, code={}", tempName, statusCode);
                 error = Error::FileError;
                 break;
             }
 
-            if (statusCode == 200) {
-                DBG("API Download file: ok, {}", reply);
-                error = Error::Success;
+            // curl keeps the 200 when the connection drops mid-body, so the status alone is not
+            // proof that the whole body arrived.
+            if (statusCode == 200 && r.error.code == cpr::ErrorCode::OK) {
+                boost::system::error_code ec;
+                fs::rename(tempName, filename, ec);
+                if (ec) {
+                    ERR("API Can't move download into place: {}, {}", filename, ec.message());
+                    error = Error::FileError;
+                } else {
+                    DBG("API Download file: ok, {}", reply);
+                    error = Error::Success;
+                }
                 break;
             }
 
@@ -3083,9 +3110,9 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
 
         if (error != Error::Success && openedFile) {
             boost::system::error_code ec;
-            fs::remove(filename, ec);
+            fs::remove(tempName, ec);
             if (ec) {
-                WRN("API Can't remove partial download: {}, {}", filename, ec.message());
+                WRN("API Can't remove partial download: {}, {}", tempName, ec.message());
             }
         }
 
@@ -3533,11 +3560,11 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         case 3502:
             if (!m_stop) {
                 INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
-                m_worker.startTimer(
-                        Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this, withActiveClient] {
-                            onCentrifugoStrand(
-                                    withActiveClient([this] { setupAndConnectCentrifugo(true); }));
-                        });
+                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY,
+                                    [this, withActiveClient] {
+                                        onCentrifugoStrand(withActiveClient(
+                                                [this] { setupAndConnectCentrifugo(true); }));
+                                    });
                 // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset?
             }
             break;
