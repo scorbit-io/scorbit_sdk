@@ -19,6 +19,7 @@
 
 #include "net_util.h"
 #include "device_info.h"
+#include <nfc/probes_manager.h>
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 #include <string>
@@ -604,4 +605,177 @@ TEST_CASE("An empty dependency map omits the key entirely", "[buildWifiSamplePay
     sample.dependencyChecks.clear();
 
     CHECK_FALSE(buildWifiSamplePayload(sample).contains("dependency_checks"));
+}
+
+// ------------------------ Hardware probe: SDK NFC section payload -----------------------------
+
+namespace {
+
+nfc::NfcProbeInfoResult okProbeResult()
+{
+    nfc::NfcProbeInfoResult result;
+    result.status = nfc::NfcProbeInfoResult::Status::Ok;
+    result.probe.id = "NFC";
+    result.probe.name = "NFC";
+    result.probe.versionMajor = 1;
+    result.probe.versionMinor = 2;
+    result.probe.versionRevision = 345;
+    result.probe.timestamp = "2026-10-11 13:53:27";
+    result.probe.timestampUtc = 20261011135327ULL;
+    result.probe.bootReason = 5;
+    result.probe.watchdogCount = 3;
+    result.probe.timeMs = 2933087;
+    result.probe.sysClockFrequency = 125000000;
+    result.probe.usbFlags = 3;
+    result.probe.uid = 889591685;
+    result.probe.tpmType = 2;
+    result.probe.tpmSerial = {0xe6, 0x66, 0xa0, 0x17, 0x63, 0x71, 0xa6, 0x22, 0x00};
+    for (size_t i = 0; i < result.probe.tpmUuid.size(); ++i) {
+        result.probe.tpmUuid[i] = static_cast<uint8_t>(i * 0x11);
+    }
+    result.probe.tpmScorbitSerial = 24383;
+    result.nfc.flags = nfc::NfcFlagTag;
+    result.nfc.brightness = 30;
+    result.nfc.capacitance = 10;
+    result.nfc.rssi = 512;
+    result.nfc.lastId = 0;
+    result.lastSeenTapId = 42;
+    result.lastSeenTapUnixMs = 1760000000123ULL;
+    return result;
+}
+
+} // namespace
+
+TEST_CASE("Hardware probe SDK payload for a probe read", "[HardwareProbeSdkPayload]")
+{
+    auto result = okProbeResult();
+
+    SECTION("keys and values")
+    {
+        const auto payload = buildHardwareProbeSdkPayload(result, "9.9.9");
+        CHECK(payload["sdk_version"] == "9.9.9");
+        CHECK(payload["nfc_status"] == "ok");
+        CHECK(payload["nfc_id"] == "NFC");
+        CHECK(payload["nfc_name"] == "NFC");
+        CHECK(payload["nfc_version_major"] == 1);
+        CHECK(payload["nfc_version_minor"] == 2);
+        CHECK(payload["nfc_revision"] == 345);
+        CHECK(payload["nfc_timestamp"] == "2026-10-11 13:53:27");
+        CHECK(payload["nfc_mode"] == "tag");
+
+        const auto &ext = payload.at("nfc_extended");
+        CHECK(ext["boot_info_valid"] == true);
+        CHECK(ext["boot_reason"] == "watchdog_timer_acknowledged");
+        CHECK(ext["boot_reason_raw"] == 5);
+        CHECK(ext["watchdog_count"] == 3);
+        CHECK(ext["uptime_ms"] == 2933087);
+        CHECK(ext["sys_clock_hz"] == 125000000);
+        CHECK(ext["usb_flags"] == 3);
+        CHECK(ext["uid"] == 889591685);
+        CHECK(ext["timestamp_utc"] == 20261011135327ULL);
+        CHECK(ext["tpm_type"] == 2);
+        CHECK(ext["tpm_serial"] == "e666a0176371a62200");
+        CHECK(ext["tpm_uuid"] == "00112233445566778899aabbccddeeff");
+        CHECK(ext["tpm_scorbit_serial"] == 24383);
+        CHECK(ext["flags"] == 1);
+        CHECK(ext["brightness_pct"] == 30);
+        CHECK(ext["capacitance_raw"] == 10);
+        CHECK(ext["capacitance_ff"].dump() == "28.0");
+        CHECK(ext["rssi"] == 512);
+        CHECK(ext["rssi_valid"] == false);
+        CHECK(ext["last_id"] == 0);
+        CHECK(ext["last_seen_tap_id"] == 42);
+        CHECK(ext["last_seen_tap_unix_ms"] == 1760000000123ULL);
+    }
+
+    SECTION("boot reason names")
+    {
+        const std::vector<std::string> names {
+                "unknown",      "power_on_reset", "bootloader_restart",
+                "soft_restart", "watchdog_timer", "watchdog_timer_acknowledged"};
+        for (size_t raw = 0; raw < names.size(); ++raw) {
+            result.probe.bootReason = static_cast<uint8_t>(raw);
+            const auto payload = buildHardwareProbeSdkPayload(result, "1");
+            CHECK(payload["nfc_extended"]["boot_reason"] == names[raw]);
+            CHECK(payload["nfc_extended"]["boot_reason_raw"] == raw);
+        }
+
+        result.probe.bootReason = 0x42; // a value this SDK does not know
+        auto payload = buildHardwareProbeSdkPayload(result, "1");
+        CHECK(payload["nfc_extended"]["boot_reason"] == "unknown");
+        CHECK(payload["nfc_extended"]["boot_reason_raw"] == 0x42);
+
+        result.probe.timestampHeader = 0x3032; // legacy firmware: no boot info
+        payload = buildHardwareProbeSdkPayload(result, "1");
+        CHECK(payload["nfc_extended"]["boot_info_valid"] == false);
+        CHECK(payload["nfc_extended"]["boot_reason"] == "unknown");
+        CHECK(payload["nfc_extended"]["boot_reason_raw"] == 0);
+        CHECK(payload["nfc_extended"]["watchdog_count"] == 0);
+    }
+
+    SECTION("rssi validity")
+    {
+        const auto rssiValid = [&](uint8_t flags) {
+            result.nfc.flags = flags;
+            return buildHardwareProbeSdkPayload(result, "1")["nfc_extended"]["rssi_valid"]
+                    .get<bool>();
+        };
+        // Reader mode: always valid
+        CHECK(rssiValid(0x00));
+        CHECK(rssiValid(0x08));
+        CHECK(rssiValid(0x10));
+        CHECK(rssiValid(0x18));
+        // Tag mode: valid with either amplitude measurement
+        CHECK_FALSE(rssiValid(0x01));
+        CHECK(rssiValid(0x09));
+        CHECK(rssiValid(0x11));
+        CHECK(rssiValid(0x19));
+
+        result.nfc.flags = 0x00;
+        CHECK(buildHardwareProbeSdkPayload(result, "1")["nfc_mode"] == "reader");
+    }
+
+    SECTION("capacitance in femtofarads")
+    {
+        // The wire value must be the exact decimal, not float noise like 27.999999523162842
+        result.nfc.capacitance = 255;
+        auto payload = buildHardwareProbeSdkPayload(result, "1");
+        CHECK(payload["nfc_extended"]["capacitance_raw"] == 255);
+        CHECK(payload["nfc_extended"]["capacitance_ff"].dump() == "714.0");
+
+        result.nfc.capacitance = 77;
+        payload = buildHardwareProbeSdkPayload(result, "1");
+        CHECK(payload["nfc_extended"]["capacitance_ff"].dump() == "215.6");
+    }
+}
+
+TEST_CASE("Hardware probe SDK payload without a probe read", "[HardwareProbeSdkPayload]")
+{
+    using Status = nfc::NfcProbeInfoResult::Status;
+
+    const std::vector<std::pair<Status, std::string>> cases {{Status::NotPresent, "not_present"},
+                                                             {Status::ReadFailed, "read_failed"}};
+    for (const auto &[status, name] : cases) {
+        CAPTURE(name);
+        nfc::NfcProbeInfoResult result;
+        result.status = status;
+
+        // last_seen_tap_* are always present; 0 means none seen
+        auto payload = buildHardwareProbeSdkPayload(result, "9.9.9");
+        CHECK(payload
+              == nlohmann::json {{"sdk_version", "9.9.9"},
+                                 {"nfc_status", name},
+                                 {"nfc_extended",
+                                  {{"last_seen_tap_id", 0}, {"last_seen_tap_unix_ms", 0}}}});
+
+        // A tap seen earlier is still reported
+        result.lastSeenTapId = 7;
+        result.lastSeenTapUnixMs = 1760000000123ULL;
+        payload = buildHardwareProbeSdkPayload(result, "9.9.9");
+        CHECK(payload["nfc_status"] == name);
+        CHECK(payload["nfc_extended"]
+              == nlohmann::json {{"last_seen_tap_id", 7},
+                                 {"last_seen_tap_unix_ms", 1760000000123ULL}});
+        CHECK_FALSE(payload.contains("nfc_id"));
+    }
 }

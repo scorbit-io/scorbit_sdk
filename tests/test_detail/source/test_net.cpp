@@ -519,6 +519,33 @@ TEST_CASE("firmware_probe without a usable run_id raises no event")
     CHECK(probe.received.empty());
 }
 
+TEST_CASE("firmware_probe queues exactly one SDK section post for a valid request")
+{
+    ProbeNet probe;
+
+    probe.handle(probePayload());
+    CHECK(NetTestAccess::hardwareProbeSdkPosts(probe.net) == 1);
+
+    // A duplicate run_id is refused before anything is posted
+    probe.handle(probePayload());
+    CHECK(NetTestAccess::hardwareProbeSdkPosts(probe.net) == 1);
+}
+
+TEST_CASE("firmware_probe queues no SDK section post for a refused request")
+{
+    auto invalidRunId = probePayload("/internal/api/diagnostics/hardware-probe-result/../../x/");
+    invalidRunId["run_id"] = "../../x";
+    const auto wrongReplyTo =
+            probePayload("/internal/api/diagnostics/hardware-probe-result/other-run/");
+
+    for (const auto &payload : {invalidRunId, wrongReplyTo}) {
+        CAPTURE(payload.dump());
+        ProbeNet probe;
+        probe.handle(payload);
+        CHECK(NetTestAccess::hardwareProbeSdkPosts(probe.net) == 0);
+    }
+}
+
 TEST_CASE("submitHardwareProbeResult POSTs the body verbatim to the run's result path")
 {
     Net net {DeviceInfo {}, {}};
@@ -563,6 +590,131 @@ TEST_CASE("submitHardwareProbeResult rejects invalid input without sending")
         CHECK(calls == 1);
         CHECK(seenError == Error::Unknown);
         CHECK(seenStatus == 0);
+    }
+}
+
+namespace {
+
+/// Minimal NFC probe: identity read OK, tag mode, no tap pending.
+class StubNfcProbe : public nfc::NfcProbeDevice
+{
+public:
+    int reads {0};
+
+    bool getInformations(nfc::ProbeInformation &info) override
+    {
+        ++reads;
+        info.id = "NFC";
+        info.name = "NFC";
+        info.versionMajor = 1;
+        info.bootReason = 2;
+        return true;
+    }
+    bool getNfcInformations(nfc::NfcInformation &info) override
+    {
+        info.flags = nfc::NfcFlagTag;
+        return true;
+    }
+    bool setUri(const std::string &) override { return true; }
+    bool setLedsBrightness(uint8_t) override { return true; }
+    bool setType(nfc::NfcType) override { return true; }
+};
+
+constexpr auto PROBE_SDK_RESULT_PATH =
+        "/internal/api/diagnostics/hardware-probe-result/3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55/sdk/";
+
+} // namespace
+
+TEST_CASE("The SDK's hardware probe section POSTs the NFC probe read to the run's sdk path")
+{
+    Net net {DeviceInfo {}, {}};
+    NetTestAccess::setProbesManager(
+            net, std::make_shared<nfc::ProbesManager>(std::make_shared<StubNfcProbe>()));
+    ScriptedTransport transport {{makeResponse(201)}};
+
+    NetTestAccess::hardwareProbeSdkResult(net, PROBE_RUN_ID, std::ref(transport))();
+
+    REQUIRE(transport.calls == 1);
+    CHECK(transport.lastUrl == net.hostname() + PROBE_SDK_RESULT_PATH);
+    const auto body = nlohmann::json::parse(transport.lastBody);
+    CHECK(body["sdk_version"] == SCORBIT_SDK_VERSION);
+    CHECK(body["nfc_status"] == "ok");
+    CHECK(body["nfc_mode"] == "tag");
+    CHECK(body["nfc_extended"]["boot_reason"] == "bootloader_restart");
+}
+
+TEST_CASE("A forced hardware probe rescans and reports a probe found after start")
+{
+    // No NFC probe at startup: the cached capability is false
+    auto late = std::make_shared<StubNfcProbe>();
+    int scans = 0;
+    auto scanner = [&](nfc::probe_t, const nfc::ProbeDisplayCallback &) {
+        ++scans;
+        return std::shared_ptr<nfc::NfcProbeDevice> {late};
+    };
+
+    SECTION("forced: rescans once and reports ok")
+    {
+        Net net {DeviceInfo {}, {}};
+        NetTestAccess::setProbesManager(net,
+                                        std::make_shared<nfc::ProbesManager>(nullptr, scanner));
+        ScriptedTransport transport {{makeResponse(0), makeResponse(201)}};
+
+        NetTestAccess::hardwareProbeSdkResult(net, PROBE_RUN_ID, std::ref(transport), true)();
+
+        CHECK(transport.calls == 2);
+        CHECK(scans == 1); // once per request, not per retry
+        CHECK(nlohmann::json::parse(transport.lastBody)["nfc_status"] == "ok");
+    }
+
+    SECTION("not forced: no rescan")
+    {
+        Net net {DeviceInfo {}, {}};
+        NetTestAccess::setProbesManager(net,
+                                        std::make_shared<nfc::ProbesManager>(nullptr, scanner));
+        ScriptedTransport transport {{makeResponse(201)}};
+
+        NetTestAccess::hardwareProbeSdkResult(net, PROBE_RUN_ID, std::ref(transport), false)();
+
+        CHECK(scans == 0);
+        CHECK(nlohmann::json::parse(transport.lastBody)["nfc_status"] == "not_present");
+    }
+}
+
+TEST_CASE("The SDK's hardware probe section reads the probe once across retries")
+{
+    Net net {DeviceInfo {}, {}};
+    auto probe = std::make_shared<StubNfcProbe>();
+    NetTestAccess::setProbesManager(net, std::make_shared<nfc::ProbesManager>(probe));
+    // A transport failure is retried; the retry must resend the same body, not re-read the pad
+    ScriptedTransport transport {{makeResponse(0), makeResponse(201)}};
+
+    NetTestAccess::hardwareProbeSdkResult(net, PROBE_RUN_ID, std::ref(transport))();
+
+    CHECK(transport.calls == 2);
+    CHECK(probe->reads == 1);
+    CHECK(nlohmann::json::parse(transport.lastBody)["nfc_status"] == "ok");
+}
+
+TEST_CASE("The SDK's hardware probe section reports not_present without an NFC probe")
+{
+    for (const bool withManager : {false, true}) {
+        CAPTURE(withManager);
+        Net net {DeviceInfo {}, {}};
+        if (withManager) {
+            NetTestAccess::setProbesManager(net, std::make_shared<nfc::ProbesManager>(nullptr));
+        }
+        ScriptedTransport transport {{makeResponse(201)}};
+
+        NetTestAccess::hardwareProbeSdkResult(net, PROBE_RUN_ID, std::ref(transport))();
+
+        REQUIRE(transport.calls == 1);
+        CHECK(transport.lastUrl == net.hostname() + PROBE_SDK_RESULT_PATH);
+        CHECK(nlohmann::json::parse(transport.lastBody)
+              == nlohmann::json {{"sdk_version", SCORBIT_SDK_VERSION},
+                                 {"nfc_status", "not_present"},
+                                 {"nfc_extended",
+                                  {{"last_seen_tap_id", 0}, {"last_seen_tap_unix_ms", 0}}}});
     }
 }
 

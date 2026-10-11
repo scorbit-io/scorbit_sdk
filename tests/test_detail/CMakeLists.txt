@@ -102,6 +102,7 @@ target_sources(
         ../../source/modes.cpp
         source/test_modes.cpp
         source/test_game_state.cpp
+        source/test_probes_manager.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
         ../../source/updater.h
