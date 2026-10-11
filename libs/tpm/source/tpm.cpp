@@ -7,6 +7,7 @@
 
 #include "tpm/tpm.h"
 #include "atca_retry.h"
+#include "tpm/tappad_lock.h"
 
 #include <logger/logger.h>
 #include <cryptoauthlib.h>
@@ -23,6 +24,26 @@ constexpr uint8_t SLB_I2C_BUS = 1;
 constexpr uint8_t SCORBITRON_V1_I2C_BUS = 0;
 
 using atca_retry::atcaRetry;
+
+namespace {
+
+// Opening a kit-protocol device writes a probe to it (kit_init's board:device), so for a tap pad it
+// is a chip sequence like any other and must not interleave with another process's. An I2C chip is
+// not on the tap pad and never waits for its lock.
+ATCA_STATUS initDevice(ATCADevice *device, ATCAIfaceCfg *config, bool tappad)
+{
+    if (!tappad) {
+        return atcab_init_ext(device, config);
+    }
+    const TappadLock hold;
+    if (!hold.ok()) {
+        WRN("atcab_init_ext: tap pad busy, not opening the device this time");
+        return hold.status();
+    }
+    return atcab_init_ext(device, config);
+}
+
+} // namespace
 
 struct Tpm::Impl {
     Impl()
@@ -48,6 +69,9 @@ struct Tpm::Impl {
     uint64_t serialNumber {0};
     TpmDevice device;
     TpmChipFilter accept;
+
+    bool tappad {false}; // the chip is on a tap pad (kit protocol over CDC or HID), not on I2C
+    bool busy {false};   // an open or a call gave up because the tap pad lock was held
 };
 
 /********************************************************************
@@ -119,6 +143,20 @@ bool Tpm::ok() const
     return !p->infoResult.empty();
 }
 
+bool Tpm::busy() const
+{
+    return p->busy;
+}
+
+int Tpm::retry(const std::function<int()> &func)
+{
+    const auto status = atcaRetry(func, p->tappad);
+    if (status == TappadLock::BUSY) {
+        p->busy = true;
+    }
+    return status;
+}
+
 TpmDevice Tpm::device() const
 {
     return p->device;
@@ -130,7 +168,7 @@ ByteArray Tpm::info()
         return p->infoResult;
 
     ByteArray result(INFO_SIZE, 0);
-    auto status = atcaRetry(std::bind(calib_info, p->atcaDevice, result.data()));
+    auto status = retry(std::bind(calib_info, p->atcaDevice, result.data()));
     if (status != ATCA_SUCCESS) {
         if (status != ATCA_COMM_FAIL) {
             ERR("{}: error {}", __func__, static_cast<int>(status));
@@ -144,7 +182,7 @@ ByteArray Tpm::info()
 ByteArray Tpm::tpmSerialNumber()
 {
     ByteArray result(ATCA_SERIAL_NUM_SIZE, 0);
-    auto status = atcaRetry(std::bind(calib_read_serial_number, p->atcaDevice, result.data()));
+    auto status = retry(std::bind(calib_read_serial_number, p->atcaDevice, result.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -166,8 +204,8 @@ ByteArray Tpm::uuid() const
 bool Tpm::readSerialUuid()
 {
     ByteArray data(ATCA_BLOCK_SIZE, 0);
-    auto status = atcaRetry(std::bind(calib_read_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA,
-                                      SERIAL_SLOT, 0, data.data(), ATCA_BLOCK_SIZE));
+    auto status = retry(std::bind(calib_read_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA, SERIAL_SLOT,
+                                  0, data.data(), ATCA_BLOCK_SIZE));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, SERIAL_SLOT, static_cast<int>(status));
         return false;
@@ -194,7 +232,7 @@ bool Tpm::readIdentity()
 bool Tpm::isConfigLocked()
 {
     bool isLocked = false;
-    auto status = atcaRetry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_CONFIG, &isLocked));
+    auto status = retry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_CONFIG, &isLocked));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
     }
@@ -205,7 +243,7 @@ bool Tpm::isConfigLocked()
 bool Tpm::isDataLocked()
 {
     bool isLocked = false;
-    auto status = atcaRetry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_DATA, &isLocked));
+    auto status = retry(std::bind(calib_is_locked, p->atcaDevice, LOCK_ZONE_DATA, &isLocked));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
     }
@@ -216,7 +254,7 @@ bool Tpm::isDataLocked()
 ByteArray Tpm::readConfig()
 {
     ByteArray config(ATCA_ECC_CONFIG_SIZE, 0);
-    auto status = atcaRetry(std::bind(calib_read_config_zone, p->atcaDevice, config.data()));
+    auto status = retry(std::bind(calib_read_config_zone, p->atcaDevice, config.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -232,8 +270,8 @@ bool Tpm::verifySignature(const ByteArray &message, const ByteArray &signature,
     atcah_sha256(message.size(), message.data(), digest.data());
 
     bool isVerified;
-    auto status = atcaRetry(std::bind(calib_verify_extern, p->atcaDevice, digest.data(),
-                                      signature.data(), publicKey.data(), &isVerified));
+    auto status = retry(std::bind(calib_verify_extern, p->atcaDevice, digest.data(),
+                                  signature.data(), publicKey.data(), &isVerified));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return false;
@@ -254,7 +292,7 @@ ByteArray Tpm::signDigest(uint16_t keyId, const ByteArray &digest)
 {
     ByteArray signature(ATCA_ECCP256_SIG_SIZE, 0);
     auto status =
-            atcaRetry(std::bind(calib_sign, p->atcaDevice, keyId, digest.data(), signature.data()));
+            retry(std::bind(calib_sign, p->atcaDevice, keyId, digest.data(), signature.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -266,7 +304,7 @@ ByteArray Tpm::signDigest(uint16_t keyId, const ByteArray &digest)
 ByteArray Tpm::getPublicKey(uint16_t keyId)
 {
     ByteArray data(ATCA_ECCP256_PUBKEY_SIZE, 0);
-    auto status = atcaRetry(std::bind(calib_get_pubkey, p->atcaDevice, keyId, data.data()));
+    auto status = retry(std::bind(calib_get_pubkey, p->atcaDevice, keyId, data.data()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: error {}", __func__, static_cast<int>(status));
         return ByteArray();
@@ -277,8 +315,7 @@ ByteArray Tpm::getPublicKey(uint16_t keyId)
 
 bool Tpm::writeConfig(const uint8_t ATECC508A_CONFIGDATA[])
 {
-    auto status =
-            atcaRetry(std::bind(calib_write_config_zone, p->atcaDevice, ATECC508A_CONFIGDATA));
+    auto status = retry(std::bind(calib_write_config_zone, p->atcaDevice, ATECC508A_CONFIGDATA));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't write config, error {}", __func__, static_cast<int>(status));
         return false;
@@ -289,7 +326,7 @@ bool Tpm::writeConfig(const uint8_t ATECC508A_CONFIGDATA[])
 
 bool Tpm::lockConfig()
 {
-    auto status = atcaRetry(std::bind(calib_lock_config_zone, p->atcaDevice));
+    auto status = retry(std::bind(calib_lock_config_zone, p->atcaDevice));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't lock config, error {}", __func__, static_cast<int>(status));
         return false;
@@ -303,7 +340,7 @@ bool Tpm::lockData()
     if (isDataLocked())
         return false;
 
-    auto status = atcaRetry(std::bind(calib_lock_data_zone, p->atcaDevice));
+    auto status = retry(std::bind(calib_lock_data_zone, p->atcaDevice));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't lock data zone, error {}", __func__, static_cast<int>(status));
         return false;
@@ -319,7 +356,7 @@ bool Tpm::writeKey(uint16_t keyId, const ByteArray &key)
         return false;
     }
 
-    auto status = atcaRetry(
+    auto status = retry(
             std::bind(calib_priv_write, p->atcaDevice, keyId, key.data(), 0, nullptr, nullptr));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, keyId, static_cast<int>(status));
@@ -331,7 +368,7 @@ bool Tpm::writeKey(uint16_t keyId, const ByteArray &key)
 
 bool Tpm::genKey(uint16_t keyId)
 {
-    auto status = atcaRetry(std::bind(calib_genkey, p->atcaDevice, keyId, nullptr));
+    auto status = retry(std::bind(calib_genkey, p->atcaDevice, keyId, nullptr));
     if (status != ATCA_SUCCESS) {
         ERR("{}: couldn't generate key on slot {}, error {}", __func__, keyId,
             static_cast<int>(status));
@@ -348,8 +385,8 @@ bool Tpm::writeData(uint16_t slot, const ByteArray &data)
         return false;
     }
 
-    auto status = atcaRetry(std::bind(calib_write_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA, slot,
-                                      0, data.data(), data.size()));
+    auto status = retry(std::bind(calib_write_bytes_zone, p->atcaDevice, ATCA_ZONE_DATA, slot, 0,
+                                  data.data(), data.size()));
     if (status != ATCA_SUCCESS) {
         ERR("{}: slot {}, error {}", __func__, slot, static_cast<int>(status));
         return false;
@@ -379,7 +416,8 @@ bool Tpm::tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet)
     p->atcaConfig.wake_delay = 1500;
     p->atcaConfig.rx_retries = 20;
 
-    if (atcab_init_ext(&p->atcaDevice, &p->atcaConfig) != ATCA_SUCCESS) {
+    p->tappad = false;
+    if (initDevice(&p->atcaDevice, &p->atcaConfig, p->tappad) != ATCA_SUCCESS) {
         return false;
     }
 
@@ -402,6 +440,10 @@ bool Tpm::accepted(Impl *p)
         return true;
     }
     readIdentity();
+    // An identity the tap pad lock kept us from reading says nothing about whose chip this is.
+    if (p->busy) {
+        return false;
+    }
     if (p->accept(p->serialNumber, p->uuid)) {
         return true;
     }
@@ -421,8 +463,12 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
     };
 
     const auto initialize = [this, p, &releaseDevice](const std::string &path) {
-        if (auto status = atcab_init_ext(&p->atcaDevice, &p->atcaConfig); status != ATCA_SUCCESS) {
-            if (status != ATCA_GEN_FAIL) {
+        p->tappad = true;
+        if (auto status = initDevice(&p->atcaDevice, &p->atcaConfig, p->tappad);
+            status != ATCA_SUCCESS) {
+            if (status == TappadLock::BUSY) {
+                p->busy = true;
+            } else if (status != ATCA_GEN_FAIL) {
                 WRN("atca_init_ext failed: {}", static_cast<int>(status));
             }
             releaseDevice();
@@ -488,6 +534,9 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
     if (!devicePath.empty() && tryCdc(devicePath)) {
         return true;
     }
+    if (p->busy) {
+        return false;
+    }
 
     // Try CDC-capable devices found via libusb before falling back to HID.
 #if defined(__linux__) && defined(ATCA_HAL_KIT_UART_LIBUSB)
@@ -496,6 +545,9 @@ bool Tpm::tryUsbBus(Impl *p, const std::string &devicePath, bool quiet)
     for (size_t i = 0; i < pathCount; ++i) {
         if (devicePath != paths[i] && tryCdc(paths[i])) {
             return true;
+        }
+        if (p->busy) {
+            return false;
         }
     }
 #endif

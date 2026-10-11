@@ -78,6 +78,8 @@ constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto NUM_RETRIES = 3;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
+// A busy hardware key defers authentication indefinitely; this long into it, say so once.
+constexpr auto KEY_DEFERRAL_ESCALATE_AFTER = 5min;
 
 constexpr auto SCORBITRON_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto SCORBITRON_RETRY_MAX_BACKOFF = 1min;
@@ -331,7 +333,7 @@ bool Net::validateDeviceInfo() const
     return true;
 }
 
-bool Net::resolveKeys(const std::string &serverTimestamp)
+KeyResolution Net::resolveKeys(const std::string &serverTimestamp)
 {
     // Provide the normalized hostname to resolvers so provisioning can use it directly
     m_deviceInfo.hostname = m_hostname;
@@ -339,6 +341,7 @@ bool Net::resolveKeys(const std::string &serverTimestamp)
     for (auto &resolver : m_keyResolvers) {
         if (resolver->tryResolve(m_deviceInfo, serverTimestamp)) {
             m_signer = resolver->createSigner();
+            m_signerBusy = resolver->createBusyCheck();
             m_keyResolvers.clear();
 
             if (!m_deviceInfo.uuid.empty()) {
@@ -346,19 +349,99 @@ bool Net::resolveKeys(const std::string &serverTimestamp)
                 m_deviceInfo.uuid = parseUuid(originalUuid);
                 if (m_deviceInfo.uuid.empty()) {
                     ERR("Key resolver set invalid UUID: {}", originalUuid);
-                    return false;
+                    return KeyResolution::Failed;
                 }
             }
 
+            clearKeyResolutionDeferral();
             INF("Key resolution succeeded, serial: {}, uuid: {}", m_deviceInfo.serialNumber,
                 m_deviceInfo.uuid);
-            return true;
+            return KeyResolution::Resolved;
+        }
+        // Product decision: a busy hardware key (the TPM's tap pad held by another process) defers
+        // authentication for as long as it stays busy and NEVER falls through to a weaker key, e.g.
+        // provisioning a soft key, which would change the device's identity for good. A long
+        // deferral is escalated once instead (deferAuthentication()). README-tappad-lock.md.
+        if (resolver->shouldRetryLater()) {
+            WRN("Key resolution deferred: a key resolver's hardware is busy, will retry");
+            return KeyResolution::Deferred;
         }
     }
 
     ERR("No authentication resolver succeeded");
     m_keyResolvers.clear();
-    return false;
+    return KeyResolution::Failed;
+}
+
+void Net::onEmptySignature(bool normalAuthentication)
+{
+    if (m_signerBusy && m_signerBusy()) {
+        // Busy, not broken: the same decision as a busy key at resolution (see resolveKeys()).
+        WRN("Can't sign: TPM tap pad busy, will retry in {}s", m_authRetryBackoff.count());
+        if (m_stop) {
+            return;
+        }
+        if (normalAuthentication) {
+            deferAuthentication();
+        } else {
+            retryAuthAfterTransientError(false);
+        }
+        return;
+    }
+    // The signer gives up after a bounded time (SPEC-0006), so try again later: a TPM
+    // that reappears must bring the device back without a restart (SB-4407).
+    ERR("Can't authenticate, signature is empty, will retry in {}s", m_authRetryBackoff.count());
+    if (!m_stop) {
+        scheduleAuthRetry();
+    }
+}
+
+void Net::retryAuthAfterTransientError(bool normalAuthentication)
+{
+    auto backoff = m_authRetryBackoff;
+    m_authRetryBackoff =
+            std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
+    m_isRefreshingToken = false;
+    if (normalAuthentication) {
+        m_status = AuthStatus::NotAuthenticated;
+    }
+    m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
+        if (isAuthenticated()) {
+            m_isRefreshingToken = true;
+        }
+        authenticate();
+    });
+}
+
+void Net::deferAuthentication()
+{
+    if (m_stop) {
+        return;
+    }
+    noteKeyResolutionDeferred(std::chrono::steady_clock::now());
+    scheduleAuthRetry(true);
+}
+
+bool Net::noteKeyResolutionDeferred(std::chrono::steady_clock::time_point now)
+{
+    if (!m_keyDeferredSince) {
+        m_keyDeferredSince = now;
+    }
+    if (m_keyDeferralEscalated || now - *m_keyDeferredSince < KEY_DEFERRAL_ESCALATE_AFTER) {
+        return false;
+    }
+    m_keyDeferralEscalated = true;
+    // Logged once per run of deferrals. The SDK has no error-reporting channel beyond its log
+    // (the host's logger callback), so this ERR is the escalation.
+    ERR("TPM tap pad busy for over {} min; authentication deferred",
+        std::chrono::duration_cast<std::chrono::minutes>(KEY_DEFERRAL_ESCALATE_AFTER).count());
+    return true;
+}
+
+void Net::clearKeyResolutionDeferral()
+{
+    m_keyDeferredSince.reset();
+    m_keyDeferralEscalated = false;
 }
 
 bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
@@ -391,6 +474,7 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
     }
 
     m_signer = resolver.createSigner();
+    m_signerBusy = {};
 
     INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
     return true;
@@ -1808,7 +1892,13 @@ task_t Net::createAuthenticateTask()
         // Resolve keys via the resolver chain (signer, NFC TPM, soft key).
         // Done after obtaining server time so provisioning uses accurate timestamps.
         if (!m_signer && !m_keyResolvers.empty()) {
-            if (!resolveKeys(timestamp)) {
+            const auto resolution = resolveKeys(timestamp);
+            if (resolution == KeyResolution::Deferred) {
+                // Never falls through to a weaker key (see resolveKeys()); retry with backoff.
+                deferAuthentication();
+                return;
+            }
+            if (resolution == KeyResolution::Failed) {
                 onAuthenticationFailed();
                 ERR("API there is no functional key to authenticate");
                 notifyAuthStatusChanged();
@@ -1819,22 +1909,7 @@ task_t Net::createAuthenticateTask()
         for (int i = 0;; ++i) {
             const auto signature = getSignature(m_signer, m_deviceInfo.uuid, timestamp);
             if (signature.empty()) {
-                // The signer gives up after a bounded time (SPEC-0006), so try again later: a TPM
-                // that reappears must bring the device back without a restart (SB-4407).
-                ERR("Can't authenticate, signature is empty, will retry in {}s",
-                    m_authRetryBackoff.count());
-                onAuthenticationFailed();
-                stopTokenRefreshTimer();
-                notifyAuthStatusChanged();
-                const auto backoff = m_authRetryBackoff;
-                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
-                                                                    AUTH_RETRY_MAX_BACKOFF);
-                m_isRefreshingToken = false;
-                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
-                    if (rearmAuthAfterFailure()) {
-                        authenticate();
-                    }
-                });
+                onEmptySignature(normalAuthentication);
                 return;
             }
 
@@ -1903,6 +1978,7 @@ task_t Net::createAuthenticateTask()
                     notifyAuthStatusChanged();
 
                     if (normalAuthentication) {
+                        clearKeyResolutionDeferral();
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
                         initializeConnectionState();
@@ -1934,19 +2010,7 @@ task_t Net::createAuthenticateTask()
             } else if (r.status_code == 0) {
                 ERR("API authentication network error: {}, will retry in {}s", r.error.message,
                     m_authRetryBackoff.count());
-                auto backoff = m_authRetryBackoff;
-                m_authRetryBackoff = std::min<std::chrono::seconds>(m_authRetryBackoff * 2,
-                                                                    AUTH_RETRY_MAX_BACKOFF);
-                m_isRefreshingToken = false;
-                if (normalAuthentication) {
-                    m_status = AuthStatus::NotAuthenticated;
-                }
-                m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
-                    if (isAuthenticated()) {
-                        m_isRefreshingToken = true;
-                    }
-                    authenticate();
-                });
+                retryAuthAfterTransientError(normalAuthentication);
                 return;
             }
 
@@ -2948,6 +3012,46 @@ bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
     return net.rearmAuthAfterFailure();
 }
 
+KeyResolution NetTestAccess::resolveKeys(Net &net, const std::string &serverTimestamp)
+{
+    return net.resolveKeys(serverTimestamp);
+}
+
+void NetTestAccess::deferAuthentication(Net &net)
+{
+    net.deferAuthentication();
+}
+
+void NetTestAccess::onEmptySignature(Net &net, bool normalAuthentication)
+{
+    net.onEmptySignature(normalAuthentication);
+}
+
+void NetTestAccess::setSignerBusyCheck(Net &net, std::function<bool()> busy)
+{
+    net.m_signerBusy = std::move(busy);
+}
+
+void NetTestAccess::setStatus(Net &net, AuthStatus status)
+{
+    net.m_status = status;
+}
+
+void NetTestAccess::cancelAuthRetry(Net &net)
+{
+    net.m_worker.stopTimer(Worker::Timer::AuthRetry);
+}
+
+bool NetTestAccess::noteKeyResolutionDeferred(Net &net, std::chrono::steady_clock::time_point now)
+{
+    return net.noteKeyResolutionDeferred(now);
+}
+
+size_t NetTestAccess::keyResolverCount(const Net &net)
+{
+    return net.m_keyResolvers.size();
+}
+
 AuthStatus NetTestAccess::status(const Net &net)
 {
     return net.m_status;
@@ -3833,6 +3937,28 @@ void Net::onAuthenticationFailed()
     // a keepalive it can do nothing with. It is restarted from the authentication success path
     // once it recovers.
     m_heartbeat.stop();
+}
+
+void Net::scheduleAuthRetry(bool deferred)
+{
+    if (deferred) {
+        // Still trying, as before the first attempt: the host must not see a failure each cycle.
+        m_status = AuthStatus::NotAuthenticated;
+    } else {
+        onAuthenticationFailed();
+    }
+    stopTokenRefreshTimer();
+    notifyAuthStatusChanged();
+    const auto backoff = m_authRetryBackoff;
+    m_authRetryBackoff =
+            std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
+    m_isRefreshingToken = false;
+    m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this, deferred] {
+        // A deferral left the status NotAuthenticated, which authenticate() starts from.
+        if (deferred ? !m_stop : rearmAuthAfterFailure()) {
+            authenticate();
+        }
+    });
 }
 
 bool Net::rearmAuthAfterFailure()

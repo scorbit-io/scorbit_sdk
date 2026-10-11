@@ -34,6 +34,12 @@ bool HardwareTpm::hasTpm() const
     return tpm().ok();
 }
 
+bool HardwareTpm::busy() const
+{
+    const std::lock_guard<std::mutex> lock {m_deviceMutex};
+    return m_busy;
+}
+
 bool HardwareTpm::isValid() const
 {
     auto serialNumber = serial();
@@ -124,8 +130,15 @@ Tpm HardwareTpm::tpm() const
 
     if (m_device.isValid()) {
         Tpm cached {m_device, accept};
+        m_busy = !cached.ok() && cached.busy();
         if (cached.ok()) {
             remember(cached.device());
+            return cached;
+        }
+        // Another process holds the tap pad: the chip has not gone anywhere, so keep the route,
+        // and do not rediscover, which would write probes into the holder's sequence.
+        if (m_busy) {
+            WRN("HSM busy (tap pad held by another process), will retry later");
             return cached;
         }
 
@@ -134,11 +147,21 @@ Tpm HardwareTpm::tpm() const
     }
 
     Tpm discovered {m_busFlags, m_usbDevicePath, accept};
+    m_busy = !discovered.ok() && discovered.busy();
+    if (m_busy) {
+        WRN("HSM busy (tap pad held by another process), will retry later");
+        return discovered;
+    }
     if (!discovered.ok() && m_busFlags.hasFlag(TpmBus::USB)) {
-        if (const auto moved = tpm_locate::movedPath(m_usbDevicePath, m_locateUsb);
+        bool locatorBusy = false;
+        if (const auto moved = tpm_locate::movedPath(m_usbDevicePath, m_locateUsb, &locatorBusy);
             !moved.empty()) {
             INF("TPM CDC port moved from {} to {}", m_usbDevicePath, moved);
             discovered = Tpm {TpmBus::USB, moved, accept};
+            m_busy = !discovered.ok() && discovered.busy();
+        } else if (locatorBusy) {
+            WRN("HSM busy (tap pad held by another process), will retry later");
+            m_busy = true;
         }
     }
     if (discovered.ok()) {
@@ -170,9 +193,14 @@ bool HardwareTpm::readIdentity()
         m_uuid.clear();
 
         // A chip we cannot read an identity out of is not one worth caching a
-        // route to, even if opening it happened to succeed.
+        // route to, even if opening it happened to succeed -- unless the read
+        // only failed because the tap pad was busy, which says nothing about it.
         const std::lock_guard<std::mutex> lock {m_deviceMutex};
-        m_device = {};
+        // tpm() already set m_busy for this attempt (e.g. a busy locator); only add to it.
+        m_busy = m_busy || tpm1.busy();
+        if (!m_busy) {
+            m_device = {};
+        }
         return false;
     }
 

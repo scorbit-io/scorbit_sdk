@@ -30,3 +30,17 @@ TEST_CASE("tpm_locate: without a locator there is no retry")
 {
     CHECK(tpm_locate::movedPath("/dev/ttyACM1", {}).empty());
 }
+
+TEST_CASE("tpm_locate: a locator that found the tap pad busy reports it and gives no retry")
+{
+    bool busy = false;
+    CHECK(tpm_locate::movedPath(
+                  "/dev/ttyACM1", [] { return TpmLocation::busyTapPad(); }, &busy)
+                  .empty());
+    CHECK(busy);
+
+    CHECK(tpm_locate::movedPath(
+                  "/dev/ttyACM1", [] { return "/dev/ttyACM2"; }, &busy)
+          == "/dev/ttyACM2");
+    CHECK_FALSE(busy);
+}

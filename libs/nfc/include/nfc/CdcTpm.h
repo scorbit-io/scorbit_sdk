@@ -282,6 +282,8 @@ class CdcTpm
         SerialClose();
     }
 
+    // Writes a probe to every candidate tty. Callers hold the tap pad lock
+    // (tpm/tappad_lock.h) around it; nfc does not link cryptoauthlib itself.
     std::string DiscoverTpmDevice()
     {
         for (const auto &path : listUsbDevices())

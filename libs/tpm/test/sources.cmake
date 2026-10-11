@@ -6,4 +6,5 @@ set(sources
     source/test_softwaretpm.cpp
     source/test_probetpm.cpp
     source/test_tpm_locate.cpp
+    source/test_tappad_lock.cpp
 )

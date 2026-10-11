@@ -4,6 +4,7 @@ set(headers
     include/tpm/softwaretpm.h
     include/tpm/tpm.h
     include/tpm/crypto_helpers.h
+    include/tpm/tappad_lock.h
 )
 
 set(sources
