@@ -77,7 +77,17 @@ std::string HardwareTpm::signMessage(const ByteArray &message) const
         return {};
     }
 
-    return device.signMessage(KEY4_SLOT, message).hex();
+    auto signature = device.signMessage(KEY4_SLOT, message);
+    noteSignBusy(device);
+    return signature.hex();
+}
+
+// The open may succeed and the sign itself still time out on the tap pad lock; record that too,
+// so a busy signature is reported as busy rather than as a failed signer.
+void HardwareTpm::noteSignBusy(const Tpm &device) const
+{
+    const std::lock_guard<std::mutex> lock {m_deviceMutex};
+    m_busy = device.busy();
 }
 
 ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
@@ -90,7 +100,9 @@ ByteArray HardwareTpm::signDigest(const ByteArray &digest) const
         return {};
     }
 
-    return device.signDigest(KEY4_SLOT, digest);
+    auto signature = device.signDigest(KEY4_SLOT, digest);
+    noteSignBusy(device);
+    return signature;
 }
 
 /**

@@ -57,6 +57,15 @@ struct HardwareTpmTestAccess {
         return tpm.m_device;
     }
     static bool readIdentity(HardwareTpm &tpm) { return tpm.readIdentity(); }
+    static void setBusy(HardwareTpm &tpm, bool busy)
+    {
+        const std::lock_guard<std::mutex> lock {tpm.m_deviceMutex};
+        tpm.m_busy = busy;
+    }
+    static void noteSignBusy(const HardwareTpm &tpm, const Tpm &device)
+    {
+        tpm.noteSignBusy(device);
+    }
 };
 
 namespace {
@@ -309,6 +318,25 @@ TEST_CASE("A busy tap pad keeps the cached TPM route and skips rediscovery", "[t
     // An identity read that was only busy keeps the route too.
     CHECK_FALSE(HardwareTpmTestAccess::readIdentity(hw));
     CHECK(HardwareTpmTestAccess::device(hw).isValid());
+}
+
+TEST_CASE("A sign that finds the tap pad busy after a clean open marks the TPM busy",
+          "[tappad_busy]")
+{
+    OtherHolder other;
+    REQUIRE(other.held());
+
+    HardwareTpm hw {TpmBus::USB, NOWHERE.usbDevicePath, [] { return TpmLocation {}; }};
+    // As after an open that got the lock: not busy yet.
+    HardwareTpmTestAccess::setBusy(hw, false);
+    REQUIRE_FALSE(hw.busy());
+
+    // The device a sign ran on, whose retry timed out on the lock.
+    const Tpm signedOn {NOWHERE, [](uint64_t, const ByteArray &) { return true; }};
+    REQUIRE(signedOn.busy());
+
+    HardwareTpmTestAccess::noteSignBusy(hw, signedOn);
+    CHECK(hw.busy());
 }
 
 TEST_CASE("A locator that finds the tap pad busy marks the TPM busy", "[tappad_busy]")

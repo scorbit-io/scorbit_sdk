@@ -47,6 +47,7 @@ private:
     Tpm tpm() const;
     bool isOurChip(uint64_t serial, const ByteArray &uuid) const;
     void remember(const TpmDevice &device) const;
+    void noteSignBusy(const Tpm &device) const;
     bool readIdentity();
 
 private:
