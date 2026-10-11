@@ -8,15 +8,16 @@
 #pragma once
 
 #include "nfc/Discovery.h"
+#include "nfc/nfc_probe_device.h"
 
+#include <atomic>
 #include <string>
 #include <memory>
 #include <functional>
-#include <string>
+#include <mutex>
 #include <optional>
 
 class ProbeBase;
-class ProbeNFC;
 
 namespace nfc {
 
@@ -36,18 +37,73 @@ enum class NfcLedMode {
 
 using ProbeDisplayCallback = std::function<void(ProbeBase *probe, const std::string &device)>;
 
+/** Finds an NFC probe (USB scan in production); nullptr when none is found. */
+using NfcProbeScanner = std::function<std::shared_ptr<NfcProbeDevice>(
+        probe_t probesSet, const ProbeDisplayCallback &callback)>;
+
+/** Result of @ref ProbesManager::nfcProbeInfo. */
+struct NfcProbeInfoResult {
+    enum class Status {
+        Ok,
+        NotPresent,
+        ReadFailed,
+    };
+
+    Status status {Status::NotPresent};
+    ProbeInformation probe;
+    NfcInformation nfc;
+    /** Most recent non-zero tap id seen by any probe read since start; 0 if none. */
+    uint32_t lastSeenTapId {0};
+    /** When @ref lastSeenTapId was read, Unix epoch milliseconds; 0 if none. */
+    uint64_t lastSeenTapUnixMs {0};
+};
+
+/**
+ * Owns the connected probes. Every probe I/O and every replacement of the probe handle is
+ * serialized by one internal mutex, so all public methods are safe to call from any thread.
+ */
 class ProbesManager
 {
 public:
-    ProbesManager() = default;
+    ProbesManager();
 
+    /**
+     * Start with an already-open NFC device and a custom scanner for (re-)enumeration (tests,
+     * custom transports). An empty @p scanner finds nothing, so rescans keep the current device.
+     */
+    explicit ProbesManager(std::shared_ptr<NfcProbeDevice> nfcDevice,
+                           NfcProbeScanner scanner = nullptr);
+
+    /**
+     * Scan for probes and adopt the NFC probe found, if any.
+     * @p callback runs under the probe lock and must not call back into ProbesManager.
+     */
     auto enumerate(probe_t probesSet, const std::string pbspk2commPath = {},
                    const ProbeDisplayCallback &callback = nullptr) -> void;
 
-    auto nfc() const -> const std::shared_ptr<ProbeNFC> & { return m_nfc; }
+    auto hasNfc() const -> bool;
 
-    auto isNfcTagRead() const -> bool;
+    /**
+     * Scan for the NFC probe again, adopting one found (e.g. attached or replaced after start).
+     * If none is found the current device is kept. A tap read during the scan is queued for
+     * @ref isNfcTagRead. Blocks for the duration of the USB scan.
+     */
+    auto rescanNfc() -> void;
+
+    /**
+     * True once per NFC tap, including taps observed (and cleared) by @ref nfcProbeInfo.
+     * Never blocks: returns false without polling while another call holds the probe (e.g. a
+     * rescan); queued taps and the pad's own tap are reported by a later poll.
+     */
+    auto isNfcTagRead() -> bool;
     auto setNfcTag(const std::string &tag) -> bool;
+
+    /**
+     * Never blocks: applies @p mode now if the probe is free, else the next @ref isNfcTagRead
+     * poll applies it (the latest mode wins; a failed write is retried on later polls).
+     * @return true if applied or queued (always true while the probe is busy, before presence is
+     * known), false if @p mode is invalid or no NFC probe is present.
+     */
     auto setNfcLeds(NfcLedMode mode) -> bool;
 
     auto setDiscoveryDescription(uint64_t providerSerial, const std::string &gameName,
@@ -56,8 +112,33 @@ public:
 
     auto probesBootReason(ProbeType probeType) -> std::optional<std::string>;
 
+    /**
+     * Read the NFC probe's identity/status and NFC state. A tap seen by this read is kept
+     * pending and reported by the next @ref isNfcTagRead, so this never consumes a tap the SDK
+     * would otherwise have seen.
+     */
+    auto nfcProbeInfo() -> NfcProbeInfoResult;
+
 private:
-    std::shared_ptr<ProbeNFC> m_nfc;
+    // forceRescan: treat as a rescan (queue a tap read here) even if no probe was known yet
+    auto enumerateLocked(probe_t probesSet, const ProbeDisplayCallback &callback,
+                         bool forceRescan = false) -> void;
+    auto recordSeenTapLocked(uint32_t tapId) -> void;
+    auto applyLedModeLocked() -> void;
+
+    static constexpr int NO_LED_MODE {-1};
+
+    mutable std::mutex m_mutex;
+    // LED mode the host asked for (set without the lock) and the one last written to the probe
+    std::atomic<int> m_desiredLedMode {NO_LED_MODE};
+    int m_appliedLedMode {NO_LED_MODE};
+    NfcProbeScanner m_scanner;
+    std::shared_ptr<NfcProbeDevice> m_nfc;
+    // Taps read (and cleared) outside isNfcTagRead() but not yet reported by it
+    uint32_t m_pendingTaps {0};
+    // Last non-zero tap id seen by any read (poll, info, enumeration) and when
+    uint32_t m_lastSeenTapId {0};
+    uint64_t m_lastSeenTapUnixMs {0};
     std::shared_ptr<NetworkDiscovery> m_discovery;
     NetworkDiscovery::DeviceInfo_t m_discoveryInfo;
 };

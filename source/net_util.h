@@ -31,6 +31,10 @@
 #include <unordered_set>
 #include <vector>
 
+namespace nfc {
+struct NfcProbeInfoResult;
+} // namespace nfc
+
 namespace scorbit {
 
 struct DeviceInfo;
@@ -151,6 +155,14 @@ bool isValidHardwareProbeRunId(std::string_view runId);
  * ever POSTs to that path, so a firmware_probe naming any other reply_to is refused.
  */
 bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId);
+
+/**
+ * The SDK's section of a hardware probe result: the NFC probe read in @p result. On any status
+ * other than Ok only sdk_version, nfc_status and nfc_extended's last_seen_tap_* are sent;
+ * last_seen_tap_* are present for every status (0 = no tap seen).
+ */
+nlohmann::json buildHardwareProbeSdkPayload(const nfc::NfcProbeInfoResult &result,
+                                            std::string_view sdkVersion);
 
 /**
  * The last @p capacity ids in arrival order, to refuse a Centrifugo history replay. Evicts the

@@ -111,6 +111,13 @@ struct NetTestAccess {
     /// The production hardware probe result request, sent through @p transport.
     static task_t hardwareProbeResult(Net &net, const std::string &runId, std::string body,
                                       HttpStatusCallback callback, TestTransport transport);
+    /// The production SDK-section request (reads the probe manager), sent through @p transport.
+    static task_t hardwareProbeSdkResult(Net &net, const std::string &runId,
+                                         TestTransport transport, bool forceReDetect = false);
+    /// How many SDK-section posts handleHardwareProbe() has queued.
+    static int hardwareProbeSdkPosts(const Net &net);
+    /// Installs @p manager without starting the NFC timers that setProbesManager() starts.
+    static void setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManager> manager);
 
 private:
     template<typename CallbackT>
@@ -428,6 +435,12 @@ private:
                                                 HttpStatusCallback callback) const;
     deferred_post_setup_t hardwareProbeResultSetup(const std::string &runId,
                                                    std::string body) const;
+    // The SDK's own NFC section of a hardware probe result. The setup reads the probe, so it
+    // must run on the worker, never on the dispatcher.
+    void postHardwareProbeSdkResult(const std::string &runId, bool forceReDetect);
+    HttpStatusCallback hardwareProbeSdkResultReply(const std::string &runId) const;
+    deferred_post_setup_t hardwareProbeSdkResultSetup(const std::string &runId,
+                                                      bool forceReDetect) const;
     /**
      * POST a capture sample. @p runClosed is the run's shared closed-flag: a 410 from ingest sets
      * it, which is how the sampler learns the server has ended this run (SPEC-0007: 410 is
@@ -503,7 +516,6 @@ private:
     mutable std::mutex m_authMutex;
     std::mutex m_gameSessionsMutex;
     std::mutex m_shortCodeMutex;
-    std::mutex m_nfcMutex;
     mutable std::shared_mutex m_tokenMutex;
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_stop {false};
@@ -537,6 +549,8 @@ private:
     MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
     bool m_isNfcCapable {false};
+    // SDK-section posts queued by handleHardwareProbe(); observed by tests only
+    std::atomic<int> m_hardwareProbeSdkPosts {0};
 
     std::vector<std::string> m_nonces;
     mutable std::mutex m_noncesMutex;

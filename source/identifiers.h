@@ -43,6 +43,9 @@ constexpr auto URL_DIAGNOSTICS_WIFI_SAMPLE_PATH {
 constexpr auto URL_DIAGNOSTICS_WIFI_EVENT_PATH {"internal/api/diagnostics/wifi-event/{run_id}/"};
 constexpr auto URL_DIAGNOSTICS_HARDWARE_PROBE_RESULT_PATH {
         "internal/api/diagnostics/hardware-probe-result/{run_id}/"};
+// The SDK's own section of a hardware probe result (NFC probe), posted alongside the host's
+constexpr auto URL_DIAGNOSTICS_HARDWARE_PROBE_SDK_RESULT_PATH {
+        "internal/api/diagnostics/hardware-probe-result/{run_id}/sdk/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
@@ -205,6 +208,49 @@ constexpr auto JVAL_DIAG_SOURCE_WIFI {"wifi"};
 constexpr auto JVAL_DIAG_SOURCE_ETHERNET {"ethernet"};
 constexpr auto JVAL_DIAG_HOP_DEVICE_EGRESS {"device_egress"};
 
+// SDK section of a hardware probe result (NFC probe)
+constexpr auto JKEY_HWP_SDK_VERSION {"sdk_version"};
+constexpr auto JKEY_HWP_NFC_STATUS {"nfc_status"};
+constexpr auto JVAL_HWP_NFC_STATUS_OK {"ok"};
+constexpr auto JVAL_HWP_NFC_STATUS_NOT_PRESENT {"not_present"};
+constexpr auto JVAL_HWP_NFC_STATUS_READ_FAILED {"read_failed"};
+constexpr auto JKEY_HWP_NFC_ID {"nfc_id"};
+constexpr auto JKEY_HWP_NFC_NAME {"nfc_name"};
+constexpr auto JKEY_HWP_NFC_VERSION_MAJOR {"nfc_version_major"};
+constexpr auto JKEY_HWP_NFC_VERSION_MINOR {"nfc_version_minor"};
+constexpr auto JKEY_HWP_NFC_REVISION {"nfc_revision"};
+constexpr auto JKEY_HWP_NFC_TIMESTAMP {"nfc_timestamp"};
+constexpr auto JKEY_HWP_NFC_MODE {"nfc_mode"};
+constexpr auto JVAL_HWP_NFC_MODE_TAG {"tag"};
+constexpr auto JVAL_HWP_NFC_MODE_READER {"reader"};
+constexpr auto JKEY_HWP_NFC_EXTENDED {"nfc_extended"};
+constexpr auto JKEY_HWP_BOOT_REASON {"boot_reason"};
+constexpr auto JKEY_HWP_BOOT_REASON_RAW {"boot_reason_raw"};
+constexpr auto JKEY_HWP_BOOT_INFO_VALID {"boot_info_valid"};
+constexpr auto JKEY_HWP_WATCHDOG_COUNT {"watchdog_count"};
+constexpr auto JKEY_HWP_UPTIME_MS {"uptime_ms"};
+constexpr auto JKEY_HWP_SYS_CLOCK_HZ {"sys_clock_hz"};
+constexpr auto JKEY_HWP_USB_FLAGS {"usb_flags"};
+constexpr auto JKEY_HWP_UID {"uid"};
+constexpr auto JKEY_HWP_TIMESTAMP_UTC {"timestamp_utc"};
+constexpr auto JKEY_HWP_TPM_TYPE {"tpm_type"};
+constexpr auto JKEY_HWP_TPM_SERIAL {"tpm_serial"};
+constexpr auto JKEY_HWP_TPM_UUID {"tpm_uuid"};
+constexpr auto JKEY_HWP_TPM_SCORBIT_SERIAL {"tpm_scorbit_serial"};
+constexpr auto JKEY_HWP_FLAGS {"flags"};
+constexpr auto JKEY_HWP_BRIGHTNESS_PCT {"brightness_pct"};
+constexpr auto JKEY_HWP_CAPACITANCE_RAW {"capacitance_raw"};
+constexpr auto JKEY_HWP_CAPACITANCE_FF {"capacitance_ff"};
+constexpr auto JKEY_HWP_RSSI {"rssi"};
+constexpr auto JKEY_HWP_RSSI_VALID {"rssi_valid"};
+constexpr auto JKEY_HWP_LAST_ID {"last_id"};
+constexpr auto JKEY_HWP_LAST_SEEN_TAP_ID {"last_seen_tap_id"};
+constexpr auto JKEY_HWP_LAST_SEEN_TAP_UNIX_MS {"last_seen_tap_unix_ms"};
+// Boot reason names, indexed by the firmware's boot reason byte
+constexpr const char *JVAL_HWP_BOOT_REASONS[] {
+        "unknown",      "power_on_reset", "bootloader_restart", "soft_restart", "watchdog_timer",
+        "watchdog_timer_acknowledged"};
+
 // Scorbitron config
 constexpr auto JKEY_SCFG_MACHINE_ID {"machine_id"};
 constexpr auto JKEY_SCFG_VARIANT_ID {"variant_id"};
@@ -236,6 +282,7 @@ constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SOBJ_DIAG_PROBE_CAPABLE {"diag_probe_capable"};
 constexpr auto JKEY_SOBJ_DIAG_CAPTURE_CAPABLE {"diag_capture_capable"};
+constexpr auto JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE {"diag_sdk_probe_capable"};
 constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};

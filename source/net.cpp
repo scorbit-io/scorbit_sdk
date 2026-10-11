@@ -946,7 +946,7 @@ std::string Net::consumeNonce()
 void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
 {
     m_probesManager = manager;
-    m_isNfcCapable = (m_probesManager && m_probesManager->nfc());
+    m_isNfcCapable = (m_probesManager && m_probesManager->hasNfc());
 
     {
         std::scoped_lock lock(m_scorbitronObjectMutex);
@@ -1355,6 +1355,64 @@ void Net::handleHardwareProbe(const nlohmann::json &payload)
 
     INF("DIAG: hardware probe requested run_id={} force_re_detect={}", runId, forceReDetect);
     m_eventManager->push(std::make_shared<HardwareProbeRequestedEvent>(runId, forceReDetect));
+
+    // The SDK reports the NFC probe itself, independently of the host's result
+    postHardwareProbeSdkResult(runId, forceReDetect);
+}
+
+void Net::postHardwareProbeSdkResult(const std::string &runId, bool forceReDetect)
+{
+    ++m_hardwareProbeSdkPosts;
+    m_worker.post(createPostRequestTask(hardwareProbeSdkResultReply(runId),
+                                        hardwareProbeSdkResultSetup(runId, forceReDetect),
+                                        {
+                                                AuthStatus::AuthenticatedUnpaired,
+                                                AuthStatus::AuthenticatedPaired,
+                                        }));
+}
+
+HttpStatusCallback Net::hardwareProbeSdkResultReply(const std::string &runId) const
+{
+    return [runId](Error error, int httpStatus, const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API hardware probe SDK result: ok, run_id={}, http status: {}", runId,
+                httpStatus);
+        } else {
+            WRN("API hardware probe SDK result: failed, run_id={}, error code: {}, http status: "
+                "{}, reply: {}",
+                runId, static_cast<int>(error), httpStatus, reply);
+        }
+    };
+}
+
+Net::deferred_post_setup_t Net::hardwareProbeSdkResultSetup(const std::string &runId,
+                                                            bool forceReDetect) const
+{
+    // Retries re-run the setup: read the probe once per request and resend the same body
+    auto cachedBody = std::make_shared<std::optional<std::string>>();
+    return [this, runId, forceReDetect, cachedBody]() {
+        if (!*cachedBody) {
+            // Runs on the worker: the probe read is a blocking USB exchange
+            nfc::NfcProbeInfoResult result;
+            result.status = nfc::NfcProbeInfoResult::Status::NotPresent;
+            // Gate on the manager, not the startup-cached capability: a forced re-detection
+            // must find a probe attached or replaced since start. A probe found this way is
+            // reported here only; tag polling and nfc_capable still follow startup detection.
+            if (m_probesManager) {
+                if (forceReDetect) {
+                    m_probesManager->rescanNfc();
+                }
+                result = m_probesManager->nfcProbeInfo();
+            }
+            *cachedBody = buildHardwareProbeSdkPayload(result, SCORBIT_SDK_VERSION).dump();
+        }
+        const auto &body = **cachedBody;
+
+        const auto endpoint =
+                url(URL_DIAGNOSTICS_HARDWARE_PROBE_SDK_RESULT_PATH, fmt::arg(ARG_RUN_ID, runId));
+        INF("API sending hardware probe SDK result: run_id={}, {} bytes", runId, body.size());
+        return std::make_tuple(endpoint, cpr::Body {body});
+    };
 }
 
 void Net::submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
@@ -2406,6 +2464,8 @@ void Net::initScorbitronObject()
     // Inert until SB-3463 bumps scorbitd's SDK pin. brcmfmac reports no noise floor, so noise_dbm
     // is absent on current hardware -- see SB-3461.
     m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
+    // The API uses this to expect the SDK's own NFC section of a hardware probe result.
+    m_scorbitronObject[JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE] = true;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
@@ -2915,6 +2975,31 @@ task_t NetTestAccess::hardwareProbeResult(Net &net, const std::string &runId, st
                 return transport(url, body, header, timeout, resilient);
             },
             std::vector<AuthStatus> {AuthStatus::NotAuthenticated});
+}
+
+task_t NetTestAccess::hardwareProbeSdkResult(Net &net, const std::string &runId,
+                                             TestTransport transport, bool forceReDetect)
+{
+    return net.createHttpRequestTask(
+            "TEST", net.hardwareProbeSdkResultReply(runId),
+            net.hardwareProbeSdkResultSetup(runId, forceReDetect),
+            [transport = std::move(transport)](const cpr::Url &url, const cpr::Body &body,
+                                               const cpr::Header &header,
+                                               const cpr::Timeout &timeout, bool resilient) {
+                return transport(url, body, header, timeout, resilient);
+            },
+            std::vector<AuthStatus> {AuthStatus::NotAuthenticated});
+}
+
+int NetTestAccess::hardwareProbeSdkPosts(const Net &net)
+{
+    return net.m_hardwareProbeSdkPosts.load();
+}
+
+void NetTestAccess::setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManager> manager)
+{
+    net.m_isNfcCapable = manager && manager->hasNfc();
+    net.m_probesManager = std::move(manager);
 }
 
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -3893,15 +3978,8 @@ void Net::startNfcCheckTimer()
     m_worker.startTimer(Worker::Timer::NfcCheckTag, NFC_CHECK_TIME, [this] {
         startNfcCheckTimer();
 
-        if (m_probesManager) {
-            const auto isNfcTagRead = std::invoke([this]() {
-                std::scoped_lock lock {m_nfcMutex};
-                return m_probesManager->isNfcTagRead();
-            });
-
-            if (isNfcTagRead) {
-                setNfcTag();
-            }
+        if (m_probesManager && m_probesManager->isNfcTagRead()) {
+            setNfcTag();
         }
     });
 }
@@ -3919,12 +3997,7 @@ void Net::setNfcTag()
         return;
     }
 
-    const auto ok = std::invoke([this, &tag]() {
-        std::scoped_lock lock {m_nfcMutex};
-        return m_probesManager->setNfcTag(tag);
-    });
-
-    if (ok) {
+    if (m_probesManager->setNfcTag(tag)) {
         INF("NFC tag set ok: {}", tag);
     }
 }
@@ -3934,10 +4007,7 @@ void Net::checkNfcBootReason()
     if (m_probesManager && m_isNfcCapable) {
         m_worker.stopTimer(Worker::Timer::NfcBootReason);
 
-        const auto bootReason = std::invoke([this]() {
-            std::scoped_lock lock {m_nfcMutex};
-            return m_probesManager->probesBootReason(nfc::ProbeType::NFC);
-        });
+        const auto bootReason = m_probesManager->probesBootReason(nfc::ProbeType::NFC);
 
         if (bootReason && *bootReason != m_lastNfcBootReason) {
             INF("{}", *bootReason);

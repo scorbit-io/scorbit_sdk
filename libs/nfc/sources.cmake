@@ -7,6 +7,7 @@ set(headers
     include/nfc/CdcTpm.h
     include/nfc/ListUsbDevices.h
     include/nfc/probes_manager.h
+    include/nfc/nfc_probe_device.h
 )
 
 set(sources

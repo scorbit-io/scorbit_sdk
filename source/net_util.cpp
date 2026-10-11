@@ -26,6 +26,7 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <cmrc/cmrc.hpp>
+#include <nfc/probes_manager.h>
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
@@ -311,6 +312,104 @@ bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &ru
         replyTo.remove_prefix(1);
     }
     return replyTo == expected;
+}
+
+namespace {
+
+// The pad hardware's capacitance scale factor in tenths of a femtofarad per raw count (2.8 fF).
+// Kept integral so the reported value is exact and serializes without float noise.
+constexpr int NFC_CAPACITANCE_DECI_FF_PER_COUNT {28};
+
+// One name per firmware boot reason value
+static_assert(std::size(JVAL_HWP_BOOT_REASONS) == nfc::NFC_BOOT_REASON_COUNT);
+
+template <typename Bytes>
+std::string toLowerHex(const Bytes &bytes)
+{
+    static constexpr char DIGITS[] = "0123456789abcdef";
+    std::string hex;
+    hex.reserve(std::size(bytes) * 2);
+    for (const uint8_t byte : bytes) {
+        hex.push_back(DIGITS[byte >> 4]);
+        hex.push_back(DIGITS[byte & 0x0F]);
+    }
+    return hex;
+}
+
+} // namespace
+
+nlohmann::json buildHardwareProbeSdkPayload(const nfc::NfcProbeInfoResult &result,
+                                            std::string_view sdkVersion)
+{
+    using Status = nfc::NfcProbeInfoResult::Status;
+
+    nlohmann::json payload = nlohmann::json::object();
+    payload[JKEY_HWP_SDK_VERSION] = sdkVersion;
+
+    // Always present, for every status; 0 means no tap seen since the SDK started
+    nlohmann::json extended = nlohmann::json::object();
+    extended[JKEY_HWP_LAST_SEEN_TAP_ID] = result.lastSeenTapId;
+    extended[JKEY_HWP_LAST_SEEN_TAP_UNIX_MS] = result.lastSeenTapUnixMs;
+
+    if (result.status != Status::Ok) {
+        payload[JKEY_HWP_NFC_STATUS] = result.status == Status::NotPresent
+                                               ? JVAL_HWP_NFC_STATUS_NOT_PRESENT
+                                               : JVAL_HWP_NFC_STATUS_READ_FAILED;
+        payload[JKEY_HWP_NFC_EXTENDED] = std::move(extended);
+        return payload;
+    }
+
+    const auto &probe = result.probe;
+    const auto &nfcInfo = result.nfc;
+    const bool isTag = (nfcInfo.flags & nfc::NfcFlagTag) != 0;
+
+    payload[JKEY_HWP_NFC_STATUS] = JVAL_HWP_NFC_STATUS_OK;
+    payload[JKEY_HWP_NFC_ID] = probe.id;
+    payload[JKEY_HWP_NFC_NAME] = probe.name;
+    payload[JKEY_HWP_NFC_VERSION_MAJOR] = probe.versionMajor;
+    payload[JKEY_HWP_NFC_VERSION_MINOR] = probe.versionMinor;
+    payload[JKEY_HWP_NFC_REVISION] = probe.versionRevision;
+    payload[JKEY_HWP_NFC_TIMESTAMP] = probe.timestamp;
+    payload[JKEY_HWP_NFC_MODE] = isTag ? JVAL_HWP_NFC_MODE_TAG : JVAL_HWP_NFC_MODE_READER;
+
+    // Legacy firmware (string timestamp header) reports no boot reason or watchdog count
+    const bool bootInfoValid = probe.timestampHeader == 0;
+    const uint8_t bootReasonRaw = bootInfoValid ? probe.bootReason : 0;
+    extended[JKEY_HWP_BOOT_INFO_VALID] = bootInfoValid;
+    extended[JKEY_HWP_BOOT_REASON] = size_t {bootReasonRaw} < std::size(JVAL_HWP_BOOT_REASONS)
+                                             ? JVAL_HWP_BOOT_REASONS[bootReasonRaw]
+                                             : JVAL_HWP_BOOT_REASONS[0];
+    extended[JKEY_HWP_BOOT_REASON_RAW] = bootReasonRaw;
+    extended[JKEY_HWP_WATCHDOG_COUNT] = bootInfoValid ? probe.watchdogCount : 0;
+
+    extended[JKEY_HWP_UPTIME_MS] = probe.timeMs;
+    extended[JKEY_HWP_SYS_CLOCK_HZ] = probe.sysClockFrequency;
+    extended[JKEY_HWP_USB_FLAGS] = probe.usbFlags;
+    extended[JKEY_HWP_UID] = probe.uid;
+    extended[JKEY_HWP_TIMESTAMP_UTC] = probe.timestampUtc;
+
+    extended[JKEY_HWP_TPM_TYPE] = probe.tpmType;
+    extended[JKEY_HWP_TPM_SERIAL] = toLowerHex(probe.tpmSerial);
+    extended[JKEY_HWP_TPM_UUID] = toLowerHex(probe.tpmUuid);
+    extended[JKEY_HWP_TPM_SCORBIT_SERIAL] = probe.tpmScorbitSerial;
+
+    // RSSI is unmeasured only in tag mode with neither amplitude measurement enabled
+    const bool measuresAmplitude = (nfcInfo.flags & nfc::NfcFlagMeasureAmplitude) != 0;
+    const bool detectsField = (nfcInfo.flags & nfc::NfcFlagFieldDetector) != 0;
+    extended[JKEY_HWP_FLAGS] = nfcInfo.flags;
+    extended[JKEY_HWP_BRIGHTNESS_PCT] = nfcInfo.brightness;
+    extended[JKEY_HWP_CAPACITANCE_RAW] = nfcInfo.capacitance;
+    // Current firmware does not measure capacitance, so both read 0
+    extended[JKEY_HWP_CAPACITANCE_FF] =
+            nfcInfo.capacitance * NFC_CAPACITANCE_DECI_FF_PER_COUNT / 10.0;
+    extended[JKEY_HWP_RSSI] = nfcInfo.rssi;
+    extended[JKEY_HWP_RSSI_VALID] = !(isTag && !measuresAmplitude && !detectsField);
+
+    // last_id is read-and-clear and polled by the SDK, so it is almost always 0
+    extended[JKEY_HWP_LAST_ID] = nfcInfo.lastId;
+
+    payload[JKEY_HWP_NFC_EXTENDED] = std::move(extended);
+    return payload;
 }
 
 RecentIds::RecentIds(size_t capacity)
