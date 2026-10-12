@@ -136,7 +136,7 @@ See README-tappad-lock.md next to this file.
  #ifdef __COVERITY__
 --- /dev/null
 +++ b/lib/hal/hal_tappad_lock.c
-@@ -0,0 +1,693 @@
+@@ -0,0 +1,700 @@
 +/**
 + * \file
 + * \brief Cross-process lock serialising access to a tap pad's secure element.
@@ -420,6 +420,13 @@ See README-tappad-lock.md next to this file.
 +        /* Unlinked between the two opens: create it again, once. */
 +        if ((0 > fd) && (ENOENT != errno))
 +        {
++            /* A creator under a umask such as 077 leaves it unreadable to
++               other users until its fchmod(): wait for it, do not refuse it.
++               lstat() so that a symlink is never taken for a fresh file. */
++            if ((EACCES == errno) && (0 == lstat(path, st)))
++            {
++                *pending = *pending || tappad_maybe_being_created(st);
++            }
 +            return -1;
 +        }
 +    }

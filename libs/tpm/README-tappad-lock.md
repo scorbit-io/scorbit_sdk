@@ -81,7 +81,9 @@ These directories are world-writable, so the file is opened defensively:
   0666. An empty file whose mode is 0666 narrowed by a umask and whose status
   changed in the last second or so may be another process's, created and not
   yet `fchmod`ed: the acquire waits for it, as for a held lock, until its
-  deadline, instead of leaving the path out while the creator locks it. The
+  deadline, instead of leaving the path out while the creator locks it. This
+  includes such a file that cannot be opened at all yet (`EACCES`, as when the
+  creator's umask is 077), judged by `lstat()` of the path. The
   window lasts up to about two seconds, so an acquire with a shorter timeout
   can report busy once; a local user who keeps re-planting such a file can keep
   the lock busy, as one holding the real file can already.
