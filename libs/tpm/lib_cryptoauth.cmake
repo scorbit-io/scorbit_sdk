@@ -38,10 +38,24 @@
 # which established this failure for cpr.
 set(cryptoauth_PATCH_ARGS)
 if(NOT MSVC)
-    set(cryptoauth_PATCH_ARGS PATCHES
+    set(cryptoauth_PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-build-fixes.patch"
         "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-libusb-cdc.patch"
         "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-tappad-lock.patch")
+
+    # CPM keys its source cache on the arguments, which name the patches but not their contents,
+    # so a warm CPM_SOURCE_CACHE would keep building an old patch after one changes. Key the
+    # cache on the patches' bytes instead.
+    set(cryptoauth_patch_digests "")
+    foreach(patch IN LISTS cryptoauth_PATCHES)
+        file(SHA256 "${patch}" digest)
+        string(APPEND cryptoauth_patch_digests "${digest}")
+    endforeach()
+    string(SHA256 cryptoauth_patches_key "${cryptoauth_patch_digests}")
+    string(SUBSTRING "${cryptoauth_patches_key}" 0 16 cryptoauth_patches_key)
+
+    set(cryptoauth_PATCH_ARGS PATCHES ${cryptoauth_PATCHES} CUSTOM_CACHE_KEY
+                              "v3.7.9-patches-${cryptoauth_patches_key}")
 endif()
 
 cpmaddpackage(
