@@ -112,6 +112,7 @@ target_sources(
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
+        source/test_net_auth_retry.cpp
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp

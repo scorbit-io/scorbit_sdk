@@ -78,6 +78,18 @@ cpr::Multipart buildDiagnosticsMultipart(const std::string &archivePath,
 
 class Net;
 
+/// How an authentication attempt that did not succeed is tried again (SB-5165).
+enum class AuthRetryKind {
+    /// Server or network trouble: retry on the backoff. A first authentication waits in
+    /// NotAuthenticated; a token refresh keeps the session it has.
+    Transient,
+    /// The signer gave up: as Transient, but a first authentication reports AuthenticationFailed
+    /// while it waits (SB-4407).
+    SignerFailure,
+    /// Credentials rejected or no usable key: report AuthenticationFailed and re-check slowly.
+    Recheck,
+};
+
 /**
  * Test seam for Net's request plumbing.
  *
@@ -107,7 +119,6 @@ struct NetTestAccess {
     static bool rearmAuthAfterFailure(Net &net, AuthStatus from);
     static AuthStatus status(const Net &net);
     static KeyResolution resolveKeys(Net &net, const std::string &serverTimestamp);
-    static size_t keyResolverCount(const Net &net);
     /// The deferral path of an authentication attempt, without the network round trips before it.
     static void deferAuthentication(Net &net);
     /// What an authentication attempt does after the signer returned an empty signature.
@@ -130,6 +141,48 @@ struct NetTestAccess {
     static int hardwareProbeSdkPosts(const Net &net);
     /// Installs @p manager without starting the NFC timers that setProbesManager() starts.
     static void setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManager> manager);
+
+    /// Stands in for every network call the authentication task makes.
+    struct AuthTransport {
+        /// The server-time GET.
+        std::function<cpr::Response(const cpr::Url &)> noop;
+        /// The token POST.
+        std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)>
+                token;
+        /// The Centrifugo JWT fetch that follows a successful authentication.
+        std::function<std::string(const std::string &url, const std::string &authToken)>
+                centrifugoToken;
+    };
+    /// Stands in for the AuthRetry timer: @c start in place of arming it, @c stop of cancelling it.
+    /// @c random, if set, replaces the retry jitter's random draw in [0, 1); 0 means no jitter.
+    struct AuthRetryTimer {
+        std::function<void(AuthRetryKind, std::chrono::seconds, task_t)> start;
+        std::function<void()> stop;
+        std::function<double()> random;
+    };
+
+    static void setAuthTransport(Net &net, AuthTransport transport, AuthRetryTimer timer);
+    /// Holds the lock a normal authentication holds for its whole run.
+    static std::unique_lock<std::mutex> holdAuthLock(Net &net);
+    /// Runs the production authentication task on the calling thread.
+    static void runAuthentication(Net &net);
+    static void setSigner(Net &net, SignerCallback signer);
+    /// Puts @p net mid token refresh, as the TokenRefresh timer does, holding @p token.
+    static void startTokenRefresh(Net &net, AuthStatus status, std::string token);
+    /// Puts @p net mid token refresh while keeping the token, and the deadline, it already has.
+    static void markRefreshing(Net &net);
+    static void setStopping(Net &net);
+    static bool isRefreshingToken(const Net &net);
+    static std::string token(const Net &net);
+    static std::size_t keyResolverCount(const Net &net);
+    /// How many times authentication was reported failed (which also stops the heartbeat).
+    static int authFailures(const Net &net);
+    /// Whether Net last started the heartbeat rather than stopped it.
+    static bool heartbeatOn(const Net &net);
+    /// The delay the last token refresh timer was armed with, or nothing if none was armed.
+    static std::optional<std::chrono::seconds> tokenRefreshArmedIn(const Net &net);
+    static std::optional<std::chrono::seconds>
+    tokenRefreshDelay(std::optional<std::chrono::seconds> left);
 
 private:
     template<typename CallbackT>
@@ -255,7 +308,8 @@ private:
     /// Come online because the heartbeat server has work waiting. Runs on the heartbeat strand.
     void onHeartbeatWake();
 
-    void startTokenRefreshTimer();
+    /// Arms the refresh for a token with @p timeUntilExpiration left, as judged when it arrived.
+    void startTokenRefreshTimer(std::chrono::seconds timeUntilExpiration);
     void stopTokenRefreshTimer();
 
     void sendLatestGameData(int sessionId);
@@ -386,22 +440,34 @@ private:
     void onUnpaired();
     /// Enter AuthenticationFailed and stop work that a non-authenticating machine should not do.
     void onAuthenticationFailed();
+    void startHeartbeat();
+    void stopHeartbeat();
     /// AuthenticationFailed -> NotAuthenticated, so a retry is not turned away as already handled.
     bool rearmAuthAfterFailure();
-    /// Try this authentication again after the (growing) auth retry backoff. A failure reports
-    /// AuthenticationFailed meanwhile; a deferral (@p deferred) stays NotAuthenticated, since the
-    /// device is still trying.
-    void scheduleAuthRetry(bool deferred = false);
-    /// Key resolution was deferred (a key's hardware is busy): retry later, escalating once if
-    /// it stays deferred for KEY_DEFERRAL_ESCALATE_AFTER.
-    void deferAuthentication();
-    /// The signer returned no signature: defer if its hardware is busy, otherwise fail and retry.
+    /// A key's hardware is busy: retry on the transient backoff (a first authentication waits as
+    /// NotAuthenticated, a refresh keeps its session), escalating once if a first authentication
+    /// stays deferred for KEY_DEFERRAL_ESCALATE_AFTER.
+    void deferAuthentication(bool normalAuthentication);
+    /// The signer returned no signature: defer if its hardware is busy, otherwise retry as a
+    /// signer failure.
     void onEmptySignature(bool normalAuthentication);
-    /// Retry after a transient problem: a first authentication goes back to NotAuthenticated, a
-    /// token refresh keeps the authenticated status (the token expiry path still applies).
-    void retryAuthAfterTransientError(bool normalAuthentication);
     bool noteKeyResolutionDeferred(std::chrono::steady_clock::time_point now);
     void clearKeyResolutionDeferral();
+    /**
+     * Schedule the next authentication attempt after one that did not succeed (SB-5165). Sets the
+     * status @p kind calls for, picks the delay (the backoff, at least @p retryAfter, or the slow
+     * re-check) and arms the AuthRetry timer. @p refresh says the attempt was a token refresh.
+     * Does nothing once stopping.
+     */
+    void retryAuthenticationLater(AuthRetryKind kind, bool refresh,
+                                  std::optional<std::chrono::seconds> retryAfter = std::nullopt,
+                                  bool serverError = false);
+    /// A uniform draw in [0, 1) for retry jitter (the test seam's, if one is set).
+    double authRetryRandom() const;
+    /// Arms the AuthRetry timer to run runAuthRetry(@p kind) after @p delay.
+    void armAuthRetry(AuthRetryKind kind, std::chrono::seconds delay);
+    /// The AuthRetry timer's body. Never blocks: a busy lock re-arms it shortly instead.
+    void runAuthRetry(AuthRetryKind kind);
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
@@ -552,7 +618,13 @@ private:
     std::atomic_bool m_isGameDataInQueue {false};
     std::atomic_bool m_stop {false};
     std::atomic_bool m_isRefreshingToken {false};
-    std::chrono::seconds m_authRetryBackoff;
+    // Seconds. Atomic: a token refresh and a 401-triggered authentication can step it at once.
+    std::atomic<std::chrono::seconds::rep> m_authRetryBackoff;
+    // onAuthenticationFailed() calls; observed by tests only
+    std::atomic<int> m_authFailures {0};
+    // Test seams; empty in production. Set only through NetTestAccess.
+    NetTestAccess::AuthTransport m_authTransport;
+    NetTestAccess::AuthRetryTimer m_authRetryTimer;
     std::chrono::seconds m_scorbitronRetryBackoff;
 
     // The Centrifugo client asks for a JWT from its own strand, through a callback that has to
@@ -566,6 +638,9 @@ private:
     std::string m_hostname;
     std::string m_cfHostname;
     std::string m_stoken;
+    /// When m_stoken expires, on the monotonic clock, from the server-judged lifetime it had on
+    /// arrival; empty when it was set without one. Guarded by m_tokenMutex.
+    std::optional<std::chrono::steady_clock::time_point> m_tokenDeadline;
     std::chrono::system_clock::time_point m_tokenExpiration;
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
@@ -621,6 +696,9 @@ private:
     // Runs on m_worker's heartbeat strand, so it has to be created after m_worker and destroyed
     // before m_worker
     Heartbeat m_heartbeat;
+    std::atomic_bool m_heartbeatOn {false}; // last call made to m_heartbeat was start()
+    /// What the last startTokenRefreshTimer() armed, or nothing; written on the blocking executor.
+    std::optional<std::chrono::seconds> m_tokenRefreshDelay;
 
     // Keeps config updates for one type in order across an auth-gate park, which would otherwise
     // let a later update overtake a parked one and re-assert state the caller already withdrew.

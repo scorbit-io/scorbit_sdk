@@ -81,10 +81,15 @@ public:
         , m_calls(std::move(calls))
     {
     }
-    bool tryResolve(DeviceInfo &, const std::string &) override
+    bool tryResolve(DeviceInfo &info, const std::string &) override
     {
         ++*m_calls;
-        return *m_outcome == Outcome::Resolve;
+        if (*m_outcome != Outcome::Resolve) {
+            return false;
+        }
+        // As a real resolver does: a resolution without a valid device uuid is not accepted.
+        info.uuid = "e3ab30f6-d3e1-4413-a059-74b57a7cb412";
+        return true;
     }
     bool shouldRetryLater() const override { return *m_outcome == Outcome::Defer; }
     SignerCallback createSigner() const override { return {}; }
@@ -134,7 +139,8 @@ TEST_CASE("Key resolution falls through a resolver that has simply failed", "[ta
     CHECK(NetTestAccess::resolveKeys(net, TIMESTAMP) == KeyResolution::Failed);
     CHECK(*chain.firstCalls == 1);
     CHECK(*chain.secondCalls == 1);
-    CHECK(NetTestAccess::keyResolverCount(net) == 0);
+    // Kept as well, so the slow re-check can pick up a key that appears later.
+    CHECK(NetTestAccess::keyResolverCount(net) == 2);
 }
 
 // The test Net's worker never starts (its DeviceInfo does not validate), so a retry timer armed
