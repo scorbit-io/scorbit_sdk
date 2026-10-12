@@ -457,6 +457,8 @@ TEST_CASE("TappadLock: refuses an existing lock file that is not mode 0666 and l
     const std::string path = dir.file("scorbit-tappad.lock");
     touch(path, 0600);
     const std::string fallback = tappad_lock_test::privateLockPath();
+    // Not empty, so it cannot pass for another process's mid-creation file, which is waited for.
+    std::ofstream(path, std::ios::app) << 'x';
 
     {
         const PathOverride paths {path, fallback};
@@ -690,6 +692,62 @@ TEST_CASE("TappadLock: refuses lock files with extra mode bits", "[tappad_lock]"
     }
     CHECK(modeOf(wide) == 0777);
     CHECK(modeOf(setuid) == 04666);
+}
+
+TEST_CASE("TappadLock: waits for a lock file another process has just created", "[tappad_lock]")
+{
+    // The creator's O_CREAT leaves it at the umask's mode until its fchmod(). Refusing it then
+    // would let this process leave the path out while the creator locks it.
+    const ScratchDir dir {"scorbit-tappad-creating"};
+    const std::string path = dir.file("scorbit-tappad.lock");
+    const std::string fallback = tappad_lock_test::privateLockPath();
+    const PathOverride paths {path, fallback};
+    touch(path, 0644);
+    CHECK(TappadLock {50}.status() == TappadLock::BUSY);
+
+    std::thread creator([&] {
+        std::this_thread::sleep_for(100ms);
+        ::chmod(path.c_str(), 0666);
+    });
+    {
+        const TappadLock hold {2000};
+        REQUIRE(hold.ok());
+        CHECK(hal_tappad_lock_file_count() == 2);
+        CHECK(flockHeldElsewhere(path));
+    }
+    creator.join();
+}
+
+TEST_CASE("TappadLock: drops a kept lock file that was chmod'ed or hard-linked since",
+          "[tappad_lock]")
+{
+    // Newly opening processes refuse it, so a holder that kept locking it would split the lock.
+    const ScratchDir dir {"scorbit-tappad-revalidate"};
+    const std::string path = dir.file("scorbit-tappad.lock");
+    const std::string fallback = tappad_lock_test::privateLockPath();
+
+    const PathOverride paths {path, fallback};
+    const auto heldCount = [] {
+        const TappadLock hold;
+        REQUIRE(hold.ok());
+        return hal_tappad_lock_file_count();
+    };
+    CHECK(heldCount() == 2);
+
+    SECTION("chmod'ed")
+    {
+        REQUIRE(::chmod(path.c_str(), 0777) == 0);
+    }
+    SECTION("hard-linked")
+    {
+        fs::create_hard_link(path, dir.file("extra-link"));
+    }
+    const TappadLock hold;
+    REQUIRE(hold.ok());
+    CHECK(hal_tappad_lock_file_count() == 1);
+    REQUIRE(hal_tappad_lock_path() != nullptr);
+    CHECK(std::string(hal_tappad_lock_path()) == fallback);
+    CHECK_FALSE(flockHeldElsewhere(path));
 }
 
 #    if defined(ATCA_TAPPAD_LOCK_ENV_OVERRIDE)

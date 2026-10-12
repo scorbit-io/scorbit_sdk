@@ -136,7 +136,7 @@ See README-tappad-lock.md next to this file.
  #ifdef __COVERITY__
 --- /dev/null
 +++ b/lib/hal/hal_tappad_lock.c
-@@ -0,0 +1,645 @@
+@@ -0,0 +1,693 @@
 +/**
 + * \file
 + * \brief Cross-process lock serialising access to a tap pad's secure element.
@@ -195,11 +195,13 @@ See README-tappad-lock.md next to this file.
 +    char  path[TAPPAD_LOCK_PATH_SIZE];
 +} tappad_file_t;
 +
-+/* g_mutex is held by the thread whose outermost hold is active; it also guards
-+   every field below except t_depth, which is per thread. A plain mutex plus a
-+   per-thread depth behaves as a recursive mutex but can be reset after fork. */
++/* g_held is set by the thread whose outermost hold is active; it also guards
++   every field below except t_depth, which is per thread. It is an atomic flag
++   rather than a pthread mutex because it is only ever try-locked, and a fork
++   child can reset a flag with a plain store, where re-initialising a mutex
++   another thread may hold is undefined behaviour. */
 +static pthread_once_t  g_once = PTHREAD_ONCE_INIT;
-+static pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
++static int             g_held = 0;
 +static __thread int    t_depth = 0;
 +static tappad_file_t   g_files[TAPPAD_LOCK_MAX_PATHS];
 +static size_t          g_order[TAPPAD_LOCK_MAX_PATHS];   /* slots in lock order */
@@ -224,6 +226,18 @@ See README-tappad-lock.md next to this file.
 +    }
 +#endif
 +    return flock(fd, operation);
++}
++
++static bool tappad_flag_try(void)
++{
++    int expected = 0;
++
++    return __atomic_compare_exchange_n(&g_held, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
++}
++
++static void tappad_flag_release(void)
++{
++    __atomic_store_n(&g_held, 0, __ATOMIC_RELEASE);
 +}
 +
 +static void tappad_close_file(size_t i)
@@ -262,14 +276,12 @@ See README-tappad-lock.md next to this file.
 +
 +static void tappad_after_fork_child(void)
 +{
-+    /* Re-initialising a mutex another (now nonexistent) thread may have held is
-+       undefined behaviour by the letter of POSIX, but it is the only way to get
-+       a usable mutex back in the child, and is what glibc and macOS support in
-+       practice. Only the forking thread survives, and it holds nothing here.
-+       There are no prepare/parent handlers, so a fork() racing another thread's
-+       acquire may copy half-updated state; the child discards all of it here,
-+       so that race is accepted too. */
-+    (void)pthread_mutex_init(&g_mutex, NULL);
++    /* Only the forking thread survives, and it holds nothing here, so the flag
++       another (now nonexistent) thread may have set is simply cleared. Every
++       call here is async-signal-safe. There are no prepare/parent handlers, so
++       a fork() racing another thread's acquire may copy half-updated state; the
++       child discards all of it here. */
++    __atomic_store_n(&g_held, 0, __ATOMIC_RELAXED);
 +    t_depth = 0;
 +    tappad_close_all();
 +    g_hold_is_sequence = false;
@@ -359,12 +371,26 @@ See README-tappad-lock.md next to this file.
 +    return S_ISREG(st->st_mode) && (1 == st->st_nlink) && (0666 == (st->st_mode & 07777));
 +}
 +
++/* What another process's O_CREAT can leave for an instant before its fchmod():
++   an empty single-link file whose mode is 0666 narrowed by a umask, changed in
++   the last second or so. Waiters treat it as busy rather than refuse it, or one
++   of them could leave the path out while the creator locks it. */
++static bool tappad_maybe_being_created(const struct stat * st)
++{
++    time_t age = time(NULL) - st->st_ctime;
++
++    return S_ISREG(st->st_mode) && (1 == st->st_nlink) && (0 == st->st_size)
++           && (0666 != (st->st_mode & 07777)) && (0 == (st->st_mode & 07777 & ~0666))
++           && (0 <= age) && (age <= 1);
++}
++
 +/* Open one candidate without following a symlink planted at it, and without
 +   blocking on a FIFO planted at it (O_NONBLOCK). Accept only a plain file with
 +   a single link and mode exactly 0666 (no setuid, setgid or sticky bits), so
 +   every process, whatever its uid, accepts and refuses the same files. Only a
-+   file this call created is chmod'ed. */
-+static int tappad_open_path(const char * path, struct stat * st)
++   file this call created is chmod'ed. Sets *pending for a file that may still
++   be mid-creation (tappad_maybe_being_created). */
++static int tappad_open_path(const char * path, struct stat * st, bool * pending)
 +{
 +    int fd = -1;
 +    int attempt;
@@ -374,8 +400,9 @@ See README-tappad-lock.md next to this file.
 +        fd = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC, 0666);
 +        if (0 <= fd)
 +        {
-+            /* Past the umask, at once: a file left at another mode by a crash
-+               here is refused by everyone alike, and the other paths are used. */
++            /* Past the umask, at once. Others wait while it is fresh; a file
++               left at another mode by a crash here is then refused by everyone
++               alike, and the other paths are used. */
 +            (void)fchmod(fd, 0666);
 +            break;
 +        }
@@ -404,16 +431,9 @@ See README-tappad-lock.md next to this file.
 +        }
 +        return -1;
 +    }
-+    /* Another process may have created it a moment ago and not yet reached its
-+       fchmod(): look once more, briefly, before refusing a fresh file. */
-+    if (S_ISREG(st->st_mode) && (1 == st->st_nlink) && (0666 != (st->st_mode & 07777))
-+        && ((time(NULL) - st->st_ctime) <= 1))
-+    {
-+        tappad_sleep_us(1000u);
-+        (void)fstat(fd, st);
-+    }
 +    if (!tappad_acceptable(st))
 +    {
++        *pending = *pending || tappad_maybe_being_created(st);
 +        (void)close(fd);
 +        return -1;
 +    }
@@ -428,6 +448,20 @@ See README-tappad-lock.md next to this file.
 +
 +    return (0 == lstat(g_files[i].path, &st)) && (st.st_dev == g_files[i].dev)
 +           && (st.st_ino == g_files[i].ino);
++}
++
++/* Whether slot i may still be used: its path names the same file and, if it
++   holds that file open, the file has not since been chmod'ed or hard-linked
++   into one that every newly opening process would refuse. */
++static bool tappad_slot_valid(size_t i)
++{
++    struct stat st;
++
++    if (!tappad_slot_matches_path(i))
++    {
++        return false;
++    }
++    return (0 > g_files[i].fd) || ((0 == fstat(g_files[i].fd, &st)) && tappad_acceptable(&st));
 +}
 +
 +/* Whether a slot other than skip holds this inode open. */
@@ -453,12 +487,14 @@ See README-tappad-lock.md next to this file.
 +    (void)snprintf(g_files[i].path, sizeof(g_files[i].path), "%s", path);
 +}
 +
-+/* Caller holds g_mutex. Keeps every open file that is still the file its path
-+   names, drops the rest, opens every candidate that is usable now, is not a
-+   file already open through another candidate and is not marked in skip, and
-+   sorts the open files into the global lock order. */
-+static void tappad_refresh_files(const bool skip[TAPPAD_LOCK_MAX_PATHS])
++/* Caller holds g_held. Keeps every open file that is still valid
++   (tappad_slot_valid), drops the rest, opens every candidate that is usable
++   now, is not a file already open through another candidate and is not marked
++   in skip, and sorts the open files into the global lock order. Returns
++   whether a candidate may still be mid-creation, so must be waited for. */
++static bool tappad_refresh_files(const bool skip[TAPPAD_LOCK_MAX_PATHS])
 +{
++    bool pending = false;
 +    const char * paths[TAPPAD_LOCK_MAX_PATHS];
 +    size_t count = tappad_paths(paths);
 +    size_t i;
@@ -471,7 +507,7 @@ See README-tappad-lock.md next to this file.
 +            g_files[i].path[0] = '\0';
 +        }
 +        if ((0 <= g_files[i].fd)
-+            && ((i >= count) || (0 != strcmp(g_files[i].path, paths[i])) || !tappad_slot_matches_path(i)))
++            && ((i >= count) || (0 != strcmp(g_files[i].path, paths[i])) || !tappad_slot_valid(i)))
 +        {
 +            tappad_close_file(i);
 +        }
@@ -493,7 +529,7 @@ See README-tappad-lock.md next to this file.
 +            tappad_set_alias(i, paths[i], &st);
 +            continue;
 +        }
-+        fd = tappad_open_path(paths[i], &st);
++        fd = tappad_open_path(paths[i], &st, &pending);
 +        if (0 > fd)
 +        {
 +            continue;
@@ -533,6 +569,7 @@ See README-tappad-lock.md next to this file.
 +        }
 +        g_order[j] = i;
 +    }
++    return pending;
 +}
 +
 +/* flock() not supported on that file system: every process sees the same, so
@@ -542,7 +579,7 @@ See README-tappad-lock.md next to this file.
 +    return (EOPNOTSUPP == error) || (ENOSYS == error) || (EINVAL == error);
 +}
 +
-+/* Caller holds g_mutex. Locks every open file in the global order under one
++/* Caller holds g_held. Locks every open file in the global order under one
 +   deadline. Returns ATCA_SUCCESS with all of them locked, or ATCA_TAPPAD_BUSY
 +   with none locked. */
 +static ATCA_STATUS tappad_lock_files(uint64_t start, uint32_t timeout_ms)
@@ -558,7 +595,17 @@ See README-tappad-lock.md next to this file.
 +        size_t i;
 +        bool restart = false;
 +
-+        tappad_refresh_files(unsupported);
++        /* Nothing is locked yet: a file another process is still creating is
++           waited for like a held lock, never left out of the hold. */
++        if (tappad_refresh_files(unsupported))
++        {
++            if (tappad_expired(start, timeout_ms))
++            {
++                return ATCA_TAPPAD_BUSY;
++            }
++            tappad_backoff(&backoff);
++            continue;
++        }
 +
 +        for (n = 0; (n < g_order_count) && !restart; n++)
 +        {
@@ -590,11 +637,12 @@ See README-tappad-lock.md next to this file.
 +            continue;
 +        }
 +
-+        /* A file may have been unlinked or replaced while we waited, or an
-+           alias repointed; a lock on an orphaned inode would exclude nobody. */
++        /* A file may have been unlinked, replaced, chmod'ed or hard-linked
++           while we waited, or an alias repointed; a lock on a file others now
++           refuse or cannot reach would exclude nobody. */
 +        for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
 +        {
-+            if (((0 <= g_files[i].fd) || g_files[i].alias) && !tappad_slot_matches_path(i))
++            if (((0 <= g_files[i].fd) || g_files[i].alias) && !tappad_slot_valid(i))
 +            {
 +                restart = true;
 +            }
@@ -630,7 +678,7 @@ See README-tappad-lock.md next to this file.
 +       steps at boot on hosts without an RTC, and glibc's default mutex does not
 +       queue its waiters in order anyway. */
 +    start = tappad_now_us();
-+    while (0 != pthread_mutex_trylock(&g_mutex))
++    while (!tappad_flag_try())
 +    {
 +        if (tappad_expired(start, timeout_ms))
 +        {
@@ -667,7 +715,7 @@ See README-tappad-lock.md next to this file.
 +       only, rather than fail chip I/O. hal_tappad_lock_path() reports NULL. */
 +    if (ATCA_SUCCESS != tappad_lock_files(start, timeout_ms))
 +    {
-+        (void)pthread_mutex_unlock(&g_mutex);
++        tappad_flag_release();
 +        return ATCA_TAPPAD_BUSY;
 +    }
 +
@@ -701,7 +749,7 @@ See README-tappad-lock.md next to this file.
 +    g_released_us = tappad_now_us();
 +    g_last_was_sequence = g_hold_is_sequence;
 +    g_hold_is_sequence = false;
-+    (void)pthread_mutex_unlock(&g_mutex);
++    tappad_flag_release();
 +}
 +
 +int hal_tappad_lock_depth(void)
@@ -757,7 +805,7 @@ See README-tappad-lock.md next to this file.
 +    }
 +
 +    (void)pthread_once(&g_once, tappad_init_once);
-+    if ((0 < t_depth) || (0 != pthread_mutex_trylock(&g_mutex)))
++    if ((0 < t_depth) || !tappad_flag_try())
 +    {
 +        return ATCA_FUNC_FAIL;
 +    }
@@ -771,7 +819,7 @@ See README-tappad-lock.md next to this file.
 +    g_custom_paths = (0u != count);
 +    g_last_was_sequence = false;
 +
-+    (void)pthread_mutex_unlock(&g_mutex);
++    tappad_flag_release();
 +    return ATCA_SUCCESS;
 +}
 +
@@ -784,7 +832,7 @@ See README-tappad-lock.md next to this file.
 +#endif
 --- /dev/null
 +++ b/lib/hal/hal_tappad_lock.h
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,132 @@
 +/**
 + * \file
 + * \brief Cross-process lock serialising access to a tap pad's secure element.
@@ -809,13 +857,15 @@ See README-tappad-lock.md next to this file.
 + *   unlinks a lock file while it is held. A symlink, a
 + *   non-regular file (FIFO, directory...), a file with more than one link or a
 + *   file whose mode is not exactly 0666 at a path is refused, the same way
-+ *   whatever the caller's uid, and an existing file is never chmod'ed. Each
-+ *   outermost acquire reopens a file that was unlinked or replaced and picks up
-+ *   paths that have become usable. If none can be used (or flock() fails for
++ *   whatever the caller's uid, and an existing file is never chmod'ed. A file
++ *   another process may have only just created, before its chmod to 0666, is
++ *   waited for as if held, not refused. Each outermost acquire drops a file
++ *   that was unlinked, replaced, chmod'ed or hard-linked, and picks up paths
++ *   that have become usable. If none can be used (or flock() fails for
 + *   good), the lock degrades to in-process exclusion only; chip I/O is never
 + *   failed because the lock files are unavailable.
 + * - Re-entrant per thread: a thread that already holds it nests (depth count);
-+ *   other threads in the process wait on an in-process mutex, since flock()
++ *   other threads in the process wait on an in-process lock, since flock()
 + *   does not exclude threads that share one open file description.
 + * - The kit-UART HAL takes it around each transfer, and on kit-UART a receive
 + *   transfer is a single byte, so the HAL's own hold protects only individual
@@ -826,7 +876,7 @@ See README-tappad-lock.md next to this file.
 + * - fork() safe: the child drops the inherited state and opens its own file
 + *   description on first use. Only fork() is supported: a child made by a raw
 + *   clone() that skips the fork handlers gets a fresh file description, but
-+ *   inherits the in-process mutex as it was.
++ *   inherits the in-process lock as it was.
 + *
 + * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
 + * SPDX-License-Identifier: MIT

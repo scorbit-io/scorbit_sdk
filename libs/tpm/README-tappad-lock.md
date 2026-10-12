@@ -78,23 +78,31 @@ These directories are world-writable, so the file is opened defensively:
   never changed. `O_NONBLOCK` means a FIFO planted at the path cannot hang the
   open. If the file vanishes between the two opens, the create is tried once more.
 - After opening, the file must be a regular file with exactly one link and mode
-  0666. A file whose status changed in the last second and whose mode is wrong
-  is looked at once more after 1 ms, since another process may have just
-  created it and not yet run its `fchmod`. A symlink, a FIFO, a directory, a hard link or a file of any other mode
+  0666. An empty file whose mode is 0666 narrowed by a umask and whose status
+  changed in the last second or so may be another process's, created and not
+  yet `fchmod`ed: the acquire waits for it, as for a held lock, until its
+  deadline, instead of leaving the path out while the creator locks it. The
+  window lasts up to about two seconds, so an acquire with a shorter timeout
+  can report busy once; a local user who keeps re-planting such a file can keep
+  the lock busy, as one holding the real file can already.
+  Anything else that fails the check is refused at once: a symlink, a FIFO, a directory, a hard link or a file of any other mode
   at a path makes that path unusable; the others are still used. The mode must be
   exactly 0666: 0777, setuid, setgid and sticky bits are refused too.
 - The mode check makes every process accept and refuse the same files whatever
   its uid. Otherwise root would lock a 0600 file that others cannot open, and
   the lock would split. If a crash left a created file at another mode (between
-  the create and the `fchmod`), everyone skips that path alike and uses the
-  others. That path then stays unusable until the file is removed. `/run/lock` and
+  the create and the `fchmod`), everyone waits on it for up to about two
+  seconds, then skips that path alike and uses the others. That path then stays unusable until the file is removed. `/run/lock` and
   `/var/lock` are cleared at boot; the `/tmp` fallback may not be (it is not on
   hosts where `/tmp` is not a tmpfs), so a stale file there needs removing by
   hand.
 
 Each outermost acquire re-checks the files:
 
-- A file that was unlinked or replaced is reopened. The check is made again after
+- A file that was unlinked or replaced is reopened. A file kept open from an
+  earlier hold is checked again for its type, link count and mode, so one
+  chmod'ed or hard-linked since, which newly opening processes refuse, is
+  dropped here too. The check is made again after
   all the `flock()`s succeed, since a lock on an orphaned inode excludes nobody;
   on a mismatch everything is released and the acquire retries within its
   deadline.
@@ -103,8 +111,11 @@ Each outermost acquire re-checks the files:
 - A path that was skipped as an alias of another is checked again too. If it now
   names a different file, everything is released and the acquire retries.
 
-A path whose `flock()` fails with something other than `EWOULDBLOCK`/`EINTR`
-(for example `ENOLCK`) is dropped for that hold. If no path can be used, the
+A path whose `flock()` fails because the file system does not support it
+(`EOPNOTSUPP`, `ENOSYS` or `EINVAL`) is dropped for that hold, since every
+process sees the same. Any other error (`EWOULDBLOCK`, `EINTR`, `ENOLCK`,
+`ENOMEM`...) is waited on and retried, like a held lock, until the deadline;
+dropping the path then would let another process lock it alone. If no path can be used, the
 lock degrades to in-process exclusion only, and `hal_tappad_lock_path()` (the
 first file held) returns `NULL` to say so. `hal_tappad_lock_file_count()` says
 how many distinct files a hold locks. Chip I/O is never failed because the lock
@@ -131,20 +142,22 @@ ATCA_STATUS hal_tappad_lock_set_paths(const char *const *paths, size_t count); /
 
 - **Nesting is per thread.** A thread that holds the lock can take it again;
   only its outermost release drops the file lock. Other threads in the same
-  process are excluded by an in-process mutex (`flock()` alone would not exclude
+  process are excluded by an in-process lock (`flock()` alone would not exclude
   them, since they share one open file description). A hold must be released on
   the thread that took it.
-- **Bounded wait.** `timeout_ms` bounds the whole wait, in-process mutex and
+- **Bounded wait.** `timeout_ms` bounds the whole wait, in-process lock and
   file lock together. The HAL's own holds use 2000 ms.
 - **fork() safe.** A child discards inherited state (including a hold its
   parent had) and opens its own file description on first use; the fd is
-  `O_CLOEXEC`. Only `fork()` is supported, not a raw `clone()` that skips the
-  fork handlers.
+  `O_CLOEXEC`. The in-process lock is an atomic flag rather than a pthread
+  mutex, so the child can reset it with a plain store; re-initialising a mutex
+  another thread may hold is undefined behaviour. Only `fork()` is supported,
+  not a raw `clone()` that skips the fork handlers.
 
 ### Fairness
 
-Both waits poll: threads of one process `pthread_mutex_trylock()` the
-in-process mutex, and processes `flock(LOCK_NB)` the file. Both back off from 1
+Both waits poll: threads of one process try to set the in-process flag, and
+processes `flock(LOCK_NB)` the file. Both back off from 1
 to 8 ms plus up to 1 ms of jitter, so a waiter polls at least every ~9 ms. All
 timing uses `CLOCK_MONOTONIC`, so a clock step at boot (no RTC, then NTP)
 cannot stretch or cut a wait. `pthread_mutex_timedlock()` is not used: it needs
