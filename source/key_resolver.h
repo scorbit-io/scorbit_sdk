@@ -20,6 +20,7 @@
 #pragma once
 
 #include "signer_types.h"
+#include <functional>
 #include <string>
 
 namespace scorbit {
@@ -27,6 +28,13 @@ namespace scorbit {
 struct DeviceInfo;
 
 namespace detail {
+
+/// Outcome of trying the resolver chain.
+enum class KeyResolution {
+    Resolved, ///< a key was found
+    Deferred, ///< a resolver's hardware is busy; ask the chain again later
+    Failed,   ///< no resolver can provide a key
+};
 
 class IKeyResolver
 {
@@ -47,10 +55,22 @@ public:
     virtual bool tryResolve(DeviceInfo &info, const std::string &serverTimestamp) = 0;
 
     /**
+     * After tryResolve() returned false: true if this resolver could not decide yet (its
+     * hardware was busy) and should be asked again later, before any resolver after it is tried.
+     */
+    virtual bool shouldRetryLater() const { return false; }
+
+    /**
      * Create a signer callback from the resolved key material.
      * Must only be called after tryResolve() returns true.
      */
     virtual SignerCallback createSigner() const = 0;
+
+    /**
+     * Optional, alongside createSigner(): after the signer returned an empty signature, whether
+     * that was because the key's hardware was busy (not broken). Empty when it cannot be.
+     */
+    virtual std::function<bool()> createBusyCheck() const { return {}; }
 };
 
 } // namespace detail

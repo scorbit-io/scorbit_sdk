@@ -179,6 +179,11 @@ target_sources(
         source/test_list_usb_devices.cpp
         ../../libs/tpm/source/atca_retry.h
         source/test_atca_retry.cpp
+        source/tappad_lock_test_path.h
+        source/tappad_lock_test_path.cpp
+        source/test_tappad_lock.cpp
+        source/test_tappad_busy.cpp
+        source/tappad_hw_present.cpp
         ../../libs/tpm/source/tpm_identity.h
         source/test_tpm_identity.cpp
 )

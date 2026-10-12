@@ -23,27 +23,84 @@
 #include <utils/bytearray.h>
 #include <tpm/hardwaretpm.h>
 #include <tpm/tpm.h>
+#include <tpm/tappad_lock.h>
 #include <nfc/CdcTpm.h>
+
+#include <atomic>
+#include <chrono>
 
 namespace scorbit {
 namespace detail {
 
+namespace {
+
+// Discovery writes a board:device probe to every candidate tty, the TPM's included, so it holds
+// the tap pad lock like any other chip sequence. Neither caller runs inside a chip hold.
+// A chip sequence holds the lock for well under a second, so a longer wait than the per-attempt
+// default only matters when another process is stuck holding it.
+constexpr uint32_t DISCOVERY_LOCK_TIMEOUT_MS = 10000;
+
+} // namespace
+
+TpmLocation discoverTpmDeviceUnderLock()
+{
+    bool busy = false;
+    auto path = scanUnderTappadLock([] { return CdcTpm().DiscoverTpmDevice(); },
+                                    DISCOVERY_LOCK_TIMEOUT_MS, &busy);
+    if (busy) {
+        return TpmLocation::busyTapPad();
+    }
+    return path;
+}
+
+std::string scanUnderTappadLock(const std::function<std::string()> &scan, uint32_t timeoutMs,
+                                bool *busy)
+{
+    const auto start = std::chrono::steady_clock::now();
+    const TappadLock hold {timeoutMs};
+    if (busy) {
+        *busy = !hold.ok();
+    }
+    if (!hold.ok()) {
+        const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+        static std::atomic<bool> warned {false};
+        if (!warned.exchange(true)) {
+            WRN("TPM discovery: tap pad busy for {} ms, not scanning", waited.count());
+        } else {
+            DBG("TPM discovery: tap pad busy for {} ms, not scanning", waited.count());
+        }
+        return {};
+    }
+    return scan();
+}
+
 bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
 {
-    std::string tpmDevicePath;
-    {
-        CdcTpm cdcTpm;
-        tpmDevicePath = cdcTpm.DiscoverTpmDevice();
+    m_retryLater = false;
+
+    const TpmLocation located = m_discover ? m_discover() : TpmLocation {};
+    if (located.busy) {
+        // Not "no TPM": say so, so the chain does not fall through to a soft key.
+        m_retryLater = true;
+        return false;
     }
+    const std::string &tpmDevicePath = located.path;
 
     if (!tpmDevicePath.empty()) {
         INF("TPM CDC device found at {}", tpmDevicePath);
     }
 
-    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB, tpmDevicePath,
-                                             [] { return CdcTpm().DiscoverTpmDevice(); });
+    auto tpm = std::make_shared<HardwareTpm>(TpmBus::USB, tpmDevicePath, m_discover);
+    // The constructor's identity read was busy: opening again now would only wait again.
+    if (tpm->busy()) {
+        m_retryLater = true;
+        INF("NFC TPM busy, will retry");
+        return false;
+    }
     if (!tpm->hasTpm() || !tpm->isValid()) {
-        INF("NFC TPM not found or not valid");
+        m_retryLater = tpm->busy();
+        INF("NFC TPM {}", m_retryLater ? "busy, will retry" : "not found or not valid");
         tpm.reset();
         return false;
     }
@@ -54,6 +111,12 @@ bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
 
     INF("NFC TPM resolved: uuid={}, serial={}", info.uuid, info.serialNumber);
     return true;
+}
+
+std::function<bool()> NfcTpmKeyResolver::createBusyCheck() const
+{
+    auto tpm = m_tpm;
+    return [tpm] { return tpm && tpm->busy(); };
 }
 
 SignerCallback NfcTpmKeyResolver::createSigner() const
@@ -78,7 +141,10 @@ SignerCallback NfcTpmKeyResolver::createSigner() const
         utils::ByteArray digestArray(digest.data(), digest.size());
         const auto sig = tpm->signDigest(digestArray);
         if (sig.empty()) {
-            ERR("NFC TPM signing failed");
+            // A busy tap pad is deferred, not failed: only a long deferral is logged as an error.
+            if (!tpm->busy()) {
+                ERR("NFC TPM signing failed");
+            }
             return {};
         }
         return Signature(sig.begin(), sig.end());

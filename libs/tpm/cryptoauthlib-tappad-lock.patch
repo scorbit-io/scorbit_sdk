@@ -1,0 +1,974 @@
+cryptoauthlib 3.7.9: cross-process tap pad lock for the kit-UART HAL.
+
+Apply AFTER cryptoauthlib-build-fixes.patch and cryptoauthlib-libusb-cdc.patch.
+Adds lib/hal/hal_tappad_lock.{c,h} and holds the lock around every kit-UART
+transfer. A kit-UART receive transfer is a single byte, so callers MUST hold
+hal_tappad_lock() across each calib_* call and every multi-command sequence.
+See README-tappad-lock.md next to this file.
+
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -263,7 +263,9 @@
+ if(WIN32)
+ set(CRYPTOAUTH_SRC ${CRYPTOAUTH_SRC} hal/hal_windows_kit_uart.c)
+ elseif(LINUX OR APPLE)
+-set(CRYPTOAUTH_SRC ${CRYPTOAUTH_SRC} hal/hal_linux_uart_userspace.c)
++set(CRYPTOAUTH_SRC ${CRYPTOAUTH_SRC} hal/hal_linux_uart_userspace.c hal/hal_tappad_lock.c)
++set(HAL_INC ${HAL_INC} hal/hal_tappad_lock.h)
++set(USE_TAPPAD_LOCK TRUE)
+ endif()
+ endif()
+ 
+@@ -316,6 +318,9 @@
+ if(USE_CDC_LIBUSB)
+ target_compile_definitions(cryptoauth PUBLIC ATCA_HAL_KIT_UART_LIBUSB)
+ target_include_directories(cryptoauth PRIVATE ${LIBUSB_INCLUDE_DIR})
++endif()
++if(USE_TAPPAD_LOCK)
++target_compile_definitions(cryptoauth PUBLIC ATCA_HAL_TAPPAD_LOCK)
+ endif()
+ if (ATCA_TA_SUPPORT)
+ add_subdirectory(talib)
+--- a/lib/hal/hal_linux_uart_userspace.c
++++ b/lib/hal/hal_linux_uart_userspace.c
+@@ -30,6 +30,7 @@
+ #ifdef ATCA_HAL_KIT_UART_LIBUSB
+ #include "hal_linux_cdc_libusb.h"
+ #endif
++#include "hal_tappad_lock.h"
+ 
+ #include <unistd.h>
+ #include <fcntl.h>
+@@ -281,7 +282,7 @@
+  *  \param[in] cfg pointer to HAL specific configuration data that is used to initialize this HAL
+  *  \return ATCA_SUCCESS on success, otherwise an error code.
+  */
+-ATCA_STATUS hal_uart_init(ATCAIface iface, ATCAIfaceCfg *cfg)
++static ATCA_STATUS hal_uart_init_unlocked(ATCAIface iface, ATCAIfaceCfg *cfg)
+ {
+     ATCA_STATUS status = ATCA_BAD_PARAM;
+ 
+@@ -382,7 +383,7 @@
+  *
+  * \return ATCA_SUCCESS on success, otherwise an error code.
+  */
+-ATCA_STATUS hal_uart_send(ATCAIface iface, uint8_t word_address, uint8_t *txdata, int txlength)
++static ATCA_STATUS hal_uart_send_unlocked(ATCAIface iface, uint8_t word_address, uint8_t *txdata, int txlength)
+ {
+     (void)word_address;
+     ATCA_STATUS status = ATCA_BAD_PARAM;
+@@ -452,7 +453,7 @@
+  *                                As output, the number of bytes received.
+  * \return ATCA_SUCCESS on success, otherwise an error code.
+  */
+-ATCA_STATUS hal_uart_receive(ATCAIface iface, uint8_t word_address, uint8_t *rxdata, uint16_t *rxlength)
++static ATCA_STATUS hal_uart_receive_unlocked(ATCAIface iface, uint8_t word_address, uint8_t *rxdata, uint16_t *rxlength)
+ {
+     (void)word_address;
+     ATCA_STATUS status = ATCA_BAD_PARAM;
+@@ -526,7 +527,7 @@
+  * \param[in]     paramlen       Length of the parameter
+  * \return ATCA_SUCCESS on success, otherwise an error code.
+  */
+-ATCA_STATUS hal_uart_control(ATCAIface iface, uint8_t option, void* param, size_t paramlen)
++static ATCA_STATUS hal_uart_control_unlocked(ATCAIface iface, uint8_t option, void* param, size_t paramlen)
+ {
+     (void)option;
+     (void)param;
+@@ -589,6 +590,58 @@
+     }
+ 
+     return ATCA_SUCCESS;
++}
++
++/* Every access to the device holds the tap pad lock (hal_tappad_lock.h), for
++   both the native tty and the libusb CDC transport, which is only reached
++   through these entry points. A caller already holding it just nests. */
++
++ATCA_STATUS hal_uart_init(ATCAIface iface, ATCAIfaceCfg *cfg)
++{
++    ATCA_STATUS status = hal_tappad_lock(HAL_TAPPAD_LOCK_DEFAULT_TIMEOUT_MS);
++
++    if (ATCA_SUCCESS == status)
++    {
++        status = hal_uart_init_unlocked(iface, cfg);
++        hal_tappad_unlock();
++    }
++    return status;
++}
++
++ATCA_STATUS hal_uart_send(ATCAIface iface, uint8_t word_address, uint8_t *txdata, int txlength)
++{
++    ATCA_STATUS status = hal_tappad_lock(HAL_TAPPAD_LOCK_DEFAULT_TIMEOUT_MS);
++
++    if (ATCA_SUCCESS == status)
++    {
++        status = hal_uart_send_unlocked(iface, word_address, txdata, txlength);
++        hal_tappad_unlock();
++    }
++    return status;
++}
++
++ATCA_STATUS hal_uart_receive(ATCAIface iface, uint8_t word_address, uint8_t *rxdata, uint16_t *rxlength)
++{
++    ATCA_STATUS status = hal_tappad_lock(HAL_TAPPAD_LOCK_DEFAULT_TIMEOUT_MS);
++
++    if (ATCA_SUCCESS == status)
++    {
++        status = hal_uart_receive_unlocked(iface, word_address, rxdata, rxlength);
++        hal_tappad_unlock();
++    }
++    return status;
++}
++
++ATCA_STATUS hal_uart_control(ATCAIface iface, uint8_t option, void* param, size_t paramlen)
++{
++    ATCA_STATUS status = hal_tappad_lock(HAL_TAPPAD_LOCK_DEFAULT_TIMEOUT_MS);
++
++    if (ATCA_SUCCESS == status)
++    {
++        status = hal_uart_control_unlocked(iface, option, param, paramlen);
++        hal_tappad_unlock();
++    }
++    return status;
+ }
+ 
+ #ifdef __COVERITY__
+--- /dev/null
++++ b/lib/hal/hal_tappad_lock.c
+@@ -0,0 +1,700 @@
++/**
++ * \file
++ * \brief Cross-process lock serialising access to a tap pad's secure element.
++ *        See hal_tappad_lock.h for the contract.
++ *
++ * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
++ * SPDX-License-Identifier: MIT
++ */
++
++#if defined(__linux__) && !defined(_GNU_SOURCE)
++#define _GNU_SOURCE
++#endif
++
++#include "hal_tappad_lock.h"
++
++#include <errno.h>
++#include <fcntl.h>
++#include <pthread.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/file.h>
++#include <sys/stat.h>
++#include <time.h>
++#include <unistd.h>
++
++#define TAPPAD_LOCK_MAX_PATHS   (4u)
++#define TAPPAD_LOCK_PATH_SIZE   (256u)
++/* Waiters poll with exponential backoff from 1 to 8 ms plus up to 1 ms of
++   jitter, so one polls at least every ~9 ms. */
++#define TAPPAD_POLL_MIN_MS      (1u)
++#define TAPPAD_POLL_MAX_MS      (8u)
++/* After a sequence hold (hal_tappad_lock_sequence) a process leaves the lock
++   free this long before taking it again: twice any waiter's poll interval. The
++   HAL's own per-transfer holds are never spaced out. */
++#define TAPPAD_REACQUIRE_GAP_US (20000u)
++
++static const char * const g_default_paths[] = {
++    "/var/lock/scorbit-tappad.lock",
++    "/run/lock/scorbit-tappad.lock",
++    "/tmp/scorbit-tappad.lock",
++};
++
++/* One slot per candidate path, by its index in the path list. A candidate
++   that names the same file as another holds no fd of its own (flock() is per
++   open file description, so locking one inode through two fds would deadlock
++   this process against itself); it records the inode it resolved to instead,
++   so the post-acquire check can see the alias change. */
++typedef struct
++{
++    int   fd;        /* open lock file, or -1 */
++    bool  alias;     /* no fd: the path named another slot's file */
++    dev_t dev;       /* of the open file, or of the file the alias named */
++    ino_t ino;
++    char  path[TAPPAD_LOCK_PATH_SIZE];
++} tappad_file_t;
++
++/* g_held is set by the thread whose outermost hold is active; it also guards
++   every field below except t_depth, which is per thread. It is an atomic flag
++   rather than a pthread mutex because it is only ever try-locked, and a fork
++   child can reset a flag with a plain store, where re-initialising a mutex
++   another thread may hold is undefined behaviour. */
++static pthread_once_t  g_once = PTHREAD_ONCE_INIT;
++static int             g_held = 0;
++static __thread int    t_depth = 0;
++static tappad_file_t   g_files[TAPPAD_LOCK_MAX_PATHS];
++static size_t          g_order[TAPPAD_LOCK_MAX_PATHS];   /* slots in lock order */
++static size_t          g_order_count = 0;
++static pid_t           g_pid = 0;
++static bool            g_hold_is_sequence = false;
++static bool            g_last_was_sequence = false;
++static uint64_t        g_released_us = 0;
++static char            g_paths[TAPPAD_LOCK_MAX_PATHS][TAPPAD_LOCK_PATH_SIZE];
++static size_t          g_path_count = 0;
++static bool            g_custom_paths = false;
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++static int (*g_flock_hook)(int fd, int operation) = NULL;
++#endif
++
++static int tappad_flock(int fd, int operation)
++{
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_flock_hook)
++    {
++        return g_flock_hook(fd, operation);
++    }
++#endif
++    return flock(fd, operation);
++}
++
++static bool tappad_flag_try(void)
++{
++    int expected = 0;
++
++    return __atomic_compare_exchange_n(&g_held, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
++}
++
++static void tappad_flag_release(void)
++{
++    __atomic_store_n(&g_held, 0, __ATOMIC_RELEASE);
++}
++
++static void tappad_close_file(size_t i)
++{
++    /* Closing an inherited fd does not release a flock the parent holds: the
++       parent still references the same open file description. */
++    if (0 <= g_files[i].fd)
++    {
++        (void)close(g_files[i].fd);
++    }
++    g_files[i].fd = -1;
++    g_files[i].alias = false;
++    g_files[i].path[0] = '\0';
++}
++
++static void tappad_close_all(void)
++{
++    size_t i;
++
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        tappad_close_file(i);
++    }
++    g_order_count = 0;
++}
++
++/* Release the first n locks of g_order, last taken first. */
++static void tappad_unlock_files(size_t n)
++{
++    while (0u < n)
++    {
++        n--;
++        (void)tappad_flock(g_files[g_order[n]].fd, LOCK_UN);
++    }
++}
++
++static void tappad_after_fork_child(void)
++{
++    /* Only the forking thread survives, and it holds nothing here, so the flag
++       another (now nonexistent) thread may have set is simply cleared. Every
++       call here is async-signal-safe. There are no prepare/parent handlers, so
++       a fork() racing another thread's acquire may copy half-updated state; the
++       child discards all of it here. */
++    __atomic_store_n(&g_held, 0, __ATOMIC_RELAXED);
++    t_depth = 0;
++    tappad_close_all();
++    g_hold_is_sequence = false;
++    g_last_was_sequence = false;
++    g_pid = getpid();
++}
++
++static void tappad_init_once(void)
++{
++    size_t i;
++
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        g_files[i].fd = -1;
++        g_files[i].alias = false;
++        g_files[i].path[0] = '\0';
++    }
++    g_pid = getpid();
++    (void)pthread_atfork(NULL, NULL, tappad_after_fork_child);
++}
++
++/* Monotonic: never stepped by NTP or an RTC-less boot setting the clock. */
++static uint64_t tappad_now_us(void)
++{
++    struct timespec ts;
++
++    (void)clock_gettime(CLOCK_MONOTONIC, &ts);
++    return ((uint64_t)ts.tv_sec * 1000000u) + ((uint64_t)ts.tv_nsec / 1000u);
++}
++
++static void tappad_sleep_us(uint64_t us)
++{
++    struct timespec ts;
++
++    ts.tv_sec = (time_t)(us / 1000000u);
++    ts.tv_nsec = (long)(us % 1000000u) * 1000L;
++    (void)nanosleep(&ts, NULL);
++}
++
++/* Sleep for the current backoff plus up to 1 ms of jitter, then grow it. */
++static void tappad_backoff(uint32_t * backoff_ms)
++{
++    tappad_sleep_us(((uint64_t)*backoff_ms * 1000u) + (tappad_now_us() % 1000u));
++    *backoff_ms = (*backoff_ms * 2u > TAPPAD_POLL_MAX_MS) ? TAPPAD_POLL_MAX_MS : (*backoff_ms * 2u);
++}
++
++static bool tappad_expired(uint64_t start_us, uint32_t timeout_ms)
++{
++    return (tappad_now_us() - start_us) >= ((uint64_t)timeout_ms * 1000u);
++}
++
++/* The candidate lock-file paths, in their fixed order. */
++static size_t tappad_paths(const char * out[TAPPAD_LOCK_MAX_PATHS])
++{
++    size_t i;
++
++    if (g_custom_paths)
++    {
++        for (i = 0; i < g_path_count; i++)
++        {
++            out[i] = g_paths[i];
++        }
++        return g_path_count;
++    }
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    /* Test builds only (never set for a release build): lets a test harness
++       keep every process it starts off the real lock file. */
++    {
++        const char * env_path = getenv("ATCA_TAPPAD_LOCK_PATH");
++
++        if ((NULL != env_path) && ('\0' != env_path[0]))
++        {
++            out[0] = env_path;
++            return 1;
++        }
++    }
++#endif
++    for (i = 0; i < (sizeof(g_default_paths) / sizeof(g_default_paths[0])); i++)
++    {
++        out[i] = g_default_paths[i];
++    }
++    return i;
++}
++
++static bool tappad_acceptable(const struct stat * st)
++{
++    return S_ISREG(st->st_mode) && (1 == st->st_nlink) && (0666 == (st->st_mode & 07777));
++}
++
++/* What another process's O_CREAT can leave for an instant before its fchmod():
++   an empty single-link file whose mode is 0666 narrowed by a umask, changed in
++   the last second or so. Waiters treat it as busy rather than refuse it, or one
++   of them could leave the path out while the creator locks it. */
++static bool tappad_maybe_being_created(const struct stat * st)
++{
++    time_t age = time(NULL) - st->st_ctime;
++
++    return S_ISREG(st->st_mode) && (1 == st->st_nlink) && (0 == st->st_size)
++           && (0666 != (st->st_mode & 07777)) && (0 == (st->st_mode & 07777 & ~0666))
++           && (0 <= age) && (age <= 1);
++}
++
++/* Open one candidate without following a symlink planted at it, and without
++   blocking on a FIFO planted at it (O_NONBLOCK). Accept only a plain file with
++   a single link and mode exactly 0666 (no setuid, setgid or sticky bits), so
++   every process, whatever its uid, accepts and refuses the same files. Only a
++   file this call created is chmod'ed. Sets *pending for a file that may still
++   be mid-creation (tappad_maybe_being_created). */
++static int tappad_open_path(const char * path, struct stat * st, bool * pending)
++{
++    int fd = -1;
++    int attempt;
++
++    for (attempt = 0; (0 > fd) && (attempt < 2); attempt++)
++    {
++        fd = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC, 0666);
++        if (0 <= fd)
++        {
++            /* Past the umask, at once. Others wait while it is fresh; a file
++               left at another mode by a crash here is then refused by everyone
++               alike, and the other paths are used. */
++            (void)fchmod(fd, 0666);
++            break;
++        }
++        if (EEXIST != errno)
++        {
++            return -1;
++        }
++        fd = open(path, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC);
++        /* Read-write refused (permissions, a read-only mount, an immutable
++           file): flock() works on a read-only fd. */
++        if ((0 > fd) && ((EACCES == errno) || (EROFS == errno) || (EPERM == errno)))
++        {
++            fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | O_CLOEXEC);
++        }
++        /* Unlinked between the two opens: create it again, once. */
++        if ((0 > fd) && (ENOENT != errno))
++        {
++            /* A creator under a umask such as 077 leaves it unreadable to
++               other users until its fchmod(): wait for it, do not refuse it.
++               lstat() so that a symlink is never taken for a fresh file. */
++            if ((EACCES == errno) && (0 == lstat(path, st)))
++            {
++                *pending = *pending || tappad_maybe_being_created(st);
++            }
++            return -1;
++        }
++    }
++    if ((0 > fd) || (0 != fstat(fd, st)))
++    {
++        if (0 <= fd)
++        {
++            (void)close(fd);
++        }
++        return -1;
++    }
++    if (!tappad_acceptable(st))
++    {
++        *pending = *pending || tappad_maybe_being_created(st);
++        (void)close(fd);
++        return -1;
++    }
++    return fd;
++}
++
++/* Whether slot i's path still names the file it named when last opened or
++   skipped as an alias. */
++static bool tappad_slot_matches_path(size_t i)
++{
++    struct stat st;
++
++    return (0 == lstat(g_files[i].path, &st)) && (st.st_dev == g_files[i].dev)
++           && (st.st_ino == g_files[i].ino);
++}
++
++/* Whether slot i may still be used: its path names the same file and, if it
++   holds that file open, the file has not since been chmod'ed or hard-linked
++   into one that every newly opening process would refuse. */
++static bool tappad_slot_valid(size_t i)
++{
++    struct stat st;
++
++    if (!tappad_slot_matches_path(i))
++    {
++        return false;
++    }
++    return (0 > g_files[i].fd) || ((0 == fstat(g_files[i].fd, &st)) && tappad_acceptable(&st));
++}
++
++/* Whether a slot other than skip holds this inode open. */
++static bool tappad_inode_held(dev_t dev, ino_t ino, size_t skip)
++{
++    size_t i;
++
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        if ((i != skip) && (0 <= g_files[i].fd) && (g_files[i].dev == dev) && (g_files[i].ino == ino))
++        {
++            return true;
++        }
++    }
++    return false;
++}
++
++static void tappad_set_alias(size_t i, const char * path, const struct stat * st)
++{
++    g_files[i].alias = true;
++    g_files[i].dev = st->st_dev;
++    g_files[i].ino = st->st_ino;
++    (void)snprintf(g_files[i].path, sizeof(g_files[i].path), "%s", path);
++}
++
++/* Caller holds g_held. Keeps every open file that is still valid
++   (tappad_slot_valid), drops the rest, opens every candidate that is usable
++   now, is not a file already open through another candidate and is not marked
++   in skip, and sorts the open files into the global lock order. Returns
++   whether a candidate may still be mid-creation, so must be waited for. */
++static bool tappad_refresh_files(const bool skip[TAPPAD_LOCK_MAX_PATHS])
++{
++    bool pending = false;
++    const char * paths[TAPPAD_LOCK_MAX_PATHS];
++    size_t count = tappad_paths(paths);
++    size_t i;
++
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        if (g_files[i].alias)
++        {
++            g_files[i].alias = false;   /* re-derived below */
++            g_files[i].path[0] = '\0';
++        }
++        if ((0 <= g_files[i].fd)
++            && ((i >= count) || (0 != strcmp(g_files[i].path, paths[i])) || !tappad_slot_valid(i)))
++        {
++            tappad_close_file(i);
++        }
++    }
++
++    for (i = 0; i < count; i++)
++    {
++        struct stat st;
++        int fd;
++
++        if ((0 <= g_files[i].fd) || skip[i])
++        {
++            continue;
++        }
++        /* A path that names a file already open (e.g. /var/lock symlinked to
++           /run/lock) is recorded as an alias without opening it. */
++        if ((0 == lstat(paths[i], &st)) && tappad_inode_held(st.st_dev, st.st_ino, i))
++        {
++            tappad_set_alias(i, paths[i], &st);
++            continue;
++        }
++        fd = tappad_open_path(paths[i], &st, &pending);
++        if (0 > fd)
++        {
++            continue;
++        }
++        if (tappad_inode_held(st.st_dev, st.st_ino, i))
++        {
++            (void)close(fd);
++            tappad_set_alias(i, paths[i], &st);
++            continue;
++        }
++        g_files[i].fd = fd;
++        g_files[i].dev = st.st_dev;
++        g_files[i].ino = st.st_ino;
++        (void)snprintf(g_files[i].path, sizeof(g_files[i].path), "%s", paths[i]);
++    }
++
++    /* Lock order is by (device, inode), not by candidate index, so every
++       process takes the same files in the same order whatever paths it reached
++       them by: no two waiters can wait on each other. */
++    g_order_count = 0;
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        size_t j;
++
++        if (0 > g_files[i].fd)
++        {
++            continue;
++        }
++        j = g_order_count++;
++        while ((0u < j)
++               && ((g_files[g_order[j - 1u]].dev > g_files[i].dev)
++                   || ((g_files[g_order[j - 1u]].dev == g_files[i].dev)
++                       && (g_files[g_order[j - 1u]].ino > g_files[i].ino))))
++        {
++            g_order[j] = g_order[j - 1u];
++            j--;
++        }
++        g_order[j] = i;
++    }
++    return pending;
++}
++
++/* flock() not supported on that file system: every process sees the same, so
++   the path can be left out of the hold without splitting it. */
++static bool tappad_flock_unsupported(int error)
++{
++    return (EOPNOTSUPP == error) || (ENOSYS == error) || (EINVAL == error);
++}
++
++/* Caller holds g_held. Locks every open file in the global order under one
++   deadline. Returns ATCA_SUCCESS with all of them locked, or ATCA_TAPPAD_BUSY
++   with none locked. */
++static ATCA_STATUS tappad_lock_files(uint64_t start, uint32_t timeout_ms)
++{
++    uint32_t backoff = TAPPAD_POLL_MIN_MS;
++    /* Paths whose file system does not support flock(), left out of this hold
++       (and tried again on the next one). */
++    bool unsupported[TAPPAD_LOCK_MAX_PATHS] = { false };
++
++    for (;;)
++    {
++        size_t n;
++        size_t i;
++        bool restart = false;
++
++        /* Nothing is locked yet: a file another process is still creating is
++           waited for like a held lock, never left out of the hold. */
++        if (tappad_refresh_files(unsupported))
++        {
++            if (tappad_expired(start, timeout_ms))
++            {
++                return ATCA_TAPPAD_BUSY;
++            }
++            tappad_backoff(&backoff);
++            continue;
++        }
++
++        for (n = 0; (n < g_order_count) && !restart; n++)
++        {
++            size_t slot = g_order[n];
++
++            while (0 != tappad_flock(g_files[slot].fd, LOCK_EX | LOCK_NB))
++            {
++                if (tappad_flock_unsupported(errno))
++                {
++                    /* Drop this path and start over with the rest. */
++                    tappad_unlock_files(n);
++                    tappad_close_file(slot);
++                    unsupported[slot] = true;
++                    restart = true;
++                    break;
++                }
++                /* EWOULDBLOCK, EINTR and anything transient (ENOLCK, ENOMEM...):
++                   wait, as for a held lock. */
++                if (tappad_expired(start, timeout_ms))
++                {
++                    tappad_unlock_files(n);
++                    return ATCA_TAPPAD_BUSY;
++                }
++                tappad_backoff(&backoff);
++            }
++        }
++        if (restart)
++        {
++            continue;
++        }
++
++        /* A file may have been unlinked, replaced, chmod'ed or hard-linked
++           while we waited, or an alias repointed; a lock on a file others now
++           refuse or cannot reach would exclude nobody. */
++        for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++        {
++            if (((0 <= g_files[i].fd) || g_files[i].alias) && !tappad_slot_valid(i))
++            {
++                restart = true;
++            }
++        }
++        if (!restart)
++        {
++            return ATCA_SUCCESS;
++        }
++        tappad_unlock_files(g_order_count);
++        if (tappad_expired(start, timeout_ms))
++        {
++            return ATCA_TAPPAD_BUSY;
++        }
++        tappad_backoff(&backoff);
++    }
++}
++
++ATCA_STATUS hal_tappad_lock(uint32_t timeout_ms)
++{
++    uint64_t start;
++    uint32_t backoff = TAPPAD_POLL_MIN_MS;
++
++    (void)pthread_once(&g_once, tappad_init_once);
++
++    if (0 < t_depth)
++    {
++        t_depth++;
++        return ATCA_SUCCESS;
++    }
++
++    /* The in-process step polls with backoff on every platform rather than use
++       pthread_mutex_timedlock(): that needs a CLOCK_REALTIME deadline, which
++       steps at boot on hosts without an RTC, and glibc's default mutex does not
++       queue its waiters in order anyway. */
++    start = tappad_now_us();
++    while (!tappad_flag_try())
++    {
++        if (tappad_expired(start, timeout_ms))
++        {
++            return ATCA_TAPPAD_BUSY;
++        }
++        tappad_backoff(&backoff);
++    }
++
++    /* A child created without running fork handlers (e.g. raw clone). */
++    if (g_pid != getpid())
++    {
++        tappad_close_all();
++        g_pid = getpid();
++    }
++
++    /* Fairness: after a sequence hold, give other processes' pollers a window
++       before this process takes the file locks again, but never past the
++       caller's timeout. */
++    if (g_last_was_sequence)
++    {
++        uint64_t now = tappad_now_us();
++        uint64_t since = now - g_released_us;
++        uint64_t budget_us = (uint64_t)timeout_ms * 1000u;
++        uint64_t left_us = ((now - start) < budget_us) ? (budget_us - (now - start)) : 0u;
++
++        if (since < TAPPAD_REACQUIRE_GAP_US)
++        {
++            uint64_t gap_us = TAPPAD_REACQUIRE_GAP_US - since;
++            tappad_sleep_us((gap_us < left_us) ? gap_us : left_us);
++        }
++    }
++
++    /* With no usable lock file this holds no file lock: in-process exclusion
++       only, rather than fail chip I/O. hal_tappad_lock_path() reports NULL. */
++    if (ATCA_SUCCESS != tappad_lock_files(start, timeout_ms))
++    {
++        tappad_flag_release();
++        return ATCA_TAPPAD_BUSY;
++    }
++
++    g_hold_is_sequence = false;
++    t_depth = 1;
++    return ATCA_SUCCESS;
++}
++
++ATCA_STATUS hal_tappad_lock_sequence(uint32_t timeout_ms)
++{
++    ATCA_STATUS status = hal_tappad_lock(timeout_ms);
++
++    if (ATCA_SUCCESS == status)
++    {
++        g_hold_is_sequence = true;
++    }
++    return status;
++}
++
++void hal_tappad_unlock(void)
++{
++    if (0 >= t_depth)
++    {
++        return;
++    }
++    if (0 < --t_depth)
++    {
++        return;
++    }
++    tappad_unlock_files(g_order_count);
++    g_released_us = tappad_now_us();
++    g_last_was_sequence = g_hold_is_sequence;
++    g_hold_is_sequence = false;
++    tappad_flag_release();
++}
++
++int hal_tappad_lock_depth(void)
++{
++    return t_depth;
++}
++
++const char * hal_tappad_lock_path(void)
++{
++    size_t i;
++
++    (void)pthread_once(&g_once, tappad_init_once);
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        if ((0 <= g_files[i].fd) && ('\0' != g_files[i].path[0]))
++        {
++            return g_files[i].path;
++        }
++    }
++    return NULL;
++}
++
++size_t hal_tappad_lock_file_count(void)
++{
++    size_t i;
++    size_t held = 0;
++
++    (void)pthread_once(&g_once, tappad_init_once);
++    for (i = 0; i < TAPPAD_LOCK_MAX_PATHS; i++)
++    {
++        if (0 <= g_files[i].fd)
++        {
++            held++;
++        }
++    }
++    return held;
++}
++
++ATCA_STATUS hal_tappad_lock_set_paths(const char * const * paths, size_t count)
++{
++    size_t i;
++
++    if ((TAPPAD_LOCK_MAX_PATHS < count) || ((NULL == paths) && (0u != count)))
++    {
++        return ATCA_BAD_PARAM;
++    }
++    for (i = 0; i < count; i++)
++    {
++        if ((NULL == paths[i]) || (TAPPAD_LOCK_PATH_SIZE <= strlen(paths[i])))
++        {
++            return ATCA_BAD_PARAM;
++        }
++    }
++
++    (void)pthread_once(&g_once, tappad_init_once);
++    if ((0 < t_depth) || !tappad_flag_try())
++    {
++        return ATCA_FUNC_FAIL;
++    }
++
++    tappad_close_all();
++    for (i = 0; i < count; i++)
++    {
++        (void)snprintf(g_paths[i], sizeof(g_paths[i]), "%s", paths[i]);
++    }
++    g_path_count = count;
++    g_custom_paths = (0u != count);
++    g_last_was_sequence = false;
++
++    tappad_flag_release();
++    return ATCA_SUCCESS;
++}
++
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++void hal_tappad_lock_test_set_flock(int (*hook)(int fd, int operation))
++{
++    (void)pthread_once(&g_once, tappad_init_once);
++    g_flock_hook = hook;
++}
++#endif
+--- /dev/null
++++ b/lib/hal/hal_tappad_lock.h
+@@ -0,0 +1,132 @@
++/**
++ * \file
++ * \brief Cross-process lock serialising access to a tap pad's secure element.
++ *
++ * Several processes may talk to the same ATECC on a tap pad (over the kit-UART
++ * HAL, natively or through the libusb CDC transport). Every command idles the
++ * chip, and calib_* calls such as calib_sign issue several commands that rely
++ * on TempKey surviving between them, so another process's command landing in
++ * the middle corrupts the sequence. This lock is shared by every process that
++ * applies this patch.
++ *
++ * - Lock files per host, not per tty: /var/lock/scorbit-tappad.lock,
++ *   /run/lock/scorbit-tappad.lock and /tmp/scorbit-tappad.lock. A hold locks
++ *   EVERY one of them that is usable, in one global order (by device and
++ *   inode), so no two waiters can wait on each other. Paths naming the same
++ *   file (e.g. /var/lock symlinked to /run/lock) are locked once.
++ * - Guarantee and assumptions: two processes exclude each other when they
++ *   share at least one of these files and can both open and flock() it.
++ *   Sandboxed services may not share /tmp (systemd PrivateTmp), so /run/lock
++ *   (or /var/lock, its usual alias) is the path that must be common to every
++ *   user of the tap pad. Like any flock()-based lock, it assumes nobody
++ *   unlinks a lock file while it is held. A symlink, a
++ *   non-regular file (FIFO, directory...), a file with more than one link or a
++ *   file whose mode is not exactly 0666 at a path is refused, the same way
++ *   whatever the caller's uid, and an existing file is never chmod'ed. A file
++ *   another process may have only just created, before its chmod to 0666, is
++ *   waited for as if held, not refused. Each outermost acquire drops a file
++ *   that was unlinked, replaced, chmod'ed or hard-linked, and picks up paths
++ *   that have become usable. If none can be used (or flock() fails for
++ *   good), the lock degrades to in-process exclusion only; chip I/O is never
++ *   failed because the lock files are unavailable.
++ * - Re-entrant per thread: a thread that already holds it nests (depth count);
++ *   other threads in the process wait on an in-process lock, since flock()
++ *   does not exclude threads that share one open file description.
++ * - The kit-UART HAL takes it around each transfer, and on kit-UART a receive
++ *   transfer is a single byte, so the HAL's own hold protects only individual
++ *   writes and byte reads. Callers MUST hold it across each calib_* call (and
++ *   across any multi-command sequence) for it to be atomic, and should take
++ *   that hold with hal_tappad_lock_sequence().
++ * - A hold must be released on the thread that took it.
++ * - fork() safe: the child drops the inherited state and opens its own file
++ *   description on first use. Only fork() is supported: a child made by a raw
++ *   clone() that skips the fork handlers gets a fresh file description, but
++ *   inherits the in-process lock as it was.
++ *
++ * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
++ * SPDX-License-Identifier: MIT
++ */
++
++#ifndef HAL_TAPPAD_LOCK_H
++#define HAL_TAPPAD_LOCK_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include "atca_status.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** \brief Status returned when the lock could not be taken within the timeout.
++ *
++ * ATCA_TX_TIMEOUT is not returned anywhere in cryptoauthlib 3.7.9, so it
++ * unambiguously means "another holder kept the lock". It is not a chip, bus or
++ * "no device" status, and it is transient: retrying later can succeed.
++ */
++#define ATCA_TAPPAD_BUSY                    ATCA_TX_TIMEOUT
++
++/** \brief Wait used by the HAL's own per-transfer holds, in milliseconds. */
++#define HAL_TAPPAD_LOCK_DEFAULT_TIMEOUT_MS  (2000u)
++
++/** \brief Take the lock, waiting at most \p timeout_ms in total.
++ *  \return ATCA_SUCCESS, or ATCA_TAPPAD_BUSY on timeout. Every ATCA_SUCCESS
++ *          must be paired with one hal_tappad_unlock() on the same thread.
++ */
++ATCA_STATUS hal_tappad_lock(uint32_t timeout_ms);
++
++/** \brief hal_tappad_lock() for a caller-level hold around a chip sequence.
++ *
++ *  Marks the hold as a sequence, so that after it is released this process
++ *  leaves the lock free for a short gap before taking it again, letting
++ *  waiting processes in. Plain hal_tappad_lock() holds (the HAL's per-transfer
++ *  ones) are never spaced out.
++ */
++ATCA_STATUS hal_tappad_lock_sequence(uint32_t timeout_ms);
++
++/** \brief Release one level of the calling thread's hold. The cross-process
++ *         lock is released when the outermost hold is. No-op if not held.
++ */
++void hal_tappad_unlock(void);
++
++/** \brief Nesting depth of the calling thread's hold (0 when not held). */
++int hal_tappad_lock_depth(void);
++
++/** \brief The first lock file held, or NULL if none has been opened yet,
++ *         none could be, or flock() is unusable on them (in-process exclusion
++ *         only). Call it while holding the lock: other threads change the
++ *         answer only when they take the lock themselves.
++ */
++const char * hal_tappad_lock_path(void);
++
++/** \brief How many distinct lock files a hold locks (0 when in-process only).
++ *         Call it while holding the lock.
++ */
++size_t hal_tappad_lock_file_count(void);
++
++/** \brief Replace the candidate lock-file paths, locked in order. Intended for
++ *         tests, so they never touch the real path. NULL/0 restores the
++ *         defaults. Any open lock file is closed and reopened lazily.
++ *  \return ATCA_SUCCESS, ATCA_BAD_PARAM for too many or too-long paths, or
++ *          ATCA_FUNC_FAIL while any thread holds the lock.
++ *
++ *  For tests that cannot reach this function (e.g. through a shared library
++ *  that hides it), a build compiled with ATCA_TAPPAD_LOCK_ENV_OVERRIDE uses the
++ *  path in the ATCA_TAPPAD_LOCK_PATH environment variable, when set, in place
++ *  of the defaults. Release builds must not define it.
++ */
++ATCA_STATUS hal_tappad_lock_set_paths(const char * const * paths, size_t count);
++
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++/** \brief Test builds only: route every flock() call through \p hook (NULL
++ *         restores flock()), so tests can inject errors.
++ */
++void hal_tappad_lock_test_set_flock(int (*hook)(int fd, int operation));
++#endif
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* HAL_TAPPAD_LOCK_H */

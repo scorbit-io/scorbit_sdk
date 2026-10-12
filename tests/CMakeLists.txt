@@ -23,6 +23,11 @@ set(MY_CMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
 # root reports "No test configuration file found!" and exits 0 — a pass having run nothing.
 enable_testing()
 
+# Tests must never take the real tap pad lock (libs/tpm/README-tappad-lock.md). Test binaries that
+# reach cryptoauthlib only through the SDK library get this path from the environment.
+set(SCORBIT_TAPPAD_LOCK_TEST_ENV ON)
+set(SCORBIT_TAPPAD_LOCK_TEST_PATH ${CMAKE_BINARY_DIR}/scorbit-tappad-test.lock)
+
 add_subdirectory(test_detail)
 add_subdirectory(test_interface)
 if(NOT MSVC)

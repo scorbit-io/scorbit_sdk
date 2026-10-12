@@ -102,7 +102,10 @@ enable_testing()
 
 include(CTest)
 include(${Catch2_SOURCE_DIR}/extras/Catch.cmake)
-catch_discover_tests(${PROJECT_NAME})
+catch_discover_tests(
+    ${PROJECT_NAME}
+    PROPERTIES ENVIRONMENT "ATCA_TAPPAD_LOCK_PATH=${SCORBIT_TAPPAD_LOCK_TEST_PATH}"
+)
 
 # ---- code coverage ----
 

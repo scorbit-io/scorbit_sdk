@@ -106,6 +106,18 @@ struct NetTestAccess {
     /// Sets the auth status to @p from, then runs the signer-failure retry's state change.
     static bool rearmAuthAfterFailure(Net &net, AuthStatus from);
     static AuthStatus status(const Net &net);
+    static KeyResolution resolveKeys(Net &net, const std::string &serverTimestamp);
+    static size_t keyResolverCount(const Net &net);
+    /// The deferral path of an authentication attempt, without the network round trips before it.
+    static void deferAuthentication(Net &net);
+    /// What an authentication attempt does after the signer returned an empty signature.
+    static void onEmptySignature(Net &net, bool normalAuthentication);
+    static void setSignerBusyCheck(Net &net, std::function<bool()> busy);
+    static void setStatus(Net &net, AuthStatus status);
+    /// Disarms the auth retry a test armed (the test Net's worker never runs it anyway).
+    static void cancelAuthRetry(Net &net);
+    /// Records a deferral at @p now; true the one time deferrals have spanned the threshold.
+    static bool noteKeyResolutionDeferred(Net &net, std::chrono::steady_clock::time_point now);
     static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
     /// The production hardware probe result request, sent through @p transport.
@@ -376,6 +388,20 @@ private:
     void onAuthenticationFailed();
     /// AuthenticationFailed -> NotAuthenticated, so a retry is not turned away as already handled.
     bool rearmAuthAfterFailure();
+    /// Try this authentication again after the (growing) auth retry backoff. A failure reports
+    /// AuthenticationFailed meanwhile; a deferral (@p deferred) stays NotAuthenticated, since the
+    /// device is still trying.
+    void scheduleAuthRetry(bool deferred = false);
+    /// Key resolution was deferred (a key's hardware is busy): retry later, escalating once if
+    /// it stays deferred for KEY_DEFERRAL_ESCALATE_AFTER.
+    void deferAuthentication();
+    /// The signer returned no signature: defer if its hardware is busy, otherwise fail and retry.
+    void onEmptySignature(bool normalAuthentication);
+    /// Retry after a transient problem: a first authentication goes back to NotAuthenticated, a
+    /// token refresh keeps the authenticated status (the token expiry path still applies).
+    void retryAuthAfterTransientError(bool normalAuthentication);
+    bool noteKeyResolutionDeferred(std::chrono::steady_clock::time_point now);
+    void clearKeyResolutionDeferral();
 
     std::optional<std::chrono::seconds> getTimeUntilTokenExpiration() const;
 
@@ -486,10 +512,16 @@ private:
 
 private:
     bool validateDeviceInfo() const;
-    bool resolveKeys(const std::string &serverTimestamp);
+    KeyResolution resolveKeys(const std::string &serverTimestamp);
+    /// When key resolution was first deferred in the current run of deferrals. Invariant: these
+    /// two are only touched by the non-refresh authentication task, under m_authMutex.
+    std::optional<std::chrono::steady_clock::time_point> m_keyDeferredSince;
+    bool m_keyDeferralEscalated {false};
     bool reprovisionSoftKey(const std::string &serverTimestamp);
 
     SignerCallback m_signer;
+    /// From the resolver that made m_signer: whether an empty signature meant "busy". May be empty.
+    std::function<bool()> m_signerBusy;
     std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;
 
     /// A request waiting for the authentication status to allow it.

@@ -45,6 +45,28 @@ struct TpmDevice {
     bool isValid() const { return bus != TpmBus::None; }
 };
 
+/// What a locator found: the CDC node the TPM answers on now (empty if none), or that it could not
+/// look because another process held the tap pad.
+struct TpmLocation {
+    TpmLocation(std::string where = {})
+        : path(std::move(where))
+    {
+    }
+    TpmLocation(const char *where)
+        : path(where ? where : "")
+    {
+    }
+    static TpmLocation busyTapPad()
+    {
+        TpmLocation location;
+        location.busy = true;
+        return location;
+    }
+
+    std::string path;
+    bool busy {false};
+};
+
 class Tpm
 {
     struct Impl;
@@ -58,6 +80,9 @@ public:
     ~Tpm();
 
     bool ok() const;
+    /// An open or a chip call gave up because another process held the tap pad for the whole
+    /// wait. When not ok(), the chip is not missing, only busy: worth trying again later.
+    bool busy() const;
     TpmDevice device() const;
 
     ByteArray info();
@@ -88,6 +113,8 @@ public:
     bool writeData(uint16_t slot, const ByteArray &data);
 
 private:
+    /// atcaRetry on this chip, holding the tap pad lock only for a tap pad (not an I2C chip).
+    int retry(const std::function<int()> &func);
     bool accepted(Impl *p);
     bool tryI2cBus(Impl *p, uint8_t i2cBus, bool quiet = false);
     bool tryUsbBus(Impl *p, const std::string &devicePath, bool quiet = false);

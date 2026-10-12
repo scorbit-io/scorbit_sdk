@@ -31,6 +31,16 @@ using namespace scorbit::detail;
 // NfcTpmKeyResolver
 // =============================================================================
 
+namespace {
+
+// Discovery that finds nothing, so no test writes probes to the host's real ttys.
+TpmLocation noTtyScan()
+{
+    return {};
+}
+
+} // namespace
+
 #ifndef TPM_USE_HW
 
 TEST_CASE("NfcTpmKeyResolver returns false on non-HW platform", "[NfcTpmKeyResolver]")
@@ -38,13 +48,13 @@ TEST_CASE("NfcTpmKeyResolver returns false on non-HW platform", "[NfcTpmKeyResol
     DeviceInfo info;
     info.provider = "testprovider";
 
-    NfcTpmKeyResolver resolver;
+    NfcTpmKeyResolver resolver {noTtyScan};
     REQUIRE_FALSE(resolver.tryResolve(info, "1773013652"));
 }
 
 TEST_CASE("NfcTpmKeyResolver createSigner returns empty on non-HW platform", "[NfcTpmKeyResolver]")
 {
-    NfcTpmKeyResolver resolver;
+    NfcTpmKeyResolver resolver {noTtyScan};
     auto signer = resolver.createSigner();
     REQUIRE_FALSE(signer);
 }
@@ -56,7 +66,7 @@ TEST_CASE("NfcTpmKeyResolver tryResolve on HW platform", "[NfcTpmKeyResolver]")
     DeviceInfo info;
     info.provider = "testprovider";
 
-    NfcTpmKeyResolver resolver;
+    NfcTpmKeyResolver resolver {noTtyScan};
     bool resolved = resolver.tryResolve(info, "1773013652");
     if (!resolved) {
         CHECK(info.uuid.empty());
