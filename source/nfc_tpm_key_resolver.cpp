@@ -141,7 +141,10 @@ SignerCallback NfcTpmKeyResolver::createSigner() const
         utils::ByteArray digestArray(digest.data(), digest.size());
         const auto sig = tpm->signDigest(digestArray);
         if (sig.empty()) {
-            ERR("NFC TPM signing failed");
+            // A busy tap pad is deferred, not failed: only a long deferral is logged as an error.
+            if (!tpm->busy()) {
+                ERR("NFC TPM signing failed");
+            }
             return {};
         }
         return Signature(sig.begin(), sig.end());

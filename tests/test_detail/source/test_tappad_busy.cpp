@@ -291,7 +291,8 @@ TEST_CASE("An I2C TPM never waits for the tap pad lock", "[tappad_busy]")
     REQUIRE(other.held());
 
     const auto start = std::chrono::steady_clock::now();
-    const Tpm tpm {TpmDevice {TpmBus::I2C, 1, {}}};
+    // A bus that cannot exist, so no real I2C device is opened.
+    const Tpm tpm {TpmDevice {TpmBus::I2C, 99, {}}};
     CHECK_FALSE(tpm.busy());
     CHECK(std::chrono::steady_clock::now() - start < 1s);
 }

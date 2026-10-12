@@ -294,7 +294,11 @@ ByteArray Tpm::signDigest(uint16_t keyId, const ByteArray &digest)
     auto status =
             retry(std::bind(calib_sign, p->atcaDevice, keyId, digest.data(), signature.data()));
     if (status != ATCA_SUCCESS) {
-        ERR("{}: error {}", __func__, static_cast<int>(status));
+        // Busy is expected contention, already warned about by the retry; the caller escalates
+        // a long deferral itself (README-tappad-lock.md).
+        if (status != TappadLock::BUSY) {
+            ERR("{}: error {}", __func__, static_cast<int>(status));
+        }
         return ByteArray();
     }
 
