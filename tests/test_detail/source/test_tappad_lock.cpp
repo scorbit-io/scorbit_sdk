@@ -507,6 +507,9 @@ TEST_CASE("TappadLock: moves up to the preferred path once it becomes usable", "
         REQUIRE(hal_tappad_lock_path() != nullptr);
         CHECK(std::string(hal_tappad_lock_path()) == preferred);
         CHECK(flockHeldElsewhere(preferred));
+        // Both usable paths are held, not just the preferred one.
+        CHECK(hal_tappad_lock_file_count() == 2);
+        CHECK(flockHeldElsewhere(fallback));
     }
 }
 
@@ -561,6 +564,109 @@ TEST_CASE("TappadLock: lock paths cannot change while held", "[tappad_lock]")
     REQUIRE(hold.ok());
     const char *path = "/tmp/x.lock";
     CHECK(hal_tappad_lock_set_paths(&path, 1) == ATCA_FUNC_FAIL);
+}
+
+TEST_CASE(
+        "TappadLock: processes with different usable paths exclude each other through a common one",
+        "[tappad_lock]")
+{
+    // The parent can use A and B; the child only B. Each holds every path it can use, so they
+    // meet on B whichever path either would have preferred.
+    const ScratchDir dir {"scorbit-tappad-sets"};
+    const std::string a = dir.file("a.lock");
+    const std::string b = dir.file("b.lock");
+
+    const PathOverride paths {a, b};
+    const TappadLock hold;
+    REQUIRE(hold.ok());
+    CHECK(hal_tappad_lock_file_count() == 2);
+
+    ForkedChild child([b](int, int out) {
+        const char *onlyB[] = {b.c_str()};
+        hal_tappad_lock_set_paths(onlyB, 1);
+        const ATCA_STATUS status = hal_tappad_lock(50);
+        childSend(out, status == TappadLock::BUSY ? 'B' : 'L');
+        if (status == ATCA_SUCCESS) {
+            hal_tappad_unlock();
+        }
+        return 0;
+    });
+    CHECK(child.receive() == 'B');
+    CHECK(child.wait() == 0);
+}
+
+TEST_CASE("TappadLock: two paths naming one file are locked once", "[tappad_lock]")
+{
+    // As with /var/lock symlinked to /run/lock. Locking the file through two descriptors would
+    // deadlock this process against itself.
+    const ScratchDir dir {"scorbit-tappad-dedupe"};
+    const fs::path real = dir.path / "real";
+    const fs::path link = dir.path / "link";
+    fs::create_directory(real);
+    fs::create_directory_symlink(real, link);
+    const std::string viaLink = (link / "scorbit-tappad.lock").string();
+    const std::string viaReal = (real / "scorbit-tappad.lock").string();
+
+    const PathOverride paths {viaLink, viaReal};
+    for (int i = 0; i < 2; ++i) {
+        const TappadLock hold {500};
+        REQUIRE(hold.ok());
+        CHECK(hal_tappad_lock_file_count() == 1);
+        REQUIRE(hal_tappad_lock_path() != nullptr);
+        CHECK(std::string(hal_tappad_lock_path()) == viaLink);
+        CHECK(flockHeldElsewhere(viaReal));
+    }
+}
+
+TEST_CASE("TappadLock: a partial acquire that times out releases what it took", "[tappad_lock]")
+{
+    const ScratchDir dir {"scorbit-tappad-partial"};
+    const std::string first = dir.file("1.lock");
+    const std::string second = dir.file("2.lock");
+
+    ForkedChild child([second](int in, int out) {
+        const char *onlySecond[] = {second.c_str()};
+        hal_tappad_lock_set_paths(onlySecond, 1);
+        const bool locked = hal_tappad_lock(2000) == ATCA_SUCCESS;
+        childSend(out, locked ? '1' : '0');
+        (void)childReceive(in);
+        if (locked) {
+            hal_tappad_unlock();
+        }
+        return 0;
+    });
+    REQUIRE(child.receive() == '1');
+
+    {
+        const PathOverride paths {first, second};
+        CHECK(hal_tappad_lock(100) == TappadLock::BUSY);
+        CHECK(hal_tappad_lock_depth() == 0);
+        // The first path was taken and must have been let go again at once.
+        CHECK_FALSE(flockHeldElsewhere(first));
+    }
+
+    child.send('x');
+    CHECK(child.wait() == 0);
+}
+
+TEST_CASE("TappadLock: refuses lock files with extra mode bits", "[tappad_lock]")
+{
+    const ScratchDir dir {"scorbit-tappad-modebits"};
+    const std::string wide = dir.file("0777.lock");
+    const std::string setuid = dir.file("04666.lock");
+    touch(wide, 0777);
+    touch(setuid, 04666);
+    const std::string fallback = tappad_lock_test::privateLockPath();
+
+    {
+        const PathOverride paths {wide, setuid, fallback};
+        const TappadLock hold;
+        REQUIRE(hold.ok());
+        CHECK(hal_tappad_lock_file_count() == 1);
+        REQUIRE(hal_tappad_lock_path() != nullptr);
+        CHECK(std::string(hal_tappad_lock_path()) == fallback);
+    }
+    CHECK(modeOf(wide) == 0777);
 }
 
 #endif

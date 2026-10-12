@@ -23,10 +23,29 @@ macOS), and the `cryptoauth` target then carries the public compile definition
 `ATCA_HAL_TAPPAD_LOCK`. Build the library position-independent if it ends up in
 a shared object that may be `dlopen`ed: the lock uses `__thread`.
 
-## Lock file
+## Lock files
 
-`/var/lock/scorbit-tappad.lock`, else `/run/lock/scorbit-tappad.lock`, else
-`/tmp/scorbit-tappad.lock`. There is one lock per host, not one per tty.
+The candidates are `/var/lock/scorbit-tappad.lock`,
+`/run/lock/scorbit-tappad.lock` and `/tmp/scorbit-tappad.lock`, in that fixed
+order. The lock is per host, not per tty.
+
+**A hold locks every candidate that is usable, not just the first.** Processes
+can differ in which paths they can use. A directory may not exist yet early in
+boot, permissions may differ between users, or a crash may leave a stale file
+on one path. Under "first usable path", two such processes could each pick a
+different file and both believe they hold the lock. When each holds every path
+it can use, any two processes that can both use some common path exclude each
+other through it. One that can use more paths simply holds more of them.
+
+- The files are `flock()`ed one after another in the fixed candidate order,
+  under one deadline, so two holders cannot deadlock each other. If any of them
+  cannot be had in time, those already taken are released in reverse order and
+  the call returns `ATCA_TAPPAD_BUSY`.
+- Candidates that name the same file are deduplicated by device and inode, for
+  example `/var/lock` as a symlink to `/run/lock`. The file is opened and locked
+  once. `flock()` belongs to the open file description, so locking it through a
+  second descriptor would deadlock the process against itself.
+- On the outermost release every file is unlocked, last candidate first.
 
 These directories are world-writable, so the file is opened defensively:
 
@@ -39,28 +58,32 @@ These directories are world-writable, so the file is opened defensively:
   open. If the file vanishes between the two opens, the create is tried once more.
 - After opening, the file must be a regular file with exactly one link and mode
   0666. A symlink, a FIFO, a directory, a hard link or a file of any other mode
-  at a path makes that path unusable, and the next one is tried.
+  at a path makes that path unusable; the others are still used. The mode must be
+  exactly 0666: 0777, setuid, setgid and sticky bits are refused too.
 - The mode check makes every process accept and refuse the same files whatever
   its uid. Otherwise root would lock a 0600 file that others cannot open, and
   the lock would split. If a crash left a created file at another mode (between
-  the create and the `fchmod`), everyone skips that path alike and uses the next
-  one. That path then stays unusable until the file is removed. `/run/lock` and
+  the create and the `fchmod`), everyone skips that path alike and uses the
+  others. That path then stays unusable until the file is removed. `/run/lock` and
   `/var/lock` are cleared at boot; the `/tmp` fallback may not be (it is not on
   hosts where `/tmp` is not a tmpfs), so a stale file there needs removing by
   hand.
 
-Each outermost acquire re-checks the choice:
+Each outermost acquire re-checks the files:
 
-- If the open file was unlinked or replaced, it is reopened. This check is also
-  made after `flock()` succeeds, since a lock on an orphaned inode excludes
-  nobody.
-- A process that fell back to a lower path (for example `/tmp` early in boot,
-  before `/run/lock` exists) moves up once the higher one becomes usable.
+- A file that was unlinked or replaced is reopened. The check is made again after
+  all the `flock()`s succeed, since a lock on an orphaned inode excludes nobody;
+  on a mismatch everything is released and the acquire retries within its
+  deadline.
+- A path that has become usable since the last hold (for example `/run/lock`
+  once it exists after boot) is opened and locked from then on.
 
-If no path can be used, or `flock()` fails with something other than
-`EWOULDBLOCK`/`EINTR` (for example `ENOLCK`), the lock degrades to in-process
-exclusion only, and `hal_tappad_lock_path()` returns `NULL` to say so. Chip I/O
-is never failed because the lock file is unavailable.
+A path whose `flock()` fails with something other than `EWOULDBLOCK`/`EINTR`
+(for example `ENOLCK`) is dropped for that hold. If no path can be used, the
+lock degrades to in-process exclusion only, and `hal_tappad_lock_path()` (the
+first file held) returns `NULL` to say so. `hal_tappad_lock_file_count()` says
+how many distinct files a hold locks. Chip I/O is never failed because the lock
+files are unavailable.
 
 Tests keep off the real file with `hal_tappad_lock_set_paths()`. Where they can
 only reach cryptoauthlib through a library that hides that symbol, a build
@@ -73,9 +96,11 @@ builds must not.
 
 ```c
 ATCA_STATUS hal_tappad_lock(uint32_t timeout_ms);
+ATCA_STATUS hal_tappad_lock_sequence(uint32_t timeout_ms); /* caller-level holds */
 void        hal_tappad_unlock(void);
 int         hal_tappad_lock_depth(void);
-const char *hal_tappad_lock_path(void);
+const char *hal_tappad_lock_path(void);       /* first file held */
+size_t      hal_tappad_lock_file_count(void); /* distinct files held */
 ATCA_STATUS hal_tappad_lock_set_paths(const char *const *paths, size_t count); /* tests */
 ```
 
