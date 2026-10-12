@@ -90,8 +90,9 @@ if(cryptoauth_ADDED)
     if(_cryptoauth_defs AND "ATCA_HAL_TAPPAD_LOCK" IN_LIST _cryptoauth_defs)
         target_compile_definitions(cryptoauth PUBLIC SCORBIT_TAPPAD_LOCK=1)
         # Set only by tests/CMakeLists.txt, so test processes can be kept off the real lock file.
+        # PUBLIC so the tests also see the test-only hooks hal_tappad_lock.h declares under it.
         if(SCORBIT_TAPPAD_LOCK_TEST_ENV)
-            target_compile_definitions(cryptoauth PRIVATE ATCA_TAPPAD_LOCK_ENV_OVERRIDE)
+            target_compile_definitions(cryptoauth PUBLIC ATCA_TAPPAD_LOCK_ENV_OVERRIDE)
         endif()
     endif()
 endif()

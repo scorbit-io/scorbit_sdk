@@ -26,38 +26,61 @@ a shared object that may be `dlopen`ed: the lock uses `__thread`.
 ## Lock files
 
 The candidates are `/var/lock/scorbit-tappad.lock`,
-`/run/lock/scorbit-tappad.lock` and `/tmp/scorbit-tappad.lock`, in that fixed
-order. The lock is per host, not per tty.
+`/run/lock/scorbit-tappad.lock` and `/tmp/scorbit-tappad.lock`. The lock is per
+host, not per tty.
 
 **A hold locks every candidate that is usable, not just the first.** Processes
 can differ in which paths they can use. A directory may not exist yet early in
 boot, permissions may differ between users, or a crash may leave a stale file
 on one path. Under "first usable path", two such processes could each pick a
 different file and both believe they hold the lock. When each holds every path
-it can use, any two processes that can both use some common path exclude each
-other through it. One that can use more paths simply holds more of them.
+it can use, two processes that share a usable path meet on that file. One that
+can use more paths simply holds more of them.
 
-- The files are `flock()`ed one after another in the fixed candidate order,
-  under one deadline, so two holders cannot deadlock each other. If any of them
-  cannot be had in time, those already taken are released in reverse order and
-  the call returns `ATCA_TAPPAD_BUSY`.
+- The files are `flock()`ed one after another in one global order, by device
+  and inode rather than by candidate, under one deadline. Every process takes
+  any two files in the same order whatever paths it reached them by, so no two
+  waiters can each hold what the other wants. If any file cannot be had in time,
+  those already taken are released in reverse order and the call returns
+  `ATCA_TAPPAD_BUSY`.
 - Candidates that name the same file are deduplicated by device and inode, for
   example `/var/lock` as a symlink to `/run/lock`. The file is opened and locked
   once. `flock()` belongs to the open file description, so locking it through a
   second descriptor would deadlock the process against itself.
-- On the outermost release every file is unlocked, last candidate first.
+- On the outermost release every file is unlocked, in reverse order.
+- A `flock()` error that can pass (`ENOLCK`, `ENOMEM` and the like) is waited
+  out like a held lock, and ends in `ATCA_TAPPAD_BUSY` if it outlasts the
+  deadline. Only `EOPNOTSUPP`, `ENOSYS` or `EINVAL`, meaning the file system
+  does not support `flock()` at all, leaves that path out of the hold, since
+  every process sees the same there.
+
+### Guarantee and assumptions
+
+Two processes exclude each other when they share at least one of these files and
+can both open and `flock()` it. Nothing is promised between processes that share
+none:
+
+- Sandboxed services may not share `/tmp` (systemd `PrivateTmp`), so `/run/lock`
+  (or `/var/lock`, usually an alias of it) is the path that must be common to
+  every user of the tap pad. Do not rely on `/tmp` alone.
+- Like any `flock()`-based lock, it assumes nobody unlinks a lock file while it
+  is held. A replaced or unlinked file is detected and reopened, but a holder
+  and a waiter can briefly lock different inodes while that happens.
 
 These directories are world-writable, so the file is opened defensively:
 
 - It is created with `O_CREAT|O_EXCL|O_NOFOLLOW|O_NONBLOCK`, mode 0666. Only a
   file created that way is `fchmod`ed to 0666, at once, past the umask, so
   processes running as different users share it.
-- An existing file is opened with `O_NOFOLLOW|O_NONBLOCK` and no `O_CREAT`,
-  read-write, or read-only if that is refused (enough for `flock()`). Its mode is
+- An existing file is opened with `O_NOFOLLOW|O_NONBLOCK|O_NOCTTY` and no
+  `O_CREAT`, read-write, or read-only if that is refused (`EACCES`, `EROFS` on a
+  read-only mount, or `EPERM`); a read-only fd is enough for `flock()`. Its mode is
   never changed. `O_NONBLOCK` means a FIFO planted at the path cannot hang the
   open. If the file vanishes between the two opens, the create is tried once more.
 - After opening, the file must be a regular file with exactly one link and mode
-  0666. A symlink, a FIFO, a directory, a hard link or a file of any other mode
+  0666. A file whose status changed in the last second and whose mode is wrong
+  is looked at once more after 1 ms, since another process may have just
+  created it and not yet run its `fchmod`. A symlink, a FIFO, a directory, a hard link or a file of any other mode
   at a path makes that path unusable; the others are still used. The mode must be
   exactly 0666: 0777, setuid, setgid and sticky bits are refused too.
 - The mode check makes every process accept and refuse the same files whatever
@@ -77,6 +100,8 @@ Each outermost acquire re-checks the files:
   deadline.
 - A path that has become usable since the last hold (for example `/run/lock`
   once it exists after boot) is opened and locked from then on.
+- A path that was skipped as an alias of another is checked again too. If it now
+  names a different file, everything is released and the acquire retries.
 
 A path whose `flock()` fails with something other than `EWOULDBLOCK`/`EINTR`
 (for example `ENOLCK`) is dropped for that hold. If no path can be used, the

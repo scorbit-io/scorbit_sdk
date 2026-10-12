@@ -39,6 +39,8 @@
 
 #    include <fcntl.h>
 #    include <signal.h>
+#    include <sys/types.h>
+#    include <cerrno>
 #    include <sys/file.h>
 #    include <sys/stat.h>
 #    include <sys/wait.h>
@@ -121,6 +123,13 @@ void touch(const std::string &path, mode_t mode)
     REQUIRE(fd >= 0);
     ::fchmod(fd, mode);
     ::close(fd);
+}
+
+ino_t inodeOf(const std::string &path)
+{
+    struct stat st;
+    REQUIRE(::stat(path.c_str(), &st) == 0);
+    return st.st_ino;
 }
 
 mode_t modeOf(const std::string &path)
@@ -327,6 +336,10 @@ TEST_CASE("TappadLock: a child does not inherit its parent's hold", "[tappad_loc
     ForkedChild child([](int, int out) {
         // The parent holds through the inherited open file description; the child must reopen
         // and be excluded, not nest into a hold it does not have.
+        if (hal_tappad_lock_file_count() != 0) {
+            childSend(out, 'F'); // inherited the parent's files
+            return 0;
+        }
         const ATCA_STATUS status = hal_tappad_lock(50);
         childSend(out, status == TappadLock::BUSY ? 'B' : 'L');
         if (status == ATCA_SUCCESS) {
@@ -620,9 +633,15 @@ TEST_CASE("TappadLock: two paths naming one file are locked once", "[tappad_lock
 
 TEST_CASE("TappadLock: a partial acquire that times out releases what it took", "[tappad_lock]")
 {
+    // Files are locked in (device, inode) order: name them so that `first` is taken first.
     const ScratchDir dir {"scorbit-tappad-partial"};
-    const std::string first = dir.file("1.lock");
-    const std::string second = dir.file("2.lock");
+    std::string first = dir.file("1.lock");
+    std::string second = dir.file("2.lock");
+    touch(first, 0666);
+    touch(second, 0666);
+    if (inodeOf(second) < inodeOf(first)) {
+        std::swap(first, second);
+    }
 
     ForkedChild child([second](int in, int out) {
         const char *onlySecond[] = {second.c_str()};
@@ -639,9 +658,12 @@ TEST_CASE("TappadLock: a partial acquire that times out releases what it took", 
 
     {
         const PathOverride paths {first, second};
-        CHECK(hal_tappad_lock(100) == TappadLock::BUSY);
+        {
+            const TappadLock attempt {100};
+            CHECK(attempt.status() == TappadLock::BUSY);
+        }
         CHECK(hal_tappad_lock_depth() == 0);
-        // The first path was taken and must have been let go again at once.
+        // The first file was taken and must have been let go again at once.
         CHECK_FALSE(flockHeldElsewhere(first));
     }
 
@@ -667,6 +689,167 @@ TEST_CASE("TappadLock: refuses lock files with extra mode bits", "[tappad_lock]"
         CHECK(std::string(hal_tappad_lock_path()) == fallback);
     }
     CHECK(modeOf(wide) == 0777);
+    CHECK(modeOf(setuid) == 04666);
+}
+
+#    if defined(ATCA_TAPPAD_LOCK_ENV_OVERRIDE)
+TEST_CASE("TappadLock: transient flock errors wait, unsupported ones drop the path",
+          "[tappad_lock]")
+{
+    struct HookGuard {
+        ~HookGuard() { hal_tappad_lock_test_set_flock(nullptr); }
+    } guard;
+
+    // ENOLCK can pass; leaving the path out would let another process lock it alone.
+    hal_tappad_lock_test_set_flock([](int fd, int operation) {
+        if (operation & LOCK_EX) {
+            errno = ENOLCK;
+            return -1;
+        }
+        return ::flock(fd, operation);
+    });
+    CHECK(TappadLock {50}.status() == TappadLock::BUSY);
+
+    // Not supported on the file system: every process sees the same, so it is left out.
+    hal_tappad_lock_test_set_flock([](int fd, int operation) {
+        if (operation & LOCK_EX) {
+            errno = EOPNOTSUPP;
+            return -1;
+        }
+        return ::flock(fd, operation);
+    });
+    {
+        const TappadLock hold {500};
+        REQUIRE(hold.ok());
+        CHECK(hal_tappad_lock_file_count() == 0);
+        CHECK_FALSE(TappadLock::isCrossProcess());
+    }
+}
+#    endif
+
+TEST_CASE("TappadLock: processes reaching the files in different orders do not deadlock",
+          "[tappad_lock]")
+{
+    // dir0 is a symlink to dir2 and dir1 is real. The parent lists [dir0, dir1, dir2] and so
+    // meets file 2 before file 1; the child lists [dir1, dir2]. Locking in path order would let
+    // each hold one file while waiting for the other; locking by inode never does.
+    const ScratchDir dir {"scorbit-tappad-order"};
+    fs::create_directory(dir.path / "dir1");
+    fs::create_directory(dir.path / "dir2");
+    fs::create_directory_symlink(dir.path / "dir2", dir.path / "dir0");
+    const std::string p0 = (dir.path / "dir0" / "x.lock").string();
+    const std::string p1 = (dir.path / "dir1" / "x.lock").string();
+    const std::string p2 = (dir.path / "dir2" / "x.lock").string();
+    // Created in the order that makes path order and inode order disagree for the parent.
+    touch(p1, 0666);
+    touch(p2, 0666);
+
+    constexpr int ROUNDS = 40;
+    ForkedChild child([p1, p2](int, int out) {
+        const char *paths[] = {p1.c_str(), p2.c_str()};
+        hal_tappad_lock_set_paths(paths, 2);
+        int failures = 0;
+        for (int i = 0; i < ROUNDS; ++i) {
+            if (hal_tappad_lock(2000) == ATCA_SUCCESS) {
+                ::usleep(1000);
+                hal_tappad_unlock();
+            } else {
+                ++failures;
+            }
+        }
+        childSend(out, failures == 0 ? 'k' : 'f');
+        return 0;
+    });
+
+    const PathOverride paths {p0, p1, p2};
+    int failures = 0;
+    for (int i = 0; i < ROUNDS; ++i) {
+        if (hal_tappad_lock(2000) == ATCA_SUCCESS) {
+            CHECK(hal_tappad_lock_file_count() == 2);
+            ::usleep(1000);
+            hal_tappad_unlock();
+        } else {
+            ++failures;
+        }
+    }
+    CHECK(failures == 0);
+    CHECK(child.receive() == 'k');
+    CHECK(child.wait() == 0);
+}
+
+#    if defined(__APPLE__)
+TEST_CASE("TappadLock: locks a file it may only open read-only", "[tappad_lock]")
+{
+    // An immutable file refuses O_RDWR with EPERM, as a read-only mount refuses it with EROFS
+    // (that case is covered by the Linux container smoke test); flock() works on O_RDONLY.
+    const ScratchDir dir {"scorbit-tappad-readonly"};
+    const std::string path = dir.file("scorbit-tappad.lock");
+    touch(path, 0666);
+    REQUIRE(::chflags(path.c_str(), UF_IMMUTABLE) == 0);
+    struct Unflag {
+        std::string path;
+        ~Unflag() { ::chflags(path.c_str(), 0); }
+    } unflag {path};
+
+    const PathOverride paths {path};
+    const TappadLock hold;
+    REQUIRE(hold.ok());
+    CHECK(hal_tappad_lock_file_count() == 1);
+    CHECK(flockHeldElsewhere(path));
+}
+#    endif
+
+TEST_CASE("TappadLock: retries when one of several held files is replaced while waiting",
+          "[tappad_lock]")
+{
+    const ScratchDir dir {"scorbit-tappad-replace"};
+    const std::string a = dir.file("a.lock");
+    const std::string b = dir.file("b.lock");
+
+    ForkedChild child([b](int in, int out) {
+        const char *onlyB[] = {b.c_str()};
+        hal_tappad_lock_set_paths(onlyB, 1);
+        const bool locked = hal_tappad_lock(2000) == ATCA_SUCCESS;
+        childSend(out, locked ? '1' : '0');
+        (void)childReceive(in);
+        if (locked) {
+            hal_tappad_unlock();
+        }
+        return 0;
+    });
+    REQUIRE(child.receive() == '1');
+
+    const PathOverride paths {a, b};
+    std::atomic<bool> held {false};
+    std::atomic<bool> release {false};
+    std::atomic<int> count {-1};
+    std::atomic<bool> newFileLocked {false};
+    std::thread waiter([&] {
+        const TappadLock hold {3000};
+        held = hold.ok();
+        count = static_cast<int>(hal_tappad_lock_file_count());
+        newFileLocked = flockHeldElsewhere(a);
+        while (!release) {
+            std::this_thread::sleep_for(1ms);
+        }
+    });
+
+    // The waiter has opened both files and is stuck on b. Replace a under it, then let b go:
+    // the post-acquire check must see the replacement and lock the new a.
+    std::this_thread::sleep_for(100ms);
+    fs::remove(a);
+    touch(a, 0666);
+    child.send('x');
+
+    for (int i = 0; i < 3000 && count < 0; ++i) {
+        std::this_thread::sleep_for(1ms);
+    }
+    release = true;
+    waiter.join();
+    CHECK(held);
+    CHECK(count == 2);
+    CHECK(newFileLocked);
+    CHECK(child.wait() == 0);
 }
 
 #endif
