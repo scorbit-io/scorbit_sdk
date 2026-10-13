@@ -152,6 +152,8 @@ struct NetTestAccess {
         /// The Centrifugo JWT fetch that follows a successful authentication.
         std::function<std::string(const std::string &url, const std::string &authToken)>
                 centrifugoToken;
+        /// Stands in for setting the system clock (Unix seconds), so no test can move the real one.
+        std::function<bool(std::int64_t)> setSystemTime;
     };
     /// Stands in for the AuthRetry timer: @c start in place of arming it, @c stop of cancelling it.
     /// @c random, if set, replaces the retry jitter's random draw in [0, 1); 0 means no jitter.
@@ -162,6 +164,8 @@ struct NetTestAccess {
     };
 
     static void setAuthTransport(Net &net, AuthTransport transport, AuthRetryTimer timer);
+    /// What every successful REST reply does with its headers.
+    static void noteRestSuccess(Net &net, const cpr::Header &header);
     /// Holds the lock a normal authentication holds for its whole run.
     static std::unique_lock<std::mutex> holdAuthLock(Net &net);
     /// Runs the production authentication task on the calling thread.
@@ -636,6 +640,8 @@ private:
     std::atomic<int> m_authFailures {0};
     // Test seams; empty in production. Set only through NetTestAccess.
     NetTestAccess::AuthTransport m_authTransport;
+    /// Set once checkSystemTimeAccuracy() has run, whatever it decided.
+    mutable std::atomic_bool m_systemTimeChecked {false};
     NetTestAccess::AuthRetryTimer m_authRetryTimer;
     std::chrono::seconds m_scorbitronRetryBackoff;
 

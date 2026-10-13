@@ -128,6 +128,8 @@ constexpr auto MAX_BUFFER_DOWNLOAD_SIZE = 10 * 1024 * 1024; // 10 MB max size to
 constexpr auto PICTURE_BUFFER_RESERVE = 300 * 1024;         // 300 KB reserve for picture download
 
 constexpr auto MAX_SYSTEM_TIME_DRIFT_SECONDS = 20;
+/// A server Date earlier than this (2026-02-03) is not trusted as a clock reading.
+constexpr std::int64_t MIN_VIABLE_SERVER_TIME = 1770153380;
 
 /// How long a request waits for the authentication status to allow it before giving up. Long
 /// enough to ride out a slow start or a brief outage, bounded so a caller always gets an answer.
@@ -1737,6 +1739,14 @@ void Net::noteRestSuccess(const cpr::Header &header)
         return;
     }
 
+    // Corrects a wrong device clock from the first server reading that arrives by any path, not
+    // only the boot-time noop, which can fail while the network comes up (SB-5609). Before the
+    // delta below, so that a corrected clock is not reported as drifted. A reply carrying Age came
+    // from a cache, whose Date can be hours old: never set the clock from one.
+    if (serverEpoch > MIN_VIABLE_SERVER_TIME && header.find("Age") == header.end()) {
+        checkSystemTimeAccuracy(serverEpoch);
+    }
+
     const auto localEpoch = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     m_clockDeltaSeconds.store(serverEpoch - localEpoch, std::memory_order_relaxed);
     // RELEASE, paired with the acquire in the provider. These are two separate atomics and the
@@ -1946,9 +1956,12 @@ task_t Net::createAuthenticateTask()
                 noteRestSuccess(noopReply.header);
             }
 
-            if (timestampUtc > 1770153380) { // Some viable timestamp (2026-02-03)
+            if (timestampUtc > MIN_VIABLE_SERVER_TIME) {
                 timestamp = std::to_string(timestampUtc);
-                checkSystemTimeAccuracy(timestampUtc);
+                // As in noteRestSuccess(): a cached reply's Date can be hours old.
+                if (noopReply.header.find("Age") == noopReply.header.end()) {
+                    checkSystemTimeAccuracy(timestampUtc);
+                }
                 break;
             }
             std::this_thread::sleep_for(1s);
@@ -3247,6 +3260,11 @@ void NetTestAccess::setAuthTransport(Net &net, AuthTransport transport, AuthRetr
 {
     net.m_authTransport = std::move(transport);
     net.m_authRetryTimer = std::move(timer);
+}
+
+void NetTestAccess::noteRestSuccess(Net &net, const cpr::Header &header)
+{
+    net.noteRestSuccess(header);
 }
 
 std::unique_lock<std::mutex> NetTestAccess::holdAuthLock(Net &net)
@@ -4563,12 +4581,11 @@ task_t Net::createRequestFirmwaresListTask()
 }
 void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 {
-    // This function can be used only once per application lifetime
-    static bool checked {false};
-    if (checked) {
+    // At most once: the first server reading from any path decides. Atomic because REST replies
+    // land on several worker threads.
+    if (m_systemTimeChecked.exchange(true)) {
         return;
     }
-    checked = true;
 
     const auto systemTime = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     const auto delta = std::abs(systemTime - timestamp);
@@ -4578,8 +4595,9 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
             "seconds. Setting new system date time",
             timestamp, systemTime, delta);
 
-        // Set new date time
-        if (setSystemTime(timestamp)) {
+        const auto set = m_authTransport.setSystemTime ? m_authTransport.setSystemTime(timestamp)
+                                                       : setSystemTime(timestamp);
+        if (set) {
             INF("System date time set OK");
         } else {
             WRN("Couldn't set system date time");

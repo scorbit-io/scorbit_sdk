@@ -130,7 +130,10 @@ struct AuthHarness {
         NetTestAccess::setAuthTransport(
                 net,
                 {
-                        .noop = [](const cpr::Url &) { return response(200); },
+                        .noop =
+                                [this](const cpr::Url &) {
+                                    return noopReply ? noopReply() : response(200);
+                                },
                         .token =
                                 [this](const cpr::Url &, const cpr::Body &body,
                                        const cpr::Header &) {
@@ -150,6 +153,11 @@ struct AuthHarness {
                                 },
                         .centrifugoToken = [](const std::string &,
                                               const std::string &) { return std::string {}; },
+                        .setSystemTime =
+                                [this](std::int64_t epoch) {
+                                    clockSets.push_back(epoch);
+                                    return true;
+                                },
                 },
                 {
                         .start =
@@ -192,7 +200,11 @@ struct AuthHarness {
     std::string lastTokenBody;
     /// Runs inside the token POST, e.g. to make the transport throw.
     std::function<void()> beforeToken;
+    /// Replaces the server-time request's reply; unset, a 200 dated now.
+    std::function<cpr::Response()> noopReply;
     Signature signature {0x01, 0x02, 0x03};
+    /// Every system-clock change the SDK asked for, in Unix seconds; none is ever made.
+    std::vector<std::int64_t> clockSets;
 };
 
 /// A failed transient first attempt, then the endpoint recovers.
@@ -1176,5 +1188,73 @@ TEST_CASE("A Centrifugo token's refresh is timed by the server's clock, not the 
         REQUIRE(armed);
         CHECK(*armed >= 25min);
         CHECK(*armed <= 26min);
+    }
+}
+
+TEST_CASE("The first server Date from any REST reply corrects a wrong clock, once")
+{
+    // The boot-time server-time request can fail while the network comes up; the next good reply
+    // must still correct the clock (SB-5609).
+    const auto server = system_clock::now() + 2h;
+    const auto serverEpoch = duration_cast<seconds>(server.time_since_epoch()).count();
+    const auto atServer = [](system_clock::time_point at) {
+        return cpr::Header {{"Date", httpDate(at)}};
+    };
+
+    SECTION("a clock 2 h off is set to the server's time")
+    {
+        AuthHarness h;
+        NetTestAccess::noteRestSuccess(h.net, atServer(server));
+        REQUIRE(h.clockSets.size() == 1);
+        CHECK(h.clockSets.front() == serverEpoch);
+
+        NetTestAccess::noteRestSuccess(h.net, atServer(server + 1h));
+        CHECK(h.clockSets.size() == 1); // only the first reading decides
+    }
+    SECTION("an accurate clock is left alone, and that settles it")
+    {
+        AuthHarness h;
+        NetTestAccess::noteRestSuccess(h.net, atServer(system_clock::now()));
+        NetTestAccess::noteRestSuccess(h.net, atServer(server));
+        CHECK(h.clockSets.empty());
+    }
+    SECTION("a cached reply's Date is ignored and does not use up the check")
+    {
+        AuthHarness h;
+        auto cached = atServer(server - 5h);
+        cached["Age"] = "18000";
+        NetTestAccess::noteRestSuccess(h.net, cached);
+        CHECK(h.clockSets.empty());
+        NetTestAccess::noteRestSuccess(h.net, atServer(server));
+        CHECK(h.clockSets.size() == 1);
+    }
+    SECTION("an implausible Date is ignored and does not use up the check")
+    {
+        AuthHarness h;
+        NetTestAccess::noteRestSuccess(h.net, atServer(system_clock::from_time_t(1577836800)));
+        CHECK(h.clockSets.empty());
+        NetTestAccess::noteRestSuccess(h.net, atServer(server));
+        CHECK(h.clockSets.size() == 1);
+    }
+    SECTION("the server-time request before authenticating sets it too")
+    {
+        AuthHarness h;
+        h.noopReply = [&] { return response(200, {}, atServer(server)); };
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.clockSets.size() == 1);
+        CHECK(h.clockSets.front() == serverEpoch);
+    }
+    SECTION("but not from a cached reply to it")
+    {
+        AuthHarness h;
+        h.noopReply = [&] {
+            auto cached = atServer(server);
+            cached["Age"] = "18000";
+            return response(200, {}, cached);
+        };
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        CHECK(h.clockSets.empty());
     }
 }
