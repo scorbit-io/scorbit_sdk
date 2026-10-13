@@ -179,6 +179,14 @@ struct NetTestAccess {
     static int authFailures(const Net &net);
     /// Whether Net last started the heartbeat rather than stopped it.
     static bool heartbeatOn(const Net &net);
+    static void setCentrifugoToken(Net &net, std::string token);
+    static std::string cachedCentrifugoToken(const Net &net);
+    static bool centrifugoTokenFetchInFlight(const Net &net);
+    static void onCentrifugoError(Net &net, const centrifugo::Error &error);
+    static void scheduleCentrifugoTokenRefresh(Net &net, const std::string &token,
+                                               std::int64_t serverNow);
+    /// The delay the last Centrifugo token refresh was armed with, or nothing if none was.
+    static std::optional<std::chrono::seconds> centrifugoTokenRefreshArmedIn(const Net &net);
     /// The delay the last token refresh timer was armed with, or nothing if none was armed.
     static std::optional<std::chrono::seconds> tokenRefreshArmedIn(const Net &net);
     static std::optional<std::chrono::seconds>
@@ -424,7 +432,11 @@ private:
     /// Ask for a cache refresh without blocking the caller. At most one fetch is in flight.
     void refreshCentrifugoToken();
     /// Arm the next refresh from the token's own expiry, staying ahead of the client's request.
-    void scheduleCentrifugoTokenRefresh(const std::string &token);
+    /// @p serverNow is the server's time (Unix seconds) from the fetch, or 0 to use the local
+    /// clock.
+    void scheduleCentrifugoTokenRefresh(const std::string &token, std::int64_t serverNow);
+    /// The Centrifugo client reported an error; an expired token drops the cached one and fetches.
+    void onCentrifugoError(const centrifugo::Error &error);
 
     /// Arm the idle disconnect for a Centrifugo connection that a heartbeat wake just opened.
     void startCentrifugoIdleTimer();
@@ -634,6 +646,8 @@ private:
     mutable std::mutex m_cfTokenMutex;
     std::string m_cfToken;
     std::atomic_bool m_cfTokenFetchInFlight {false};
+    /// The delay the last Centrifugo token refresh was armed with; read by tests only.
+    std::optional<std::chrono::seconds> m_cfTokenRefreshDelay;
 
     std::string m_hostname;
     std::string m_cfHostname;

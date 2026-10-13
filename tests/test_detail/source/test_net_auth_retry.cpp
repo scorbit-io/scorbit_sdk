@@ -1118,3 +1118,63 @@ TEST_CASE("A token that expires while a refresh is retried stops the heartbeat")
     CHECK(h.status() == AuthStatus::NotAuthenticated);
     CHECK_FALSE(NetTestAccess::heartbeatOn(h.net));
 }
+
+TEST_CASE("Centrifugo rejecting the token as expired drops the cached one and fetches another")
+{
+    // Without this the client's reconnect asks getToken again and is handed the same expired
+    // token every time.
+    AuthHarness h;
+    NetTestAccess::setCentrifugoToken(h.net, "expired-token");
+    NetTestAccess::onCentrifugoError(
+            h.net, {make_error_code(centrifugo::ErrorType::TokenExpired), "token expired"});
+
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net).empty());
+    // The harness's Net never starts its worker (its DeviceInfo does not validate), so the posted
+    // fetch stays queued and the flag stays set.
+    CHECK(NetTestAccess::centrifugoTokenFetchInFlight(h.net));
+}
+
+TEST_CASE("Other Centrifugo errors keep the cached token")
+{
+    AuthHarness h;
+    NetTestAccess::setCentrifugoToken(h.net, "good-token");
+    NetTestAccess::onCentrifugoError(
+            h.net, {make_error_code(centrifugo::ErrorType::PermissionDenied), "permission denied"});
+
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "good-token");
+    CHECK_FALSE(NetTestAccess::centrifugoTokenFetchInFlight(h.net));
+}
+
+TEST_CASE("A Centrifugo token's refresh is timed by the server's clock, not the device's")
+{
+    // The server issues a 30 min token; the refresh is due 26 min out (3 min before the client's
+    // own request, plus a minute of headroom) however far off the device clock is.
+    const auto now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    const auto armedFor = [](std::int64_t serverNow, seconds lifeByLocalClock) {
+        AuthHarness h;
+        NetTestAccess::scheduleCentrifugoTokenRefresh(h.net, jwt(lifeByLocalClock), serverNow);
+        return NetTestAccess::centrifugoTokenRefreshArmedIn(h.net);
+    };
+
+    SECTION("a device clock 21 h behind")
+    {
+        const auto armed = armedFor(now + 21 * 3600, 21h + 30min);
+        REQUIRE(armed);
+        CHECK(*armed >= 25min);
+        CHECK(*armed <= 26min);
+    }
+    SECTION("a device clock 21 h ahead")
+    {
+        const auto armed = armedFor(now - 21 * 3600, -21h + 30min);
+        REQUIRE(armed);
+        CHECK(*armed >= 25min);
+        CHECK(*armed <= 26min);
+    }
+    SECTION("no server time: the local clock, as before")
+    {
+        const auto armed = armedFor(0, 30min);
+        REQUIRE(armed);
+        CHECK(*armed >= 25min);
+        CHECK(*armed <= 26min);
+    }
+}

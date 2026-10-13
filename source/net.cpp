@@ -285,8 +285,9 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
     return utils::ByteArray(signature).hex();
 }
 
+/// @p serverNow, when given, receives the reply's Date as Unix seconds, or 0 if it has none.
 std::string getJwtToken(const std::string &url, const std::string &authToken,
-                        const cpr::SslOptions &&sslOptions)
+                        const cpr::SslOptions &&sslOptions, std::int64_t *serverNow = nullptr)
 {
     INF("API-CF getting JWT token from: {}", url);
 
@@ -301,6 +302,12 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
         return {};
+    }
+    if (serverNow) {
+        const auto date = r.header.find(HDR_KEY_DATE);
+        *serverNow = date != r.header.end()
+                           ? std::max<std::int64_t>(0, parseHttpDateToUnixTimestamp(date->second))
+                           : 0;
     }
 
     try {
@@ -3304,6 +3311,38 @@ bool NetTestAccess::heartbeatOn(const Net &net)
     return net.m_heartbeatOn;
 }
 
+void NetTestAccess::setCentrifugoToken(Net &net, std::string token)
+{
+    std::scoped_lock lock(net.m_cfTokenMutex);
+    net.m_cfToken = std::move(token);
+}
+
+std::string NetTestAccess::cachedCentrifugoToken(const Net &net)
+{
+    return net.cachedCentrifugoToken();
+}
+
+bool NetTestAccess::centrifugoTokenFetchInFlight(const Net &net)
+{
+    return net.m_cfTokenFetchInFlight;
+}
+
+void NetTestAccess::onCentrifugoError(Net &net, const centrifugo::Error &error)
+{
+    net.onCentrifugoError(error);
+}
+
+void NetTestAccess::scheduleCentrifugoTokenRefresh(Net &net, const std::string &token,
+                                                   std::int64_t serverNow)
+{
+    net.scheduleCentrifugoTokenRefresh(token, serverNow);
+}
+
+std::optional<std::chrono::seconds> NetTestAccess::centrifugoTokenRefreshArmedIn(const Net &net)
+{
+    return net.m_cfTokenRefreshDelay;
+}
+
 std::optional<std::chrono::seconds> NetTestAccess::tokenRefreshArmedIn(const Net &net)
 {
     return net.m_tokenRefreshDelay;
@@ -3890,10 +3929,12 @@ void Net::fetchCentrifugoTokenNow()
     }
 
     std::string token;
+    std::int64_t serverNow = 0;
     if (!authToken.empty()) {
         const auto cfUrl = url(URL_SCORBITRON_CF_TOKEN).str();
-        token = m_authTransport.centrifugoToken ? m_authTransport.centrifugoToken(cfUrl, authToken)
-                                                : getJwtToken(cfUrl, authToken, sslOptions());
+        token = m_authTransport.centrifugoToken
+                      ? m_authTransport.centrifugoToken(cfUrl, authToken)
+                      : getJwtToken(cfUrl, authToken, sslOptions(), &serverNow);
     }
 
     {
@@ -3902,7 +3943,7 @@ void Net::fetchCentrifugoTokenNow()
     }
 
     if (!token.empty()) {
-        scheduleCentrifugoTokenRefresh(token);
+        scheduleCentrifugoTokenRefresh(token, serverNow);
     }
 }
 
@@ -3923,16 +3964,44 @@ void Net::refreshCentrifugoToken()
     });
 }
 
-void Net::scheduleCentrifugoTokenRefresh(const std::string &token)
+void Net::onCentrifugoError(const centrifugo::Error &error)
 {
-    const auto expiresIn = getJwtTokenTimeUntilExpiration(token);
+    ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
+
+    // The server rejected the token as expired. The client drops its copy and reconnects, asking
+    // getToken again; without dropping the cached one too it would get the same expired token
+    // back on every attempt, and live publications would stop until the late refresh (SB-5604).
+    if (error.ec == centrifugo::ErrorType::TokenExpired) {
+        {
+            std::scoped_lock lock(m_cfTokenMutex);
+            m_cfToken.clear();
+        }
+        WRN("API-CF token expired, fetching a new one");
+        refreshCentrifugoToken();
+    }
+}
+
+void Net::scheduleCentrifugoTokenRefresh(const std::string &token, std::int64_t serverNow)
+{
+    // Measured against the server's clock when the fetch returned one: a device clock that is far
+    // off would otherwise put the refresh hours before or after the token's real expiry (SB-5604).
+    std::optional<std::chrono::seconds> expiresIn;
+    if (serverNow > 0) {
+        if (const auto expiry = parseJwtExpiration(token)) {
+            expiresIn = duration_cast<seconds>(*expiry
+                                               - system_clock::time_point {seconds {serverNow}});
+        }
+    } else {
+        expiresIn = getJwtTokenTimeUntilExpiration(token);
+    }
     if (!expiresIn) {
         WRN("API-CF can't read JWT expiry, refresh will happen on the client's next request");
         return;
     }
 
-    m_worker.startTimer(Worker::Timer::CentrifugoTokenRefresh,
-                        centrifugoTokenRefreshDelay(*expiresIn),
+    const auto delay = centrifugoTokenRefreshDelay(*expiresIn);
+    m_cfTokenRefreshDelay = delay;
+    m_worker.startTimer(Worker::Timer::CentrifugoTokenRefresh, delay,
                         [this] { refreshCentrifugoToken(); });
 }
 
@@ -4002,9 +4071,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         }
     });
 
-    m_centrifugo->onError(withActiveClient([](const centrifugo::Error &error) {
-        ERR("API-CF Error: ({}, {})", error.ec.value(), error.message);
-    }));
+    m_centrifugo->onError(
+            withActiveClient([this](const centrifugo::Error &error) { onCentrifugoError(error); }));
 
     m_centrifugo->onConnecting(withActiveClient([this](centrifugo::Error const &error) {
         m_cfState = centrifugo::ConnectionState::Connecting;
