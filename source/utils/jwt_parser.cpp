@@ -61,10 +61,11 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
             bio = BIO_push(b64, bio);
             BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL); // No newline handling
 
+            // Read to the end: a payload larger than one buffer must not be cut short.
             char buffer[1024];
-            int length = BIO_read(bio, buffer, sizeof(buffer));
-            if (length > 0) {
-                result.assign(buffer, length);
+            int length = 0;
+            while ((length = BIO_read(bio, buffer, sizeof(buffer))) > 0) {
+                result.append(buffer, static_cast<std::size_t>(length));
             }
 
             BIO_free_all(bio);

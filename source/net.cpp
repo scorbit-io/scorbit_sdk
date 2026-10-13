@@ -46,10 +46,14 @@
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
 #include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <stdexcept>
 #include <ranges>
 #include <fstream>
 #include <optional>
 #include <future>
+#include <random>
 
 CMRC_DECLARE(scorbit);
 
@@ -80,6 +84,22 @@ constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 // A busy hardware key defers authentication indefinitely; this long into it, say so once.
 constexpr auto KEY_DEFERRAL_ESCALATE_AFTER = 5min;
+/// Backoff cap after a 429 or 5xx: a long outage settles to one attempt every few minutes per
+/// device rather than one a minute, so the fleet does not pile onto a struggling server.
+constexpr auto AUTH_RETRY_MAX_BACKOFF_SERVER_ERROR = 5min;
+/// Each backoff delay is drawn uniformly from [delay * (1 - this), delay].
+constexpr double AUTH_RETRY_JITTER = 0.5;
+/// The slow re-check is drawn from [interval * (1 - this), interval].
+constexpr double AUTH_RECHECK_JITTER = 0.2;
+/// A Retry-After is honoured, then spread up to this fraction later.
+constexpr double AUTH_RETRY_AFTER_JITTER = 0.25;
+/// Re-check after rejected credentials or no usable key: slow, but a server-side fix or a key
+/// that appears later still recovers the device without a restart (SB-5165).
+constexpr auto AUTH_RECHECK_AFTER_REJECTION = 15min;
+/// Cap on a token endpoint's Retry-After, so one bad header cannot park the device for days.
+constexpr auto AUTH_RETRY_AFTER_MAX = 1h;
+/// A retry that finds the authentication lock busy tries again after this long.
+constexpr auto AUTH_RETRY_BUSY_DELAY = 2s;
 
 constexpr auto SCORBITRON_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto SCORBITRON_RETRY_MAX_BACKOFF = 1min;
@@ -117,6 +137,21 @@ constexpr auto AUTH_GATE_TIMEOUT = 2min;
 constexpr auto PAIR_CODE_TIMEOUT = 2min;
 
 auto noop_task = []() { };
+
+/// When to refresh a token with @p left before it expires, or nothing for one already expired or
+/// unreadable. A token that lives no longer than the refresh margin is refreshed halfway through,
+/// not never, so the session cannot simply run out with nothing armed to renew it.
+static std::optional<std::chrono::seconds>
+tokenRefreshDelay(std::optional<std::chrono::seconds> left)
+{
+    if (!left || *left <= 0s) {
+        return std::nullopt;
+    }
+    if (*left > REFRESH_TOKEN_BEFORE_EXPIRY) {
+        return *left - REFRESH_TOKEN_BEFORE_EXPIRY;
+    }
+    return std::max<std::chrono::seconds>(*left / 2, AUTH_RETRY_INITIAL_BACKOFF);
+}
 
 /// True when @p CallbackT wants the HTTP status alongside the reply (@ref HttpStatusCallback),
 /// false for a plain @ref StringCallback.
@@ -283,11 +318,46 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
     return {};
 }
 
+/// The delay a Retry-After header asks for, in delta-seconds or HTTP-date form (RFC 9110
+/// §10.2.3). Empty when the header is absent or unreadable.
+static std::optional<seconds> retryAfterDelay(const cpr::Header &header)
+{
+    const auto it = header.find(HDR_KEY_RETRY_AFTER);
+    if (it == header.end() || it->second.empty()) {
+        return std::nullopt;
+    }
+
+    const auto &value = it->second;
+    if (std::ranges::all_of(value, [](unsigned char c) { return std::isdigit(c) != 0; })) {
+        // Saturates at the cap rather than overflowing, so any length of digits is accepted.
+        const auto max = seconds {AUTH_RETRY_AFTER_MAX}.count();
+        seconds::rep delta = 0;
+        for (const unsigned char c : value) {
+            delta = std::min<seconds::rep>(delta * 10 + (c - '0'), max);
+        }
+        return seconds {delta};
+    }
+
+    const auto retryAt = parseHttpDateToUnixTimestamp(value);
+    if (retryAt <= 0) {
+        return std::nullopt;
+    }
+
+    // Measured against the server's clock when it sent one, so a wrong device clock cannot skew it.
+    auto now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    if (const auto date = header.find(HDR_KEY_DATE); date != header.end()) {
+        if (const auto serverNow = parseHttpDateToUnixTimestamp(date->second); serverNow > 0) {
+            now = serverNow;
+        }
+    }
+    return seconds {std::max<int64_t>(retryAt - now, 0)};
+}
+
 // --------------------------------------------------------------------------------
 
 Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
     : m_keyResolvers(std::move(resolvers))
-    , m_authRetryBackoff(AUTH_RETRY_INITIAL_BACKOFF)
+    , m_authRetryBackoff(seconds {AUTH_RETRY_INITIAL_BACKOFF}.count())
     , m_scorbitronRetryBackoff(SCORBITRON_RETRY_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
@@ -340,18 +410,18 @@ KeyResolution Net::resolveKeys(const std::string &serverTimestamp)
 
     for (auto &resolver : m_keyResolvers) {
         if (resolver->tryResolve(m_deviceInfo, serverTimestamp)) {
+            // Validated before anything is committed, so a missing or bad uuid leaves no signer
+            // behind and the resolvers in place for the re-check.
+            const auto uuid = parseUuid(m_deviceInfo.uuid);
+            if (uuid.empty()) {
+                ERR("Key resolver set invalid UUID: '{}'", m_deviceInfo.uuid);
+                continue;
+            }
+            m_deviceInfo.uuid = uuid;
+
             m_signer = resolver->createSigner();
             m_signerBusy = resolver->createBusyCheck();
             m_keyResolvers.clear();
-
-            if (!m_deviceInfo.uuid.empty()) {
-                const auto originalUuid = m_deviceInfo.uuid;
-                m_deviceInfo.uuid = parseUuid(originalUuid);
-                if (m_deviceInfo.uuid.empty()) {
-                    ERR("Key resolver set invalid UUID: {}", originalUuid);
-                    return KeyResolution::Failed;
-                }
-            }
 
             clearKeyResolutionDeferral();
             INF("Key resolution succeeded, serial: {}, uuid: {}", m_deviceInfo.serialNumber,
@@ -368,8 +438,8 @@ KeyResolution Net::resolveKeys(const std::string &serverTimestamp)
         }
     }
 
+    // Resolvers are kept, so the slow re-check can pick up a key that appears later (SB-5165).
     ERR("No authentication resolver succeeded");
-    m_keyResolvers.clear();
     return KeyResolution::Failed;
 }
 
@@ -377,49 +447,27 @@ void Net::onEmptySignature(bool normalAuthentication)
 {
     if (m_signerBusy && m_signerBusy()) {
         // Busy, not broken: the same decision as a busy key at resolution (see resolveKeys()).
-        WRN("Can't sign: TPM tap pad busy, will retry in {}s", m_authRetryBackoff.count());
-        if (m_stop) {
-            return;
-        }
-        if (normalAuthentication) {
-            deferAuthentication();
-        } else {
-            retryAuthAfterTransientError(false);
-        }
+        WRN("Can't sign: TPM tap pad busy, will retry");
+        deferAuthentication(normalAuthentication);
         return;
     }
     // The signer gives up after a bounded time (SPEC-0006), so try again later: a TPM
     // that reappears must bring the device back without a restart (SB-4407).
-    ERR("Can't authenticate, signature is empty, will retry in {}s", m_authRetryBackoff.count());
-    if (!m_stop) {
-        scheduleAuthRetry();
-    }
+    ERR("Can't authenticate, signature is empty");
+    retryAuthenticationLater(AuthRetryKind::SignerFailure, !normalAuthentication);
 }
 
-void Net::retryAuthAfterTransientError(bool normalAuthentication)
-{
-    auto backoff = m_authRetryBackoff;
-    m_authRetryBackoff =
-            std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
-    m_isRefreshingToken = false;
-    if (normalAuthentication) {
-        m_status = AuthStatus::NotAuthenticated;
-    }
-    m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this] {
-        if (isAuthenticated()) {
-            m_isRefreshingToken = true;
-        }
-        authenticate();
-    });
-}
-
-void Net::deferAuthentication()
+void Net::deferAuthentication(bool normalAuthentication)
 {
     if (m_stop) {
         return;
     }
-    noteKeyResolutionDeferred(std::chrono::steady_clock::now());
-    scheduleAuthRetry(true);
+    // A busy key is transient: a first authentication waits as NotAuthenticated, a refresh keeps
+    // its session. Only a first authentication counts towards the one-time escalation.
+    if (normalAuthentication) {
+        noteKeyResolutionDeferred(std::chrono::steady_clock::now());
+    }
+    retryAuthenticationLater(AuthRetryKind::Transient, !normalAuthentication);
 }
 
 bool Net::noteKeyResolutionDeferred(std::chrono::steady_clock::time_point now)
@@ -452,11 +500,27 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
     INF("Scorbitron not found in API, clearing stale key and re-provisioning...");
 
+    // From here the signer and the saved key go away. Any exit before a replacement signer is
+    // committed -- a failure or a throw from a callback -- must leave a soft-key resolver for the
+    // next attempt to provision with; otherwise the device has no key until restarted.
+    struct RestoreResolverUnlessCommitted {
+        Net &net;
+        bool committed = false;
+        ~RestoreResolverUnlessCommitted()
+        {
+            if (!committed) {
+                net.m_keyResolvers.clear();
+                net.m_keyResolvers.push_back(std::make_unique<SoftKeyResolver>());
+            }
+        }
+    } guard {*this};
+
+    m_signer = {};
+
     // Clear the stale saved key so the next load returns empty
     m_deviceInfo.saveKeyCallback("");
 
     m_deviceInfo.hostname = m_hostname;
-    m_signer = {};
 
     SoftKeyResolver resolver;
     if (!resolver.tryResolve(m_deviceInfo, serverTimestamp)) {
@@ -464,17 +528,16 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
         return false;
     }
 
-    if (!m_deviceInfo.uuid.empty()) {
-        const auto originalUuid = m_deviceInfo.uuid;
-        m_deviceInfo.uuid = parseUuid(originalUuid);
-        if (m_deviceInfo.uuid.empty()) {
-            ERR("Re-provisioned key resolver set invalid UUID: {}", originalUuid);
-            return false;
-        }
+    const auto uuid = parseUuid(m_deviceInfo.uuid);
+    if (uuid.empty()) {
+        ERR("Re-provisioned key resolver set invalid UUID: '{}'", m_deviceInfo.uuid);
+        return false;
     }
+    m_deviceInfo.uuid = uuid;
 
     m_signer = resolver.createSigner();
     m_signerBusy = {};
+    guard.committed = true;
 
     INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
     return true;
@@ -491,7 +554,7 @@ Net::~Net()
     retireNetworkMonitor("shutdown");
 
     if (!alreadyStopping) {
-        m_heartbeat.stop();
+        stopHeartbeat();
         stopCentrifugoIdleTimer();
         stopTokenRefreshTimer();
         m_eventManager->stop();
@@ -1842,7 +1905,7 @@ void Net::uploadDiagnostics(std::vector<std::string> logPaths,
 
 task_t Net::createAuthenticateTask()
 {
-    return [this]() {
+    auto attempt = [this]() {
         const auto normalAuthentication = !m_isRefreshingToken;
         std::unique_lock lock(m_authMutex, std::defer_lock);
 
@@ -1861,7 +1924,9 @@ task_t Net::createAuthenticateTask()
         std::string timestamp;
         for (int i = 0; i < 10 && !m_stop; ++i) {
             INF("API getting noop to retrieve server time...");
-            auto noopReply = cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
+            auto noopReply = m_authTransport.noop
+                                   ? m_authTransport.noop(cpr::Url {NOOP_URL})
+                                   : cpr::Get(cpr::Url {NOOP_URL}, cpr::Timeout {NET_TIMEOUT});
             std::string output =
                     fmt::format("code: {}, reply: {}", noopReply.status_code, noopReply.text);
             output += fmt::format("\nHEADER: [Date: {}]", noopReply.header["Date"]);
@@ -1891,17 +1956,17 @@ task_t Net::createAuthenticateTask()
         // Resolve keys if we don't have a signer yet (async key resolver path).
         // Resolve keys via the resolver chain (signer, NFC TPM, soft key).
         // Done after obtaining server time so provisioning uses accurate timestamps.
-        if (!m_signer && !m_keyResolvers.empty()) {
+        // With no resolvers left and no signer there is nothing to sign with: the same failure.
+        if (!m_signer) {
             const auto resolution = resolveKeys(timestamp);
             if (resolution == KeyResolution::Deferred) {
                 // Never falls through to a weaker key (see resolveKeys()); retry with backoff.
-                deferAuthentication();
+                deferAuthentication(normalAuthentication);
                 return;
             }
             if (resolution == KeyResolution::Failed) {
-                onAuthenticationFailed();
                 ERR("API there is no functional key to authenticate");
-                notifyAuthStatusChanged();
+                retryAuthenticationLater(AuthRetryKind::Recheck, !normalAuthentication);
                 return;
             }
         }
@@ -1934,9 +1999,12 @@ task_t Net::createAuthenticateTask()
             if (!m_fingerprintHash.empty()) {
                 authHeaders[HDR_KEY_FINGERPRINT_HASH] = m_fingerprintHash;
             }
-            auto r = HttpSessionPool::instance().Post(url(URL_SCORBITRON_TOKEN),
-                                                      cpr::Body {payload}, authHeaders,
-                                                      cpr::Timeout {NET_TIMEOUT}, sslOptions());
+            auto r = m_authTransport.token
+                           ? m_authTransport.token(url(URL_SCORBITRON_TOKEN), cpr::Body {payload},
+                                                   authHeaders)
+                           : HttpSessionPool::instance().Post(
+                                   url(URL_SCORBITRON_TOKEN), cpr::Body {payload}, authHeaders,
+                                   cpr::Timeout {NET_TIMEOUT}, sslOptions());
 
             if (m_stop) {
                 onAuthenticationFailed();
@@ -1956,19 +2024,43 @@ task_t Net::createAuthenticateTask()
                 noteRestSuccess(r.header);
                 try {
                     const auto json = json::parse(r.text);
+                    const auto token = json.at(JKEY_SCORBITRON_TOKEN).get<std::string>();
+                    // A token with no future expiry would cancel the retry below and arm no
+                    // refresh, and during a refresh it would replace one that still works. Its
+                    // life is judged against the server's clock when the reply carries one, so a
+                    // device whose own clock runs ahead does not take every token for expired.
+                    const auto expiry = parseJwtExpiration(token);
+                    if (!expiry) {
+                        throw std::runtime_error("token has no readable expiry");
+                    }
+                    const auto now = parsedTimestamp > 0
+                                           ? system_clock::time_point {seconds {parsedTimestamp}}
+                                           : system_clock::now();
+                    const auto left = duration_cast<seconds>(*expiry - now);
+                    // Under the refresh floor it would expire before its first refresh.
+                    if (left <= seconds {AUTH_RETRY_INITIAL_BACKOFF}) {
+                        throw std::runtime_error("token has expired or is about to");
+                    }
                     {
                         std::unique_lock tokenLock(m_tokenMutex);
-                        json[JKEY_SCORBITRON_TOKEN].get_to(m_stoken);
+                        m_stoken = token;
+                        m_tokenDeadline = steady_clock::now() + left;
                     }
 
-                    m_authRetryBackoff = AUTH_RETRY_INITIAL_BACKOFF;
-                    startTokenRefreshTimer(); // Start/restart token refresh timer
+                    m_authRetryBackoff = seconds {AUTH_RETRY_INITIAL_BACKOFF}.count();
+                    // A retry still pending from an earlier failure would only re-authenticate.
+                    if (m_authRetryTimer.stop) {
+                        m_authRetryTimer.stop();
+                    } else {
+                        m_worker.stopTimer(Worker::Timer::AuthRetry);
+                    }
+                    startTokenRefreshTimer(left); // Start/restart token refresh timer
 
                     // Recover a heartbeat that onAuthenticationFailed() stopped. Done here rather
                     // than only in initializeConnectionState() because a failure during a token
                     // refresh leaves m_isRefreshingToken set, and the recovering attempt would
                     // then take the refresh branch below and never reach that call.
-                    m_heartbeat.start(m_deviceInfo.uuid);
+                    startHeartbeat();
 
                     // Prime the Centrifugo JWT while we are already on the blocking executor, so
                     // the connect below finds one waiting. Fetching it lazily would leave the
@@ -1988,10 +2080,9 @@ task_t Net::createAuthenticateTask()
                     }
                     break;
                 } catch (const std::exception &e) {
+                    // A garbled 200 is the server misbehaving, not a verdict on the credentials.
                     ERR("Error parsing authentication reply: {}", e.what());
-                    onAuthenticationFailed();
-                    stopTokenRefreshTimer();
-                    notifyAuthStatusChanged();
+                    retryAuthenticationLater(AuthRetryKind::Transient, !normalAuthentication);
                     return;
                 }
             } else if (r.status_code == 400) {
@@ -2007,25 +2098,166 @@ task_t Net::createAuthenticateTask()
                 if (i < 10) {
                     continue;
                 }
-            } else if (r.status_code == 0) {
-                ERR("API authentication network error: {}, will retry in {}s", r.error.message,
-                    m_authRetryBackoff.count());
-                retryAuthAfterTransientError(normalAuthentication);
-                return;
             }
 
-            onAuthenticationFailed();
-            stopTokenRefreshTimer();
-            const auto msg = fmt::format("API authentication failed: code {}, {}", r.status_code,
-                                         r.error.message);
-            ERR("{}", msg);
+            // Only a 4xx rejection of the credentials themselves (401, 403, or a 4xx not handled
+            // above) is reported as a failure and re-checked slowly. Everything else -- no reply,
+            // 400/404/408/429, 5xx, and any unexpected 1xx/2xx/3xx or out-of-range status -- is
+            // something the server or network may get over, retried on the backoff (SB-5165).
+            const auto code = r.status_code;
+            ERR("API authentication failed: code {}, {}", code, r.error.message);
             ERR("{}", r.text);
-            // TODO: Sentry
-            // SentryManager::message(msg);
-            notifyAuthStatusChanged();
-            break;
+            const auto rejected = code >= 400 && code < 500 && code != 400 && code != 404
+                               && code != 408 && code != 429;
+            if (rejected) {
+                retryAuthenticationLater(AuthRetryKind::Recheck, !normalAuthentication);
+            } else {
+                if (code == 404) {
+                    // Possibly a server mid-deploy, so not given up on, but worth attention.
+                    ERR("API authentication: device not found and could not be re-provisioned");
+                }
+                retryAuthenticationLater(AuthRetryKind::Transient, !normalAuthentication,
+                                         retryAfterDelay(r.header),
+                                         code == 429 || (code >= 500 && code < 600));
+            }
+            return;
         }
     };
+
+    // The worker does not catch, so an exception escaping here would end the host process. Treated
+    // as transient: the retry also moves a normal attempt off Authenticating.
+    return [this, attempt = std::move(attempt)]() {
+        const auto refresh = m_isRefreshingToken.load();
+        try {
+            attempt();
+        } catch (const std::exception &e) {
+            ERR("API authentication threw: {}", e.what());
+            retryAuthenticationLater(AuthRetryKind::Transient, refresh);
+        } catch (...) {
+            ERR("API authentication threw an unknown exception");
+            retryAuthenticationLater(AuthRetryKind::Transient, refresh);
+        }
+    };
+}
+
+void Net::retryAuthenticationLater(AuthRetryKind kind, bool refresh,
+                                   std::optional<std::chrono::seconds> retryAfter, bool serverError)
+{
+    m_isRefreshingToken = false;
+    if (m_stop) {
+        return;
+    }
+
+    // Jitter spreads a fleet that failed together, so it does not come back in synchronised waves
+    // when the server recovers.
+    const auto r = authRetryRandom();
+    // Rounded, not truncated: truncation would never shorten the first 2 s retry at all, leaving
+    // the largest synchronised wave unspread.
+    const auto shorten = [r](seconds d, double spread) {
+        return d
+             - seconds {static_cast<seconds::rep>(
+                     std::llround(static_cast<double>(d.count()) * spread * r))};
+    };
+
+    auto delay = shorten(seconds {AUTH_RECHECK_AFTER_REJECTION}, AUTH_RECHECK_JITTER);
+    if (kind != AuthRetryKind::Recheck) {
+        // An overloaded or failing server backs off further than a device that simply got no reply.
+        const auto cap = serverError ? seconds {AUTH_RETRY_MAX_BACKOFF_SERVER_ERROR}
+                                     : seconds {AUTH_RETRY_MAX_BACKOFF};
+        auto current = m_authRetryBackoff.load();
+        while (!m_authRetryBackoff.compare_exchange_weak(current,
+                                                         std::min(current * 2, cap.count()))) { }
+        // Clamped here too, not only in what is stored: after server errors raised the backoff, a
+        // failure of the other class must not wait longer than its own cap.
+        delay = shorten(std::min(seconds {current}, cap), AUTH_RETRY_JITTER);
+        if (retryAfter) {
+            // Never earlier than the server asked; spread later than it instead.
+            const auto asked = std::min<seconds>(*retryAfter, AUTH_RETRY_AFTER_MAX);
+            const auto spread = seconds {static_cast<seconds::rep>(
+                    static_cast<double>(asked.count()) * AUTH_RETRY_AFTER_JITTER * r)};
+            delay = std::max(delay, std::min<seconds>(asked + spread, AUTH_RETRY_AFTER_MAX));
+        }
+    }
+
+    // A refresh keeps the session it has while its token is still good, even on a rejection: an
+    // edge 403 can be transient. It must not outlive the token, though: the retry runs no later
+    // than the expiry and then falls back to a normal authentication, where a real rejection is
+    // reported.
+    if (refresh) {
+        delay = std::min(delay, std::max(0s, getTimeUntilTokenExpiration().value_or(0s)));
+    } else if (kind == AuthRetryKind::Transient) {
+        m_status = AuthStatus::NotAuthenticated;
+        notifyAuthStatusChanged();
+    } else {
+        onAuthenticationFailed();
+        stopTokenRefreshTimer();
+        notifyAuthStatusChanged();
+    }
+
+    WRN("API {} will be retried in {}s", refresh ? "token refresh" : "authentication",
+        delay.count());
+
+    armAuthRetry(kind, delay);
+}
+
+double Net::authRetryRandom() const
+{
+    if (m_authRetryTimer.random) {
+        return m_authRetryTimer.random();
+    }
+    thread_local std::mt19937 generator {std::random_device {}()};
+    return std::uniform_real_distribution<double> {0.0, 1.0}(generator);
+}
+
+void Net::armAuthRetry(AuthRetryKind kind, std::chrono::seconds delay)
+{
+    auto retry = [this, kind] { runAuthRetry(kind); };
+    if (m_authRetryTimer.start) {
+        m_authRetryTimer.start(kind, delay, std::move(retry));
+        return;
+    }
+    m_worker.startTimer(Worker::Timer::AuthRetry, delay, std::move(retry));
+}
+
+void Net::runAuthRetry(AuthRetryKind kind)
+{
+    if (m_stop) {
+        return;
+    }
+
+    // Runs on the async executor, which must not block. A busy lock is not proof that an
+    // authentication is under way (other paths take it briefly), so try again shortly rather than
+    // drop the retry: an authentication that is under way replaces or cancels this timer anyway.
+    std::unique_lock lock(m_authMutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        DBG("API authentication lock busy, retrying in {}s", AUTH_RETRY_BUSY_DELAY.count());
+        armAuthRetry(kind, AUTH_RETRY_BUSY_DELAY);
+        return;
+    }
+
+    auto tokenExpired = false;
+    if (m_status == AuthStatus::AuthenticationFailed) {
+        m_status = AuthStatus::NotAuthenticated; // as rearmAuthAfterFailure()
+    } else if (isAuthenticated() || m_status == AuthStatus::AuthenticatedCheckingPairing) {
+        const auto left = getTimeUntilTokenExpiration();
+        tokenExpired = !left || *left <= 0s;
+        if (tokenExpired) {
+            m_status = AuthStatus::NotAuthenticated;
+        } else {
+            m_isRefreshingToken = true;
+        }
+    }
+    lock.unlock();
+
+    if (tokenExpired) {
+        WRN("API token expired before it could be refreshed, authenticating again");
+        stopTokenRefreshTimer();
+        // The session is gone: no keepalive until an authentication succeeds and restarts it,
+        // however long that takes.
+        stopHeartbeat();
+        notifyAuthStatusChanged();
+    }
+    authenticate();
 }
 
 task_t Net::updateConfigTask(const std::string &type, const std::string &version, bool installed,
@@ -2332,16 +2564,14 @@ void Net::sessionUpdate(int sessionId, SessionFlags flags)
     m_worker.postSessionQueue(createSessionUpdateTask(sessionId, flags));
 }
 
-void Net::startTokenRefreshTimer()
+void Net::startTokenRefreshTimer(std::chrono::seconds timeUntilExpiration)
 {
-    // Calculate time until token expires minus TOKEN_BEFORE_EXPIRY
-    const auto timeUntilExpiration = getTimeUntilTokenExpiration();
+    const auto refreshDelay = tokenRefreshDelay(timeUntilExpiration);
+    m_tokenRefreshDelay = refreshDelay;
+    if (refreshDelay) {
+        INF("API starting token refresh timer, will refresh in {} seconds", refreshDelay->count());
 
-    if (timeUntilExpiration && *timeUntilExpiration > REFRESH_TOKEN_BEFORE_EXPIRY) {
-        const auto refreshDelay = *timeUntilExpiration - REFRESH_TOKEN_BEFORE_EXPIRY;
-        INF("API starting token refresh timer, will refresh in {} seconds", refreshDelay.count());
-
-        m_worker.startTimer(Worker::Timer::TokenRefresh, refreshDelay, [this] {
+        m_worker.startTimer(Worker::Timer::TokenRefresh, *refreshDelay, [this] {
             INF("API token refresh timer triggered, requesting new token...");
             m_isRefreshingToken = true;
             authenticate();
@@ -2499,7 +2729,7 @@ void Net::initializeConnectionState()
     }
 
     // Outside the queue: neither should wait for the startup burst to drain.
-    m_heartbeat.start(m_deviceInfo.uuid);
+    startHeartbeat();
     restartCentrifugo();
     recoverNetworkMonitorState();
 }
@@ -3006,6 +3236,85 @@ task_t NetTestAccess::downloadFile(Net &net, StringCallback callback, std::strin
                                       std::move(transport));
 }
 
+void NetTestAccess::setAuthTransport(Net &net, AuthTransport transport, AuthRetryTimer timer)
+{
+    net.m_authTransport = std::move(transport);
+    net.m_authRetryTimer = std::move(timer);
+}
+
+std::unique_lock<std::mutex> NetTestAccess::holdAuthLock(Net &net)
+{
+    return std::unique_lock(net.m_authMutex);
+}
+
+void NetTestAccess::runAuthentication(Net &net)
+{
+    net.createAuthenticateTask()();
+}
+
+void NetTestAccess::setSigner(Net &net, SignerCallback signer)
+{
+    net.m_signer = std::move(signer);
+}
+
+void NetTestAccess::startTokenRefresh(Net &net, AuthStatus status, std::string token)
+{
+    net.m_status = status;
+    {
+        std::unique_lock lock(net.m_tokenMutex);
+        net.m_stoken = std::move(token);
+        net.m_tokenDeadline.reset();
+    }
+    net.m_isRefreshingToken = true;
+}
+
+void NetTestAccess::markRefreshing(Net &net)
+{
+    net.m_isRefreshingToken = true;
+}
+
+void NetTestAccess::setStopping(Net &net)
+{
+    net.m_stop = true;
+}
+
+bool NetTestAccess::isRefreshingToken(const Net &net)
+{
+    return net.m_isRefreshingToken;
+}
+
+std::string NetTestAccess::token(const Net &net)
+{
+    std::shared_lock lock(net.m_tokenMutex);
+    return net.m_stoken;
+}
+
+std::size_t NetTestAccess::keyResolverCount(const Net &net)
+{
+    return net.m_keyResolvers.size();
+}
+
+int NetTestAccess::authFailures(const Net &net)
+{
+    return net.m_authFailures;
+}
+
+bool NetTestAccess::heartbeatOn(const Net &net)
+{
+    return net.m_heartbeatOn;
+}
+
+std::optional<std::chrono::seconds> NetTestAccess::tokenRefreshArmedIn(const Net &net)
+{
+    return net.m_tokenRefreshDelay;
+}
+
+std::optional<std::chrono::seconds>
+NetTestAccess::tokenRefreshDelay(std::optional<std::chrono::seconds> left)
+{
+    return detail::tokenRefreshDelay(left);
+}
+
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
 {
     net.m_status = from;
@@ -3019,7 +3328,7 @@ KeyResolution NetTestAccess::resolveKeys(Net &net, const std::string &serverTime
 
 void NetTestAccess::deferAuthentication(Net &net)
 {
-    net.deferAuthentication();
+    net.deferAuthentication(true);
 }
 
 void NetTestAccess::onEmptySignature(Net &net, bool normalAuthentication)
@@ -3045,11 +3354,6 @@ void NetTestAccess::cancelAuthRetry(Net &net)
 bool NetTestAccess::noteKeyResolutionDeferred(Net &net, std::chrono::steady_clock::time_point now)
 {
     return net.noteKeyResolutionDeferred(now);
-}
-
-size_t NetTestAccess::keyResolverCount(const Net &net)
-{
-    return net.m_keyResolvers.size();
 }
 
 AuthStatus NetTestAccess::status(const Net &net)
@@ -3587,7 +3891,9 @@ void Net::fetchCentrifugoTokenNow()
 
     std::string token;
     if (!authToken.empty()) {
-        token = getJwtToken(url(URL_SCORBITRON_CF_TOKEN).str(), authToken, sslOptions());
+        const auto cfUrl = url(URL_SCORBITRON_CF_TOKEN).str();
+        token = m_authTransport.centrifugoToken ? m_authTransport.centrifugoToken(cfUrl, authToken)
+                                                : getJwtToken(cfUrl, authToken, sslOptions());
     }
 
     {
@@ -3932,33 +4238,24 @@ void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
 void Net::onAuthenticationFailed()
 {
     m_status = AuthStatus::AuthenticationFailed;
+    ++m_authFailures;
 
     // A machine that cannot authenticate is not one we want spending power and server capacity on
     // a keepalive it can do nothing with. It is restarted from the authentication success path
     // once it recovers.
-    m_heartbeat.stop();
+    stopHeartbeat();
 }
 
-void Net::scheduleAuthRetry(bool deferred)
+void Net::startHeartbeat()
 {
-    if (deferred) {
-        // Still trying, as before the first attempt: the host must not see a failure each cycle.
-        m_status = AuthStatus::NotAuthenticated;
-    } else {
-        onAuthenticationFailed();
-    }
-    stopTokenRefreshTimer();
-    notifyAuthStatusChanged();
-    const auto backoff = m_authRetryBackoff;
-    m_authRetryBackoff =
-            std::min<std::chrono::seconds>(m_authRetryBackoff * 2, AUTH_RETRY_MAX_BACKOFF);
-    m_isRefreshingToken = false;
-    m_worker.startTimer(Worker::Timer::AuthRetry, backoff, [this, deferred] {
-        // A deferral left the status NotAuthenticated, which authenticate() starts from.
-        if (deferred ? !m_stop : rearmAuthAfterFailure()) {
-            authenticate();
-        }
-    });
+    m_heartbeatOn = true;
+    m_heartbeat.start(m_deviceInfo.uuid);
+}
+
+void Net::stopHeartbeat()
+{
+    m_heartbeatOn = false;
+    m_heartbeat.stop();
 }
 
 bool Net::rearmAuthAfterFailure()
@@ -4047,6 +4344,11 @@ void Net::restartCentrifugo()
 std::optional<std::chrono::seconds> Net::getTimeUntilTokenExpiration() const
 {
     std::shared_lock tokenLock(m_tokenMutex);
+    // The deadline taken when the token arrived keeps every later check on the same, server-judged
+    // footing as its acceptance, whatever the device clock does meanwhile.
+    if (m_tokenDeadline) {
+        return duration_cast<seconds>(*m_tokenDeadline - steady_clock::now());
+    }
     return getJwtTokenTimeUntilExpiration(m_stoken);
 }
 

@@ -32,7 +32,7 @@ using namespace std::chrono;
 
 namespace {
 
-std::string createTestJwtToken(int64_t expTimestamp)
+std::string createTestJwtToken(int64_t expTimestamp, const std::string &padding = {})
 {
     // Create JWT header
     nlohmann::json header;
@@ -46,6 +46,9 @@ std::string createTestJwtToken(int64_t expTimestamp)
     payload["iat"] = 1640995200; // 2022-01-01 00:00:00 UTC
     payload["exp"] = expTimestamp;
     payload["iss"] = "test_issuer";
+    if (!padding.empty()) {
+        payload["pad"] = padding;
+    }
     std::string payloadStr = payload.dump();
 
     // OpenSSL-based base64url encoding
@@ -96,6 +99,15 @@ std::string createTestJwtToken(int64_t expTimestamp)
 } // namespace
 
 // ----------------- Simple, hard-coded tests ------------------------------
+
+TEST_CASE("JWT Parser - a payload larger than one read buffer still yields its expiry",
+          "[jwt_parser]")
+{
+    const int64_t exp = 1893456000; // 2030-01-01 00:00:00 UTC
+    const auto expiration = parseJwtExpiration(createTestJwtToken(exp, std::string(4096, 'x')));
+    REQUIRE(expiration.has_value());
+    CHECK(system_clock::to_time_t(*expiration) == exp);
+}
 
 TEST_CASE("JWT Parser - Basic Functionality", "[jwt_parser_simple]")
 {
