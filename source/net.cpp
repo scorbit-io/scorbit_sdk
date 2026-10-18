@@ -687,27 +687,37 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
 void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
-    m_worker.post([this, data, flags]() {
-        int sessionCounterAfterUpdate = 0;
-        {
-            std::scoped_lock lock(m_gameSessionsMutex);
-            auto &session = m_gameSessions[data.id];
-            session.gameData = data;
-            session.history.push_back(data);
-            sessionCounterAfterUpdate = session.sessionCounter;
-        }
+    m_worker.post([this, data, flags]() { applyGameData(data, flags); });
+}
 
-        const auto sessionId = data.id;
-
-        // If this is first data submission or it's finished send data right away
-        if (!data.isGameActive || sessionCounterAfterUpdate == 1) {
-            sendLatestGameData(sessionId);
+void Net::applyGameData(const GameData &data, SessionFlags flags)
+{
+    int sessionCounterAfterUpdate = 0;
+    {
+        std::scoped_lock lock(m_gameSessionsMutex);
+        // Only sessionCreate() makes a session. Inserting here would make one no create request
+        // exists for, whose update then waits forever for a UUID (SB-5673).
+        const auto it = m_gameSessions.find(data.id);
+        if (it == m_gameSessions.end()) {
+            WRN("API ignoring game data for unknown session id: {}", data.id);
+            return;
         }
+        auto &session = it->second;
+        session.gameData = data;
+        session.history.push_back(data);
+        sessionCounterAfterUpdate = session.sessionCounter;
+    }
 
-        if (flags) {
-            sessionUpdate(sessionId, flags);
-        }
-    });
+    const auto sessionId = data.id;
+
+    // If this is first data submission or it's finished send data right away
+    if (!data.isGameActive || sessionCounterAfterUpdate == 1) {
+        sendLatestGameData(sessionId);
+    }
+
+    if (flags) {
+        sessionUpdate(sessionId, flags);
+    }
 }
 
 void Net::getConfig()
@@ -2413,6 +2423,12 @@ task_t Net::createSessionCreateTask(int sessionId, GameStartOrigin origin,
                 ERR("API error parsing game data reply: {}", e.what());
             }
         }
+
+        // Last, after any UUID above: an update waiting for one stops once this is set.
+        std::scoped_lock lock(m_gameSessionsMutex);
+        if (const auto it = m_gameSessions.find(sessionId); it != m_gameSessions.end()) {
+            it->second.createDone = true;
+        }
     };
 
     return createPostRequestTask(std::move(callback), std::move(deferredSetup),
@@ -2431,14 +2447,25 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
 
     {
         std::scoped_lock lock(m_gameSessionsMutex);
-        if (m_gameSessions.count(sessionId) == 0) {
+        const auto it = m_gameSessions.find(sessionId);
+        if (it == m_gameSessions.end()) {
             // Nothing to do, session is already finished and removed
             ERR("API this error should not happen. Can't find session {} in game sessions",
                 sessionId);
             return noop_task;
         }
 
-        const auto &gameSession = m_gameSessions[sessionId];
+        const auto &gameSession = it->second;
+        if (gameSession.sessionUuid.empty() && gameSession.createDone) {
+            // The create request finished without a UUID, so none is coming: retrying would loop
+            // forever (SB-5673). A finished game has nothing left to send.
+            WRN("API update session for id: {} dropped, its create request returned no uuid",
+                sessionId);
+            if (!gameSession.gameData.isGameActive) {
+                m_gameSessions.erase(it);
+            }
+            return noop_task;
+        }
         sessionUuid = gameSession.sessionUuid;
         playerCount = gameSession.gameData.players.size();
         elapsedMilliseconds = chrono::duration_cast<chrono::milliseconds>(
@@ -2502,15 +2529,18 @@ task_t Net::createSessionUpdateTask(int sessionId, SessionFlags flags)
 
             // Erase the session if the game is finished
             std::scoped_lock lock(m_gameSessionsMutex);
-            if (!m_gameSessions[sessionId].gameData.isGameActive) {
-                m_gameSessions.erase(sessionId);
+            const auto it = m_gameSessions.find(sessionId);
+            if (it == m_gameSessions.end()) {
+                return;
+            }
+            if (!it->second.gameData.isGameActive) {
+                m_gameSessions.erase(it);
             } else {
                 try {
                     json json = json::parse(reply);
                     if (const auto scoresIt = json.find(JKEY_SCR_SCORES);
                         scoresIt != json.end() && scoresIt->is_array()) {
-                        auto gameSession = &m_gameSessions[sessionId];
-                        processScoresAndPlayersProfiles(*scoresIt, *gameSession);
+                        processScoresAndPlayersProfiles(*scoresIt, it->second);
                     }
                 } catch (const std::exception &e) {
                     ERR("API update session error parsing game data reply: {}", e.what());
@@ -3370,6 +3400,27 @@ std::optional<std::chrono::seconds>
 NetTestAccess::tokenRefreshDelay(std::optional<std::chrono::seconds> left)
 {
     return detail::tokenRefreshDelay(left);
+}
+
+void NetTestAccess::applyGameData(Net &net, const GameData &data, SessionFlags flags)
+{
+    net.applyGameData(data, flags);
+}
+
+task_t NetTestAccess::sessionCreateTask(Net &net, int sessionId)
+{
+    return net.createSessionCreateTask(sessionId, GameStartOrigin::StartButton, {});
+}
+
+task_t NetTestAccess::sessionUpdateTask(Net &net, int sessionId, SessionFlags flags)
+{
+    return net.createSessionUpdateTask(sessionId, flags);
+}
+
+bool NetTestAccess::hasGameSession(Net &net, int sessionId)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    return net.m_gameSessions.count(sessionId) != 0;
 }
 
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)

@@ -195,6 +195,11 @@ struct NetTestAccess {
     static std::optional<std::chrono::seconds> tokenRefreshArmedIn(const Net &net);
     static std::optional<std::chrono::seconds>
     tokenRefreshDelay(std::optional<std::chrono::seconds> left);
+    /// What submitGameData() does on the worker, run on the calling thread.
+    static void applyGameData(Net &net, const detail::GameData &data, SessionFlags flags);
+    static task_t sessionCreateTask(Net &net, int sessionId);
+    static task_t sessionUpdateTask(Net &net, int sessionId, SessionFlags flags);
+    static bool hasGameSession(Net &net, int sessionId);
 
 private:
     template<typename CallbackT>
@@ -225,6 +230,8 @@ class Net : public NetBase
                 std::chrono::system_clock::now()};
         GameHistory history;
         std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadata;
+        /// The create request has finished, with or without a UUID: none can arrive after this.
+        bool createDone {false};
     };
 
     struct MachineInfo {
@@ -316,6 +323,8 @@ private:
     task_t createSessionUpdateTask(int sessionId, SessionFlags flags);
 
     void sessionUpdate(int sessionId, SessionFlags flags);
+    /// submitGameData()'s work, on the worker.
+    void applyGameData(const detail::GameData &data, SessionFlags flags);
 
     /// Come online because the heartbeat server has work waiting. Runs on the heartbeat strand.
     void onHeartbeatWake();
