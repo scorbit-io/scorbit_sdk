@@ -412,6 +412,18 @@ class Config(object):
         _lib.sb_config_set_scorbitd_platform_id(self._handle, _encode(platform_id))
         return self
 
+    def set_game_firmware(self, firmware_id, version, serial):
+        # type: (str, str, str) -> Config
+        _lib.sb_config_set_game_firmware(
+            self._handle, _encode(firmware_id), _encode(version), _encode(serial)
+        )
+        return self
+
+    def set_pbspkcomm_firmware_id(self, firmware_id):
+        # type: (str) -> Config
+        _lib.sb_config_set_pbspkcomm_firmware_id(self._handle, _encode(firmware_id))
+        return self
+
     def set_machine_title(self, title):
         # type: (str) -> Config
         _lib.sb_config_set_machine_title(self._handle, _encode(title))

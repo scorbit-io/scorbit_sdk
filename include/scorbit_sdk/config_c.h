@@ -244,6 +244,24 @@ void sb_config_set_scorbitd_version(sb_config_t config, const char *version);
 SCORBIT_SDK_EXPORT
 void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform_id);
 
+/**
+ * The game's firmware, sent with the Scorbitron object. NULL or "" leaves a field out.
+ *
+ * @param firmware_id The firmware ID, 8 lowercase hex digits.
+ * @param version The firmware's own version string, where the game reports one.
+ * @param serial The machine serial.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_game_firmware(sb_config_t config, const char *firmware_id, const char *version,
+                                 const char *serial);
+
+/**
+ * The game firmware ID the installed Spike communication firmware was built for, sent with the
+ * Scorbitron object. NULL or "" leaves it out.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmware_id);
+
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);
 

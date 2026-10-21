@@ -74,6 +74,12 @@ struct DeviceInfo {
     // Internal use only
     std::string scorbitdVersion;
     std::string scorbitdPlatformId;
+    // The game's firmware as scorbitd reads it from its probe; empty when unknown. Config only,
+    // never in sb_device_info_t, whose layout is ABI.
+    std::string gameFirmwareId;
+    std::string gameFirmwareVersion;
+    std::string gameSerial;
+    std::string pbspkcommFirmwareId; ///< The game firmware ID the installed pbspk*comm targets.
     std::string machineTitle;
     std::string extraFingerprint;
 
