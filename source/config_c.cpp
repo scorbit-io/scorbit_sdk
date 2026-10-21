@@ -187,6 +187,16 @@ void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmwar
     }
 }
 
+void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool present,
+                                  uint64_t timestamp_utc, uint32_t uid)
+{
+    if (config && probe && scorbit::isHostReportedProbe(probe)) {
+        config->probeFirmware[probe] =
+                present ? std::optional {scorbit::ProbeFirmware {timestamp_utc, uid}}
+                        : std::nullopt;
+    }
+}
+
 void sb_config_set_machine_title(sb_config_t config, const char *title)
 {
     if (config) {

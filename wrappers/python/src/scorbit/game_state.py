@@ -603,6 +603,16 @@ class GameState(object):
             self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
         )
 
+    def set_probe_firmware(self, probe, present, timestamp_utc=0, uid=0):
+        # type: (str, bool, int, int) -> None
+        _lib.sb_set_probe_firmware(
+            self._handle, _encode(probe), bool(present), timestamp_utc, uid
+        )
+
+    def set_pbspkcomm_firmware_id(self, firmware_id):
+        # type: (str) -> None
+        _lib.sb_set_pbspkcomm_firmware_id(self._handle, _encode(firmware_id))
+
     def submit_hardware_probe_result(self, run_id, result_json, callback=None):
         # type: (str, str, ...) -> None
         """POST a hardware probe result (serialized JSON object, sent verbatim).

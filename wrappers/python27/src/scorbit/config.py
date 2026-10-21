@@ -429,6 +429,13 @@ class Config(object):
         _lib.sb_config_set_pbspkcomm_firmware_id(self._handle, _encode(firmware_id))
         return self
 
+    def set_probe_firmware(self, probe, present, timestamp_utc=0, uid=0):
+        # type: (str, bool, int, int) -> Config
+        _lib.sb_config_set_probe_firmware(
+            self._handle, _encode(probe), bool(present), timestamp_utc, uid
+        )
+        return self
+
     def set_machine_title(self, title):
         # type: (str) -> Config
         _lib.sb_config_set_machine_title(self._handle, _encode(title))

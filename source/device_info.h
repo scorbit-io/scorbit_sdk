@@ -23,12 +23,34 @@
 #include <scorbit_sdk/event.h>
 #include <scorbit_sdk/net_types.h>
 #include "event_classes.h"
+#include "identifiers.h"
+#include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace scorbit {
+
+/// A probe's installed firmware: its build number (0 when the firmware reports none) and UID.
+struct ProbeFirmware {
+    std::uint64_t timestampUtc {0};
+    std::uint32_t uid {0};
+
+    bool operator==(const ProbeFirmware &other) const
+    {
+        return timestampUtc == other.timestampUtc && uid == other.uid;
+    }
+};
+
+/// The probes a host reports itself. The SDK reads the NFC pad, so a host can't report it.
+inline bool isHostReportedProbe(std::string_view probe)
+{
+    return probe == detail::JVAL_PROBE_CPU || probe == detail::JVAL_PROBE_DMD;
+}
 
 /**
  * Internal DeviceInfo structure.
@@ -80,6 +102,8 @@ struct DeviceInfo {
     std::string gameFirmwareVersion;
     std::string gameSerial;
     std::string pbspkcommFirmwareId; ///< The game firmware ID the installed pbspk*comm targets.
+    /// Probes the host reported (CPU, DMD) by name; nullopt marks one that is not attached.
+    std::map<std::string, std::optional<ProbeFirmware>> probeFirmware;
     std::string machineTitle;
     std::string extraFingerprint;
 

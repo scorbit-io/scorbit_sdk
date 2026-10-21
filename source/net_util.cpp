@@ -338,6 +338,32 @@ std::string toLowerHex(const Bytes &bytes)
 
 } // namespace
 
+nlohmann::json probeFirmwareEntry(const std::optional<ProbeFirmware> &firmware)
+{
+    if (!firmware) {
+        return nullptr;
+    }
+    return {{JKEY_PFW_TIMESTAMP_UTC, firmware->timestampUtc}, {JKEY_PFW_UID, firmware->uid}};
+}
+
+std::optional<nlohmann::json> nfcProbeFirmwareEntry(const nfc::NfcProbeInfoResult &result)
+{
+    using Status = nfc::NfcProbeInfoResult::Status;
+    switch (result.status) {
+    case Status::Ok: {
+        // As in the hardware probe section: legacy firmware (a string timestamp) has no build.
+        const bool hasBuild = result.probe.timestampHeader == 0;
+        return probeFirmwareEntry(
+                ProbeFirmware {hasBuild ? result.probe.timestampUtc : 0, result.probe.uid});
+    }
+    case Status::NotPresent:
+        return probeFirmwareEntry(std::nullopt);
+    case Status::ReadFailed:
+        break;
+    }
+    return std::nullopt;
+}
+
 nlohmann::json buildHardwareProbeSdkPayload(const nfc::NfcProbeInfoResult &result,
                                             std::string_view sdkVersion)
 {

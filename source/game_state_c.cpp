@@ -166,6 +166,19 @@ struct JobPairMachine {
     void *user_data;
 };
 
+struct JobSetProbeFirmware {
+    sb_game_state_struct *h;
+    std::string probe;
+    bool present;
+    uint64_t timestamp_utc;
+    uint32_t uid;
+};
+
+struct JobSetPbspkcommFirmwareId {
+    sb_game_state_struct *h;
+    std::string firmware_id;
+};
+
 struct JobCreditsDropped {
     sb_game_state_struct *h;
     int credits;
@@ -232,7 +245,7 @@ using ApiQueueItem =
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
-                     JobSubmitHardwareProbeResult>;
+                     JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -307,7 +320,7 @@ void dispatchApiJob(ApiQueueItem &&item)
 {
     std::visit(
             Overloaded {
-                    [](Poison) { },
+                    [](Poison) {},
                     [](JobSetGameStarted &&j) {
                         j.h->gameState.setGameStarted(static_cast<GameStartOrigin>(j.origin));
                     },
@@ -342,6 +355,12 @@ void dispatchApiJob(ApiQueueItem &&item)
                                 makeCStringReplyBridge(j.callback, j.user_data));
                     },
                     [](JobSetCapabilities &&j) { j.h->gameState.setCapabilities(j.capabilities); },
+                    [](JobSetProbeFirmware &&j) {
+                        j.h->gameState.setProbeFirmware(j.probe, j.present, j.timestamp_utc, j.uid);
+                    },
+                    [](JobSetPbspkcommFirmwareId &&j) {
+                        j.h->gameState.setPbspkcommFirmwareId(j.firmware_id);
+                    },
                     [](JobPairMachine &&j) {
                         j.h->gameState.requestPairMachine(
                                 std::move(j.machine_uuid), std::move(j.owner_uuid),
@@ -589,6 +608,17 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
 {
     handle->postApiJob(JobPairMachine {handle, copyCStr(machine_uuid), copyCStr(owner_uuid),
                                        callback, user_data});
+}
+
+void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool present,
+                           uint64_t timestamp_utc, uint32_t uid)
+{
+    handle->postApiJob(JobSetProbeFirmware {handle, copyCStr(probe), present, timestamp_utc, uid});
+}
+
+void sb_set_pbspkcomm_firmware_id(sb_game_handle_t handle, const char *firmware_id)
+{
+    handle->postApiJob(JobSetPbspkcommFirmwareId {handle, copyCStr(firmware_id)});
 }
 
 void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,

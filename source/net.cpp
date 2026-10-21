@@ -1125,6 +1125,91 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
 
     checkNfcBootReason();
     updateDiscoveryDescription();
+    refreshNfcFirmware();
+}
+
+void Net::refreshNfcFirmware()
+{
+    // No manager: this host does not use the NFC pad at all, so there is nothing to report.
+    if (!m_probesManager) {
+        return;
+    }
+    const auto entry = nfcProbeFirmwareEntry(m_probesManager->nfcProbeInfo());
+    if (!entry) {
+        WRN("NFC probe firmware not reported: the probe read failed");
+        return;
+    }
+    updateScorbitronObject({{JKEY_SOBJ_PROBE_FIRMWARE, {{JVAL_PROBE_NFC, *entry}}}},
+                           "probe firmware");
+}
+
+void Net::setProbeFirmware(const std::string &probe, std::optional<ProbeFirmware> firmware)
+{
+    if (!isHostReportedProbe(probe)) {
+        WRN("Probe firmware for '{}' ignored: only cpu and dmd are reported by the host", probe);
+        return;
+    }
+    updateScorbitronObject({{JKEY_SOBJ_PROBE_FIRMWARE, {{probe, probeFirmwareEntry(firmware)}}}},
+                           "probe firmware");
+}
+
+void Net::setPbspkcommFirmwareId(const std::string &firmwareId)
+{
+    if (firmwareId.empty()) {
+        return;
+    }
+    updateScorbitronObject({{JKEY_SOBJ_PBSPKCOMM_FIRMWARE_ID, firmwareId}},
+                           "pbspkcomm firmware id");
+}
+
+void Net::updateScorbitronObject(const nlohmann::json &fields, const char *what)
+{
+    {
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        for (const auto &[key, value] : fields.items()) {
+            if (key == JKEY_SOBJ_PROBE_FIRMWARE) {
+                // Probe by probe: one probe's report must not drop the others.
+                for (const auto &[probe, entry] : value.items()) {
+                    m_scorbitronObject[key][probe] = entry;
+                }
+            } else {
+                m_scorbitronObject[key] = value;
+            }
+        }
+    }
+
+    // While pairing is checked the full object may already be on its way without this change, so
+    // that status sends too; before authentication the full object's first send carries it.
+    if (!isAuthenticated() && m_status != AuthStatus::AuthenticatedCheckingPairing) {
+        return;
+    }
+    sendScorbitronUpdate(fields.dump(), what);
+}
+
+void Net::sendScorbitronUpdate(std::string body, std::string what)
+{
+    // The startup strand runs one request at a time, in order, and carries the full object's
+    // PATCH, so two quick changes, or a change and the full object, reach the API as made.
+    m_worker.postStartupQueue(createPatchRequestTask(
+            [this, what = std::move(what)](Error error, std::string reply) {
+                if (error == Error::Success) {
+                    INF("API set {}: ok, {}", what, reply);
+                } else {
+                    ERR("API set {}: failed, error code: {}, reply: {}", what,
+                        static_cast<int>(error), reply);
+                }
+                parseScorbitronObject(error, reply);
+            },
+            [this, body = std::move(body)]() {
+                const auto endpoint = url(URL_SCORBITRON_OBJECT);
+                INF("API patching Scorbitron with {}", body);
+                return make_tuple(endpoint, cpr::Body {body});
+            },
+            {
+                    AuthStatus::AuthenticatedCheckingPairing,
+                    AuthStatus::AuthenticatedUnpaired,
+                    AuthStatus::AuthenticatedPaired,
+            }));
 }
 
 void Net::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -2806,6 +2891,10 @@ void Net::initScorbitronObject()
             m_scorbitronObject[key] = *value;
         }
     }
+    // The host's probes; the NFC pad is read once the probe manager is set (SB-5757).
+    for (const auto &[probe, firmware] : m_deviceInfo.probeFirmware) {
+        m_scorbitronObject[JKEY_SOBJ_PROBE_FIRMWARE][probe] = probeFirmwareEntry(firmware);
+    }
 
     // Set capabilities
     m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
@@ -3417,6 +3506,11 @@ NetTestAccess::tokenRefreshDelay(std::optional<std::chrono::seconds> left)
 nlohmann::json NetTestAccess::scorbitronObject(Net &net)
 {
     net.initScorbitronObject();
+    return currentScorbitronObject(net);
+}
+
+nlohmann::json NetTestAccess::currentScorbitronObject(Net &net)
+{
     std::scoped_lock lock(net.m_scorbitronObjectMutex);
     return net.m_scorbitronObject;
 }

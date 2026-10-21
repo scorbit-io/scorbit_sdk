@@ -524,6 +524,19 @@ public:
                                      cbPair.first, cbPair.second);
     }
 
+    /// @copydoc sb_set_probe_firmware
+    void setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
+                          uint32_t uid)
+    {
+        sb_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid);
+    }
+
+    /// @copydoc sb_set_pbspkcomm_firmware_id
+    void setPbspkcommFirmwareId(const std::string &firmwareId)
+    {
+        sb_set_pbspkcomm_firmware_id(m_handle.get(), firmwareId.c_str());
+    }
+
     /**
      * @brief Submit the result of a hardware probe requested by
      * @ref EventType::HardwareProbeRequested.
