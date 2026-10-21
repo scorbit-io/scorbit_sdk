@@ -327,6 +327,20 @@ public:
         return *this;
     }
 
+    Config &setGameFirmware(const std::string &firmwareId, const std::string &version,
+                            const std::string &serial)
+    {
+        sb_config_set_game_firmware(m_handle.get(), firmwareId.c_str(), version.c_str(),
+                                    serial.c_str());
+        return *this;
+    }
+
+    Config &setPbspkcommFirmwareId(const std::string &firmwareId)
+    {
+        sb_config_set_pbspkcomm_firmware_id(m_handle.get(), firmwareId.c_str());
+        return *this;
+    }
+
     Config &setMachineTitle(const std::string &title)
     {
         sb_config_set_machine_title(m_handle.get(), title.c_str());

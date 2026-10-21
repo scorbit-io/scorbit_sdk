@@ -170,6 +170,23 @@ void sb_config_set_scorbitd_platform_id(sb_config_t config, const char *platform
     }
 }
 
+void sb_config_set_game_firmware(sb_config_t config, const char *firmware_id, const char *version,
+                                 const char *serial)
+{
+    if (config) {
+        config->gameFirmwareId = firmware_id ? firmware_id : std::string {};
+        config->gameFirmwareVersion = version ? version : std::string {};
+        config->gameSerial = serial ? serial : std::string {};
+    }
+}
+
+void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmware_id)
+{
+    if (config) {
+        config->pbspkcommFirmwareId = firmware_id ? firmware_id : std::string {};
+    }
+}
+
 void sb_config_set_machine_title(sb_config_t config, const char *title)
 {
     if (config) {

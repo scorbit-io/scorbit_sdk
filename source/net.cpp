@@ -2795,6 +2795,18 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_SCORBITD_VERSION] = m_deviceInfo.scorbitdVersion;
     m_scorbitronObject[JKEY_SOBJ_GAME_CODE_VERSION] = m_deviceInfo.gameCodeVersion;
 
+    // Only what the host set: an omitted key leaves the API's value alone (SB-4880).
+    for (const auto &[key, value] : {
+                 std::pair {JKEY_SOBJ_GAME_FIRMWARE_ID, &m_deviceInfo.gameFirmwareId},
+                 std::pair {JKEY_SOBJ_GAME_FIRMWARE_VERSION, &m_deviceInfo.gameFirmwareVersion},
+                 std::pair {JKEY_SOBJ_GAME_SERIAL, &m_deviceInfo.gameSerial},
+                 std::pair {JKEY_SOBJ_PBSPKCOMM_FIRMWARE_ID, &m_deviceInfo.pbspkcommFirmwareId},
+         }) {
+        if (!value->empty()) {
+            m_scorbitronObject[key] = *value;
+        }
+    }
+
     // Set capabilities
     m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
     m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = false;
@@ -3400,6 +3412,13 @@ std::optional<std::chrono::seconds>
 NetTestAccess::tokenRefreshDelay(std::optional<std::chrono::seconds> left)
 {
     return detail::tokenRefreshDelay(left);
+}
+
+nlohmann::json NetTestAccess::scorbitronObject(Net &net)
+{
+    net.initScorbitronObject();
+    std::scoped_lock lock(net.m_scorbitronObjectMutex);
+    return net.m_scorbitronObject;
 }
 
 void NetTestAccess::applyGameData(Net &net, const GameData &data, SessionFlags flags)

@@ -182,6 +182,14 @@ _lib.sb_config_set_scorbitd_version.argtypes = [sb_config_t, c_char_p]
 _lib.sb_config_set_scorbitd_platform_id.restype = None
 _lib.sb_config_set_scorbitd_platform_id.argtypes = [sb_config_t, c_char_p]
 
+# void sb_config_set_game_firmware(sb_config_t, const char*, const char*, const char*)
+_lib.sb_config_set_game_firmware.restype = None
+_lib.sb_config_set_game_firmware.argtypes = [sb_config_t, c_char_p, c_char_p, c_char_p]
+
+# void sb_config_set_pbspkcomm_firmware_id(sb_config_t, const char*)
+_lib.sb_config_set_pbspkcomm_firmware_id.restype = None
+_lib.sb_config_set_pbspkcomm_firmware_id.argtypes = [sb_config_t, c_char_p]
+
 # void sb_config_set_machine_title(sb_config_t, const char*)
 _lib.sb_config_set_machine_title.restype = None
 _lib.sb_config_set_machine_title.argtypes = [sb_config_t, c_char_p]

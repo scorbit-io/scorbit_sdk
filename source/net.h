@@ -195,6 +195,8 @@ struct NetTestAccess {
     static std::optional<std::chrono::seconds> tokenRefreshArmedIn(const Net &net);
     static std::optional<std::chrono::seconds>
     tokenRefreshDelay(std::optional<std::chrono::seconds> left);
+    /// The Scorbitron object as initScorbitronObject() builds it from the DeviceInfo.
+    static nlohmann::json scorbitronObject(Net &net);
     /// What submitGameData() does on the worker, run on the calling thread.
     static void applyGameData(Net &net, const detail::GameData &data, SessionFlags flags);
     static task_t sessionCreateTask(Net &net, int sessionId);
