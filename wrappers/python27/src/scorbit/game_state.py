@@ -601,10 +601,13 @@ class GameState(object):
             self._handle, _encode(machine_uuid), _encode(owner_uuid), cb, None
         )
 
-    def set_probe_firmware(self, probe, present, timestamp_utc=0, uid=0):
-        # type: (str, bool, int, int) -> None
+    def set_probe_firmware(
+        self, probe, present, timestamp_utc=0, uid=0, boot_reason=0, watchdog_count=0
+    ):
+        # type: (str, bool, int, int, int, int) -> None
         _lib.sb_set_probe_firmware(
-            self._handle, _encode(probe), bool(present), timestamp_utc, uid
+            self._handle, _encode(probe), bool(present), timestamp_utc, uid,
+            boot_reason, watchdog_count
         )
 
     def set_pbspkcomm_firmware_id(self, firmware_id):

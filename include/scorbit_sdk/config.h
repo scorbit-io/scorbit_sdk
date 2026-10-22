@@ -342,9 +342,10 @@ public:
     }
 
     Config &setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
-                             uint32_t uid)
+                             uint32_t uid, uint8_t bootReason, uint32_t watchdogCount)
     {
-        sb_config_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid);
+        sb_config_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid,
+                                     bootReason, watchdogCount);
         return *this;
     }
 

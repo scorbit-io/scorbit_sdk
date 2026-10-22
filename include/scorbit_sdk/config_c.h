@@ -267,13 +267,16 @@ void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmwar
  * not reported. Use @ref sb_set_probe_firmware for a change after the game state exists.
  *
  * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
- * @param present false when the probe is not attached; @p timestamp_utc and @p uid are ignored.
+ * @param present false when the probe is not attached; the other values are then ignored.
  * @param timestamp_utc The firmware's build number; 0 when the firmware does not report one.
  * @param uid The probe's UID.
+ * @param boot_reason The firmware's BootReason byte; 0 (unknown) when it reports no boot info.
+ * @param watchdog_count The probe's watchdog reset count; 0 when it reports no boot info.
  */
 SCORBIT_SDK_EXPORT
 void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool present,
-                                  uint64_t timestamp_utc, uint32_t uid);
+                                  uint64_t timestamp_utc, uint32_t uid, uint8_t boot_reason,
+                                  uint32_t watchdog_count);
 
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);

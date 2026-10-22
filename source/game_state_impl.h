@@ -81,7 +81,7 @@ public:
 
     void setCapabilities(Capabilities capabilities);
     void setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
-                          uint32_t uid);
+                          uint32_t uid, uint8_t bootReason, uint32_t watchdogCount);
     void setPbspkcommFirmwareId(const std::string &firmwareId);
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success);

@@ -289,6 +289,8 @@ constexpr auto JKEY_SOBJ_PBSPKCOMM_FIRMWARE_ID {"pbspkcomm_firmware_id"};
 constexpr auto JKEY_SOBJ_PROBE_FIRMWARE {"probe_firmware"};
 constexpr auto JKEY_PFW_TIMESTAMP_UTC {"timestamp_utc"};
 constexpr auto JKEY_PFW_UID {"uid"};
+constexpr auto JKEY_PFW_BOOT_REASON {"boot_reason"};
+constexpr auto JKEY_PFW_WATCHDOG_COUNT {"watchdog_count"};
 constexpr auto JVAL_PROBE_CPU {"cpu"};
 constexpr auto JVAL_PROBE_DMD {"dmd"};
 constexpr auto JVAL_PROBE_NFC {"nfc"};

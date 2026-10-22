@@ -110,7 +110,10 @@ public:
                                  const std::string &providerInfo, const std::string &extraInfo)
             -> bool;
 
-    auto probesBootReason(ProbeType probeType) -> std::optional<std::string>;
+    /// @p identity, if given, receives the probe's identity when the read behind the reason
+    /// succeeds, so a caller needs no second read.
+    auto probesBootReason(ProbeType probeType, std::optional<ProbeInformation> *identity = nullptr)
+            -> std::optional<std::string>;
 
     /**
      * Read the NFC probe's identity/status and NFC state. A tap seen by this read is kept

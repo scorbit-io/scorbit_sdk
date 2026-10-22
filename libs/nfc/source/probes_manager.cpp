@@ -344,7 +344,8 @@ auto ProbesManager::setDiscoveryDescription(uint64_t providerSerial, const std::
     return m_discovery->Initialize(m_discoveryInfo);
 }
 
-auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::string>
+auto ProbesManager::probesBootReason(ProbeType probeType, std::optional<ProbeInformation> *identity)
+        -> std::optional<std::string>
 {
     std::string probeName;
 
@@ -365,6 +366,9 @@ auto ProbesManager::probesBootReason(ProbeType probeType) -> std::optional<std::
     ProbeInformation probeInfo;
 
     if (m_nfc->getInformations(probeInfo)) {
+        if (identity) {
+            *identity = probeInfo;
+        }
 
         std::string_view bootReason = "unknown";
         switch (probeInfo.bootReason) {

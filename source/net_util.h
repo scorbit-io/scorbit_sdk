@@ -34,6 +34,7 @@
 
 namespace nfc {
 struct NfcProbeInfoResult;
+struct ProbeInformation;
 } // namespace nfc
 
 namespace scorbit {
@@ -162,8 +163,14 @@ bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &ru
  * other than Ok only sdk_version, nfc_status and nfc_extended's last_seen_tap_* are sent;
  * last_seen_tap_* are present for every status (0 = no tap seen).
  */
-/** A probe's probe_firmware entry: its build and UID, or null when it is not attached. */
+/**
+ * A probe's probe_firmware entry: its build, UID, boot reason (by name) and watchdog count, or
+ * null when it is not attached.
+ */
 nlohmann::json probeFirmwareEntry(const std::optional<ProbeFirmware> &firmware);
+
+/** The NFC pad's firmware from its identity read; legacy firmware has no build or boot info. */
+ProbeFirmware nfcProbeFirmware(const nfc::ProbeInformation &probe);
 
 /**
  * The NFC pad's probe_firmware entry from a probe read: null when no pad is attached, nothing

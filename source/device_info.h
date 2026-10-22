@@ -35,14 +35,18 @@
 
 namespace scorbit {
 
-/// A probe's installed firmware: its build number (0 when the firmware reports none) and UID.
+/// A probe's installed firmware: its build number (0 when the firmware reports none) and UID,
+/// and how it last booted. Legacy firmware reports no boot info: boot reason 0, count 0.
 struct ProbeFirmware {
     std::uint64_t timestampUtc {0};
     std::uint32_t uid {0};
+    std::uint8_t bootReason {0}; ///< The firmware's BootReason byte; 0 is unknown.
+    std::uint32_t watchdogCount {0};
 
     bool operator==(const ProbeFirmware &other) const
     {
-        return timestampUtc == other.timestampUtc && uid == other.uid;
+        return timestampUtc == other.timestampUtc && uid == other.uid
+            && bootReason == other.bootReason && watchdogCount == other.watchdogCount;
     }
 };
 
