@@ -526,9 +526,10 @@ public:
 
     /// @copydoc sb_set_probe_firmware
     void setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
-                          uint32_t uid)
+                          uint32_t uid, uint8_t bootReason, uint32_t watchdogCount)
     {
-        sb_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid);
+        sb_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid, bootReason,
+                              watchdogCount);
     }
 
     /// @copydoc sb_set_pbspkcomm_firmware_id

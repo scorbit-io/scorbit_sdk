@@ -103,6 +103,28 @@ constexpr auto AUTH_RETRY_BUSY_DELAY = 2s;
 
 constexpr auto SCORBITRON_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto SCORBITRON_RETRY_MAX_BACKOFF = 1min;
+/// A field whose update failed is resent no sooner than this, doubling per failure, so a periodic
+/// re-report cannot turn an API that refuses or never answers into a request every period.
+constexpr auto SCORBITRON_UPDATE_RETRY_INITIAL_BACKOFF = 30s;
+constexpr auto SCORBITRON_UPDATE_RETRY_MAX_BACKOFF = 10min;
+
+/// Calls @p f with each field of a Scorbitron update @p body, keyed as m_unsentScorbitronFields.
+template<typename F>
+void forEachScorbitronField(const nlohmann::json &body, F &&f)
+{
+    if (!body.is_object()) {
+        return;
+    }
+    for (const auto &[key, value] : body.items()) {
+        if (key == JKEY_SOBJ_PROBE_FIRMWARE && value.is_object()) {
+            for (const auto &[probe, entry] : value.items()) {
+                f(key + "/" + probe);
+            }
+        } else {
+            f(key);
+        }
+    }
+}
 
 constexpr auto REFRESH_TOKEN_BEFORE_EXPIRY = 5min; // Refresh token when 5 minutes remain
 
@@ -1164,18 +1186,36 @@ void Net::setPbspkcommFirmwareId(const std::string &firmwareId)
 
 void Net::updateScorbitronObject(const nlohmann::json &fields, const char *what)
 {
+    // Only what differs from the object, or failed to send and is due a retry, is stored and
+    // sent, so a repeated report (the pad's periodic re-read, an unchanged host report) sends
+    // nothing.
+    nlohmann::json changes = nlohmann::json::object();
     {
         std::scoped_lock lock(m_scorbitronObjectMutex);
+        const auto retryDue = [this, now = steady_clock::now()](const std::string &field) {
+            const auto unsent = m_unsentScorbitronFields.find(field);
+            return unsent != m_unsentScorbitronFields.end() && now >= unsent->second.retryAt;
+        };
         for (const auto &[key, value] : fields.items()) {
             if (key == JKEY_SOBJ_PROBE_FIRMWARE) {
                 // Probe by probe: one probe's report must not drop the others.
                 for (const auto &[probe, entry] : value.items()) {
-                    m_scorbitronObject[key][probe] = entry;
+                    auto &stored = m_scorbitronObject[key];
+                    if (!stored.contains(probe) || stored[probe] != entry
+                        || retryDue(key + "/" + probe)) {
+                        stored[probe] = entry;
+                        changes[key][probe] = entry;
+                    }
                 }
-            } else {
+            } else if (!m_scorbitronObject.contains(key) || m_scorbitronObject[key] != value
+                       || retryDue(key)) {
                 m_scorbitronObject[key] = value;
+                changes[key] = value;
             }
         }
+    }
+    if (changes.empty()) {
+        return;
     }
 
     // While pairing is checked the full object may already be on its way without this change, so
@@ -1183,24 +1223,41 @@ void Net::updateScorbitronObject(const nlohmann::json &fields, const char *what)
     if (!isAuthenticated() && m_status != AuthStatus::AuthenticatedCheckingPairing) {
         return;
     }
-    sendScorbitronUpdate(fields.dump(), what);
+    {
+        // A retry in flight holds off the next: a request outlasting the report period must not
+        // queue another behind it.
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        forEachScorbitronField(changes, [this](const std::string &field) {
+            if (const auto unsent = m_unsentScorbitronFields.find(field);
+                unsent != m_unsentScorbitronFields.end()) {
+                unsent->second.retryAt = steady_clock::time_point::max();
+            }
+        });
+    }
+    sendScorbitronUpdate(changes.dump(), what);
 }
 
 void Net::sendScorbitronUpdate(std::string body, std::string what)
 {
     // The startup strand runs one request at a time, in order, and carries the full object's
     // PATCH, so two quick changes, or a change and the full object, reach the API as made.
+    // Copied into both lambdas, which are built in no fixed order.
+    const auto fields = nlohmann::json::parse(body, nullptr, false);
     m_worker.postStartupQueue(createPatchRequestTask(
-            [this, what = std::move(what)](Error error, std::string reply) {
+            [this, what = std::move(what), fields](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API set {}: ok, {}", what, reply);
                 } else {
                     ERR("API set {}: failed, error code: {}, reply: {}", what,
                         static_cast<int>(error), reply);
                 }
+                scorbitronUpdateDone(fields, error == Error::Success);
                 parseScorbitronObject(error, reply);
             },
-            [this, body = std::move(body)]() {
+            [this, fields]() {
+                // Read when the request runs: one parked on the auth gate can resume after the
+                // full object went out, and must not overwrite a newer value with its own.
+                const auto body = currentScorbitronFields(fields).dump();
                 const auto endpoint = url(URL_SCORBITRON_OBJECT);
                 INF("API patching Scorbitron with {}", body);
                 return make_tuple(endpoint, cpr::Body {body});
@@ -1210,6 +1267,66 @@ void Net::sendScorbitronUpdate(std::string body, std::string what)
                     AuthStatus::AuthenticatedUnpaired,
                     AuthStatus::AuthenticatedPaired,
             }));
+}
+
+nlohmann::json Net::currentScorbitronFields(const nlohmann::json &fields) const
+{
+    if (!fields.is_object()) {
+        return fields;
+    }
+    auto current = fields;
+    std::scoped_lock lock(m_scorbitronObjectMutex);
+    for (auto it = current.begin(); it != current.end(); ++it) {
+        if (!m_scorbitronObject.contains(it.key())) {
+            continue; // the object was rebuilt without it: send what was queued
+        }
+        const auto &stored = m_scorbitronObject.at(it.key());
+        if (it.key() == JKEY_SOBJ_PROBE_FIRMWARE && it.value().is_object()) {
+            for (auto probe = it.value().begin(); probe != it.value().end(); ++probe) {
+                if (stored.is_object() && stored.contains(probe.key())) {
+                    probe.value() = stored.at(probe.key());
+                }
+            }
+        } else {
+            it.value() = stored;
+        }
+    }
+    return current;
+}
+
+void Net::scorbitronUpdateDone(const nlohmann::json &body, bool sent)
+{
+    const auto now = steady_clock::now();
+    std::scoped_lock lock(m_scorbitronObjectMutex);
+    forEachScorbitronField(body, [this, sent, now](const std::string &field) {
+        if (sent) {
+            m_unsentScorbitronFields.erase(field);
+            return;
+        }
+        auto [unsent, first] = m_unsentScorbitronFields.try_emplace(
+                field, UnsentScorbitronField {{}, SCORBITRON_UPDATE_RETRY_INITIAL_BACKOFF});
+        if (!first) {
+            unsent->second.backoff = std::min<seconds>(unsent->second.backoff * 2,
+                                                       SCORBITRON_UPDATE_RETRY_MAX_BACKOFF);
+        }
+        unsent->second.retryAt = now + unsent->second.backoff;
+    });
+}
+
+void Net::scorbitronObjectSendDone(bool sent)
+{
+    nlohmann::json object;
+    {
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        if (sent) {
+            // The whole object went out, so nothing is still waiting to be resent.
+            m_unsentScorbitronFields.clear();
+            return;
+        }
+        object = m_scorbitronObject;
+    }
+    // Every field it carried is owed: a change made while unauthenticated was left to it.
+    scorbitronUpdateDone(object, false);
 }
 
 void Net::requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
@@ -2933,6 +3050,7 @@ task_t Net::createSendScorbitronObjectTask()
                         "reply: {}",
                         static_cast<int>(error), reply);
                 }
+                scorbitronObjectSendDone(error == Error::Success);
                 parseScorbitronObject(error, reply);
             },
             [this]() {
@@ -3509,10 +3627,40 @@ nlohmann::json NetTestAccess::scorbitronObject(Net &net)
     return currentScorbitronObject(net);
 }
 
+void NetTestAccess::checkNfcBootReason(Net &net)
+{
+    net.checkNfcBootReason();
+}
+
 nlohmann::json NetTestAccess::currentScorbitronObject(Net &net)
 {
     std::scoped_lock lock(net.m_scorbitronObjectMutex);
     return net.m_scorbitronObject;
+}
+
+void NetTestAccess::scorbitronObjectSendDone(Net &net, bool sent)
+{
+    net.scorbitronObjectSendDone(sent);
+}
+
+void NetTestAccess::expireScorbitronRetries(Net &net)
+{
+    std::scoped_lock lock(net.m_scorbitronObjectMutex);
+    for (auto &[field, unsent] : net.m_unsentScorbitronFields) {
+        if (unsent.retryAt != steady_clock::time_point::max()) {
+            unsent.retryAt = steady_clock::time_point::min();
+        }
+    }
+}
+
+std::optional<seconds> NetTestAccess::scorbitronRetryBackoff(Net &net, const std::string &field)
+{
+    std::scoped_lock lock(net.m_scorbitronObjectMutex);
+    const auto unsent = net.m_unsentScorbitronFields.find(field);
+    if (unsent == net.m_unsentScorbitronFields.end()) {
+        return std::nullopt;
+    }
+    return unsent->second.backoff;
 }
 
 void NetTestAccess::applyGameData(Net &net, const GameData &data, SessionFlags flags)
@@ -4685,11 +4833,20 @@ void Net::checkNfcBootReason()
     if (m_probesManager && m_isNfcCapable) {
         m_worker.stopTimer(Worker::Timer::NfcBootReason);
 
-        const auto bootReason = m_probesManager->probesBootReason(nfc::ProbeType::NFC);
+        std::optional<nfc::ProbeInformation> identity;
+        const auto bootReason = m_probesManager->probesBootReason(nfc::ProbeType::NFC, &identity);
 
         if (bootReason && *bootReason != m_lastNfcBootReason) {
             INF("{}", *bootReason);
             m_lastNfcBootReason = *bootReason;
+        }
+        // The same read keeps the pad's firmware entry current: a pad that reset (its boot
+        // reason or watchdog count moved) is reported, and an unchanged one sends nothing.
+        if (identity) {
+            updateScorbitronObject(
+                    {{JKEY_SOBJ_PROBE_FIRMWARE,
+                      {{JVAL_PROBE_NFC, probeFirmwareEntry(nfcProbeFirmware(*identity))}}}},
+                    "probe firmware");
         }
 
         m_worker.startTimer(Worker::Timer::NfcBootReason, NFC_BOOT_REASON_DELAY,

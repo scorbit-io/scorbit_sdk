@@ -188,12 +188,13 @@ void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmwar
 }
 
 void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool present,
-                                  uint64_t timestamp_utc, uint32_t uid)
+                                  uint64_t timestamp_utc, uint32_t uid, uint8_t boot_reason,
+                                  uint32_t watchdog_count)
 {
     if (config && probe && scorbit::isHostReportedProbe(probe)) {
-        config->probeFirmware[probe] =
-                present ? std::optional {scorbit::ProbeFirmware {timestamp_utc, uid}}
-                        : std::nullopt;
+        config->probeFirmware[probe] = present ? std::optional {scorbit::ProbeFirmware {
+                                               timestamp_utc, uid, boot_reason, watchdog_count}}
+                                               : std::nullopt;
     }
 }
 

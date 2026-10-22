@@ -255,9 +255,10 @@ void GameStateImpl::setCapabilities(Capabilities capabilities)
 }
 
 void GameStateImpl::setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
-                                     uint32_t uid)
+                                     uint32_t uid, uint8_t bootReason, uint32_t watchdogCount)
 {
-    m_net->setProbeFirmware(probe, present ? std::optional {ProbeFirmware {timestampUtc, uid}}
+    m_net->setProbeFirmware(probe, present ? std::optional {ProbeFirmware {
+                                           timestampUtc, uid, bootReason, watchdogCount}}
                                            : std::nullopt);
 }
 

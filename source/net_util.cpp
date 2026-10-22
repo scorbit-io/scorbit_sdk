@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <regex>
 
 CMRC_DECLARE(scorbit);
@@ -343,19 +344,38 @@ nlohmann::json probeFirmwareEntry(const std::optional<ProbeFirmware> &firmware)
     if (!firmware) {
         return nullptr;
     }
-    return {{JKEY_PFW_TIMESTAMP_UTC, firmware->timestampUtc}, {JKEY_PFW_UID, firmware->uid}};
+    // The API stores a signed 64-bit build and refuses the whole PATCH beyond it; a value that
+    // large is a bad read anyway, so report the build as unknown.
+    const auto build =
+            firmware->timestampUtc <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())
+                    ? firmware->timestampUtc
+                    : 0;
+    // Named as in the hardware probe sections; a byte beyond the known reasons is unknown.
+    const auto bootReason = size_t {firmware->bootReason} < std::size(JVAL_HWP_BOOT_REASONS)
+                                  ? JVAL_HWP_BOOT_REASONS[firmware->bootReason]
+                                  : JVAL_HWP_BOOT_REASONS[0];
+    return {{JKEY_PFW_TIMESTAMP_UTC, build},
+            {JKEY_PFW_UID, firmware->uid},
+            {JKEY_PFW_BOOT_REASON, bootReason},
+            {JKEY_PFW_WATCHDOG_COUNT, firmware->watchdogCount}};
+}
+
+ProbeFirmware nfcProbeFirmware(const nfc::ProbeInformation &probe)
+{
+    // As in the hardware probe section: legacy firmware (a string timestamp) reports no build
+    // and no boot info.
+    if (probe.timestampHeader != 0) {
+        return {0, probe.uid, 0, 0};
+    }
+    return {probe.timestampUtc, probe.uid, probe.bootReason, probe.watchdogCount};
 }
 
 std::optional<nlohmann::json> nfcProbeFirmwareEntry(const nfc::NfcProbeInfoResult &result)
 {
     using Status = nfc::NfcProbeInfoResult::Status;
     switch (result.status) {
-    case Status::Ok: {
-        // As in the hardware probe section: legacy firmware (a string timestamp) has no build.
-        const bool hasBuild = result.probe.timestampHeader == 0;
-        return probeFirmwareEntry(
-                ProbeFirmware {hasBuild ? result.probe.timestampUtc : 0, result.probe.uid});
-    }
+    case Status::Ok:
+        return probeFirmwareEntry(nfcProbeFirmware(result.probe));
     case Status::NotPresent:
         return probeFirmwareEntry(std::nullopt);
     case Status::ReadFailed:

@@ -81,12 +81,22 @@ struct CapturingNet : Net {
         patches.push_back(json::parse(body));
     }
 
+    /// Ends the last captured PATCH as the request would have.
+    void finishLast(bool sent) { scorbitronUpdateDone(patches.back(), sent); }
+
+    /// What the last captured PATCH would send if its request ran now.
+    json lastWhenRun() const { return currentScorbitronFields(patches.back()); }
+
     std::vector<json> patches;
 };
 
-json entry(const ProbeFirmware &firmware)
+/// The entry @p firmware should become; @p bootReason is the name expected for its byte.
+json entry(const ProbeFirmware &firmware, const char *bootReason = "unknown")
 {
-    return {{"timestamp_utc", firmware.timestampUtc}, {"uid", firmware.uid}};
+    return {{"timestamp_utc", firmware.timestampUtc},
+            {"uid", firmware.uid},
+            {"boot_reason", bootReason},
+            {"watchdog_count", firmware.watchdogCount}};
 }
 
 } // namespace
@@ -112,10 +122,55 @@ TEST_CASE("A probe read becomes a probe_firmware entry")
         read.status = nfc::NfcProbeInfoResult::Status::NotPresent;
         CHECK(nfcProbeFirmwareEntry(read) == json(nullptr));
     }
+    SECTION("a build beyond a signed 64-bit value is a bad read, reported as unknown")
+    {
+        read.probe.timestampUtc = uint64_t {1} << 63;
+        CHECK(nfcProbeFirmwareEntry(read) == entry({0, 0xdeadbeef}));
+        read.probe.timestampUtc = (uint64_t {1} << 63) - 1; // the largest the API stores
+        CHECK(nfcProbeFirmwareEntry(read) == entry({(uint64_t {1} << 63) - 1, 0xdeadbeef}));
+    }
     SECTION("a failed read reports nothing, leaving the API's record alone")
     {
         read.status = nfc::NfcProbeInfoResult::Status::ReadFailed;
         CHECK_FALSE(nfcProbeFirmwareEntry(read).has_value());
+    }
+}
+
+TEST_CASE("A probe entry names its boot reason and carries its watchdog count")
+{
+    SECTION("each BootReason byte by its hardware-probe name")
+    {
+        const char *names[] {"unknown",      "power_on_reset", "bootloader_restart",
+                             "soft_restart", "watchdog_timer", "watchdog_timer_acknowledged"};
+        for (uint8_t byte = 0; byte < 6; ++byte) {
+            INFO("byte " << int {byte});
+            const ProbeFirmware firmware {1760000000, 9, byte, 3};
+            CHECK(probeFirmwareEntry(firmware) == entry(firmware, names[byte]));
+        }
+    }
+    SECTION("a byte beyond the known reasons is unknown")
+    {
+        const ProbeFirmware firmware {1760000000, 9, 200, 3};
+        CHECK(probeFirmwareEntry(firmware).at("boot_reason") == "unknown");
+    }
+    SECTION("the pad's read carries its boot info")
+    {
+        nfc::ProbeInformation probe;
+        probe.timestampUtc = 1760000000;
+        probe.uid = 9;
+        probe.bootReason = 4;
+        probe.watchdogCount = 7;
+        CHECK(nfcProbeFirmware(probe) == ProbeFirmware {1760000000, 9, 4, 7});
+    }
+    SECTION("legacy firmware reports no boot info: unknown and 0, as for its build")
+    {
+        nfc::ProbeInformation probe;
+        probe.timestampHeader = 1;
+        probe.timestampUtc = 1760000000;
+        probe.uid = 9;
+        probe.bootReason = 4;
+        probe.watchdogCount = 7;
+        CHECK(nfcProbeFirmware(probe) == ProbeFirmware {0, 9, 0, 0});
     }
 }
 
@@ -124,15 +179,17 @@ TEST_CASE("The probe firmware config setter takes the host's probes only")
     const auto config = sb_config_create();
     REQUIRE(config);
 
-    sb_config_set_probe_firmware(config, "cpu", true, CPU_BUILD.timestampUtc, CPU_BUILD.uid);
-    sb_config_set_probe_firmware(config, "dmd", false, 123, 456);
-    sb_config_set_probe_firmware(config, "nfc", true, 1, 2);   // the SDK's own
-    sb_config_set_probe_firmware(config, "spike", true, 1, 2); // not a probe
-    sb_config_set_probe_firmware(config, nullptr, true, 1, 2);
-    sb_config_set_probe_firmware(nullptr, "cpu", true, 1, 2);
+    sb_config_set_probe_firmware(config, "cpu", true, CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4,
+                                 2); // watchdog_timer, twice
+    sb_config_set_probe_firmware(config, "dmd", false, 123, 456, 1, 1);
+    sb_config_set_probe_firmware(config, "nfc", true, 1, 2, 0, 0);   // the SDK's own
+    sb_config_set_probe_firmware(config, "spike", true, 1, 2, 0, 0); // not a probe
+    sb_config_set_probe_firmware(config, nullptr, true, 1, 2, 0, 0);
+    sb_config_set_probe_firmware(nullptr, "cpu", true, 1, 2, 0, 0);
 
     REQUIRE(config->probeFirmware.size() == 2);
-    CHECK(config->probeFirmware.at("cpu") == CPU_BUILD);
+    CHECK(config->probeFirmware.at("cpu")
+          == ProbeFirmware {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 2});
     CHECK_FALSE(config->probeFirmware.at("dmd").has_value());
     sb_config_destroy(config);
 }
@@ -203,6 +260,204 @@ TEST_CASE("Installing the probe manager at startup reads the NFC pad")
     net.setProbesManager(std::make_shared<nfc::ProbesManager>(nfcPad(1761000000, 0xcafe)));
     CHECK(NetTestAccess::currentScorbitronObject(net).at("probe_firmware").at("nfc")
           == entry({1761000000, 0xcafe}));
+}
+
+TEST_CASE("A probe that resets is reported, and an unchanged report sends nothing")
+{
+    DeviceInfo info;
+    info.probeFirmware["cpu"] = CPU_BUILD;
+    CapturingNet net(info);
+    NetTestAccess::scorbitronObject(net);
+    auto pad = nfcPad(1761000000, 0xcafe);
+    pad->info.bootReason = 1; // power_on_reset
+    net.setProbesManager(std::make_shared<nfc::ProbesManager>(pad));
+    NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+
+    SECTION("the pad's periodic check sends its new boot reason and count once")
+    {
+        NetTestAccess::checkNfcBootReason(net); // nothing changed since startup
+        CHECK(net.patches.empty());
+
+        pad->info.bootReason = 4; // watchdog_timer
+        pad->info.watchdogCount = 1;
+        NetTestAccess::checkNfcBootReason(net);
+        REQUIRE(net.patches.size() == 1);
+        CHECK(net.patches[0]
+              == json {{"probe_firmware",
+                        {{"nfc", entry({1761000000, 0xcafe, 4, 1}, "watchdog_timer")}}}});
+
+        NetTestAccess::checkNfcBootReason(net);
+        CHECK(net.patches.size() == 1);
+    }
+    SECTION("the host's probe: a repeated report sends nothing, a reset sends once")
+    {
+        net.setProbeFirmware("cpu", CPU_BUILD);
+        CHECK(net.patches.empty());
+
+        const ProbeFirmware reset {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 1};
+        net.setProbeFirmware("cpu", reset);
+        net.setProbeFirmware("cpu", reset);
+        REQUIRE(net.patches.size() == 1);
+        CHECK(net.patches[0]
+              == json {{"probe_firmware", {{"cpu", entry(reset, "watchdog_timer")}}}});
+    }
+}
+
+TEST_CASE("A change whose PATCH failed is sent again by a report once its backoff passed")
+{
+    DeviceInfo info;
+    info.probeFirmware["cpu"] = CPU_BUILD;
+    CapturingNet net(info);
+    NetTestAccess::scorbitronObject(net);
+    NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+    const ProbeFirmware reset {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 1};
+
+    SECTION("a probe's entry")
+    {
+        net.setProbeFirmware("cpu", reset);
+        REQUIRE(net.patches.size() == 1);
+        net.finishLast(false);
+        net.setProbeFirmware("cpu", reset); // too soon after the failure
+        CHECK(net.patches.size() == 1);
+
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setProbeFirmware("cpu", reset); // the same report: resent, the API never got it
+        REQUIRE(net.patches.size() == 2);
+        CHECK(net.patches[1] == net.patches[0]);
+        net.finishLast(true);
+
+        net.setProbeFirmware("cpu", reset); // now the API has it
+        CHECK(net.patches.size() == 2);
+    }
+    SECTION("the pbspk*comm firmware ID")
+    {
+        net.setPbspkcommFirmwareId("0a1b2c3d");
+        net.finishLast(false);
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setPbspkcommFirmwareId("0a1b2c3d");
+        CHECK(net.patches.size() == 2);
+    }
+    SECTION("a failure marks only the probes it carried")
+    {
+        net.setProbeFirmware("cpu", reset);
+        net.finishLast(false);
+        net.setProbeFirmware("dmd", ProbeFirmware {1762000000, 7, 1, 0});
+        net.finishLast(true);
+        net.setProbeFirmware("dmd", ProbeFirmware {1762000000, 7, 1, 0}); // sent, unchanged
+        CHECK(net.patches.size() == 2);
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setProbeFirmware("cpu", reset); // still owed
+        CHECK(net.patches.size() == 3);
+    }
+}
+
+TEST_CASE("The pad's periodic check retries a failed PATCH with a growing backoff, one at a time")
+{
+    using namespace std::chrono_literals;
+    DeviceInfo info;
+    CapturingNet net(info);
+    NetTestAccess::scorbitronObject(net);
+    auto pad = nfcPad(1761000000, 0xcafe);
+    pad->info.bootReason = 1; // power_on_reset
+    net.setProbesManager(std::make_shared<nfc::ProbesManager>(pad));
+    NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+
+    pad->info.bootReason = 4; // watchdog_timer
+    pad->info.watchdogCount = 1;
+    NetTestAccess::checkNfcBootReason(net);
+    REQUIRE(net.patches.size() == 1);
+    net.finishLast(false);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(net, "probe_firmware/nfc") == 30s);
+
+    NetTestAccess::checkNfcBootReason(net); // the next check, before the backoff passed
+    CHECK(net.patches.size() == 1);
+
+    NetTestAccess::expireScorbitronRetries(net);
+    NetTestAccess::checkNfcBootReason(net);
+    REQUIRE(net.patches.size() == 2);
+    NetTestAccess::expireScorbitronRetries(net); // the retry is still in flight
+    NetTestAccess::checkNfcBootReason(net);
+    CHECK(net.patches.size() == 2);
+
+    net.finishLast(false);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(net, "probe_firmware/nfc") == 60s);
+    for (int i = 0; i < 6; ++i) {
+        NetTestAccess::expireScorbitronRetries(net);
+        NetTestAccess::checkNfcBootReason(net);
+        net.finishLast(false);
+    }
+    CHECK(NetTestAccess::scorbitronRetryBackoff(net, "probe_firmware/nfc") == 10min);
+
+    const auto sent = net.patches.size();
+    pad->info.watchdogCount = 2; // a new reset is news: sent despite the backoff
+    NetTestAccess::checkNfcBootReason(net);
+    REQUIRE(net.patches.size() == sent + 1);
+    net.finishLast(true);
+    CHECK_FALSE(NetTestAccess::scorbitronRetryBackoff(net, "probe_firmware/nfc"));
+    NetTestAccess::checkNfcBootReason(net);
+    CHECK(net.patches.size() == sent + 1);
+}
+
+TEST_CASE("A change left to the full object is owed again if the full object fails")
+{
+    DeviceInfo info;
+    info.probeFirmware["cpu"] = CPU_BUILD;
+    CapturingNet net(info);
+    NetTestAccess::scorbitronObject(net);
+    const ProbeFirmware reset {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 1};
+
+    net.setProbeFirmware("cpu", reset); // not yet authenticated: stored for the full object
+    REQUIRE(net.patches.empty());
+
+    SECTION("the full object fails: the next report after the backoff sends it")
+    {
+        NetTestAccess::scorbitronObjectSendDone(net, false);
+        NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+        net.setProbeFirmware("cpu", reset); // too soon
+        CHECK(net.patches.empty());
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setProbeFirmware("cpu", reset);
+        REQUIRE(net.patches.size() == 1);
+        CHECK(net.patches[0]
+              == json {{"probe_firmware", {{"cpu", entry(reset, "watchdog_timer")}}}});
+    }
+    SECTION("the full object succeeds: nothing is owed")
+    {
+        NetTestAccess::scorbitronObjectSendDone(net, true);
+        NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setProbeFirmware("cpu", reset);
+        CHECK(net.patches.empty());
+    }
+}
+
+TEST_CASE("A PATCH that waited out a lost authentication sends the latest value")
+{
+    DeviceInfo info;
+    info.probeFirmware["cpu"] = CPU_BUILD;
+    CapturingNet net(info);
+    NetTestAccess::scorbitronObject(net);
+    NetTestAccess::setStatus(net, AuthStatus::AuthenticatedPaired);
+    const ProbeFirmware reset {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 1};
+    const ProbeFirmware again {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 2};
+
+    SECTION("a probe's entry")
+    {
+        net.setProbeFirmware("cpu", reset);
+        REQUIRE(net.patches.size() == 1);
+        NetTestAccess::setStatus(net, AuthStatus::NotAuthenticated);
+        net.setProbeFirmware("cpu", again); // stored only; the full object will carry it
+        REQUIRE(net.patches.size() == 1);
+        CHECK(net.lastWhenRun()
+              == json {{"probe_firmware", {{"cpu", entry(again, "watchdog_timer")}}}});
+    }
+    SECTION("the pbspk*comm firmware ID")
+    {
+        net.setPbspkcommFirmwareId("0a1b2c3d");
+        NetTestAccess::setStatus(net, AuthStatus::NotAuthenticated);
+        net.setPbspkcommFirmwareId("4e5f6a7b");
+        CHECK(net.lastWhenRun() == json {{"pbspkcomm_firmware_id", "4e5f6a7b"}});
+    }
 }
 
 TEST_CASE("A probe flashed after startup is reported without a restart")

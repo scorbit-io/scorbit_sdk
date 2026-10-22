@@ -42,6 +42,7 @@
 #include <functional>
 #include <chrono>
 #include <deque>
+#include <map>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -199,6 +200,15 @@ struct NetTestAccess {
     static nlohmann::json scorbitronObject(Net &net);
     /// The Scorbitron object as it stands, without rebuilding it.
     static nlohmann::json currentScorbitronObject(Net &net);
+    /// One run of the NFC pad's periodic check, as its timer would fire it.
+    static void checkNfcBootReason(Net &net);
+    /// Makes every failed Scorbitron field's retry due, as if its backoff had passed.
+    static void expireScorbitronRetries(Net &net);
+    /// How the full object's PATCH ending as @p sent is recorded.
+    static void scorbitronObjectSendDone(Net &net, bool sent);
+    /// The backoff a failed Scorbitron @p field waits out, or nullopt if it is not owed.
+    static std::optional<std::chrono::seconds> scorbitronRetryBackoff(Net &net,
+                                                                      const std::string &field);
     /// What submitGameData() does on the worker, run on the calling thread.
     static void applyGameData(Net &net, const detail::GameData &data, SessionFlags flags);
     static task_t sessionCreateTask(Net &net, int sessionId);
@@ -355,6 +365,14 @@ protected:
     /// Sends a Scorbitron PATCH carrying only @p body's changes, in order behind the full
     /// object's. Virtual so tests can capture it.
     virtual void sendScorbitronUpdate(std::string body, std::string what);
+    /// Records how a sendScorbitronUpdate() of @p body ended: a failed field is sent again by
+    /// the next report of it, even an unchanged one.
+    void scorbitronUpdateDone(const nlohmann::json &body, bool sent);
+    /// @p fields with each value replaced by the object's current one: what a queued PATCH of
+    /// them sends when it finally runs.
+    nlohmann::json currentScorbitronFields(const nlohmann::json &fields) const;
+    /// Records how the full object's PATCH ended: a failure leaves each of its fields owed.
+    void scorbitronObjectSendDone(bool sent);
 
 private:
     void sendScorbitronObject();
@@ -713,6 +731,13 @@ private:
 
     mutable std::mutex m_scorbitronObjectMutex;
     nlohmann::json m_scorbitronObject;
+    /// A field whose last update failed: its next report resends it once retryAt has passed.
+    struct UnsentScorbitronField {
+        std::chrono::steady_clock::time_point retryAt; // max() while its retry is in flight
+        std::chrono::seconds backoff;
+    };
+    /// Keyed "key" or "probe_firmware/<probe>"; under the mutex.
+    std::map<std::string, UnsentScorbitronField> m_unsentScorbitronFields;
 
     // Diagnostic probe (SB-3363). m_diagProbeSequence is a per-process
     // counter for the JKEY_SCR_SEQUENCE field on outbound probe publications;

@@ -172,6 +172,8 @@ struct JobSetProbeFirmware {
     bool present;
     uint64_t timestamp_utc;
     uint32_t uid;
+    uint8_t boot_reason;
+    uint32_t watchdog_count;
 };
 
 struct JobSetPbspkcommFirmwareId {
@@ -356,7 +358,8 @@ void dispatchApiJob(ApiQueueItem &&item)
                     },
                     [](JobSetCapabilities &&j) { j.h->gameState.setCapabilities(j.capabilities); },
                     [](JobSetProbeFirmware &&j) {
-                        j.h->gameState.setProbeFirmware(j.probe, j.present, j.timestamp_utc, j.uid);
+                        j.h->gameState.setProbeFirmware(j.probe, j.present, j.timestamp_utc, j.uid,
+                                                        j.boot_reason, j.watchdog_count);
                     },
                     [](JobSetPbspkcommFirmwareId &&j) {
                         j.h->gameState.setPbspkcommFirmwareId(j.firmware_id);
@@ -611,9 +614,11 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
 }
 
 void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool present,
-                           uint64_t timestamp_utc, uint32_t uid)
+                           uint64_t timestamp_utc, uint32_t uid, uint8_t boot_reason,
+                           uint32_t watchdog_count)
 {
-    handle->postApiJob(JobSetProbeFirmware {handle, copyCStr(probe), present, timestamp_utc, uid});
+    handle->postApiJob(JobSetProbeFirmware {handle, copyCStr(probe), present, timestamp_utc, uid,
+                                            boot_reason, watchdog_count});
 }
 
 void sb_set_pbspkcomm_firmware_id(sb_game_handle_t handle, const char *firmware_id)
