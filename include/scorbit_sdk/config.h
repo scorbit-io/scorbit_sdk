@@ -341,6 +341,13 @@ public:
         return *this;
     }
 
+    Config &setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
+                             uint32_t uid)
+    {
+        sb_config_set_probe_firmware(m_handle.get(), probe.c_str(), present, timestampUtc, uid);
+        return *this;
+    }
+
     Config &setMachineTitle(const std::string &title)
     {
         sb_config_set_machine_title(m_handle.get(), title.c_str());

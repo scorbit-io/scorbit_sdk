@@ -80,6 +80,9 @@ public:
     const std::string &getPairDeeplink() const;
 
     void setCapabilities(Capabilities capabilities);
+    void setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
+                          uint32_t uid);
+    void setPbspkcommFirmwareId(const std::string &firmwareId);
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success);
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);

@@ -262,6 +262,19 @@ void sb_config_set_game_firmware(sb_config_t config, const char *firmware_id, co
 SCORBIT_SDK_EXPORT
 void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmware_id);
 
+/**
+ * A probe's installed firmware at startup, sent with the Scorbitron object. A probe never set is
+ * not reported. Use @ref sb_set_probe_firmware for a change after the game state exists.
+ *
+ * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
+ * @param present false when the probe is not attached; @p timestamp_utc and @p uid are ignored.
+ * @param timestamp_utc The firmware's build number; 0 when the firmware does not report one.
+ * @param uid The probe's UID.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool present,
+                                  uint64_t timestamp_utc, uint32_t uid);
+
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);
 

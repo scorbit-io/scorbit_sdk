@@ -141,6 +141,14 @@ public:
 
     virtual void setProbesManager(std::shared_ptr<nfc::ProbesManager> manager) { (void)manager; };
 
+    /// A host-reported probe's firmware after startup; nullopt marks it not attached.
+    virtual void setProbeFirmware(const std::string &probe, std::optional<ProbeFirmware> firmware)
+    {
+        (void)probe;
+        (void)firmware;
+    }
+    virtual void setPbspkcommFirmwareId(const std::string &firmwareId) { (void)firmwareId; }
+
     void setNumberOfPlayersRequested(int count) { m_numberOfPlayersRequested = count; }
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }
 

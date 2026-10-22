@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "device_info.h"
 #include "game_data.h"
 #include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
@@ -161,6 +162,15 @@ bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &ru
  * other than Ok only sdk_version, nfc_status and nfc_extended's last_seen_tap_* are sent;
  * last_seen_tap_* are present for every status (0 = no tap seen).
  */
+/** A probe's probe_firmware entry: its build and UID, or null when it is not attached. */
+nlohmann::json probeFirmwareEntry(const std::optional<ProbeFirmware> &firmware);
+
+/**
+ * The NFC pad's probe_firmware entry from a probe read: null when no pad is attached, nothing
+ * when the read failed. Legacy firmware, which reports no build number, gets 0.
+ */
+std::optional<nlohmann::json> nfcProbeFirmwareEntry(const nfc::NfcProbeInfoResult &result);
+
 nlohmann::json buildHardwareProbeSdkPayload(const nfc::NfcProbeInfoResult &result,
                                             std::string_view sdkVersion);
 

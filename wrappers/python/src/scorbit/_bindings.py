@@ -190,6 +190,10 @@ _lib.sb_config_set_game_firmware.argtypes = [sb_config_t, c_char_p, c_char_p, c_
 _lib.sb_config_set_pbspkcomm_firmware_id.restype = None
 _lib.sb_config_set_pbspkcomm_firmware_id.argtypes = [sb_config_t, c_char_p]
 
+# void sb_config_set_probe_firmware(sb_config_t, const char*, bool, uint64_t, uint32_t)
+_lib.sb_config_set_probe_firmware.restype = None
+_lib.sb_config_set_probe_firmware.argtypes = [sb_config_t, c_char_p, c_bool, c_uint64, c_uint32]
+
 # void sb_config_set_machine_title(sb_config_t, const char*)
 _lib.sb_config_set_machine_title.restype = None
 _lib.sb_config_set_machine_title.argtypes = [sb_config_t, c_char_p]
@@ -361,6 +365,14 @@ _lib.sb_game_request_pair_machine.restype = None
 _lib.sb_game_request_pair_machine.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, sb_string_callback_t, c_void_p
 ]
+
+# void sb_set_probe_firmware(sb_game_handle_t, const char*, bool, uint64_t, uint32_t)
+_lib.sb_set_probe_firmware.restype = None
+_lib.sb_set_probe_firmware.argtypes = [sb_game_handle_t, c_char_p, c_bool, c_uint64, c_uint32]
+
+# void sb_set_pbspkcomm_firmware_id(sb_game_handle_t, const char*)
+_lib.sb_set_pbspkcomm_firmware_id.restype = None
+_lib.sb_set_pbspkcomm_firmware_id.argtypes = [sb_game_handle_t, c_char_p]
 
 # void sb_download(sb_game_handle_t, const char*, const char*, const char*,
 #                   sb_string_callback_t, void*)

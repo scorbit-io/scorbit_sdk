@@ -284,6 +284,14 @@ constexpr auto JKEY_SOBJ_GAME_FIRMWARE_ID {"game_firmware_id"};
 constexpr auto JKEY_SOBJ_GAME_FIRMWARE_VERSION {"game_firmware_version"};
 constexpr auto JKEY_SOBJ_GAME_SERIAL {"game_serial"};
 constexpr auto JKEY_SOBJ_PBSPKCOMM_FIRMWARE_ID {"pbspkcomm_firmware_id"};
+// Installed probe firmware, keyed by probe: {timestamp_utc, uid} attached, null absent, and an
+// omitted probe is not reported (SB-5757).
+constexpr auto JKEY_SOBJ_PROBE_FIRMWARE {"probe_firmware"};
+constexpr auto JKEY_PFW_TIMESTAMP_UTC {"timestamp_utc"};
+constexpr auto JKEY_PFW_UID {"uid"};
+constexpr auto JVAL_PROBE_CPU {"cpu"};
+constexpr auto JVAL_PROBE_DMD {"dmd"};
+constexpr auto JVAL_PROBE_NFC {"nfc"};
 constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};

@@ -197,6 +197,8 @@ struct NetTestAccess {
     tokenRefreshDelay(std::optional<std::chrono::seconds> left);
     /// The Scorbitron object as initScorbitronObject() builds it from the DeviceInfo.
     static nlohmann::json scorbitronObject(Net &net);
+    /// The Scorbitron object as it stands, without rebuilding it.
+    static nlohmann::json currentScorbitronObject(Net &net);
     /// What submitGameData() does on the worker, run on the calling thread.
     static void applyGameData(Net &net, const detail::GameData &data, SessionFlags flags);
     static task_t sessionCreateTask(Net &net, int sessionId);
@@ -301,6 +303,11 @@ public:
                             StringCallback callback) override;
 
     void setCapabilities(Capabilities capabilities) override;
+    void setProbeFirmware(const std::string &probe, std::optional<ProbeFirmware> firmware) override;
+    void setPbspkcommFirmwareId(const std::string &firmwareId) override;
+    /// Reads the NFC pad's firmware and reports it, e.g. after flashing the pad. Blocks on the
+    /// probe read. A failed read reports nothing.
+    void refreshNfcFirmware();
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success) override;
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing) override;
@@ -339,6 +346,17 @@ private:
 
     void initializeConnectionState();
     void initScorbitronObject();
+    /// Puts @p fields into the Scorbitron object, probe_firmware probe by probe, and sends them at
+    /// once when authenticated; until then the object's first send carries them. @p what names
+    /// the change in the log.
+    void updateScorbitronObject(const nlohmann::json &fields, const char *what);
+
+protected:
+    /// Sends a Scorbitron PATCH carrying only @p body's changes, in order behind the full
+    /// object's. Virtual so tests can capture it.
+    virtual void sendScorbitronUpdate(std::string body, std::string what);
+
+private:
     void sendScorbitronObject();
 
     void requestReleaseTrackInfo();

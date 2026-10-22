@@ -254,6 +254,18 @@ void GameStateImpl::setCapabilities(Capabilities capabilities)
     m_net->setCapabilities(capabilities);
 }
 
+void GameStateImpl::setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
+                                     uint32_t uid)
+{
+    m_net->setProbeFirmware(probe, present ? std::optional {ProbeFirmware {timestampUtc, uid}}
+                                           : std::nullopt);
+}
+
+void GameStateImpl::setPbspkcommFirmwareId(const std::string &firmwareId)
+{
+    m_net->setPbspkcommFirmwareId(firmwareId);
+}
+
 void GameStateImpl::setCreditsDropped(int credits, const std::string &transaction, bool success)
 {
     m_net->setCreditsDropped(credits, transaction, success);

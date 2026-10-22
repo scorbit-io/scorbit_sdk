@@ -539,6 +539,31 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
                                   void *user_data);
 
 /**
+ * @brief Report a probe's installed firmware after startup, e.g. after flashing it.
+ *
+ * Updates the Scorbitron object and, once authenticated, sends the change at once. The startup
+ * value comes from @ref sb_config_set_probe_firmware.
+ *
+ * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
+ * @param present false when the probe is not attached; @p timestamp_utc and @p uid are ignored.
+ * @param timestamp_utc The firmware's build number; 0 when the firmware does not report one.
+ * @param uid The probe's UID.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool present,
+                           uint64_t timestamp_utc, uint32_t uid);
+
+/**
+ * @brief Report the game firmware ID the installed Spike communication firmware targets, after
+ * startup, e.g. after replacing that firmware.
+ *
+ * Updates the Scorbitron object and, once authenticated, sends the change at once. NULL or ""
+ * changes nothing. The startup value comes from @ref sb_config_set_pbspkcomm_firmware_id.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_pbspkcomm_firmware_id(sb_game_handle_t handle, const char *firmware_id);
+
+/**
  * @brief Submit the result of a hardware probe requested by @ref SB_EVT_HARDWARE_PROBE_REQUESTED.
  *
  * POSTs @p result_json verbatim, with device authentication, to the result endpoint derived from
