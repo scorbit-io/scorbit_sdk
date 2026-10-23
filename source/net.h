@@ -214,6 +214,10 @@ struct NetTestAccess {
     static task_t sessionCreateTask(Net &net, int sessionId);
     static task_t sessionUpdateTask(Net &net, int sessionId, SessionFlags flags);
     static bool hasGameSession(Net &net, int sessionId);
+    /// Feeds a session reply's @p scores array to session @p sessionId's score cache.
+    static void processScores(Net &net, int sessionId, const nlohmann::json &scores);
+    /// The tournament session @p sessionId has cached for @p player's score.
+    static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
 
 private:
     template<typename CallbackT>

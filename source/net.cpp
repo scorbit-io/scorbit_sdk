@@ -3684,6 +3684,19 @@ bool NetTestAccess::hasGameSession(Net &net, int sessionId)
     return net.m_gameSessions.count(sessionId) != 0;
 }
 
+void NetTestAccess::processScores(Net &net, int sessionId, const nlohmann::json &scores)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    net.processScoresAndPlayersProfiles(scores, net.m_gameSessions[sessionId]);
+}
+
+std::optional<std::string> NetTestAccess::scoreTournament(Net &net, int sessionId,
+                                                          sb_player_t player)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    return net.m_gameSessions.at(sessionId).scoresMetadata.at(player).tournamentUuid;
+}
+
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
 {
     net.m_status = from;
@@ -4173,9 +4186,13 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
             obj.at(JKEY_SCR_ID).get_to(metadata.id);
             obj.at(JKEY_SCR_IS_NFC_VERIFIED).get_to(metadata.isNfcVerified);
 
+            // A null or absent tournament clears the cached one: an entry returned mid-session
+            // must not stay on the row for every later score_update and game_end.
             if (const auto it = obj.find(JKEY_SCR_TOURNAMENT_UUID);
                 it != obj.end() && it->is_string()) {
                 metadata.tournamentUuid = it->get<std::string>();
+            } else {
+                metadata.tournamentUuid.reset();
             }
         }
     } catch (const std::exception &e) {

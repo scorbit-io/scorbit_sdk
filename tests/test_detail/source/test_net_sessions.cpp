@@ -81,3 +81,40 @@ TEST_CASE("An update waiting for a UUID stops once the create request has finish
         CHECK_FALSE(NetTestAccess::hasGameSession(net, 1));
     }
 }
+
+TEST_CASE("A session reply without a tournament clears the one cached for that score")
+{
+    // One score row as a session reply carries it; @p withKey false leaves tournament_id out.
+    const auto reply = [](nlohmann::json tournament, bool withKey = true) {
+        nlohmann::json score {
+                {"position", 1}, {"id", 41}, {"is_nfc_verified", true}, {"player", nullptr}};
+        if (withKey) {
+            score["tournament_id"] = std::move(tournament);
+        }
+        return nlohmann::json::array({score});
+    };
+    const std::string tournament = "5f0c4a7e-2b1d-4c3e-9a8b-7d6e5f4c3b2a";
+    Net net(DeviceInfo {}, {});
+    NetTestAccess::processScores(net, 1, reply(tournament));
+    REQUIRE(NetTestAccess::scoreTournament(net, 1, 1) == tournament);
+
+    SECTION("a null tournament, as after the entry is returned")
+    {
+        NetTestAccess::processScores(net, 1, reply(nullptr));
+        const auto cached = NetTestAccess::scoreTournament(net, 1, 1);
+        CHECK_FALSE(cached);
+        // The score row is built as {key, cached}: an empty cache is sent as null.
+        CHECK(nlohmann::json {{"tournament_id", cached}}.at("tournament_id").is_null());
+    }
+    SECTION("no tournament key at all")
+    {
+        NetTestAccess::processScores(net, 1, reply(nullptr, false));
+        CHECK_FALSE(NetTestAccess::scoreTournament(net, 1, 1));
+    }
+    SECTION("a different tournament replaces it")
+    {
+        const std::string other = "0e1d2c3b-4a59-4687-b5c4-d3e2f1a0b9c8";
+        NetTestAccess::processScores(net, 1, reply(other));
+        CHECK(NetTestAccess::scoreTournament(net, 1, 1) == other);
+    }
+}
