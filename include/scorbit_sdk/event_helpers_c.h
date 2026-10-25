@@ -359,6 +359,19 @@ SCORBIT_SDK_EXPORT
 bool sb_event_hardware_probe_requested(const sb_event_t *event, const char **run_id,
                                        bool *force_re_detect);
 
+/**
+ * @brief Helper function to process a @ref SB_EVT_PROBE_FLASH_REQUESTED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] run_id Receives the flash run id; valid only during the event callback.
+ * @param [OUT] request_json Receives the run as a JSON object: probe, target_build, sha256, size,
+ * deadline and image_url; valid only during the event callback.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id,
+                                    const char **request_json);
+
 #ifdef __cplusplus
 }
 #endif

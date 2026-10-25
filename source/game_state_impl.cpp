@@ -336,6 +336,18 @@ void GameStateImpl::submitHardwareProbeResult(const std::string &runId,
     m_net->submitHardwareProbeResult(runId, resultJson, std::move(callback));
 }
 
+void GameStateImpl::submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                                          HttpStatusCallback callback)
+{
+    m_net->submitProbeFlashStage(runId, stageJson, std::move(callback));
+}
+
+void GameStateImpl::submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                           HttpStatusCallback callback)
+{
+    m_net->submitProbeFlashResult(runId, resultJson, std::move(callback));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

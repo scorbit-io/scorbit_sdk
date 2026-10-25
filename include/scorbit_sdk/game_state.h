@@ -561,6 +561,24 @@ public:
                                         cbPair.first, cbPair.second);
     }
 
+    /// @copydoc sb_submit_probe_flash_stage
+    void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                               HttpStatusCallback callback = {})
+    {
+        auto cbPair = prepareHttpStatusCallback(std::move(callback));
+        sb_submit_probe_flash_stage(m_handle.get(), runId.c_str(), stageJson.c_str(), cbPair.first,
+                                    cbPair.second);
+    }
+
+    /// @copydoc sb_submit_probe_flash_result
+    void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                HttpStatusCallback callback = {})
+    {
+        auto cbPair = prepareHttpStatusCallback(std::move(callback));
+        sb_submit_probe_flash_result(m_handle.get(), runId.c_str(), resultJson.c_str(),
+                                     cbPair.first, cbPair.second);
+    }
+
     /**
      * @brief Download a file from a URL and save it to local storage.
      *

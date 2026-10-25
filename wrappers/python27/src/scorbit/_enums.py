@@ -128,6 +128,7 @@ class EventType(IntEnum):
     ScorbitdUpdated = 1002
     FirmwaresListReceived = 1003
     HardwareProbeRequested = 1004
+    ProbeFlashRequested = 1005
 
 
 class LogLevel(IntEnum):

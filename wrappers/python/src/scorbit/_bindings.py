@@ -197,6 +197,14 @@ _lib.sb_config_set_probe_firmware.argtypes = [
     sb_config_t, c_char_p, c_bool, c_uint64, c_uint32, c_uint8, c_uint32
 ]
 
+# void sb_config_add_probe_flash_probe(sb_config_t, const char*)
+_lib.sb_config_add_probe_flash_probe.restype = None
+_lib.sb_config_add_probe_flash_probe.argtypes = [sb_config_t, c_char_p]
+
+# void sb_config_set_probe_flash_nfc_trigger(sb_config_t, bool)
+_lib.sb_config_set_probe_flash_nfc_trigger.restype = None
+_lib.sb_config_set_probe_flash_nfc_trigger.argtypes = [sb_config_t, c_bool]
+
 # void sb_config_set_machine_title(sb_config_t, const char*)
 _lib.sb_config_set_machine_title.restype = None
 _lib.sb_config_set_machine_title.argtypes = [sb_config_t, c_char_p]
@@ -468,6 +476,10 @@ _lib.sb_event_firmwares_list_received.argtypes = [c_void_p, POINTER(c_char_p)]
 _lib.sb_event_hardware_probe_requested.restype = c_bool
 _lib.sb_event_hardware_probe_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_bool)]
 
+# bool sb_event_probe_flash_requested(const sb_event_t*, const char**, const char**)
+_lib.sb_event_probe_flash_requested.restype = c_bool
+_lib.sb_event_probe_flash_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
+
 # bool sb_event_diagnostics_upload_requested(const sb_event_t*, bool*)
 _lib.sb_event_diagnostics_upload_requested.restype = c_bool
 _lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)]
@@ -550,6 +562,20 @@ _lib.sb_report_device_state.argtypes = [
 #                                      sb_http_status_callback_t, void*)
 _lib.sb_submit_hardware_probe_result.restype = None
 _lib.sb_submit_hardware_probe_result.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# void sb_submit_probe_flash_stage(sb_game_handle_t, const char*, const char*,
+#                                  sb_http_status_callback_t, void*)
+_lib.sb_submit_probe_flash_stage.restype = None
+_lib.sb_submit_probe_flash_stage.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# void sb_submit_probe_flash_result(sb_game_handle_t, const char*, const char*,
+#                                   sb_http_status_callback_t, void*)
+_lib.sb_submit_probe_flash_result.restype = None
+_lib.sb_submit_probe_flash_result.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
 ]
 

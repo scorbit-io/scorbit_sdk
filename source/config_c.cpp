@@ -198,6 +198,20 @@ void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool pr
     }
 }
 
+void sb_config_add_probe_flash_probe(sb_config_t config, const char *probe)
+{
+    if (config && probe && scorbit::isHostFlashedProbe(probe)) {
+        config->probeFlashProbes.insert(probe);
+    }
+}
+
+void sb_config_set_probe_flash_nfc_trigger(sb_config_t config, bool triggers)
+{
+    if (config) {
+        config->probeFlashNfcTrigger = triggers;
+    }
+}
+
 void sb_config_set_machine_title(sb_config_t config, const char *title)
 {
     if (config) {

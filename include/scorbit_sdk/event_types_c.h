@@ -108,6 +108,13 @@ typedef enum {
      */
     SB_EVT_HARDWARE_PROBE_REQUESTED,
 
+    /**
+     * @brief The Scorbit backend requested a probe firmware flash that the host runs.
+     * Use @ref sb_event_probe_flash_requested, then @ref sb_submit_probe_flash_stage and
+     * @ref sb_submit_probe_flash_result.
+     */
+    SB_EVT_PROBE_FLASH_REQUESTED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

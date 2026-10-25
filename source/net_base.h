@@ -137,6 +137,28 @@ public:
     virtual void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
                                            HttpStatusCallback callback = {}) = 0;
 
+    /// POSTs a probe flash stage for @p runId, once; see sb_submit_probe_flash_stage.
+    virtual void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                                       HttpStatusCallback callback = {})
+    {
+        (void)runId;
+        (void)stageJson;
+        if (callback) {
+            callback(Error::Unknown, 0, "unsupported");
+        }
+    }
+
+    /// POSTs a probe flash result for @p runId until final; see sb_submit_probe_flash_result.
+    virtual void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                        HttpStatusCallback callback = {})
+    {
+        (void)runId;
+        (void)resultJson;
+        if (callback) {
+            callback(Error::Unknown, 0, "unsupported");
+        }
+    }
+
     // ---------------------------------------------------------------------------------
 
     virtual void setProbesManager(std::shared_ptr<nfc::ProbesManager> manager) { (void)manager; };

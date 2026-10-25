@@ -290,6 +290,19 @@ class Event(object):
             return (val or ""), bool(force.value)
         return None
 
+    def get_probe_flash_requested(self):
+        """Extract ``(run_id, request_json)`` from a ``ProbeFlashRequested`` event."""
+        run_id = c_char_p()
+        request = c_char_p()
+        if _lib.sb_event_probe_flash_requested(self._ptr, byref(run_id), byref(request)):
+            vals = []
+            for raw in (run_id.value, request.value):
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", "replace")
+                vals.append(raw or "")
+            return vals[0], vals[1]
+        return None
+
     # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------

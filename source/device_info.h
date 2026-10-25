@@ -29,6 +29,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,6 +53,13 @@ struct ProbeFirmware {
 
 /// The probes a host reports itself. The SDK reads the NFC pad, so a host can't report it.
 inline bool isHostReportedProbe(std::string_view probe)
+{
+    return probe == detail::JVAL_PROBE_CPU || probe == detail::JVAL_PROBE_DMD
+        || probe == detail::JVAL_PROBE_LINK;
+}
+
+/// The probes a host can flash itself on a probe_flash request. The NFC pad is the SDK's.
+inline bool isHostFlashedProbe(std::string_view probe)
 {
     return probe == detail::JVAL_PROBE_CPU || probe == detail::JVAL_PROBE_DMD
         || probe == detail::JVAL_PROBE_LINK;
@@ -109,6 +117,10 @@ struct DeviceInfo {
     std::string pbspkcommFirmwareId; ///< The game firmware ID the installed pbspk*comm targets.
     /// Probes the host reported (CPU, DMD) by name; nullopt marks one that is not attached.
     std::map<std::string, std::optional<ProbeFirmware>> probeFirmware;
+    /// Probes the host flashes itself on a probe_flash request; empty routes none to it.
+    std::set<std::string> probeFlashProbes;
+    /// The host runs the NFC pad's flash checks (idle, game), then calls the SDK's routine.
+    bool probeFlashNfcTrigger {false};
     std::string machineTitle;
     std::string extraFingerprint;
 

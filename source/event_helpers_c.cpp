@@ -171,6 +171,23 @@ bool sb_event_hardware_probe_requested(const sb_event_t *event, const char **run
     return true;
 }
 
+bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id,
+                                    const char **request_json)
+{
+    if (!event || !run_id || !request_json) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::ProbeFlashRequestedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *run_id = derived->runId().c_str();
+    *request_json = derived->requestJson().c_str();
+    return true;
+}
+
 // ----------------------- PlayersUpdated helpers -----------------------
 
 static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,

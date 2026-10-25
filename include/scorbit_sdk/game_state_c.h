@@ -595,6 +595,54 @@ void sb_submit_hardware_probe_result(sb_game_handle_t handle, const char *run_id
                                      void *user_data);
 
 /**
+ * @brief Internal use. Report a stage of a probe flash requested by
+ * @ref SB_EVT_PROBE_FLASH_REQUESTED.
+ *
+ * POSTs @p stage_json, a JSON object with "stage", to the stage endpoint derived from @p run_id,
+ * adding "at" (the current UTC time) when it is missing. Best effort: one attempt, and the run's
+ * result is what counts. Nothing is sent when @p run_id is not a UUID or @p stage_json is not a
+ * JSON object; @p callback then gets @ref SB_EC_UNKNOWN with HTTP status 0.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param run_id The run id from @ref sb_event_probe_flash_requested.
+ * @param stage_json The serialized stage object.
+ * @param callback Optional callback receiving the error, the HTTP status and the raw reply.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_submit_probe_flash_stage(sb_game_handle_t handle, const char *run_id,
+                                 const char *stage_json, sb_http_status_callback_t callback,
+                                 void *user_data);
+
+/**
+ * @brief Internal use. Submit the result of a probe flash requested by
+ * @ref SB_EVT_PROBE_FLASH_REQUESTED.
+ *
+ * POSTs @p result_json verbatim to the result endpoint derived from @p run_id, and ends the unit's
+ * running flash so the next request is accepted. Any UUID run id is accepted, including one from
+ * before a restart. Nothing is sent when @p run_id is not a UUID or @p result_json is not a JSON
+ * object; @p callback then gets @ref SB_EC_UNKNOWN with HTTP status 0.
+ *
+ * @note The SDK resends after no response, 429, 5xx, or an attempt authentication held back,
+ * backing off, for up to 30 attempts, until the API answers otherwise (within an attempt a request
+ * that gets no response is tried up to 3 times, and a 401 re-authenticates once); @p callback
+ * gets that final answer. 2xx means accepted, and 409 a different result already
+ * recorded for the run: both are final, as is any other status. The API accepts an identical
+ * resubmission.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param run_id The run id from @ref sb_event_probe_flash_requested.
+ * @param result_json The serialized result object.
+ * @param callback Optional callback receiving the error, the HTTP status of the final attempt and
+ * the raw reply. Pass NULL if not needed.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
+                                  const char *result_json, sb_http_status_callback_t callback,
+                                  void *user_data);
+
+/**
  * @brief Download a file from a URL and save it to local storage.
  *
  * @note The callback function is invoked asynchronously when the operation completes, running in

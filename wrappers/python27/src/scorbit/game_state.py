@@ -634,6 +634,26 @@ class GameState(object):
             self._handle, _encode(run_id), _encode(result_json), cb, None
         )
 
+    def submit_probe_flash_stage(self, run_id, stage_json, callback=None):
+        # type: (str, str, ...) -> None
+        """Internal use: POST a probe flash stage once; "at" is added when missing."""
+        cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
+        _lib.sb_submit_probe_flash_stage(
+            self._handle, _encode(run_id), _encode(stage_json), cb, None
+        )
+
+    def submit_probe_flash_result(self, run_id, result_json, callback=None):
+        # type: (str, str, ...) -> None
+        """Internal use: POST a probe flash result, resent with backoff until final.
+
+        Ends the unit's running flash. 2xx and 409 are final; see
+        ``sb_submit_probe_flash_result``.
+        """
+        cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
+        _lib.sb_submit_probe_flash_result(
+            self._handle, _encode(run_id), _encode(result_json), cb, None
+        )
+
 
 def create_game_state(config):
     # type: (Config) -> GameState

@@ -434,6 +434,18 @@ class Config(object):
         )
         return self
 
+    def add_probe_flash_probe(self, probe):
+        # type: (str) -> Config
+        """Internal use: a probe ("cpu", "dmd" or "link") the host flashes itself."""
+        _lib.sb_config_add_probe_flash_probe(self._handle, _encode(probe))
+        return self
+
+    def set_probe_flash_nfc_trigger(self, triggers):
+        # type: (bool) -> Config
+        """Internal use: whether the host triggers the NFC pad's flash."""
+        _lib.sb_config_set_probe_flash_nfc_trigger(self._handle, bool(triggers))
+        return self
+
     def set_machine_title(self, title):
         # type: (str) -> Config
         _lib.sb_config_set_machine_title(self._handle, _encode(title))
