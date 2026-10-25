@@ -666,6 +666,31 @@ void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
                  sb_string_callback_t callback, void *user_data);
 
 /**
+ * @brief Internal use. @ref sb_download under limits.
+ *
+ * @p options_json is a JSON object; NULL or "" means none, and the download is exactly
+ * @ref sb_download. Keys:
+ * - "max_bytes" (unsigned integer): the most bytes the body may have. A larger body is aborted
+ *   during the transfer, as soon as its announced size or the bytes received pass the limit;
+ *   no file is left and @p callback gets @ref SB_EC_LIMIT_EXCEEDED. It is not retried.
+ * - "redirect": "follow" (the default: any redirect, as @ref sb_download), "none" (none), or
+ *   "hosts" (only to a host in "redirect_hosts", an array of host names, and never from https to
+ *   http; up to 5). A refused redirect is not followed and nothing from its target is written;
+ *   @p callback gets @ref SB_EC_LIMIT_EXCEEDED and the reply names the refused host.
+ *
+ * With options the reply also gives the final URL, after any redirects followed.
+ *
+ * An unknown key, or a known one of the wrong type, refuses the whole download with
+ * @ref SB_EC_UNKNOWN before anything is sent, so a limit an older SDK can't apply is never
+ * silently dropped.
+ */
+SCORBIT_SDK_EXPORT
+void sb_download_with_options(sb_game_handle_t handle, const char *url, const char *filename,
+                              const sb_http_header_t *headers, size_t headers_count,
+                              const char *options_json, sb_string_callback_t callback,
+                              void *user_data);
+
+/**
  * @brief Download data from a URL into a memory buffer.
  *
  * @note The callback function is invoked asynchronously when the operation completes, running in

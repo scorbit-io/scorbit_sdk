@@ -21,6 +21,7 @@ class Error(IntEnum):
     NotPaired = 3
     ApiError = 4
     FileError = 5
+    LimitExceeded = 6
 
 
 class AuthStatus(IntEnum):

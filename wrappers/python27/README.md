@@ -112,7 +112,7 @@ with scorbit.create_game_state(config) as gs:
 
 | Enum              | Values |
 |-------------------|--------|
-| `Error`           | `Success`, `Unknown`, `AuthFailed`, `NotPaired`, `ApiError`, `FileError` |
+| `Error`           | `Success`, `Unknown`, `AuthFailed`, `NotPaired`, `ApiError`, `FileError`, `LimitExceeded` |
 | `AuthStatus`      | `NotAuthenticated`, `Authenticating`, `AuthenticatedCheckingPairing`, `AuthenticatedUnpaired`, `AuthenticatedPaired`, `AuthenticationFailed` |
 | `GameStartOrigin` | `StartButton`, `FromLobby` |
 | `Capability`      | `StartGame`, `CreditDrop` - integer constants; combine with `|` (`enum34` has no `IntFlag`) |

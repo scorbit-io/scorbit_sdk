@@ -24,6 +24,7 @@
 #include <scorbit_sdk/common_types_c.h>
 #include "leaderboard_internal.h"
 #include "device_info.h"
+#include "download_options.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
 #include "session_flags.h"
@@ -86,6 +87,20 @@ public:
 
     virtual void download(bool isAsync, StringCallback callback, const std::string &url,
                           const std::string &filename, const HttpHeaders &headers) = 0;
+    /// download() under @p options' limits; see sb_download_with_options.
+    virtual void downloadWithOptions(bool isAsync, StringCallback callback, const std::string &url,
+                                     const std::string &filename, const HttpHeaders &headers,
+                                     const DownloadOptions &options)
+    {
+        (void)isAsync;
+        (void)url;
+        (void)filename;
+        (void)headers;
+        (void)options;
+        if (callback) {
+            callback(Error::Unknown, "unsupported");
+        }
+    }
     virtual void downloadBuffer(bool isAsync, VectorCallback callback, const std::string &url,
                                 size_t reserveBufferSize, const HttpHeaders &headers) = 0;
 

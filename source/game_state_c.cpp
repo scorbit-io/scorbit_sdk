@@ -203,6 +203,7 @@ struct JobDownload {
     HttpHeaders headers;
     sb_string_callback_t callback;
     void *user_data;
+    std::optional<std::string> options; ///< sb_download_with_options() only
 };
 
 struct JobDownloadBuffer {
@@ -394,6 +395,13 @@ void dispatchApiJob(ApiQueueItem &&item)
                                                         j.pricing.c_str());
                     },
                     [](JobDownload &&j) {
+                        if (j.options) {
+                            j.h->gameState.downloadWithOptions(
+                                    makeCStringReplyBridge(j.callback, j.user_data),
+                                    std::move(j.url), std::move(j.filename), std::move(j.headers),
+                                    *j.options);
+                            return;
+                        }
                         j.h->gameState.download(makeCStringReplyBridge(j.callback, j.user_data),
                                                 std::move(j.url), std::move(j.filename),
                                                 std::move(j.headers));
@@ -670,8 +678,23 @@ void sb_download(sb_game_handle_t handle, const char *url, const char *filename,
                  const sb_http_header_t *headers, size_t headers_count,
                  sb_string_callback_t callback, void *user_data)
 {
+    handle->postApiJob(JobDownload {handle,
+                                    copyCStr(url),
+                                    copyCStr(filename),
+                                    copyHeaders(headers, headers_count),
+                                    callback,
+                                    user_data,
+                                    {}});
+}
+
+void sb_download_with_options(sb_game_handle_t handle, const char *url, const char *filename,
+                              const sb_http_header_t *headers, size_t headers_count,
+                              const char *options_json, sb_string_callback_t callback,
+                              void *user_data)
+{
     handle->postApiJob(JobDownload {handle, copyCStr(url), copyCStr(filename),
-                                    copyHeaders(headers, headers_count), callback, user_data});
+                                    copyHeaders(headers, headers_count), callback, user_data,
+                                    copyCStr(options_json)});
 }
 
 void sb_download_buffer(sb_game_handle_t handle, const char *url, size_t reserve_buffer_size,

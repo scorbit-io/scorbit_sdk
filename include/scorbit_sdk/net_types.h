@@ -34,12 +34,13 @@ constexpr auto KEY_LENGTH = SB_KEY_LENGTH;
 
 // IMPORTANT: always add new error codes at the end of the list and sync with sb_error_t
 enum class Error {
-    Success = SB_EC_SUCCESS,        // Success
-    Unknown = SB_EC_UNKNOWN,        // Unknown error
-    AuthFailed = SB_EC_AUTH_FAILED, // Authentication failed
-    NotPaired = SB_EC_NOT_PAIRED,   // Device is not paired
-    ApiError = SB_EC_API_ERROR,     // API call error (e.g., HTTP error code != 200)
-    FileError = SB_EC_FILE_ERROR,   // File error (e.g., file not found)
+    Success = SB_EC_SUCCESS,              // Success
+    Unknown = SB_EC_UNKNOWN,              // Unknown error
+    AuthFailed = SB_EC_AUTH_FAILED,       // Authentication failed
+    NotPaired = SB_EC_NOT_PAIRED,         // Device is not paired
+    ApiError = SB_EC_API_ERROR,           // API call error (e.g., HTTP error code != 200)
+    FileError = SB_EC_FILE_ERROR,         // File error (e.g., file not found)
+    LimitExceeded = SB_EC_LIMIT_EXCEEDED, // A download broke a limit it was given (e.g. its size)
 };
 
 enum class AuthStatus {

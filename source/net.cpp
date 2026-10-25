@@ -39,6 +39,7 @@
 #include <fmt/chrono.h>
 #include <openssl/sha.h>
 #include <cpr/cpr.h>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/uuid.hpp>
@@ -1077,12 +1078,19 @@ void Net::requestUnpair(StringCallback callback)
 void Net::download(bool isAsync, StringCallback callback, const std::string &url,
                    const std::string &filename, const HttpHeaders &headers)
 {
+    downloadWithOptions(isAsync, std::move(callback), url, filename, headers, {});
+}
+
+void Net::downloadWithOptions(bool isAsync, StringCallback callback, const std::string &url,
+                              const std::string &filename, const HttpHeaders &headers,
+                              const DownloadOptions &options)
+{
+    auto task = createDownloadFileTask(std::move(callback), url, filename, HttpHeaders(headers),
+                                       options);
     if (isAsync) {
-        m_worker.postQueue(
-                createDownloadFileTask(std::move(callback), url, filename, HttpHeaders(headers)));
+        m_worker.postQueue(std::move(task));
     } else {
-        std::invoke(
-                createDownloadFileTask(std::move(callback), url, filename, HttpHeaders(headers)));
+        std::invoke(task);
     }
 }
 
@@ -3783,10 +3791,11 @@ task_t NetTestAccess::request(Net &net, StringCallback callback, TestTransport t
 }
 
 task_t NetTestAccess::downloadFile(Net &net, StringCallback callback, std::string url,
-                                   std::string filename, DownloadTransport transport)
+                                   std::string filename, DownloadTransport transport,
+                                   DownloadOptions options, HttpHeaders headers)
 {
-    return net.createDownloadFileTask(std::move(callback), std::move(url), std::move(filename), {},
-                                      std::move(transport));
+    return net.createDownloadFileTask(std::move(callback), std::move(url), std::move(filename),
+                                      std::move(headers), std::move(options), std::move(transport));
 }
 
 void NetTestAccess::setAuthTransport(Net &net, AuthTransport transport, AuthRetryTimer timer)
@@ -4214,18 +4223,20 @@ task_t Net::createPatchMultipartRequestTask(StringCallback replyCallback,
 
 task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url,
                                    std::string filename, HttpHeaders extraHeaders,
+                                   DownloadOptions options,
                                    NetTestAccess::DownloadTransport transport)
 {
     return [this, callback = std::move(replyCallback), url = std::move(url),
-            filename = std::move(filename), extraHeaders = std::move(extraHeaders),
+            filename = std::move(filename), extraHeaders = std::move(extraHeaders), options,
             transport = std::move(transport)]() {
         Error error {Error::ApiError};
         std::string reply;
         int statusCode = 0;
         bool openedFile = false;
+        std::string limitBroken; // why the download was refused, for the reply
 
         const auto fullUrl = this->url(url);
-        const bool isInternal = isInternalDownloadForAuth(fullUrl.str(), m_hostname, m_deviceInfo);
+        std::string finalUrl = fullUrl.str(); // where the last attempt ended, after any redirects
 
         const auto elidedUrl = elideUrl(fullUrl.str());
 
@@ -4239,33 +4250,123 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
             error = Error::FileError;
         }
 
+        // Under a redirect policy curl does not follow redirects; each is checked, and followed by
+        // hand only to an allowed target, so no body from a refused host is ever written.
+        constexpr int MAX_REDIRECTS = 5;
+        const bool manualRedirects = options.redirect != RedirectPolicy::Follow;
+
         for (int i = 0; i < NUM_RETRIES && !pathEc; ++i) {
-            // Truncate on every attempt so a retry never appends to partial bytes.
-            std::ofstream file(tempName, std::ios::binary | std::ios::trunc);
-            if (!file.is_open()) {
-                ERR("API Can't open file for writing: {}", tempName);
+            std::ofstream file;
+            std::optional<DownloadSink> sink;
+            cpr::Response r;
+            uint64_t written = 0;
+            bool fileOpened = true;
+            std::string target = fullUrl.str();
+
+            for (int hop = 0;; ++hop) {
+                // Truncate on every attempt and hop: neither a retry nor a redirect keeps bytes.
+                file = std::ofstream(tempName, std::ios::binary | std::ios::trunc);
+                if (!file.is_open()) {
+                    ERR("API Can't open file for writing: {}", tempName);
+                    fileOpened = false;
+                    break;
+                }
+                openedFile = true;
+
+                INF("API Download file: {}", elideUrl(target));
+
+                // Device auth only ever goes to the API host, wherever a redirect leads
+                auto headers = isInternalDownloadForAuth(target, m_hostname, m_deviceInfo)
+                                     ? authHeader()
+                                     : cpr::Header {};
+                // The caller's own credentials stay with the origin they were meant for
+                const bool sameOrigin = isSameOrigin(target, fullUrl.str());
+                for (const auto &[k, v] : extraHeaders) {
+                    if (!sameOrigin
+                        && (boost::algorithm::iequals(k, "authorization")
+                            || boost::algorithm::iequals(k, "proxy-authorization")
+                            || boost::algorithm::iequals(k, "cookie"))) {
+                        continue;
+                    }
+                    headers[k] = v;
+                }
+
+                // With a size limit the body goes through a sink that counts it as written,
+                // after curl has decoded it, and aborts the transfer before a byte past the limit
+                // is written. Without options this is the plain download it always was.
+                sink.reset();
+                if (options.maxBytes) {
+                    sink.emplace(file, *options.maxBytes);
+                }
+                const auto fetch = [&](auto &&...extra) {
+                    const auto timeouts =
+                            std::make_tuple(cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
+                                            cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
+                                            cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
+                                                           NET_TRANSFER_LOW_SPEED_STALL_TIME});
+                    // The announced Content-Length is not checked: it may be a redirect's own, or
+                    // count encoded bytes where the limit counts decoded ones.
+                    if (sink) {
+                        return cpr::Download(
+                                cpr::WriteCallback {[&sink](std::string_view data, intptr_t) {
+                                    return sink->write(data);
+                                }},
+                                cpr::Url {target}, std::get<0>(timeouts), std::get<1>(timeouts),
+                                std::get<2>(timeouts), headers, sslOptions(), extra...);
+                    }
+                    return cpr::Download(file, cpr::Url {target}, std::get<0>(timeouts),
+                                         std::get<1>(timeouts), std::get<2>(timeouts), headers,
+                                         sslOptions(), extra...);
+                };
+                if (transport) {
+                    r = transport(file, cpr::Url {target}, headers);
+                } else if (manualRedirects) {
+                    r = fetch(cpr::Redirect {0L, false, false, cpr::PostRedirectFlags::NONE});
+                } else {
+                    r = fetch();
+                }
+                written = static_cast<uint64_t>(std::max<std::streamoff>(file.tellp(), 0));
+                file.close();
+
+                const auto location = r.header["location"];
+                if (!manualRedirects || !isRedirectStatus(r.status_code) || location.empty()) {
+                    break;
+                }
+                const auto next = resolveRedirect(target, location);
+                if (next && hop >= MAX_REDIRECTS) {
+                    limitBroken = fmt::format("more than {} redirects", MAX_REDIRECTS);
+                    break;
+                }
+                if (!next || !redirectAllowed(options, target, *next)) {
+                    limitBroken =
+                            fmt::format("redirect to {}", hostForReply(next.value_or(location)));
+                    break;
+                }
+                INF("API Download file: following redirect to {}", elideUrl(*next));
+                target = *next;
+            }
+            if (!fileOpened) {
                 error = Error::FileError;
                 break;
             }
-            openedFile = true;
-
-            INF("API Download file: {}", elidedUrl);
-
-            auto headers = isInternal ? authHeader() : cpr::Header {};
-            for (const auto &[k, v] : extraHeaders) {
-                headers[k] = v;
-            }
-
-            auto r = transport
-                           ? transport(file, fullUrl, headers)
-                           : cpr::Download(file, fullUrl, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
-                                           cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
-                                           cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS,
-                                                          NET_TRANSFER_LOW_SPEED_STALL_TIME},
-                                           headers, sslOptions());
-            file.close();
             reply = std::move(r.text);
             statusCode = r.status_code;
+            // When curl followed the redirects itself, only the response knows where they led
+            finalUrl = manualRedirects || r.url.str().empty() ? target : r.url.str();
+
+            // Only a body the server sent as a success breaks the limit: an error page past it is
+            // handled as the error it is, retried or not by its status. A test transport writes
+            // straight to the file, so what was written is checked too.
+            const bool success = statusCode >= 200 && statusCode < 300;
+            if (limitBroken.empty() && options.maxBytes && success
+                && ((sink && sink->limitHit()) || written > *options.maxBytes)) {
+                limitBroken = fmt::format("body exceeds the {} byte limit", *options.maxBytes);
+            }
+            if (!limitBroken.empty()) {
+                ERR("API Download file refused: {}, url: {}", limitBroken, elidedUrl);
+                error = Error::LimitExceeded;
+                break;
+            }
 
             // cpr ignores write failures (e.g. disk full), so check the stream ourselves.
             if (file.fail()) {
@@ -4307,8 +4408,15 @@ task_t Net::createDownloadFileTask(StringCallback replyCallback, std::string url
         }
 
         if (callback) {
-            callback(error,
-                     fmt::format("HTTP CODE: {}, url: {}, to file: {}", statusCode, url, filename));
+            // Plain downloads keep their reply; with options it also names where the download
+            // ended, so a caller can check the final URL.
+            const auto ended =
+                    options.given ? fmt::format(", final url: {}", finalUrl) : std::string {};
+            callback(error, limitBroken.empty()
+                                    ? fmt::format("HTTP CODE: {}, url: {}, to file: {}{}",
+                                                  statusCode, url, filename, ended)
+                                    : fmt::format("HTTP CODE: {}, url: {}, refused: {}{}",
+                                                  statusCode, url, limitBroken, ended));
         }
     };
 }

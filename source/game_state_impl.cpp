@@ -18,6 +18,7 @@
  */
 
 #include "game_state_impl.h"
+#include "download_options.h"
 #include "fmt_formatters.h"
 #include <logger/logger.h>
 #include <scorbit_sdk/version.h>
@@ -305,6 +306,21 @@ void GameStateImpl::download(StringCallback callback, const std::string &url,
                              const std::string &filename, const HttpHeaders &headers)
 {
     m_net->download(true, std::move(callback), url, filename, headers);
+}
+
+void GameStateImpl::downloadWithOptions(StringCallback callback, const std::string &url,
+                                        const std::string &filename, const HttpHeaders &headers,
+                                        const std::string &optionsJson)
+{
+    const auto options = parseDownloadOptions(optionsJson);
+    if (!options) {
+        WRN("Download not started: invalid options: {}", optionsJson);
+        if (callback) {
+            callback(Error::Unknown, "invalid download options");
+        }
+        return;
+    }
+    m_net->downloadWithOptions(true, std::move(callback), url, filename, headers, *options);
 }
 
 void GameStateImpl::downloadBuffer(VectorCallback callback, const std::string &url,
