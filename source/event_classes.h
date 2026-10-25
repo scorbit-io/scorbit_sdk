@@ -232,6 +232,26 @@ private:
     bool m_forceReDetect;
 };
 
+// ---------------- ProbeFlashRequested implementation ----------------
+
+class ProbeFlashRequestedEvent : public EventBase
+{
+public:
+    ProbeFlashRequestedEvent(const std::string &runId, const std::string &requestJson)
+        : EventBase(EventType::ProbeFlashRequested, EventPriority::Normal)
+        , m_runId {runId}
+        , m_requestJson {requestJson}
+    {
+    }
+
+    auto runId() const -> const std::string & { return m_runId; }
+    auto requestJson() const -> const std::string & { return m_requestJson; }
+
+private:
+    std::string m_runId;
+    std::string m_requestJson;
+};
+
 // ---------------- PlayersUpdated implementation ----------------
 
 class PlayersUpdatedEvent : public EventBase

@@ -240,6 +240,22 @@ struct JobSubmitHardwareProbeResult {
     void *user_data;
 };
 
+struct JobSubmitProbeFlashStage {
+    sb_game_state_struct *h;
+    std::string run_id;
+    std::string stage_json;
+    sb_http_status_callback_t callback;
+    void *user_data;
+};
+
+struct JobSubmitProbeFlashResult {
+    sb_game_state_struct *h;
+    std::string run_id;
+    std::string result_json;
+    sb_http_status_callback_t callback;
+    void *user_data;
+};
+
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
@@ -247,7 +263,8 @@ using ApiQueueItem =
                      JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
                      JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
-                     JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId>;
+                     JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
+                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -398,6 +415,16 @@ void dispatchApiJob(ApiQueueItem &&item)
                     },
                     [](JobSubmitHardwareProbeResult &&j) {
                         j.h->gameState.submitHardwareProbeResult(
+                                j.run_id, j.result_json,
+                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSubmitProbeFlashStage &&j) {
+                        j.h->gameState.submitProbeFlashStage(
+                                j.run_id, j.stage_json,
+                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSubmitProbeFlashResult &&j) {
+                        j.h->gameState.submitProbeFlashResult(
                                 j.run_id, j.result_json,
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
                     },
@@ -717,4 +744,20 @@ void sb_submit_hardware_probe_result(sb_game_handle_t handle, const char *run_id
 {
     handle->postApiJob(JobSubmitHardwareProbeResult {handle, copyCStr(run_id),
                                                      copyCStr(result_json), callback, user_data});
+}
+
+void sb_submit_probe_flash_stage(sb_game_handle_t handle, const char *run_id,
+                                 const char *stage_json, sb_http_status_callback_t callback,
+                                 void *user_data)
+{
+    handle->postApiJob(JobSubmitProbeFlashStage {handle, copyCStr(run_id), copyCStr(stage_json),
+                                                 callback, user_data});
+}
+
+void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
+                                  const char *result_json, sb_http_status_callback_t callback,
+                                  void *user_data)
+{
+    handle->postApiJob(JobSubmitProbeFlashResult {handle, copyCStr(run_id), copyCStr(result_json),
+                                                  callback, user_data});
 }

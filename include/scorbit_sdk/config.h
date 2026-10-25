@@ -349,6 +349,20 @@ public:
         return *this;
     }
 
+    /// @copydoc sb_config_add_probe_flash_probe
+    Config &addProbeFlashProbe(const std::string &probe)
+    {
+        sb_config_add_probe_flash_probe(m_handle.get(), probe.c_str());
+        return *this;
+    }
+
+    /// @copydoc sb_config_set_probe_flash_nfc_trigger
+    Config &setProbeFlashNfcTrigger(bool triggers)
+    {
+        sb_config_set_probe_flash_nfc_trigger(m_handle.get(), triggers);
+        return *this;
+    }
+
     Config &setMachineTitle(const std::string &title)
     {
         sb_config_set_machine_title(m_handle.get(), title.c_str());

@@ -80,6 +80,9 @@ constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto NUM_RETRIES = 3;
+/// Whether the SDK's own NFC pad flash routine is built in (SB-5759). Until it is, NFC is never
+/// in probe_flash_probes, so the API never sends an NFC probe_flash.
+constexpr bool SDK_NFC_FLASH_ROUTINE = false;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 // A busy hardware key defers authentication indefinitely; this long into it, say so once.
@@ -580,6 +583,11 @@ Net::~Net()
     // creating a monitor after the retire below has already run. Exchanged into a local to keep
     // the once-only semantics the block below relies on.
     const bool alreadyStopping = m_stop.exchange(true);
+    {
+        // The probe flash retry is armed under this lock after checking m_stop, so once it is
+        // taken here no arm can land after the worker cancels its timers below.
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+    }
 
     // m_worker.stop() below drains the posted teardown, so the join still happens in this dtor.
     retireNetworkMonitor("shutdown");
@@ -610,6 +618,10 @@ Net::~Net()
 
     // Drains all queued handlers while Transport is still alive.
     m_worker.stop();
+
+    // A probe flash result still waiting for its retry gets a final answer, so its host can keep
+    // it for replay instead of losing it with this object.
+    finishPendingProbeFlashResults();
 
     // After worker stops, io_context is idle and all threads joined.
     // m_centrifugo is destroyed safely by member destruction order.
@@ -1833,6 +1845,273 @@ Net::deferred_post_setup_t Net::hardwareProbeResultSetup(const std::string &runI
     };
 }
 
+std::vector<std::string> Net::probeFlashProbes() const
+{
+    std::vector<std::string> probes(m_deviceInfo.probeFlashProbes.begin(),
+                                    m_deviceInfo.probeFlashProbes.end());
+    if (SDK_NFC_FLASH_ROUTINE && m_deviceInfo.probeFlashNfcTrigger) {
+        probes.emplace_back(JVAL_PROBE_NFC);
+    }
+    return probes;
+}
+
+void Net::handleProbeFlash(const nlohmann::json &payload)
+{
+    // Governing: the probe_flash contract settled on SB-5762 (paths from run_id, no reply_to)
+    std::string runId;
+    try {
+        runId = payload.value(JKEY_DIAG_RUN_ID, std::string {});
+    } catch (const std::exception &e) {
+        WRN("DIAG: probe flash payload error: {}", e.what());
+        return;
+    }
+    if (!isUuid(runId)) {
+        WRN("DIAG: probe flash missing or invalid run_id, dropping");
+        return;
+    }
+    runId = toLowerAscii(runId);
+    {
+        std::lock_guard<std::mutex> lock(m_seenProbeFlashRunIdsMutex);
+        if (!m_seenProbeFlashRunIds.insert(runId)) {
+            WRN("DIAG: probe flash run_id={} already seen, refusing duplicate", runId);
+            return;
+        }
+    }
+
+    if (const auto field = probeFlashPayloadError(payload)) {
+        WRN("DIAG: probe flash run_id={} has an invalid {}", runId, *field);
+        sendProbeFlashResult(runId,
+                             json {{JKEY_PF_STATUS, JVAL_PF_STATUS_FAILED},
+                                   {JKEY_PF_STAGE, JVAL_PF_STAGE_IDLE_CHECK},
+                                   {JKEY_PF_FAILURE, JVAL_PF_FAILURE_INVALID_POLICY}},
+                             {});
+        return;
+    }
+    const auto probe = payload.at(JKEY_PF_PROBE).get<std::string>();
+    if (const auto flashProbes = probeFlashProbes();
+        std::ranges::find(flashProbes, probe) == flashProbes.end()) {
+        WRN("DIAG: probe flash run_id={} for {} refused: not flashed here", runId, probe);
+        sendProbeFlashResult(runId,
+                             json {{JKEY_PF_STATUS, JVAL_PF_STATUS_REFUSED},
+                                   {JKEY_PF_REASON, JVAL_PF_REASON_UNSUPPORTED}},
+                             {});
+        return;
+    }
+    // A host that never submits a result must not block the unit for good: a run expires once
+    // its deadline (at most a day off, so a skewed clock can't hold it) and the longest a flash
+    // can take have passed. Measured on the steady clock; a past deadline still holds the window.
+    constexpr auto MAX_FLASH_WINDOW = std::chrono::minutes {30};
+    constexpr auto MAX_DEADLINE_HORIZON = std::chrono::hours {24};
+    const auto deadline =
+            parseProbeFlashDeadline(payload.at(JKEY_PF_DEADLINE).get_ref<const std::string &>());
+    const auto untilDeadline = std::clamp<std::chrono::system_clock::duration>(
+            deadline.value_or(std::chrono::system_clock::now()) - std::chrono::system_clock::now(),
+            std::chrono::system_clock::duration::zero(), MAX_DEADLINE_HORIZON);
+    const auto now = std::chrono::steady_clock::now();
+    std::optional<std::string> running;
+    {
+        // One flash per unit, across probes, until its result is submitted
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        if (m_probeFlashRunId && now > m_probeFlashRunExpires) {
+            WRN("DIAG: probe flash run_id={} expired without a result", *m_probeFlashRunId);
+            m_probeFlashRunId.reset();
+        }
+        running = m_probeFlashRunId;
+        if (!running) {
+            m_probeFlashRunId = runId;
+            m_probeFlashRunExpires = now + untilDeadline + MAX_FLASH_WINDOW;
+        }
+    }
+    if (running) {
+        WRN("DIAG: probe flash run_id={} refused: run_id={} is still running", runId, *running);
+        sendProbeFlashResult(runId,
+                             json {{JKEY_PF_STATUS, JVAL_PF_STATUS_REFUSED},
+                                   {JKEY_PF_REASON, JVAL_PF_REASON_ALREADY_RUNNING}},
+                             {});
+        return;
+    }
+
+    json request {{JKEY_DIAG_RUN_ID, runId},
+                  {JKEY_PF_PROBE, probe},
+                  {JKEY_PF_TARGET_BUILD, payload.at(JKEY_PF_TARGET_BUILD)},
+                  {JKEY_PF_SHA256, payload.at(JKEY_PF_SHA256)},
+                  {JKEY_PF_SIZE, payload.at(JKEY_PF_SIZE)},
+                  {JKEY_PF_DEADLINE, payload.at(JKEY_PF_DEADLINE)},
+                  {JKEY_PF_IMAGE_URL,
+                   url(URL_DIAGNOSTICS_PROBE_FLASH_IMAGE_PATH, fmt::arg(ARG_RUN_ID, runId))}};
+    INF("DIAG: probe flash requested run_id={} probe={}", runId, probe);
+    m_eventManager->push(std::make_shared<ProbeFlashRequestedEvent>(runId, request.dump()));
+}
+
+void Net::submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                                HttpStatusCallback callback)
+{
+    auto stage = json::parse(stageJson, nullptr, false);
+    if (!isUuid(runId) || stage.is_discarded() || !stage.is_object()) {
+        WRN("DIAG: probe flash stage not sent: invalid run_id or stage JSON");
+        if (callback) {
+            callback(Error::Unknown, 0, "invalid run_id or stage_json");
+        }
+        return;
+    }
+    if (!stage.contains(JKEY_PF_AT)) {
+        stage[JKEY_PF_AT] = to_iso8601(std::chrono::system_clock::now());
+    }
+    postProbeFlash(URL_DIAGNOSTICS_PROBE_FLASH_STAGE_PATH, toLowerAscii(runId), stage.dump(),
+                   std::move(callback));
+}
+
+void Net::submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                 HttpStatusCallback callback)
+{
+    const auto result = json::parse(resultJson, nullptr, false);
+    if (!isUuid(runId) || result.is_discarded() || !result.is_object()) {
+        WRN("DIAG: probe flash result not sent: invalid run_id or result JSON");
+        if (callback) {
+            callback(Error::Unknown, 0, "invalid run_id or result_json");
+        }
+        return;
+    }
+    const auto run = toLowerAscii(runId);
+    {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        if (m_probeFlashRunId == run) {
+            m_probeFlashRunId.reset();
+        }
+    }
+    sendProbeFlashResult(run, result, std::move(callback));
+}
+
+void Net::sendProbeFlashResult(const std::string &runId, const nlohmann::json &result,
+                               HttpStatusCallback callback)
+{
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        m_probeFlashResults.push_back({runId, result.dump(), 0, now, std::move(callback)});
+    }
+    // Through the resend pass, so a first send and a retry take the same path
+    resendDueProbeFlashResults(now);
+}
+
+void Net::resendDueProbeFlashResults(std::chrono::steady_clock::time_point now)
+{
+    std::vector<PendingProbeFlashResult> due;
+    {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        auto split = std::ranges::stable_partition(
+                m_probeFlashResults, [now](const auto &pending) { return pending.due > now; });
+        due.assign(std::make_move_iterator(split.begin()), std::make_move_iterator(split.end()));
+        m_probeFlashResults.erase(split.begin(), split.end());
+        armProbeFlashResultRetryLocked(); // for whatever is not due yet
+    }
+    for (auto &pending : due) {
+        auto body = pending.body;
+        const auto runId = pending.runId;
+        postProbeFlash(URL_DIAGNOSTICS_PROBE_FLASH_RESULT_PATH, runId, std::move(body),
+                       [this, pending = std::move(pending)](Error error, int httpStatus,
+                                                            const std::string &reply) mutable {
+                           probeFlashResultAnswered(std::move(pending), error, httpStatus, reply);
+                       });
+    }
+}
+
+void Net::probeFlashResultAnswered(PendingProbeFlashResult pending, Error error, int httpStatus,
+                                   const std::string &reply)
+{
+    constexpr int MAX_ATTEMPTS = 30; // about 2 h at the 5 min cap
+    ++pending.failures;
+    // Stopping ends retries too: a timer armed after the worker cancelled its timers would hold
+    // the shutdown until it fired.
+    if (!isProbeFlashResultRetryable(error, httpStatus) || pending.failures >= MAX_ATTEMPTS
+        || m_stop) {
+        if (error == Error::Success) {
+            INF("API probe flash result: ok, run_id={}, http status: {}", pending.runId,
+                httpStatus);
+        } else {
+            WRN("API probe flash result: final failure, run_id={}, http status: {}, attempts: {}, "
+                "reply: {}",
+                pending.runId, httpStatus, pending.failures, reply);
+        }
+        if (pending.callback) {
+            pending.callback(error, httpStatus, reply);
+        }
+        return;
+    }
+
+    const auto wait = probeFlashResultBackoff(pending.failures);
+    WRN("API probe flash result: run_id={}, http status: {}, resending in {}s", pending.runId,
+        httpStatus, wait.count());
+    {
+        // Checked again under the lock: shutdown may have begun since the check above, and once
+        // the destructor has passed its barrier nothing may be queued or armed any more.
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        if (!m_stop) {
+            pending.due = std::chrono::steady_clock::now() + wait;
+            m_probeFlashResults.push_back(std::move(pending));
+            armProbeFlashResultRetryLocked();
+            return;
+        }
+    }
+    WRN("API probe flash result: run_id={} not resent, the SDK is stopping", pending.runId);
+    if (pending.callback) {
+        pending.callback(error, httpStatus, reply);
+    }
+}
+
+void Net::finishPendingProbeFlashResults()
+{
+    std::vector<PendingProbeFlashResult> pending;
+    {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        pending.swap(m_probeFlashResults);
+        m_probeFlashRetryAt.reset();
+    }
+    for (auto &result : pending) {
+        WRN("API probe flash result: run_id={} not sent, the SDK is stopping", result.runId);
+        if (result.callback) {
+            result.callback(Error::ApiError, 0, "SDK stopping");
+        }
+    }
+}
+
+void Net::armProbeFlashResultRetryLocked()
+{
+    if (m_stop || m_probeFlashResults.empty()) {
+        m_probeFlashRetryAt.reset();
+        return;
+    }
+    // Always re-armed, never skipped as a repeat: a timer that fired a little early must not
+    // leave a result unsent.
+    const auto earliest =
+            std::ranges::min_element(m_probeFlashResults, {}, &PendingProbeFlashResult::due)->due;
+    m_probeFlashRetryAt = earliest;
+    m_worker.startTimer(Worker::Timer::ProbeFlashResultRetry,
+                        std::max(earliest - std::chrono::steady_clock::now(),
+                                 std::chrono::steady_clock::duration::zero()),
+                        [this] { resendDueProbeFlashResults(std::chrono::steady_clock::now()); });
+}
+
+void Net::postProbeFlash(const char *pathTemplate, const std::string &runId, std::string body,
+                         HttpStatusCallback callback)
+{
+    if (!callback) {
+        callback = [](Error, int, const std::string &) {};
+    }
+    m_worker.post(createPostRequestTask(std::move(callback),
+                                        [this, pathTemplate, runId, body = std::move(body)]() {
+                                            const auto endpoint =
+                                                    url(pathTemplate, fmt::arg(ARG_RUN_ID, runId));
+                                            INF("API sending probe flash {}: run_id={}, {} bytes",
+                                                endpoint.str(), runId, body.size());
+                                            return std::make_tuple(endpoint, cpr::Body {body});
+                                        },
+                                        {
+                                                AuthStatus::AuthenticatedUnpaired,
+                                                AuthStatus::AuthenticatedPaired,
+                                        }));
+}
+
 void Net::postWifiCaptureSample(const std::string &runId, const wifi::Sample &sample,
                                std::shared_ptr<std::atomic_bool> runClosed)
 {
@@ -3028,6 +3307,10 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_DIAG_CAPTURE_CAPABLE] = true;
     // The API uses this to expect the SDK's own NFC section of a hardware probe result.
     m_scorbitronObject[JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE] = true;
+    // What the API may send probe_flash for: capability, not which probes are attached.
+    const auto flashProbes = probeFlashProbes();
+    m_scorbitronObject[JKEY_SOBJ_PROBE_FLASH_CAPABLE] = !flashProbes.empty();
+    m_scorbitronObject[JKEY_SOBJ_PROBE_FLASH_PROBES] = flashProbes;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
@@ -3751,6 +4034,34 @@ void NetTestAccess::setEventManager(Net &net, std::shared_ptr<EventManager> even
 void NetTestAccess::handleHardwareProbe(Net &net, const nlohmann::json &payload)
 {
     net.handleHardwareProbe(payload);
+}
+
+void NetTestAccess::handleProbeFlash(Net &net, const nlohmann::json &payload)
+{
+    net.handleProbeFlash(payload);
+}
+
+void NetTestAccess::resendDueProbeFlashResults(Net &net, std::chrono::steady_clock::time_point now)
+{
+    net.resendDueProbeFlashResults(now);
+}
+
+size_t NetTestAccess::pendingProbeFlashResults(Net &net)
+{
+    std::lock_guard<std::mutex> lock(net.m_probeFlashMutex);
+    return net.m_probeFlashResults.size();
+}
+
+std::optional<std::chrono::steady_clock::time_point> NetTestAccess::probeFlashRetryAt(Net &net)
+{
+    std::lock_guard<std::mutex> lock(net.m_probeFlashMutex);
+    return net.m_probeFlashRetryAt;
+}
+
+void NetTestAccess::expireProbeFlashRun(Net &net)
+{
+    std::lock_guard<std::mutex> lock(net.m_probeFlashMutex);
+    net.m_probeFlashRunExpires = std::chrono::steady_clock::time_point::min();
 }
 
 task_t NetTestAccess::hardwareProbeResult(Net &net, const std::string &runId, std::string body,
@@ -4557,6 +4868,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                         handleDiagnosticCaptureStop(*payloadIt);
                     } else if (type == JVAL_CHN_TYPE_FIRMWARE_PROBE) {
                         handleHardwareProbe(*payloadIt);
+                    } else if (type == JVAL_CHN_TYPE_PROBE_FLASH) {
+                        handleProbeFlash(*payloadIt);
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
                     }

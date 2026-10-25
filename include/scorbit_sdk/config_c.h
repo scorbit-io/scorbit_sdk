@@ -278,6 +278,24 @@ void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool pr
                                   uint64_t timestamp_utc, uint32_t uid, uint8_t boot_reason,
                                   uint32_t watchdog_count);
 
+/**
+ * Internal use. A probe the host flashes itself when the backend requests a probe firmware flash:
+ * call once per probe, before the game state is created. Such requests then raise
+ * @ref SB_EVT_PROBE_FLASH_REQUESTED; a probe never added is refused as unsupported.
+ *
+ * @param probe "cpu", "dmd" or "link"; anything else is ignored.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_add_probe_flash_probe(sb_config_t config, const char *probe);
+
+/**
+ * Internal use. Whether the host triggers the NFC pad's flash: it then receives NFC requests as
+ * @ref SB_EVT_PROBE_FLASH_REQUESTED, applies its idle and game checks, and calls the SDK's NFC
+ * routine. Off by default.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_probe_flash_nfc_trigger(sb_config_t config, bool triggers);
+
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);
 

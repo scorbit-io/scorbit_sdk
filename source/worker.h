@@ -53,6 +53,7 @@ public:
         AuthGate,
         ScorbitronRetry,
         PairCode,
+        ProbeFlashResultRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

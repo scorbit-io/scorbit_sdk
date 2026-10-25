@@ -158,6 +158,33 @@ bool isValidHardwareProbeRunId(std::string_view runId);
  */
 bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &runId);
 
+/// Whether @p id is an 8-4-4-4-12 hex UUID, the only run_id a probe_flash request may carry.
+bool isUuid(std::string_view id);
+
+/// @p text with ASCII letters lower-cased, so a UUID compares the same in either case.
+std::string toLowerAscii(std::string_view text);
+
+/**
+ * Why a probe_flash payload is malformed, or nullopt when every field is well formed: probe is
+ * cpu, dmd, nfc or link; target_build a 14-digit build; sha256 64 hex digits; size a positive
+ * integer; deadline an ISO-8601 UTC time. run_id is checked separately.
+ */
+std::optional<std::string> probeFlashPayloadError(const nlohmann::json &payload);
+
+/// @p deadline (as probeFlashPayloadError() accepts it) as a time point; nullopt if malformed.
+std::optional<std::chrono::system_clock::time_point>
+parseProbeFlashDeadline(std::string_view deadline);
+
+/**
+ * Whether a probe_flash result POST that ended with @p error and @p httpStatus (0: no response)
+ * is resent. Only an API answer can be final: an attempt the auth gate stopped (e.g. NotPaired
+ * while pairing is re-checked after a 401) is resent, whatever status it last saw.
+ */
+bool isProbeFlashResultRetryable(Error error, int httpStatus);
+
+/// The wait before resending a probe_flash result after @p failures failed attempts (1-based).
+std::chrono::seconds probeFlashResultBackoff(int failures);
+
 /**
  * The SDK's section of a hardware probe result: the NFC probe read in @p result. On any status
  * other than Ok only sdk_version, nfc_status and nfc_extended's last_seen_tap_* are sent;

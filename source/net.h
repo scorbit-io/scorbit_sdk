@@ -132,6 +132,15 @@ struct NetTestAccess {
     static bool noteKeyResolutionDeferred(Net &net, std::chrono::steady_clock::time_point now);
     static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
+    static void handleProbeFlash(Net &net, const nlohmann::json &payload);
+    /// Runs the result resend pass as if the clock read @p now.
+    static void resendDueProbeFlashResults(Net &net, std::chrono::steady_clock::time_point now);
+    /// How many probe_flash results are waiting to be resent.
+    static size_t pendingProbeFlashResults(Net &net);
+    /// When the result retry timer is armed to fire; nullopt when it is not.
+    static std::optional<std::chrono::steady_clock::time_point> probeFlashRetryAt(Net &net);
+    /// Ends the running flash's hold, as if its deadline and flash window had passed.
+    static void expireProbeFlashRun(Net &net);
     /// The production hardware probe result request, sent through @p transport.
     static task_t hardwareProbeResult(Net &net, const std::string &runId, std::string body,
                                       HttpStatusCallback callback, TestTransport transport);
@@ -336,6 +345,10 @@ public:
 
     void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
                                    HttpStatusCallback callback = {}) override;
+    void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                               HttpStatusCallback callback = {}) override;
+    void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                HttpStatusCallback callback = {}) override;
 
 private:
     task_t createAuthenticateTask();
@@ -589,6 +602,35 @@ private:
     void handleDiagnosticCaptureStart(const nlohmann::json &payload);
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
     void handleHardwareProbe(const nlohmann::json &payload);
+
+    // probe_flash (SB-5764): the router, and the result POSTs it and the host make
+    struct PendingProbeFlashResult {
+        std::string runId;
+        std::string body;
+        int failures {0};
+        std::chrono::steady_clock::time_point due;
+        HttpStatusCallback callback;
+    };
+    /// The probes the API may send probe_flash for: the host's, plus NFC when the SDK runs it.
+    std::vector<std::string> probeFlashProbes() const;
+    void handleProbeFlash(const nlohmann::json &payload);
+    /// Queues @p result for @p runId and sends it, resending with backoff until a final answer.
+    void sendProbeFlashResult(const std::string &runId, const nlohmann::json &result,
+                              HttpStatusCallback callback);
+    void resendDueProbeFlashResults(std::chrono::steady_clock::time_point now);
+    void probeFlashResultAnswered(PendingProbeFlashResult pending, Error error, int httpStatus,
+                                  const std::string &reply);
+    /// Arms the retry timer for the earliest waiting result, under m_probeFlashMutex.
+    void armProbeFlashResultRetryLocked();
+    /// Gives every result still waiting for a retry its final callback; for shutdown.
+    void finishPendingProbeFlashResults();
+
+protected:
+    /// One POST of @p body to @p pathTemplate's endpoint for @p runId. Virtual so tests capture it.
+    virtual void postProbeFlash(const char *pathTemplate, const std::string &runId,
+                                std::string body, HttpStatusCallback callback);
+
+private:
     // Halves of the result POST, split so NetTestAccess can run them over a scripted transport.
     HttpStatusCallback hardwareProbeResultReply(const std::string &runId,
                                                 HttpStatusCallback callback) const;
@@ -755,6 +797,16 @@ private:
     // Same bounded dedupe for firmware_probe run_ids.
     RecentIds m_seenHardwareProbeRunIds {10};
     std::mutex m_seenHardwareProbeRunIdsMutex;
+    // Same bounded dedupe for probe_flash run_ids.
+    RecentIds m_seenProbeFlashRunIds {10};
+    std::mutex m_seenProbeFlashRunIdsMutex;
+    /// Guards the two below. In memory only: a restart forgets a running flash.
+    std::mutex m_probeFlashMutex;
+    std::optional<std::string> m_probeFlashRunId; ///< The flash running on the unit, if any
+    std::chrono::steady_clock::time_point m_probeFlashRunExpires;
+    /// When the retry timer next fires; nullopt when no result is waiting.
+    std::optional<std::chrono::steady_clock::time_point> m_probeFlashRetryAt;
+    std::vector<PendingProbeFlashResult> m_probeFlashResults;
     /// Guards the pointer only. Never held across stop() or the destructor -- both join.
     std::mutex m_networkMonitorMutex;
     std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;

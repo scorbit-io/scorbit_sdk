@@ -111,6 +111,10 @@ public:
 
     void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
                                    HttpStatusCallback callback);
+    void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
+                               HttpStatusCallback callback);
+    void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
+                                HttpStatusCallback callback);
 
 private:
     void addNewPlayer(sb_player_t player);

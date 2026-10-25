@@ -288,6 +288,18 @@ public:
         return true;
     }
 
+    bool eventProbeFlashRequested(std::string &runId, std::string &requestJson) const
+    {
+        const char *runIdCStr = nullptr;
+        const char *requestJsonCStr = nullptr;
+        if (!::sb_event_probe_flash_requested(m_event, &runIdCStr, &requestJsonCStr)) {
+            return false;
+        }
+        runId = runIdCStr ? std::string(runIdCStr) : std::string {};
+        requestJson = requestJsonCStr ? std::string(requestJsonCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

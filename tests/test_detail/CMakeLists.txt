@@ -120,6 +120,7 @@ target_sources(
         ../../source/config_c.cpp
         source/test_game_firmware.cpp
         source/test_probe_firmware.cpp
+        source/test_probe_flash.cpp
         ../../source/http_session_pool.h
         ../../source/http_session_pool.cpp
         source/test_http_session_pool.cpp

@@ -29,6 +29,7 @@
 #include <nfc/probes_manager.h>
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <iomanip>
 #include <limits>
 #include <regex>
@@ -313,6 +314,135 @@ bool hardwareProbeReplyToMatches(std::string_view replyTo, const std::string &ru
         replyTo.remove_prefix(1);
     }
     return replyTo == expected;
+}
+
+namespace {
+
+bool isHexDigit(char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+} // namespace
+
+bool isUuid(std::string_view id)
+{
+    constexpr size_t UUID_LENGTH = 36;
+    if (id.size() != UUID_LENGTH) {
+        return false;
+    }
+    for (size_t i = 0; i < id.size(); ++i) {
+        const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+        if (dash ? id[i] != '-' : !isHexDigit(id[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string toLowerAscii(std::string_view text)
+{
+    std::string lower {text};
+    // Explicit ASCII: std::tolower follows the host's locale.
+    std::ranges::transform(lower, lower.begin(),
+                           [](char c) { return (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c; });
+    return lower;
+}
+
+std::optional<std::string> probeFlashPayloadError(const nlohmann::json &payload)
+{
+    constexpr uint64_t MIN_BUILD = 10'000'000'000'000; // 14 digits: YYYYMMDDHHMMSS
+    constexpr uint64_t MAX_BUILD = 99'999'999'999'999;
+    constexpr size_t SHA256_HEX_LENGTH = 64;
+    // YYYY-MM-DDTHH:MM:SS, optional fraction, then Z or +00:00
+    static const std::regex DEADLINE {
+            R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|\+00:00))"};
+
+    const auto probe = payload.find(JKEY_PF_PROBE);
+    if (probe == payload.end() || !probe->is_string()
+        || (*probe != JVAL_PROBE_CPU && *probe != JVAL_PROBE_DMD && *probe != JVAL_PROBE_NFC
+            && *probe != JVAL_PROBE_LINK)) {
+        return "probe";
+    }
+    const auto build = payload.find(JKEY_PF_TARGET_BUILD);
+    if (build == payload.end() || !build->is_number_unsigned() || build->get<uint64_t>() < MIN_BUILD
+        || build->get<uint64_t>() > MAX_BUILD) {
+        return "target_build";
+    }
+    const auto sha = payload.find(JKEY_PF_SHA256);
+    if (sha == payload.end() || !sha->is_string()
+        || sha->get_ref<const std::string &>().size() != SHA256_HEX_LENGTH
+        || !std::all_of(sha->get_ref<const std::string &>().begin(),
+                        sha->get_ref<const std::string &>().end(), isHexDigit)) {
+        return "sha256";
+    }
+    const auto size = payload.find(JKEY_PF_SIZE);
+    if (size == payload.end() || !size->is_number_unsigned() || size->get<uint64_t>() == 0) {
+        return "size";
+    }
+    const auto deadline = payload.find(JKEY_PF_DEADLINE);
+    if (deadline == payload.end() || !deadline->is_string()
+        || !std::regex_match(deadline->get_ref<const std::string &>(), DEADLINE)
+        || !parseProbeFlashDeadline(deadline->get_ref<const std::string &>())) { // e.g. 02-30
+        return "deadline";
+    }
+    return std::nullopt;
+}
+
+std::optional<std::chrono::system_clock::time_point>
+parseProbeFlashDeadline(std::string_view deadline)
+{
+    // The fields of YYYY-MM-DDTHH:MM:SS; a fraction and the UTC suffix after them are ignored
+    constexpr size_t FIELDS_LENGTH = 19;
+    if (deadline.size() < FIELDS_LENGTH) {
+        return std::nullopt;
+    }
+    const std::string fields {deadline.substr(0, FIELDS_LENGTH)};
+    int year = 0;
+    unsigned month = 0;
+    unsigned day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    if (std::sscanf(fields.c_str(), "%4d-%2u-%2uT%2d:%2d:%2d", &year, &month, &day, &hour, &minute,
+                    &second)
+        != 6) {
+        return std::nullopt;
+    }
+    const std::chrono::year_month_day date {std::chrono::year {year}, std::chrono::month {month},
+                                            std::chrono::day {day}};
+    // A year this far off can only be bad input, and would overflow a nanosecond time point
+    constexpr int MIN_YEAR = 2000;
+    constexpr int MAX_YEAR = 2100;
+    if (!date.ok() || year < MIN_YEAR || year > MAX_YEAR || hour > 23 || minute > 59
+        || second > 60) {
+        return std::nullopt;
+    }
+    return std::chrono::sys_days {date} + std::chrono::hours {hour} + std::chrono::minutes {minute}
+         + std::chrono::seconds {second};
+}
+
+bool isProbeFlashResultRetryable(Error error, int httpStatus)
+{
+    constexpr int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
+    constexpr int HTTP_STATUS_SERVER_ERROR = 500;
+    if (error == Error::Success) {
+        return false;
+    }
+    if (error != Error::ApiError) {
+        return true;
+    }
+    return httpStatus == 0 || httpStatus == HTTP_STATUS_TOO_MANY_REQUESTS
+        || httpStatus >= HTTP_STATUS_SERVER_ERROR;
+}
+
+std::chrono::seconds probeFlashResultBackoff(int failures)
+{
+    constexpr std::chrono::seconds FIRST {5};
+    constexpr std::chrono::seconds CAP {std::chrono::minutes {5}};
+    // 5 s, 10 s, 20 s ... capped; the shift is bounded so it never overflows
+    const auto doublings = std::clamp(failures - 1, 0, 16);
+    return std::min<std::chrono::seconds>(FIRST * (1 << doublings), CAP);
 }
 
 namespace {

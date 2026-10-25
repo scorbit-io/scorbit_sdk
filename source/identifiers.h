@@ -46,6 +46,13 @@ constexpr auto URL_DIAGNOSTICS_HARDWARE_PROBE_RESULT_PATH {
 // The SDK's own section of a hardware probe result (NFC probe), posted alongside the host's
 constexpr auto URL_DIAGNOSTICS_HARDWARE_PROBE_SDK_RESULT_PATH {
         "internal/api/diagnostics/hardware-probe-result/{run_id}/sdk/"};
+// Probe firmware flash run (SB-5764): every path derives from run_id, none comes off the wire
+constexpr auto URL_DIAGNOSTICS_PROBE_FLASH_IMAGE_PATH {
+        "internal/api/diagnostics/probe-flash/{run_id}/image/"};
+constexpr auto URL_DIAGNOSTICS_PROBE_FLASH_STAGE_PATH {
+        "internal/api/diagnostics/probe-flash-stage/{run_id}/"};
+constexpr auto URL_DIAGNOSTICS_PROBE_FLASH_RESULT_PATH {
+        "internal/api/diagnostics/probe-flash-result/{run_id}/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
@@ -152,6 +159,27 @@ constexpr auto JVAL_CHN_TYPE_DIAG_PROBE {"diag_probe"};
 constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_START {"diag_capture_start"};
 constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_STOP {"diag_capture_stop"};
 constexpr auto JVAL_CHN_TYPE_FIRMWARE_PROBE {"firmware_probe"};
+constexpr auto JVAL_CHN_TYPE_PROBE_FLASH {"probe_flash"};
+
+// probe_flash request (payload of the control message) and the event's request_json
+constexpr auto JKEY_PF_PROBE {"probe"};
+constexpr auto JKEY_PF_TARGET_BUILD {"target_build"};
+constexpr auto JKEY_PF_SHA256 {"sha256"};
+constexpr auto JKEY_PF_SIZE {"size"};
+constexpr auto JKEY_PF_DEADLINE {"deadline"};
+constexpr auto JKEY_PF_IMAGE_URL {"image_url"};
+// probe_flash stage and result bodies
+constexpr auto JKEY_PF_STAGE {"stage"};
+constexpr auto JKEY_PF_AT {"at"};
+constexpr auto JKEY_PF_STATUS {"status"};
+constexpr auto JKEY_PF_FAILURE {"failure"};
+constexpr auto JKEY_PF_REASON {"reason"};
+constexpr auto JVAL_PF_STAGE_IDLE_CHECK {"idle_check"};
+constexpr auto JVAL_PF_STATUS_FAILED {"failed"};
+constexpr auto JVAL_PF_STATUS_REFUSED {"refused"};
+constexpr auto JVAL_PF_FAILURE_INVALID_POLICY {"invalid_policy"};
+constexpr auto JVAL_PF_REASON_UNSUPPORTED {"unsupported"};
+constexpr auto JVAL_PF_REASON_ALREADY_RUNNING {"already_running"};
 
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
@@ -294,12 +322,15 @@ constexpr auto JKEY_PFW_WATCHDOG_COUNT {"watchdog_count"};
 constexpr auto JVAL_PROBE_CPU {"cpu"};
 constexpr auto JVAL_PROBE_DMD {"dmd"};
 constexpr auto JVAL_PROBE_NFC {"nfc"};
+constexpr auto JVAL_PROBE_LINK {"link"};
 constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};
 constexpr auto JKEY_SOBJ_DIAG_PROBE_CAPABLE {"diag_probe_capable"};
 constexpr auto JKEY_SOBJ_DIAG_CAPTURE_CAPABLE {"diag_capture_capable"};
 constexpr auto JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE {"diag_sdk_probe_capable"};
+constexpr auto JKEY_SOBJ_PROBE_FLASH_CAPABLE {"probe_flash_capable"};
+constexpr auto JKEY_SOBJ_PROBE_FLASH_PROBES {"probe_flash_probes"};
 constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
