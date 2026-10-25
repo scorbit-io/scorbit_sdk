@@ -110,7 +110,8 @@ struct NetTestAccess {
 
     /// Builds the production file-download task, reaching @p transport instead of the network.
     static task_t downloadFile(Net &net, StringCallback callback, std::string url,
-                               std::string filename, DownloadTransport transport);
+                               std::string filename, DownloadTransport transport,
+                               DownloadOptions options = {}, HttpHeaders headers = {});
     /// Builds a PATCH-shaped request task that reaches @p transport instead of the network.
     static task_t request(Net &net, HttpStatusCallback callback, TestTransport transport,
                           std::string payload);
@@ -310,6 +311,9 @@ public:
 
     void download(bool isAsync, StringCallback callback, const std::string &url,
                   const std::string &filename, const HttpHeaders &headers) override;
+    void downloadWithOptions(bool isAsync, StringCallback callback, const std::string &url,
+                             const std::string &filename, const HttpHeaders &headers,
+                             const DownloadOptions &options) override;
     void downloadBuffer(bool isAsync, VectorCallback callback, const std::string &url,
                         size_t reserveBufferSize, const HttpHeaders &headers) override;
 
@@ -458,6 +462,7 @@ private:
             bool includeFingerprintHash = false);
     task_t createDownloadFileTask(StringCallback replyCallback, std::string url,
                                   std::string filename, HttpHeaders extraHeaders,
+                                  DownloadOptions options = {},
                                   NetTestAccess::DownloadTransport transport = {});
     task_t createDownloadBufferTask(VectorCallback replyCallback, std::string url,
                                     size_t reserveBufferSize, HttpHeaders extraHeaders);

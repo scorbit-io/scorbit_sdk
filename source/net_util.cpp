@@ -19,12 +19,15 @@
 
 #include "net_util.h"
 #include "device_info.h"
+#include "download_options.h"
 #include "identifiers.h"
 #include "fmt/format.h"
 #include <logger/logger.h>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/uuid.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/url/parse.hpp>
+#include <boost/url/url.hpp>
 #include <cmrc/cmrc.hpp>
 #include <nfc/probes_manager.h>
 #include <algorithm>
@@ -193,7 +196,8 @@ bool isHostMatching(const std::string &url, const std::string &hostname)
     if (!urlResult || !hostResult) {
         return false;
     }
-    return urlResult->host() == hostResult->host();
+    // Host names are case-insensitive, as redirectAllowed() already treats them
+    return boost::algorithm::iequals(urlResult->host(), hostResult->host());
 }
 
 bool isInternalDownloadForAuth(const std::string &resolvedUrl, const std::string &apiHostname,
@@ -656,6 +660,205 @@ nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample)
     }
 
     return j;
+}
+
+namespace {
+
+/// @p text with ASCII letters lower-cased; std::tolower would follow the host's locale.
+std::string lowerAscii(std::string_view text)
+{
+    std::string lower {text};
+    std::ranges::transform(lower, lower.begin(),
+                           [](char c) { return (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c; });
+    return lower;
+}
+
+/// @p location, a URL or a Location, with every byte a URI may not hold there percent-encoded.
+/// Callers and servers send raw spaces, stray '%' and brackets in paths, and curl takes them as
+/// they come.
+std::string encodeUrl(std::string_view location)
+{
+    // Brackets are kept only in the authority, where they hold an IPv6 literal: from a leading
+    // "//", after any scheme, to the first '/', '?' or '#'.
+    constexpr std::string_view letters {"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"};
+    size_t start = 0;
+    const auto colon = location.find(':');
+    if (colon != std::string_view::npos && colon > 0 && colon < location.find_first_of("/?#")
+        && letters.find(location[0]) != std::string_view::npos
+        && location.substr(0, colon).find_first_not_of("0123456789+-.abcdefghijklmnopqrstuvwxyz"
+                                                       "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                   == std::string_view::npos) {
+        start = colon + 1;
+    }
+    size_t authBegin = location.size();
+    size_t authEnd = location.size();
+    if (location.substr(start, 2) == "//") {
+        authBegin = start + 2;
+        authEnd = std::min(location.find_first_of("/?#", authBegin), location.size());
+    }
+
+    std::string encoded;
+    for (size_t i = 0; i < location.size(); ++i) {
+        const auto c = static_cast<unsigned char>(location[i]);
+        const bool inAuthority = i >= authBegin && i < authEnd;
+        const bool loneEscape = c == '%'
+                             && (i + 2 >= location.size() || !isHexDigit(location[i + 1])
+                                 || !isHexDigit(location[i + 2]));
+        if (c <= 0x20 || c >= 0x7F || loneEscape
+            || std::string_view {"\"<>\\^`{|}"}.find(char(c)) != std::string_view::npos
+            || (!inAuthority && (c == '[' || c == ']'))) {
+            encoded += fmt::format("%{:02X}", c);
+        } else {
+            encoded += char(c);
+        }
+    }
+    return encoded;
+}
+
+/// @p text parsed as an absolute URL once encoded, so anything curl would request still parses
+std::optional<boost::urls::url> parseLenient(std::string_view text)
+{
+    const auto encoded = encodeUrl(text);
+    const auto view = boost::urls::parse_uri(encoded);
+    if (!view) {
+        return std::nullopt;
+    }
+    return boost::urls::url {*view};
+}
+
+} // namespace
+
+bool isRedirectStatus(int httpStatus)
+{
+    // As curl's own following: any 3xx that carries a Location, so all but 304 Not Modified
+    return httpStatus >= 300 && httpStatus < 400 && httpStatus != 304;
+}
+
+std::optional<std::string> resolveRedirect(std::string_view from, std::string_view location)
+{
+    const auto base = parseLenient(from);
+    // Encoded before strict parsing rather than refused, as curl would follow it
+    const auto encoded = encodeUrl(location);
+    const auto ref = boost::urls::parse_uri_reference(encoded);
+    if (!base || !ref || location.empty()) {
+        return std::nullopt;
+    }
+    boost::urls::url resolved;
+    if (!boost::urls::resolve(*base, *ref, resolved)) {
+        return std::nullopt;
+    }
+    return std::string {resolved.buffer()};
+}
+
+bool redirectAllowed(const DownloadOptions &options, std::string_view from, std::string_view to)
+{
+    switch (options.redirect) {
+    case RedirectPolicy::Follow:
+        return true;
+    case RedirectPolicy::None:
+        return false;
+    case RedirectPolicy::Hosts:
+        break;
+    }
+    const auto source = parseLenient(from);
+    const auto target = parseLenient(to);
+    if (!source || !target) {
+        return false;
+    }
+    const auto scheme = lowerAscii(target->scheme());
+    if (scheme != "https" && (scheme != "http" || lowerAscii(source->scheme()) == "https")) {
+        return false; // never off http(s), and never down from https to http
+    }
+    return std::ranges::find(options.redirectHosts, lowerAscii(target->host()))
+        != options.redirectHosts.end();
+}
+
+bool isSameOrigin(std::string_view a, std::string_view b)
+{
+    if (a == b) {
+        return true; // even when it cannot be parsed, as for the URL a download first requests
+    }
+    const auto first = parseLenient(a);
+    const auto second = parseLenient(b);
+    if (!first || !second) {
+        return false;
+    }
+    const auto port = [](const boost::urls::url &u) -> uint16_t {
+        if (u.has_port()) {
+            return u.port_number();
+        }
+        const auto scheme = lowerAscii(u.scheme());
+        return scheme == "https" ? 443 : scheme == "http" ? 80 : 0;
+    };
+    return lowerAscii(first->scheme()) == lowerAscii(second->scheme())
+        && lowerAscii(first->host()) == lowerAscii(second->host()) && port(*first) == port(*second);
+}
+
+std::string hostForReply(std::string_view url)
+{
+    const auto parsed = parseLenient(url);
+    if (!parsed || parsed->host().empty()) {
+        return std::string {url};
+    }
+    return std::string {parsed->host()};
+}
+
+DownloadSink::DownloadSink(std::ostream &out, uint64_t maxBytes)
+    : m_out {out}
+    , m_maxBytes {maxBytes}
+{
+}
+
+bool DownloadSink::write(std::string_view data)
+{
+    if (data.size() > m_maxBytes - m_written) {
+        m_limitHit = true;
+        return false;
+    }
+    m_out.write(data.data(), static_cast<std::streamsize>(data.size()));
+    m_written += data.size();
+    return m_out.good();
+}
+
+std::optional<DownloadOptions> parseDownloadOptions(std::string_view json)
+{
+    DownloadOptions options;
+    if (json.empty()) {
+        return options;
+    }
+    const auto parsed = nlohmann::json::parse(json, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) {
+        return std::nullopt;
+    }
+    options.given = true;
+    bool hostsGiven = false;
+    for (const auto &[key, value] : parsed.items()) {
+        if (key == JKEY_DL_MAX_BYTES && value.is_number_unsigned()) {
+            options.maxBytes = value.get<uint64_t>();
+        } else if (key == JKEY_DL_REDIRECT && value == JVAL_DL_REDIRECT_FOLLOW) {
+            options.redirect = RedirectPolicy::Follow;
+        } else if (key == JKEY_DL_REDIRECT && value == JVAL_DL_REDIRECT_NONE) {
+            options.redirect = RedirectPolicy::None;
+        } else if (key == JKEY_DL_REDIRECT && value == JVAL_DL_REDIRECT_HOSTS) {
+            options.redirect = RedirectPolicy::Hosts;
+        } else if (key == JKEY_DL_REDIRECT_HOSTS && value.is_array()) {
+            hostsGiven = true;
+            for (const auto &host : value) {
+                if (!host.is_string() || host.get_ref<const std::string &>().empty()) {
+                    return std::nullopt;
+                }
+                options.redirectHosts.push_back(lowerAscii(host.get<std::string>()));
+            }
+        } else {
+            return std::nullopt; // an unknown key, or a known one of the wrong type
+        }
+    }
+    // A host list belongs with "hosts" and nothing else, and "hosts" needs one
+    if (hostsGiven != (options.redirect == RedirectPolicy::Hosts)
+        || (options.redirect == RedirectPolicy::Hosts && options.redirectHosts.empty())) {
+        return std::nullopt;
+    }
+    return options;
 }
 
 } // namespace detail

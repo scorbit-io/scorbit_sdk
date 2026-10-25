@@ -99,6 +99,10 @@ public:
 
     void download(StringCallback callback, const std::string &url, const std::string &filename,
                   const HttpHeaders &headers = {});
+    /// download() under the limits in @p optionsJson; see sb_download_with_options.
+    void downloadWithOptions(StringCallback callback, const std::string &url,
+                             const std::string &filename, const HttpHeaders &headers,
+                             const std::string &optionsJson);
     void downloadBuffer(VectorCallback callback, const std::string &url, size_t reserveBufferSize,
                         const HttpHeaders &headers = {});
 

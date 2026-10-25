@@ -206,6 +206,8 @@ TEST_CASE("isHostMatching compares hosts only")
     CHECK(isHostMatching("https://api.example.com:443/path/to.tgz",
                          "https://api.example.com:8080/other"));
     CHECK_FALSE(isHostMatching("https://api.example.com/foo", "https://cdn.other.net/bar"));
+    CHECK(isHostMatching("https://API.Example.COM/foo", "https://api.example.com"));
+    CHECK_FALSE(isHostMatching("https://api.example.com.evil.net/foo", "https://api.example.com"));
 }
 
 TEST_CASE("isInternalDownloadForAuth is host-based regardless of DeviceInfo::provider")

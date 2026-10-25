@@ -20,6 +20,7 @@
 #pragma once
 
 #include "device_info.h"
+#include "download_options.h"
 #include "game_data.h"
 #include <scorbit_sdk/net_types.h>
 #include <cpr/cpr.h>
@@ -28,6 +29,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <ostream>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
@@ -238,6 +240,45 @@ private:
  * alike, and omitting keeps the body under the 4 KiB cap.
  */
 nlohmann::json buildWifiSamplePayload(const wifi::Sample &sample);
+
+/// Whether an HTTP status is a redirect when it carries a Location: any 3xx but 304, as for curl.
+bool isRedirectStatus(int httpStatus);
+
+/// @p location from a redirect, resolved against the URL it came from; nullopt when unusable.
+std::optional<std::string> resolveRedirect(std::string_view from, std::string_view location);
+
+/// Whether @p options let a download redirected from @p from follow to @p to (both absolute).
+bool redirectAllowed(const DownloadOptions &options, std::string_view from, std::string_view to);
+
+/// Whether @p a and @p b share an origin: scheme, host (either in any case) and effective port.
+/// The same URL always shares its own, parsed or not.
+bool isSameOrigin(std::string_view a, std::string_view b);
+
+/// @p url's host, or @p url itself when it has none, for naming a refused redirect.
+std::string hostForReply(std::string_view url);
+
+/**
+ * Writes a download's body to @p out, at most @p maxBytes of it. Fed from curl's write callback,
+ * it counts the bytes as written, after curl has decoded any Content-Encoding, so a compressed
+ * body can't slip past the limit, and nothing beyond the limit is ever written.
+ */
+class DownloadSink
+{
+public:
+    DownloadSink(std::ostream &out, uint64_t maxBytes);
+
+    /// Writes @p data; false, which aborts the transfer, if that would pass the limit or the
+    /// stream has failed.
+    bool write(std::string_view data);
+    bool limitHit() const { return m_limitHit; }
+    uint64_t written() const { return m_written; }
+
+private:
+    std::ostream &m_out;
+    uint64_t m_maxBytes;
+    uint64_t m_written {0};
+    bool m_limitHit {false};
+};
 
 } // namespace detail
 } // namespace scorbit

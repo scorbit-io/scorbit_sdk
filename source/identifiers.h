@@ -181,6 +181,14 @@ constexpr auto JVAL_PF_FAILURE_INVALID_POLICY {"invalid_policy"};
 constexpr auto JVAL_PF_REASON_UNSUPPORTED {"unsupported"};
 constexpr auto JVAL_PF_REASON_ALREADY_RUNNING {"already_running"};
 
+// Download options (SB-5526), as sb_download_with_options() takes them
+constexpr auto JKEY_DL_MAX_BYTES {"max_bytes"};
+constexpr auto JKEY_DL_REDIRECT {"redirect"};
+constexpr auto JKEY_DL_REDIRECT_HOSTS {"redirect_hosts"};
+constexpr auto JVAL_DL_REDIRECT_FOLLOW {"follow"};
+constexpr auto JVAL_DL_REDIRECT_NONE {"none"};
+constexpr auto JVAL_DL_REDIRECT_HOSTS {"hosts"};
+
 // Score update payload
 constexpr auto JKEY_SCR_GAME_IN_PROGRESS {"game_in_progress"};
 constexpr auto JKEY_SCR_SCORES {"scores"};

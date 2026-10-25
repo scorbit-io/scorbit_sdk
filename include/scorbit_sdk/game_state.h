@@ -603,6 +603,17 @@ public:
                     cbPair.first, cbPair.second);
     }
 
+    /// @copydoc sb_download_with_options
+    void downloadWithOptions(const std::string &url, const std::string &filename,
+                             const HttpHeaders &headers, const std::string &optionsJson,
+                             StringCallback callback)
+    {
+        auto cHeaders = toCHeaders(headers);
+        auto cbPair = prepareStringCallback(std::move(callback));
+        sb_download_with_options(m_handle.get(), url.c_str(), filename.c_str(), cHeaders.data(),
+                                 cHeaders.size(), optionsJson.c_str(), cbPair.first, cbPair.second);
+    }
+
     /**
      * @brief Download data from a URL into a memory buffer.
      *

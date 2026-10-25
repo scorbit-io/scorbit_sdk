@@ -18,7 +18,13 @@
  */
 
 #include "net.h"
+#include "net_util.h"
 #include <scorbit_sdk/scorbit_sdk.h>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/read_until.hpp>
+#include <boost/asio/streambuf.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/filesystem.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
@@ -28,8 +34,12 @@
 #include <fstream>
 #include <iterator>
 #include <functional>
+#include <map>
+#include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 // clazy:excludeall=non-pod-global-static
@@ -37,6 +47,7 @@
 using namespace scorbit;
 using namespace scorbit::detail;
 using namespace trompeloeil;
+using boost::asio::ip::tcp;
 
 // Using this indirection to mock free function
 struct {
@@ -738,9 +749,13 @@ struct ScriptedDownload {
 
     std::vector<Attempt> attempts;
     int calls {0};
+    std::vector<std::string> urls;    ///< the URL of each call, redirects included
+    std::vector<cpr::Header> headers; ///< the headers of each call
 
-    cpr::Response operator()(std::ofstream &file, const cpr::Url &, const cpr::Header &)
+    cpr::Response operator()(std::ofstream &file, const cpr::Url &url, const cpr::Header &sent)
     {
+        urls.push_back(url.str());
+        headers.push_back(sent);
         const auto &a = attempts[std::min<size_t>(calls++, attempts.size() - 1)];
         file << a.body;
         if (a.breakStream) {
@@ -755,6 +770,22 @@ cpr::Response downloadResponse(int status, cpr::ErrorCode code = cpr::ErrorCode:
     cpr::Response r = makeResponse(status);
     r.error.code = code;
     return r;
+}
+
+cpr::Response redirectResponse(int status, std::string location)
+{
+    cpr::Response r = downloadResponse(status);
+    r.header["Location"] = std::move(location);
+    return r;
+}
+
+DownloadOptions redirectOptions(RedirectPolicy policy, std::vector<std::string> hosts = {})
+{
+    DownloadOptions options;
+    options.redirect = policy;
+    options.redirectHosts = std::move(hosts);
+    options.given = true;
+    return options;
 }
 
 struct DownloadFixture {
@@ -775,12 +806,19 @@ struct DownloadFixture {
 
     void seedDestination(const std::string &content) { std::ofstream(dest) << content; }
 
-    void run(ScriptedDownload &transport)
+    void run(ScriptedDownload &transport, DownloadOptions options = {}, HttpHeaders headers = {})
     {
         NetTestAccess::downloadFile(
-                net, [this](Error e, const std::string &) { seenError = e; }, "http://x.invalid/f",
-                dest.string(), std::ref(transport))();
+                net,
+                [this](Error e, const std::string &reply) {
+                    seenError = e;
+                    seenReply = reply;
+                },
+                "http://x.invalid/f", dest.string(), std::ref(transport), options,
+                std::move(headers))();
     }
+
+    std::string seenReply;
 
     size_t entries() const
     {
@@ -790,6 +828,477 @@ struct DownloadFixture {
 };
 
 } // namespace
+
+TEST_CASE("A download past its byte limit fails, is not retried, and leaves no file")
+{
+    DownloadFixture f;
+    f.seedDestination("ORIGINAL");
+    DownloadOptions options;
+    options.maxBytes = 8;
+
+    ScriptedDownload transport {{{"123456789", downloadResponse(200)}}};
+    f.run(transport, options);
+
+    CHECK(transport.calls == 1);
+    CHECK(f.seenError == Error::LimitExceeded);
+    CHECK(f.seenReply.find("refused: body exceeds the 8 byte limit") != std::string::npos);
+    CHECK(readFile(f.dest) == "ORIGINAL");
+    CHECK(f.entries() == 1); // no temp file left behind
+}
+
+TEST_CASE("An error page past the byte limit is still the error it is")
+{
+    DownloadFixture f;
+    DownloadOptions options;
+    options.maxBytes = 8;
+    ScriptedDownload transport {{{"<html>not found, at length</html>", downloadResponse(404)}}};
+
+    f.run(transport, options);
+
+    CHECK(f.seenError == Error::ApiError);
+    CHECK(f.seenReply.find("refused") == std::string::npos);
+    CHECK(f.entries() == 0);
+}
+
+TEST_CASE("A download within its byte limit succeeds")
+{
+    DownloadFixture f;
+    DownloadOptions options;
+    options.maxBytes = 9;
+    ScriptedDownload transport {{{"123456789", downloadResponse(200)}}};
+
+    f.run(transport, options);
+
+    CHECK(f.seenError == Error::Success);
+    CHECK(readFile(f.dest) == "123456789");
+}
+
+TEST_CASE("The download sink writes up to its limit and never past it")
+{
+    std::ostringstream out;
+    DownloadSink sink {out, 8};
+
+    CHECK(sink.write("1234"));
+    CHECK(sink.write("5678")); // exactly at the limit
+    CHECK_FALSE(sink.limitHit());
+    CHECK_FALSE(sink.write("9")); // one byte over: refused, which aborts the transfer
+    CHECK(sink.limitHit());
+    CHECK(out.str() == "12345678"); // nothing past the limit was written
+    CHECK(sink.written() == 8);
+
+    SECTION("a failed stream stops the transfer without counting as the limit")
+    {
+        std::ostringstream broken;
+        broken.setstate(std::ios::badbit);
+        DownloadSink failing {broken, 100};
+        CHECK_FALSE(failing.write("12"));
+        CHECK_FALSE(failing.limitHit());
+    }
+}
+
+TEST_CASE("A download curl redirected itself reports where it ended")
+{
+    DownloadFixture f;
+    DownloadOptions options = redirectOptions(RedirectPolicy::Follow); // explicit "follow"
+    SECTION("with a byte limit")
+    {
+        options.maxBytes = 100;
+    }
+    SECTION("with nothing but the policy")
+    {
+    }
+    cpr::Response ended = downloadResponse(200);
+    ended.url = cpr::Url {"https://cdn.example.com/moved/f"};
+    ScriptedDownload transport {{{"BODY", ended}}};
+
+    f.run(transport, options);
+
+    CHECK(f.seenError == Error::Success);
+    CHECK(f.seenReply.find("final url: https://cdn.example.com/moved/f") != std::string::npos);
+}
+
+TEST_CASE("A download with redirects refused stops at the redirect, naming its target")
+{
+    DownloadFixture f;
+    f.seedDestination("ORIGINAL");
+    ScriptedDownload transport {{{"moved", redirectResponse(302, "https://cdn.example.com/f")},
+                                 {"BODY", downloadResponse(200)}}};
+
+    f.run(transport, redirectOptions(RedirectPolicy::None));
+
+    CHECK(transport.calls == 1); // never followed, and not retried
+    CHECK(f.seenError == Error::LimitExceeded);
+    CHECK(f.seenReply.find("refused: redirect to cdn.example.com") != std::string::npos);
+    CHECK(readFile(f.dest) == "ORIGINAL");
+    CHECK(f.entries() == 1);
+}
+
+TEST_CASE("A download limited to listed hosts follows only those")
+{
+    DownloadFixture f;
+    const auto hosts = redirectOptions(RedirectPolicy::Hosts, {"cdn.example.com"});
+
+    SECTION("a listed host is followed, and the reply names where it ended")
+    {
+        ScriptedDownload transport {{{"moved", redirectResponse(302, "http://CDN.example.com/f")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, hosts);
+        CHECK(f.seenError == Error::Success);
+        CHECK(readFile(f.dest) == "BODY"); // the redirect's own body is not kept
+        REQUIRE(transport.urls.size() == 2);
+        CHECK(transport.urls[1] == "http://CDN.example.com/f");
+        CHECK(f.seenReply.find("final url: http://CDN.example.com/f") != std::string::npos);
+    }
+    SECTION("a relative Location resolves against the URL it came from")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(301, "/elsewhere/g")},
+                                     {"", redirectResponse(307, "https://cdn.example.com/h")},
+                                     {"BODY", downloadResponse(200)}}};
+        DownloadOptions both =
+                redirectOptions(RedirectPolicy::Hosts, {"x.invalid", "cdn.example.com"});
+        f.run(transport, both);
+        CHECK(f.seenError == Error::Success);
+        REQUIRE(transport.urls.size() == 3);
+        CHECK(transport.urls[1] == "http://x.invalid/elsewhere/g");
+    }
+    SECTION("any 3xx with a Location is a redirect, 300 included")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(300, "https://cdn.example.com/f")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, hosts);
+        CHECK(f.seenError == Error::Success);
+        CHECK(transport.calls == 2);
+    }
+    SECTION("an unlisted host is refused before any of its body is written")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "https://evil.example.net/f")},
+                                     {"EVIL", downloadResponse(200)}}};
+        f.run(transport, hosts);
+        CHECK(transport.calls == 1);
+        CHECK(f.seenError == Error::LimitExceeded);
+        CHECK(f.seenReply.find("redirect to evil.example.net") != std::string::npos);
+        CHECK(f.entries() == 0);
+    }
+    SECTION("a listed host is refused when the redirect drops https for http")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "https://cdn.example.com/f")},
+                                     {"", redirectResponse(302, "http://cdn.example.com/g")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, hosts);
+        CHECK(transport.calls == 2);
+        CHECK(f.seenError == Error::LimitExceeded);
+    }
+    SECTION("an endless chain stops after a few hops")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "https://cdn.example.com/again")}}};
+        f.run(transport, hosts);
+        CHECK(transport.calls == 6); // the request and 5 redirects followed
+        CHECK(f.seenError == Error::LimitExceeded);
+        CHECK(f.seenReply.find("refused: more than 5 redirects") != std::string::npos);
+    }
+    SECTION("the caller's credentials are not sent to another host")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "https://cdn.example.com/f")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, hosts,
+              {{"Authorization", "Bearer secret"}, {"COOKIE", "c=1"}, {"Accept", "*/*"}});
+        REQUIRE(transport.headers.size() == 2);
+        CHECK(transport.headers[0].count("Authorization") == 1);
+        CHECK(transport.headers[1].count("Authorization") == 0);
+        CHECK(transport.headers[1].count("Cookie") == 0);
+        CHECK(transport.headers[1].at("Accept") == "*/*");
+    }
+    SECTION("a requested URL curl accepts but a strict parser would not still has its redirects "
+            "checked")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "https://cdn.example.com/f")},
+                                     {"", redirectResponse(302, "/g")},
+                                     {"BODY", downloadResponse(200)}}};
+        DownloadFixture raw;
+        NetTestAccess::downloadFile(
+                raw.net,
+                [&raw](Error e, const std::string &reply) {
+                    raw.seenError = e;
+                    raw.seenReply = reply;
+                },
+                "http://x.invalid/a|b^c[1]", raw.dest.string(), std::ref(transport), hosts)();
+        INFO(raw.seenReply);
+        CHECK(raw.seenError == Error::Success);
+        REQUIRE(transport.urls.size() == 3);
+        CHECK(transport.urls[2] == "https://cdn.example.com/g");
+        CHECK(redirectAllowed(hosts, "http://x.invalid/a|b", "https://cdn.example.com/f"));
+        CHECK(hostForReply("http://x.invalid/a|b") == "x.invalid");
+    }
+    SECTION("the caller's credentials are not sent to another port of the same host")
+    {
+        ScriptedDownload transport {{{"", redirectResponse(302, "http://x.invalid:80/same")},
+                                     {"", redirectResponse(302, "http://x.invalid:8080/f")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, redirectOptions(RedirectPolicy::Hosts, {"x.invalid"}),
+              {{"Authorization", "Bearer secret"}, {"Cookie", "c=1"}});
+        REQUIRE(transport.headers.size() == 3);
+        CHECK(transport.headers[1].count("Cookie") == 1); // port 80 is http's own
+        CHECK(transport.headers[2].count("Authorization") == 0);
+        CHECK(transport.headers[2].count("Cookie") == 0);
+    }
+    SECTION("device auth follows the API host whatever the case of its name")
+    {
+        f.net.setHostname("http://x.invalid");
+        ScriptedDownload transport {{{"", redirectResponse(302, "http://X.INVALID/g")},
+                                     {"", redirectResponse(302, "https://cdn.example.com/h")},
+                                     {"BODY", downloadResponse(200)}}};
+        f.run(transport, redirectOptions(RedirectPolicy::Hosts, {"x.invalid", "cdn.example.com"}));
+        CHECK(f.seenError == Error::Success);
+        REQUIRE(transport.headers.size() == 3);
+        CHECK(transport.headers[0].count("Authorization") == 1);
+        CHECK(transport.headers[1].count("Authorization") == 1);
+        CHECK(transport.headers[2].count("Authorization") == 0);
+    }
+}
+
+namespace {
+
+std::string httpResponse(const std::string &status, const std::string &headers,
+                         const std::string &body)
+{
+    return "HTTP/1.1 " + status + "\r\n" + headers + "Content-Length: "
+         + std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+}
+
+/// Answers GETs on a local port with canned responses, so curl itself handles the transfer.
+class LocalHttpServer
+{
+public:
+    explicit LocalHttpServer(std::map<std::string, std::string> routes)
+        : m_routes {std::move(routes)}
+    {
+        accept();
+        m_thread = std::thread([this] { m_io.run(); });
+    }
+    ~LocalHttpServer()
+    {
+        m_io.stop();
+        m_thread.join();
+    }
+
+    std::string url(const std::string &path) const
+    {
+        return "http://127.0.0.1:" + std::to_string(m_acceptor.local_endpoint().port()) + path;
+    }
+
+private:
+    void accept()
+    {
+        m_acceptor.async_accept([this](boost::system::error_code ec, tcp::socket s) {
+            if (ec) {
+                return;
+            }
+            auto socket = std::make_shared<tcp::socket>(std::move(s));
+            auto request = std::make_shared<boost::asio::streambuf>();
+            boost::asio::async_read_until(
+                    *socket, *request, "\r\n\r\n",
+                    [this, socket, request](boost::system::error_code ec, size_t) {
+                        if (ec) {
+                            return;
+                        }
+                        std::istream in {request.get()};
+                        std::string method, path;
+                        in >> method >> path;
+                        const auto it = m_routes.find(path);
+                        auto reply = std::make_shared<std::string>(
+                                it != m_routes.end() ? it->second
+                                                     : httpResponse("404 Not Found", "", ""));
+                        boost::asio::async_write(
+                                *socket, boost::asio::buffer(*reply),
+                                [socket, reply](boost::system::error_code, size_t) {});
+                    });
+            accept();
+        });
+    }
+
+    std::map<std::string, std::string> m_routes;
+    boost::asio::io_context m_io;
+    tcp::acceptor m_acceptor {m_io, {boost::asio::ip::make_address("127.0.0.1"), 0}};
+    std::thread m_thread;
+};
+
+/// @p data as a gzip member holding one stored deflate block, so it encodes larger than it is
+std::string gzipStored(const std::string &data)
+{
+    std::string out {"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff", 10};
+    const auto len = static_cast<uint16_t>(data.size());
+    out += '\x01'; // the final block, stored
+    for (const uint16_t v : {len, static_cast<uint16_t>(~len)}) {
+        out += char(v & 0xFF);
+        out += char(v >> 8);
+    }
+    out += data;
+    uint32_t crc = 0xFFFFFFFF; // CRC-32 as gzip uses it, bit by bit
+    for (const unsigned char c : data) {
+        crc ^= c;
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xEDB88320 & (0 - (crc & 1)));
+        }
+    }
+    for (const uint32_t v : {~crc, static_cast<uint32_t>(data.size())}) {
+        for (int i = 0; i < 4; ++i) {
+            out += char((v >> (8 * i)) & 0xFF);
+        }
+    }
+    return out;
+}
+
+/// Downloads @p url over the network into @p f's destination.
+void realDownload(DownloadFixture &f, const std::string &url, const DownloadOptions &options)
+{
+    NetTestAccess::downloadFile(
+            f.net,
+            [&f](Error e, const std::string &reply) {
+                f.seenError = e;
+                f.seenReply = reply;
+            },
+            url, f.dest.string(), {}, options)();
+}
+
+} // namespace
+
+TEST_CASE("A redirect announcing a body past the limit still leads to a small file")
+{
+    const std::string big(100000, 'x');
+    LocalHttpServer server {{
+            {"/redirect", httpResponse("302 Found", "Location: /small\r\n", big)},
+            {"/small", httpResponse("200 OK", "", "SMALL")},
+            {"/big", httpResponse("200 OK", "", big)},
+    }};
+    DownloadFixture f;
+    DownloadOptions options;
+    SECTION("when curl follows the redirect")
+    {
+        options = redirectOptions(RedirectPolicy::Follow);
+    }
+    SECTION("when it is followed by hand")
+    {
+        options = redirectOptions(RedirectPolicy::Hosts, {"127.0.0.1"});
+    }
+    options.maxBytes = 100;
+
+    realDownload(f, server.url("/redirect"), options);
+    INFO(f.seenReply);
+    CHECK(f.seenError == Error::Success);
+    CHECK(readFile(f.dest) == "SMALL");
+
+    realDownload(f, server.url("/big"), options); // a final body past the limit is still refused
+    CHECK(f.seenError == Error::LimitExceeded);
+    CHECK(readFile(f.dest) == "SMALL");
+}
+
+TEST_CASE("A compressed body is limited by its decoded size, not the size it was sent at")
+{
+    const std::string limit(100, 'z');
+    LocalHttpServer server {{
+            {"/at", httpResponse("200 OK", "Content-Encoding: gzip\r\n", gzipStored(limit))},
+            {"/past",
+             httpResponse("200 OK", "Content-Encoding: gzip\r\n", gzipStored(limit + "z"))},
+    }};
+    REQUIRE(gzipStored(limit).size() > limit.size()); // sent at more than the limit
+    DownloadFixture f;
+    DownloadOptions options;
+    SECTION("when curl follows redirects")
+    {
+        options = redirectOptions(RedirectPolicy::Follow);
+    }
+    SECTION("when they are followed by hand")
+    {
+        options = redirectOptions(RedirectPolicy::Hosts, {"127.0.0.1"});
+    }
+    options.maxBytes = limit.size();
+
+    realDownload(f, server.url("/at"), options);
+    INFO(f.seenReply);
+    CHECK(f.seenError == Error::Success);
+    CHECK(readFile(f.dest) == limit);
+
+    realDownload(f, server.url("/past"), options);
+    CHECK(f.seenError == Error::LimitExceeded);
+    CHECK(readFile(f.dest) == limit);
+}
+
+TEST_CASE("A redirect Location with raw spaces still resolves")
+{
+    CHECK(resolveRedirect("https://a.example.com/x", "https://cdn.example.com/a file.bin")
+          == "https://cdn.example.com/a%20file.bin");
+    CHECK(resolveRedirect("https://a.example.com/x/y", "../b c") == "https://a.example.com/b%20c");
+}
+
+TEST_CASE("An origin is the scheme, the host in any case, and the effective port")
+{
+    CHECK(isSameOrigin("https://a.example.com/x", "HTTPS://A.Example.com:443/y"));
+    CHECK(isSameOrigin("http://a.example.com:80/x", "http://a.example.com/y"));
+    CHECK_FALSE(isSameOrigin("https://a.example.com/x", "http://a.example.com/x"));
+    CHECK_FALSE(isSameOrigin("https://a.example.com/x", "https://a.example.com:8443/x"));
+    CHECK_FALSE(isSameOrigin("https://a.example.com/x", "https://b.example.com/x"));
+    CHECK_FALSE(isSameOrigin("https://a.example.com/x", "not a url"));
+    CHECK(isSameOrigin("http://a@b@x.invalid/f",
+                       "http://a@b@x.invalid/f")); // unparsed, still itself
+}
+
+TEST_CASE("A download keeps the caller's credentials on the URL it was asked for, parsed or not")
+{
+    DownloadFixture f;
+    ScriptedDownload transport {{{"BODY", downloadResponse(200)}}};
+    NetTestAccess::downloadFile(f.net, [&f](Error e, const std::string &) { f.seenError = e; },
+                                "http://a@b@x.invalid/f", f.dest.string(), std::ref(transport), {},
+                                {{"Authorization", "Bearer secret"}, {"Cookie", "c=1"}})();
+
+    CHECK(f.seenError == Error::Success);
+    REQUIRE(transport.headers.size() == 1);
+    CHECK(transport.headers[0].count("Authorization") == 1);
+    CHECK(transport.headers[0].count("Cookie") == 1);
+}
+
+TEST_CASE("A redirect Location with a stray percent or brackets still resolves")
+{
+    const std::string from = "https://a.example.com/x";
+    CHECK(resolveRedirect(from, "/50%off") == "https://a.example.com/50%25off");
+    CHECK(resolveRedirect(from, "/end%") == "https://a.example.com/end%25");
+    CHECK(resolveRedirect(from, "/end%4") == "https://a.example.com/end%254");
+    CHECK(resolveRedirect(from, "/ok%2Fx") == "https://a.example.com/ok%2Fx"); // kept as sent
+    CHECK(resolveRedirect(from, "/a[1].bin?v=[2]#[3]")
+          == "https://a.example.com/a%5B1%5D.bin?v=%5B2%5D#%5B3%5D");
+    // An IPv6 host keeps its brackets; the rest of the URL does not
+    CHECK(resolveRedirect(from, "http://[::1]:8080/p[0]") == "http://[::1]:8080/p%5B0%5D");
+    CHECK(resolveRedirect(from, "//[::1]/q?x=[1]") == "https://[::1]/q?x=%5B1%5D");
+}
+
+TEST_CASE("Download options")
+{
+    {
+        const auto hosts = parseDownloadOptions(
+                R"({"redirect":"hosts","redirect_hosts":["CDN.example.com"]})");
+        REQUIRE(hosts);
+        CHECK(hosts->redirect == RedirectPolicy::Hosts);
+        CHECK(hosts->redirectHosts == std::vector<std::string> {"cdn.example.com"});
+    }
+    CHECK(parseDownloadOptions(R"({"redirect":"none"})")->redirect == RedirectPolicy::None);
+    CHECK(parseDownloadOptions(R"({"redirect":"follow"})")->redirect == RedirectPolicy::Follow);
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect":"hosts"})")); // no list
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect":"hosts","redirect_hosts":[]})"));
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect_hosts":["cdn.example.com"]})")); // no policy
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect":"none","redirect_hosts":["a.b"]})"));
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect":"sometimes"})"));
+    CHECK_FALSE(parseDownloadOptions(R"({"redirect":"hosts","redirect_hosts":[""]})"));
+
+    REQUIRE(parseDownloadOptions(""));
+    CHECK_FALSE(parseDownloadOptions("")->maxBytes);
+    REQUIRE(parseDownloadOptions(R"({"max_bytes":4096})"));
+    CHECK(parseDownloadOptions(R"({"max_bytes":4096})")->maxBytes == 4096u);
+    CHECK(parseDownloadOptions("{}"));
+    CHECK_FALSE(parseDownloadOptions(R"({"max_bytes":-1})"));
+    CHECK_FALSE(parseDownloadOptions(R"({"max_bytes":"4096"})"));
+    CHECK_FALSE(parseDownloadOptions(R"({"timeout":5})")); // not known: refused, not ignored
+    CHECK_FALSE(parseDownloadOptions("[1]"));
+    CHECK_FALSE(parseDownloadOptions("max_bytes=1"));
+}
 
 TEST_CASE("A download retried after a truncated 200 yields only the second body")
 {
