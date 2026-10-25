@@ -1168,7 +1168,8 @@ void Net::refreshNfcFirmware()
 void Net::setProbeFirmware(const std::string &probe, std::optional<ProbeFirmware> firmware)
 {
     if (!isHostReportedProbe(probe)) {
-        WRN("Probe firmware for '{}' ignored: only cpu and dmd are reported by the host", probe);
+        WRN("Probe firmware for '{}' ignored: only cpu, dmd and link are reported by the host",
+            probe);
         return;
     }
     updateScorbitronObject({{JKEY_SOBJ_PROBE_FIRMWARE, {{probe, probeFirmwareEntry(firmware)}}}},
