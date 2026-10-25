@@ -266,7 +266,8 @@ void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmwar
  * A probe's installed firmware at startup, sent with the Scorbitron object. A probe never set is
  * not reported. Use @ref sb_set_probe_firmware for a change after the game state exists.
  *
- * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
+ * @param probe "cpu", "dmd" or "link"; anything else is ignored (the SDK reports the NFC pad
+ * itself).
  * @param present false when the probe is not attached; the other values are then ignored.
  * @param timestamp_utc The firmware's build number; 0 when the firmware does not report one.
  * @param uid The probe's UID.

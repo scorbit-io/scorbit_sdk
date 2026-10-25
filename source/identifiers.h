@@ -294,6 +294,7 @@ constexpr auto JKEY_PFW_WATCHDOG_COUNT {"watchdog_count"};
 constexpr auto JVAL_PROBE_CPU {"cpu"};
 constexpr auto JVAL_PROBE_DMD {"dmd"};
 constexpr auto JVAL_PROBE_NFC {"nfc"};
+constexpr auto JVAL_PROBE_LINK {"link"};
 constexpr auto JKEY_SOBJ_START_GAME_CAPABLE {"start_game_capable"};
 constexpr auto JKEY_SOBJ_NFC_CAPABLE {"nfc_capable"};
 constexpr auto JKEY_SOBJ_CREDIT_DROP_CAPABLE {"credit_drop_capable"};

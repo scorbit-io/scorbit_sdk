@@ -53,7 +53,8 @@ struct ProbeFirmware {
 /// The probes a host reports itself. The SDK reads the NFC pad, so a host can't report it.
 inline bool isHostReportedProbe(std::string_view probe)
 {
-    return probe == detail::JVAL_PROBE_CPU || probe == detail::JVAL_PROBE_DMD;
+    return probe == detail::JVAL_PROBE_CPU || probe == detail::JVAL_PROBE_DMD
+        || probe == detail::JVAL_PROBE_LINK;
 }
 
 /**

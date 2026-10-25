@@ -544,11 +544,11 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
  * Updates the Scorbitron object and, once authenticated, sends the change at once. The startup
  * value comes from @ref sb_config_set_probe_firmware.
  *
- * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
  * Call it again when the probe resets, too: its boot reason and watchdog count are part of the
  * report. Unchanged values send nothing.
  *
- * @param probe "cpu" or "dmd"; anything else is ignored (the SDK reports the NFC pad itself).
+ * @param probe "cpu", "dmd" or "link"; anything else is ignored (the SDK reports the NFC pad
+ * itself).
  * @param present false when the probe is not attached; the other values are then ignored.
  * @param timestamp_utc The firmware's build number; 0 when the firmware does not report one.
  * @param uid The probe's UID.

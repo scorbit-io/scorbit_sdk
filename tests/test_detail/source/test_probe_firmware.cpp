@@ -182,15 +182,17 @@ TEST_CASE("The probe firmware config setter takes the host's probes only")
     sb_config_set_probe_firmware(config, "cpu", true, CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4,
                                  2); // watchdog_timer, twice
     sb_config_set_probe_firmware(config, "dmd", false, 123, 456, 1, 1);
+    sb_config_set_probe_firmware(config, "link", true, 20261025091656, 0x11, 1, 0);
     sb_config_set_probe_firmware(config, "nfc", true, 1, 2, 0, 0);   // the SDK's own
     sb_config_set_probe_firmware(config, "spike", true, 1, 2, 0, 0); // not a probe
     sb_config_set_probe_firmware(config, nullptr, true, 1, 2, 0, 0);
     sb_config_set_probe_firmware(nullptr, "cpu", true, 1, 2, 0, 0);
 
-    REQUIRE(config->probeFirmware.size() == 2);
+    REQUIRE(config->probeFirmware.size() == 3);
     CHECK(config->probeFirmware.at("cpu")
           == ProbeFirmware {CPU_BUILD.timestampUtc, CPU_BUILD.uid, 4, 2});
     CHECK_FALSE(config->probeFirmware.at("dmd").has_value());
+    CHECK(config->probeFirmware.at("link") == ProbeFirmware {20261025091656, 0x11, 1, 0});
     sb_config_destroy(config);
 }
 
