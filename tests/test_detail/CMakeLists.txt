@@ -126,6 +126,7 @@ target_sources(
         source/test_http_session_pool.cpp
         ../../source/identifiers.h
         source/test_identifiers.cpp
+        source/test_table_signature.cpp
         ../../source/worker.cpp
         ../../source/worker.h
         ../../source/serial_task_queue.h
@@ -218,11 +219,14 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
 endif()
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE TABLE_SIGNATURE_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/vectors.json")
+
 target_include_directories(
     ${PROJECT_NAME}
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/include"
         "${scorbit_sdk_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/libs/tpm/source"
         "${scorbit_sdk_SOURCE_DIR}/3rd/obfuscate"
