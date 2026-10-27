@@ -26,13 +26,22 @@ The top-level digest is SHA-256 over `"vts1\0"` and the three section digests, i
 string and date literals are kept byte-exact. A script that is not valid UTF-8 is read as
 ISO-8859-1, as VPX does. Whitespace, comments and identifier case do not change the digest.
 
-**Fields** are hashed as stored, in allow-list order, each marked present or absent. Positions,
-images, materials' visual properties, editor state and table info are not hashed.
+**Fields** are hashed as stored, in allow-list order, each marked present or absent. A field's value
+is the BIFF record's data after its 4-byte tag, exactly as VPX wrote it: it excludes the record's
+own length and the tag, and includes anything VPX writes inside the data (a string field's length
+prefix, for example). Positions, images, materials' visual properties, editor state and table info
+are not hashed.
 
 **Procedures.** Each `Sub`, `Function` and `Property` block, keyed by lower-cased name
 (`class.name` inside a `Class`, `file.vbs:name` in a helper script, `""` for code outside any
 procedure), with the first 8 bytes of the digest over its canonical form. It lets a server say which
 procedures differ without receiving the script.
+
+## Errors
+
+Every function is pure and deterministic. None throws except `std::bad_alloc`, none aborts, and
+malformed or truncated input (an unterminated string, invalid UTF-8, a missing field) produces a
+digest rather than a failure.
 
 ## Vectors
 
