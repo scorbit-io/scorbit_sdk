@@ -305,7 +305,7 @@ inline auto tableAllowList() -> std::vector<std::string_view>
 
 // ---------------------------------------------------------------- script canonical form
 
-/// UTF-8 if valid, else ISO-8859-1 converted to UTF-8, as VPX loads a script.
+/// A leading BOM dropped, then UTF-8 if valid, else Windows-1252 converted to UTF-8, as VPX loads a script.
 inline auto decodeScript(std::string_view raw) -> std::string
 {
     // Well-formed UTF-8 (Unicode 15, table 3-7): no overlongs, surrogates or values above U+10FFFF.
@@ -343,17 +343,30 @@ inline auto decodeScript(std::string_view raw) -> std::string
         }
         return true;
     };
+    if (raw.size() >= 3 && raw.substr(0, 3) == "\xef\xbb\xbf") {
+        raw.remove_prefix(3); // a UTF-8 byte order mark, which VPX drops
+    }
     if (validUtf8(raw)) {
         return std::string(raw);
     }
+    // Windows-1252, as VPX's string_from_utf8_or_cp1252; its five unassigned bytes stay as themselves
+    static constexpr uint16_t k80to9f[32] = {
+        0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160,
+        0x2039, 0x0152, 0x008d, 0x017d, 0x008f, 0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+        0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178};
     std::string out;
     for (const char ch : raw) {
-        const auto c = static_cast<uint8_t>(ch);
-        if (c < 0x80) {
-            out += ch;
+        const auto b = static_cast<uint8_t>(ch);
+        const uint32_t cp = (b >= 0x80 && b <= 0x9f) ? k80to9f[b - 0x80] : b;
+        if (cp < 0x80) {
+            out += static_cast<char>(cp);
+        } else if (cp < 0x800) {
+            out += static_cast<char>(0xc0 | (cp >> 6));
+            out += static_cast<char>(0x80 | (cp & 0x3f));
         } else {
-            out += static_cast<char>(0xc0 | (c >> 6));
-            out += static_cast<char>(0x80 | (c & 0x3f));
+            out += static_cast<char>(0xe0 | (cp >> 12));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3f));
+            out += static_cast<char>(0x80 | (cp & 0x3f));
         }
     }
     return out;
@@ -738,13 +751,14 @@ inline auto fieldValue(std::string_view tag, const std::vector<uint8_t> &value) 
     return v;
 }
 
-/// Each allow-listed tag in order, present or explicitly absent.
+/// Each allow-listed tag in order, present or explicitly absent. VPX applies records in order, so a
+/// repeated tag takes its last value.
 inline void putFields(Sha256 &h, const std::vector<Field> &fields, const std::vector<std::string_view> &allow)
 {
     for (const auto tag : allow) {
         h.update(tag);
-        const auto it = std::find_if(fields.begin(), fields.end(), [&](const Field &f) { return f.tag == tag; });
-        if (it == fields.end()) {
+        const auto it = std::find_if(fields.rbegin(), fields.rend(), [&](const Field &f) { return f.tag == tag; });
+        if (it == fields.rend()) {
             const uint8_t absent = 0;
             h.update(&absent, 1);
         } else {
@@ -851,12 +865,17 @@ inline auto physicsDigest(const std::vector<Field> &tableFields, std::vector<Phy
 inline auto compute(const Inputs &in) -> Signature
 {
     Signature s;
-    // An edit to a helper it cannot name would not change the digest, so claim nothing
-    if (in.dynamicLoads > 0) {
+    const auto tokens = tokenize(decodeScript(in.script));
+    // An edit to a helper it cannot name would not change the digest, so claim nothing. Found here
+    // in the script and every helper, whatever the caller counted.
+    uint32_t unnamed = in.dynamicLoads + scriptReferences(tokens).dynamic;
+    for (const auto &helper : in.helperScripts) {
+        unnamed += scriptReferences(tokenize(decodeScript(helper.content))).dynamic;
+    }
+    if (unnamed > 0) {
         s.unavailable = kUnnamedHelper;
         return s;
     }
-    const auto tokens = tokenize(decodeScript(in.script));
     s.script = scriptDigest(tokens, in.helperScripts, in.vpxScripts);
     s.items = itemsDigest(in.items);
     s.physics = physicsDigest(in.tableFields, in.materials);

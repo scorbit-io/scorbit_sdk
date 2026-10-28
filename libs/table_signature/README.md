@@ -26,11 +26,13 @@ The top-level digest is SHA-256 over `"vts1\0"` and the three section digests, i
 `Then` on the same line), which keeps its own separator because it keeps the next statement
 conditional; identifiers, keywords and numbers are lower-cased (ASCII letters only, so a case
 change in a non-ASCII identifier reads as a change); `&H` and `&O` literals take only their own
-digits; string and date literals are kept byte-exact. A script that is not well-formed UTF-8
-(overlong forms, surrogates and values above U+10FFFF included) is read as ISO-8859-1, as VPX does.
+digits; string and date literals are kept byte-exact. A leading UTF-8 byte order mark is dropped,
+and a script that is not well-formed UTF-8 (overlong forms, surrogates and values above U+10FFFF
+included) is read as Windows-1252, as VPX's `string_from_utf8_or_cp1252` does.
 Whitespace, comments and ASCII identifier case do not change the digest.
 
-**Fields** are hashed as stored, in allow-list order, each marked present or absent. A field's value
+**Fields** are hashed as stored, in allow-list order, each marked present or absent; a tag that
+appears more than once takes its last value, since VPX applies records in order. A field's value
 is the BIFF record's data after its 4-byte tag, exactly as VPX wrote it: it excludes the record's
 own length and the tag, and includes anything VPX writes inside the data (a string field's length
 prefix, for example). Two are normalised: `VPOS` and `VSIZ` keep only x, y and z (the first 12
@@ -61,6 +63,9 @@ digest rather than a failure.
 
 The one input with no signature is a script that loads a helper by a name that is not a literal
 (`GetTextFile(name)`, `LoadScript name`): an edit to that helper could not change the digest.
+`compute` finds such loads itself, in the script and in every helper passed in, so a caller's
+`dynamicLoads` count can only add to them. A caller passes every helper a script reaches by literal
+name, including those named by other helpers.
 `compute` then returns a `Signature` whose `unavailable` is `kUnnamedHelper`, with no digests or
 procedures; report that reason, never a partial signature.
 

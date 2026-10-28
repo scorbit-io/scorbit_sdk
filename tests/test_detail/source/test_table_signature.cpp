@@ -236,8 +236,33 @@ TEST_CASE("table_signature: a script that loads a helper it does not name has no
     CHECK(s.unavailable == kUnnamedHelper);
     CHECK(s.top == Digest {});
     CHECK(s.procedures.empty());
+    // Found in the script itself, whatever the caller counted
     in.dynamicLoads = 0;
-    CHECK(compute(in).unavailable.empty());
+    CHECK(compute(in).unavailable == kUnnamedHelper);
+    // ...and in a helper the script names
+    Inputs nested;
+    nested.script = "LoadScript \"rules.vbs\"";
+    nested.helperScripts = {{"rules.vbs", "ExecuteGlobal GetTextFile(extra)"}};
+    CHECK(compute(nested).unavailable == kUnnamedHelper);
+    nested.helperScripts[0].content = "x = 1";
+    CHECK(compute(nested).unavailable.empty());
+}
+
+TEST_CASE("table_signature: a legacy script is Windows-1252, and a BOM is dropped")
+{
+    CHECK(decodeScript("x = \"\x80\"") == "x = \"\xe2\x82\xac\""); // the euro sign
+    CHECK(decodeScript("x = \"\x81\"") == "x = \"\xc2\x81\"");     // unassigned: kept as U+0081
+    CHECK(decodeScript("\xef\xbb\xbfx = 1") == "x = 1");
+}
+
+TEST_CASE("table_signature: a repeated field takes its last value, as VPX applies it")
+{
+    const std::vector<uint8_t> a {1, 0, 0, 0}, b {2, 0, 0, 0};
+    const Item last {kFlipper, "F", {{"STRG", a}, {"STRG", b}}, {}, {}};
+    const Item onlyB {kFlipper, "F", {{"STRG", b}}, {}, {}};
+    const Item onlyA {kFlipper, "F", {{"STRG", a}}, {}, {}};
+    CHECK(itemsDigest({last}) == itemsDigest({onlyB}));
+    CHECK(itemsDigest({last}) != itemsDigest({onlyA}));
 }
 
 TEST_CASE("table_signature: &H and &O take only their own digits")
