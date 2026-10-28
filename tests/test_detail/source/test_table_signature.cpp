@@ -220,6 +220,16 @@ TEST_CASE("table_signature: a colon inside a single-line If is not a line break"
           == canonicalScript(tokenize("If x Then ' note\n a = 1\n b = 2\nEnd If")));
 }
 
+TEST_CASE("table_signature: a script's own Sub LoadScript is a declaration, not a load")
+{
+    const auto refs = scriptReferences(tokenize("Sub LoadScript(name)\n  x = name\nEnd Sub\nLoadScript \"a.vbs\""));
+    CHECK(refs.dynamic == 0);
+    CHECK(refs.names == std::vector<std::string> {"a.vbs"});
+    CHECK(scriptReferences(tokenize("Function GetTextFile(p) : GetTextFile = \"\" : End Function")).dynamic == 0);
+    // A call with a name that is not a literal still counts
+    CHECK(scriptReferences(tokenize("Sub LoadScript(n)\nEnd Sub\nLoadScript helper")).dynamic == 1);
+}
+
 TEST_CASE("table_signature: a literal load before Else is still listed")
 {
     const auto refs = scriptReferences(

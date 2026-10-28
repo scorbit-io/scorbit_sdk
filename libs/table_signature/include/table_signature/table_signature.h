@@ -588,6 +588,11 @@ inline auto scriptReferences(const std::vector<std::string> &tokens) -> ScriptRe
         if (tokens[i] != "gettextfile" && tokens[i] != "loadscript") {
             continue;
         }
+        // A script's own Sub/Function of that name, or its return value assigned inside it, is not a call
+        if ((i > 0 && (tokens[i - 1] == "sub" || tokens[i - 1] == "function"))
+            || (i + 1 < tokens.size() && tokens[i + 1] == "=")) {
+            continue;
+        }
         size_t j = i + 1;
         if (j < tokens.size() && tokens[j] == "(") {
             j++;
