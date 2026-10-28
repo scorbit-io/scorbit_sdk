@@ -166,8 +166,8 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `set_capabilities(flags)` | Capability flags. |
 | `set_credits_dropped(n, tx, ok)` | Credit drop report. |
 | `set_credits_status(free, n, max, pricing)` | Credit status. |
-| `download(url, file, ct, cb)` | Async file download. |
-| `download_buffer(url, size, ct, cb)` | Async buffer download. |
+| `download(url, file, headers, cb)` | Async file download. `headers`: dict or `(name, value)` pairs, or `None`; a string is sent as `Accept`. `content_type=` is still accepted in its place, deprecated. |
+| `download_buffer(url, size, headers, cb)` | Async buffer download. `headers` as for `download`. |
 | `destroy()` | Free resources (also from `__exit__`). |
 
 ### `Event`
