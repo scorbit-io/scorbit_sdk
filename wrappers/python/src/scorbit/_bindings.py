@@ -30,6 +30,7 @@ from ctypes import (
     c_uint32,
     c_uint64,
     c_void_p,
+    Structure,
 )
 
 from ._loader import _lib
@@ -48,6 +49,12 @@ SB_DIGEST_LENGTH = 32
 SB_UUID_LENGTH = 16
 SB_SIGNATURE_MAX_LENGTH = 72
 SB_KEY_LENGTH = 32
+
+
+class sb_http_header_t(Structure):
+    """``sb_http_header_t``: one HTTP request header, name and value."""
+
+    _fields_ = [("name", c_char_p), ("value", c_char_p)]
 
 # ---------------------------------------------------------------------------
 # C callback function-pointer types
@@ -388,18 +395,20 @@ _lib.sb_set_probe_firmware.argtypes = [
 _lib.sb_set_pbspkcomm_firmware_id.restype = None
 _lib.sb_set_pbspkcomm_firmware_id.argtypes = [sb_game_handle_t, c_char_p]
 
-# void sb_download(sb_game_handle_t, const char*, const char*, const char*,
-#                   sb_string_callback_t, void*)
+# void sb_download(sb_game_handle_t, const char*, const char*,
+#                  const sb_http_header_t*, size_t, sb_string_callback_t, void*)
 _lib.sb_download.restype = None
 _lib.sb_download.argtypes = [
-    sb_game_handle_t, c_char_p, c_char_p, c_char_p, sb_string_callback_t, c_void_p
+    sb_game_handle_t, c_char_p, c_char_p, POINTER(sb_http_header_t), c_size_t,
+    sb_string_callback_t, c_void_p
 ]
 
-# void sb_download_buffer(sb_game_handle_t, const char*, size_t, const char*,
-#                          sb_buffer_callback_t, void*)
+# void sb_download_buffer(sb_game_handle_t, const char*, size_t,
+#                         const sb_http_header_t*, size_t, sb_buffer_callback_t, void*)
 _lib.sb_download_buffer.restype = None
 _lib.sb_download_buffer.argtypes = [
-    sb_game_handle_t, c_char_p, c_size_t, c_char_p, sb_buffer_callback_t, c_void_p
+    sb_game_handle_t, c_char_p, c_size_t, POINTER(sb_http_header_t), c_size_t,
+    sb_buffer_callback_t, c_void_p
 ]
 
 # ---------------------------------------------------------------------------

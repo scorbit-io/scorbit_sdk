@@ -19,11 +19,13 @@ The object supports the context-manager protocol for automatic cleanup::
 """
 
 import traceback
+import warnings
 from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
 
 from ._bindings import (
     _lib,
     sb_buffer_callback_t,
+    sb_http_header_t,
     sb_http_status_callback_t,
     sb_leaderboard_callback_t,
     sb_string_callback_t,
@@ -39,6 +41,46 @@ from ._enums import (
 from . import config as _config_mod
 from .config import Config, _encode
 from ._types import LeaderboardEntry, LeaderboardPlayer, LeaderboardResult
+
+
+def _header_array(headers):
+    """*headers* as the C ``(const sb_http_header_t *, size_t)`` pair.
+
+    *headers* is a mapping or an iterable of ``(name, value)`` pairs. A string is
+    taken as the ``Accept`` content type, as this argument was before it took headers.
+    """
+    if not headers:
+        return None, 0
+    if isinstance(headers, (str, bytes)):
+        headers = [("Accept", headers)]
+    elif hasattr(headers, "items"):
+        headers = list(headers.items())
+    else:
+        headers = list(headers)
+    array = (sb_http_header_t * len(headers))()
+    for i, (name, value) in enumerate(headers):
+        # ctypes would store anything else in a char* field as a raw address
+        if not isinstance(name, (str, bytes)) or not isinstance(value, (str, bytes)):
+            raise TypeError("header names and values must be strings, got %r: %r" % (name, value))
+        array[i].name = _encode(name)
+        array[i].value = _encode(value)
+    return array, len(headers)
+
+
+def _download_headers(headers, content_type, callback):
+    """*headers*, or the deprecated ``content_type`` keyword the argument had before."""
+    if callback is None:
+        raise TypeError("callback is required")
+    if content_type is None:
+        return headers
+    if headers is not None:
+        raise TypeError("pass headers or content_type, not both")
+    warnings.warn(
+        "content_type is deprecated; pass headers, e.g. {\"Accept\": ...}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return content_type
 
 
 class GameState(object):
@@ -475,42 +517,51 @@ class GameState(object):
     # Downloads
     # ------------------------------------------------------------------
 
-    def download(self, url, filename, content_type, callback):
-        # type: (str, str, str, ...) -> None
+    def download(self, url, filename, headers=None, callback=None, content_type=None):
+        # type: (str, str, ..., ...) -> None
         """Download a file to local storage asynchronously.
 
         Args:
             url: Source URL.
             filename: Local path to save to.
-            content_type: HTTP ``Accept`` content type (empty for default).
+            headers: Extra request headers, as a dict or ``(name, value)`` pairs;
+                ``None`` or empty for none. A string is sent as ``Accept``.
+                ``content_type=`` is still accepted in its place, deprecated.
             callback: ``(error: Error, result: str) -> None``.
         """
+        array, count = _header_array(_download_headers(headers, content_type, callback))
         cb = self._make_string_cb(callback)
         _lib.sb_download(
             self._handle,
             _encode(url),
             _encode(filename),
-            _encode(content_type),
+            array,
+            count,
             cb,
             None,
         )
 
-    def download_buffer(self, url, reserve_buffer_size, content_type, callback):
-        # type: (str, int, str, ...) -> None
+    def download_buffer(self, url, reserve_buffer_size, headers=None, callback=None,
+                        content_type=None):
+        # type: (str, int, ..., ...) -> None
         """Download data into memory asynchronously.
 
         Args:
             url: Source URL.
             reserve_buffer_size: Initial buffer size hint.
-            content_type: HTTP ``Accept`` content type (empty for default).
+            headers: Extra request headers, as a dict or ``(name, value)`` pairs;
+                ``None`` or empty for none. A string is sent as ``Accept``.
+                ``content_type=`` is still accepted in its place, deprecated.
             callback: ``(error: Error, data: bytes) -> None``.
         """
+        array, count = _header_array(_download_headers(headers, content_type, callback))
         cb = self._make_buffer_cb(callback)
         _lib.sb_download_buffer(
             self._handle,
             _encode(url),
             reserve_buffer_size,
-            _encode(content_type),
+            array,
+            count,
             cb,
             None,
         )

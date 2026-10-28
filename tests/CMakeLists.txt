@@ -33,3 +33,14 @@ add_subdirectory(test_interface)
 if(NOT MSVC)
     add_subdirectory(test_interface_c)
 endif()
+
+# The Python wrappers' ctypes declarations against the C prototypes. It reads both from source
+# and needs no SDK build, so it runs wherever a Python 3 interpreter is found.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME python_bindings_abi
+        COMMAND
+            ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_python/test_bindings_abi.py
+    )
+endif()
