@@ -166,12 +166,26 @@ struct Field
     std::vector<uint8_t> value;
 };
 
-/// One GameItemN stream: its ItemTypeEnum, its NAME (UTF-8) and all its fields.
+/// One drag point: the child fields between its DPNT record and the matching ENDB.
+using DragPoint = std::vector<Field>;
+
+/// A primitive's own mesh (U3DM set), decompressed by the caller: x, y, z per vertex (normals and
+/// texture coordinates left out) and the triangle indices, in file order.
+struct Mesh
+{
+    std::vector<float> positions;
+    std::vector<uint32_t> indices;
+};
+
+/// One GameItemN stream: its ItemTypeEnum, its NAME (UTF-8), its top-level fields, its drag points
+/// in file order, and a primitive's mesh.
 struct Item
 {
     uint32_t type = 0;
     std::string name;
     std::vector<Field> fields;
+    std::vector<DragPoint> dragPoints;
+    Mesh mesh;
 };
 
 /// One physics material from the PHMA record.
@@ -206,52 +220,81 @@ struct Inputs
 
 // ---------------------------------------------------------------- allow-lists (vts1)
 
-// ItemTypeEnum values, vpinball src/core/iselect.h.
+// ItemTypeEnum values, vpinball src/core/ieditable.h.
 enum : uint32_t {
     kSurface = 0, kFlipper = 1, kPlunger = 3, kBumper = 5, kTrigger = 6, kLight = 7, kKicker = 8,
     kGate = 10, kSpinner = 11, kRamp = 12, kPrimitive = 19, kRubber = 21, kHitTarget = 22, kBall = 23,
+    kPartGroup = 24,
 };
 
-/// Every named item contributes its timer; these types add their rule-bearing fields.
+/// These types add their rule-bearing fields: the physics, and the placement and size of the
+/// collision shape (VCEN, SURF and the like), since moving or resizing it changes play.
 inline auto itemAllowList(uint32_t type) -> std::vector<std::string_view>
 {
     switch (type) {
     case kSurface:
-        return {"HTEV", "DROP", "CLDW", "ISBS", "THRS", "SLGF", "SLTH", "ELAS", "ELFO", "WFCT", "WSCT", "OVPH"};
+        return {"HTEV", "DROP", "CLDW", "ISBS", "THRS", "SLGF", "SLTH", "ELAS", "ELFO", "WFCT", "WSCT", "OVPH",
+                "HTBT", "HTTP", "INNR", "MAPH"};
     case kFlipper:
         return {"BASR", "ENDR", "FLPR", "FRMN", "FAEO", "FRTN", "ANGS", "ANGE", "OVRP", "FORC",
-                "STRG", "ELAS", "ELFO", "FRIC", "RPUP", "SCTR", "TODA", "TDAA", "ENBL", "FHGT"};
+                "STRG", "ELAS", "ELFO", "FRIC", "RPUP", "SCTR", "TODA", "TDAA", "ENBL", "FHGT",
+                "VCEN", "SURF"};
     case kPlunger:
-        return {"HPSL", "SPDP", "SPDF", "MEST", "MECH", "APLG", "MPRK", "PSCV", "MOMX"};
+        return {"HPSL", "SPDP", "SPDF", "MEST", "MECH", "APLG", "MPRK", "PSCV", "MOMX",
+                "VCEN", "WDTH", "HIGH", "SURF"};
     case kBumper:
-        return {"RADI", "THRS", "FORC", "BSCT", "HAHE", "COLI"};
+        return {"RADI", "THRS", "FORC", "BSCT", "HAHE", "COLI", "VCEN", "HISC", "SURF"};
     case kTrigger:
-        return {"RADI", "EBLD", "THOT", "SHAP"};
+        return {"RADI", "EBLD", "THOT", "SHAP", "VCEN", "SURF"};
     case kLight:
         return {"STAT", "STTF", "BPAT", "BINT"};
     case kKicker:
-        return {"RADI", "EBLD", "TYPE", "KSCT", "KHAC", "KHHI", "FATH", "LEMO"};
+        return {"RADI", "EBLD", "TYPE", "KSCT", "KHAC", "KHHI", "FATH", "LEMO", "VCEN", "SURF"};
     case kGate:
-        return {"GCOL", "ELAS", "GAMA", "GAMI", "GFRC", "AFRC", "GGFC", "TWWA"};
+        return {"GCOL", "ELAS", "GAMA", "GAMI", "GFRC", "AFRC", "GGFC", "TWWA",
+                "VCEN", "LGTH", "HGTH", "ROTA", "GSUP", "SURF"};
     case kSpinner:
-        return {"AFRC", "SMAX", "SMIN", "SELA"};
+        return {"AFRC", "SMAX", "SMIN", "SELA", "VCEN", "ROTA", "SSUP", "HIGH", "LGTH", "SURF"};
     case kRamp:
-        return {"HTEV", "THRS", "ELAS", "RFCT", "RSCT", "CLDR", "OVPH"};
+        return {"HTEV", "THRS", "ELAS", "RFCT", "RSCT", "CLDR", "OVPH",
+                "HTBT", "HTTP", "WDBT", "WDTP", "TYPE", "WLHL", "WLHR", "RADI", "RADX", "MAPH"};
     case kPrimitive:
-        return {"HTEV", "THRS", "ELAS", "ELFO", "RFCT", "RSCT", "CLDR", "ISTO", "OVPH"};
+        return {"HTEV", "THRS", "ELAS", "ELFO", "RFCT", "RSCT", "CLDR", "ISTO", "OVPH",
+                "VPOS", "VSIZ", "RTV0", "RTV1", "RTV2", "RTV3", "RTV4", "RTV5", "RTV6", "RTV7", "RTV8",
+                "CORF", "U3DM", "SIDS", "DTXI", "MAPH"};
     case kRubber:
-        return {"HTHI", "HTEV", "ELAS", "ELFO", "RFCT", "RSCT", "CLDR", "OVPH"};
+        return {"HTHI", "HTEV", "ELAS", "ELFO", "RFCT", "RSCT", "CLDR", "OVPH",
+                "WDTP", "ROTX", "ROTY", "ROTZ", "MAPH"};
     case kHitTarget:
         return {"TRTY", "LEMO", "HTEV", "THRS", "ELAS", "ELFO", "RFCT", "RSCT", "CLDR", "ISDR",
-                "DRSP", "RADE", "OVPH"};
+                "DRSP", "RADE", "OVPH", "VPOS", "VSIZ", "ROTZ", "MAPH"};
     case kBall:
-        return {"RADI", "MASS"};
+        return {"RADI", "MASS", "VCEN"};
+    case kPartGroup:
+        return {"SPRF"}; // outside playfield space, its items get no colliders
     default:
         return {};
     }
 }
 
-inline auto timerAllowList() -> std::vector<std::string_view> { return {"TMON", "TMIN"}; }
+/// Fields of each drag point that shape the collision outline; order matters, so points stay in file order.
+inline auto dragPointAllowList(uint32_t type) -> std::vector<std::string_view>
+{
+    switch (type) {
+    case kSurface:
+        return {"VCEN", "SMTH", "SLNG"};
+    case kRamp:
+        return {"VCEN", "POSZ", "SMTH"};
+    case kRubber:
+    case kTrigger:
+        return {"VCEN", "SMTH"};
+    default:
+        return {};
+    }
+}
+
+/// Every item's timer, and the part group that can switch its collision off.
+inline auto commonAllowList() -> std::vector<std::string_view> { return {"TMON", "TMIN", "GRUP"}; }
 
 /// GameStg/GameData physics.
 inline auto tableAllowList() -> std::vector<std::string_view>
@@ -265,24 +308,34 @@ inline auto tableAllowList() -> std::vector<std::string_view>
 /// UTF-8 if valid, else ISO-8859-1 converted to UTF-8, as VPX loads a script.
 inline auto decodeScript(std::string_view raw) -> std::string
 {
+    // Well-formed UTF-8 (Unicode 15, table 3-7): no overlongs, surrogates or values above U+10FFFF.
     auto validUtf8 = [](std::string_view s) {
         size_t i = 0;
         while (i < s.size()) {
             const auto c = static_cast<uint8_t>(s[i]);
             size_t follow = 0;
-            if (c >= 0x80) {
-                if ((c >> 5) == 0x6) {
-                    follow = 1;
-                } else if ((c >> 4) == 0xe) {
-                    follow = 2;
-                } else if ((c >> 3) == 0x1e) {
-                    follow = 3;
-                } else {
-                    return false;
-                }
+            uint8_t lo = 0x80, hi = 0xbf; // range of the first continuation byte
+            if (c < 0x80) {
+                follow = 0;
+            } else if (c >= 0xc2 && c <= 0xdf) {
+                follow = 1;
+            } else if (c >= 0xe0 && c <= 0xef) {
+                follow = 2;
+                lo = c == 0xe0 ? 0xa0 : 0x80;
+                hi = c == 0xed ? 0x9f : 0xbf;
+            } else if (c >= 0xf0 && c <= 0xf4) {
+                follow = 3;
+                lo = c == 0xf0 ? 0x90 : 0x80;
+                hi = c == 0xf4 ? 0x8f : 0xbf;
+            } else {
+                return false;
             }
             for (size_t k = 1; k <= follow; k++) {
-                if (i + k >= s.size() || (static_cast<uint8_t>(s[i + k]) >> 6) != 0x2) {
+                if (i + k >= s.size()) {
+                    return false;
+                }
+                const auto b = static_cast<uint8_t>(s[i + k]);
+                if (k == 1 ? (b < lo || b > hi) : (b >> 6) != 0x2) {
                     return false;
                 }
             }
@@ -308,12 +361,15 @@ inline auto decodeScript(std::string_view raw) -> std::string
 
 constexpr char kTokenSep = '\x1f';
 constexpr char kStatementSep = '\x1e';
+/// A ':' inside a single-line If: its statements stay conditional, so it is not a line break.
+constexpr char kLineIfSep = '\x1d';
 
 /// The script's tokens: comments and whitespace gone, continuations joined, statements separated by
 /// one kStatementSep, everything but string and date literals lower-cased.
 inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
 {
     std::vector<std::string> out;
+    bool lineIf = false;
     auto separator = [&] {
         if (!out.empty() && out.back() != std::string(1, kStatementSep)) {
             out.emplace_back(1, kStatementSep);
@@ -332,6 +388,13 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
                || static_cast<uint8_t>(c) >= 0x80;
     };
     auto isEol = [](char c) { return c == '\n' || c == '\r'; };
+    // A digit of the &H (hex) or &O (octal) literal that prefix starts; anything else leaves '&' alone.
+    auto radixDigit = [](char prefix, char c) {
+        if (prefix == 'h' || prefix == 'H') {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        }
+        return (prefix == 'o' || prefix == 'O') && c >= '0' && c <= '7';
+    };
     const size_t n = utf8.size();
     size_t i = 0;
     auto toEol = [&] {
@@ -343,13 +406,18 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
         const char c = utf8[i];
         if (isEol(c)) {
             separator();
+            lineIf = false;
             i += (c == '\r' && i + 1 < n && utf8[i + 1] == '\n') ? 2 : 1;
         } else if (c == ' ' || c == '\t' || c == '\f' || c == '\v') {
             i++;
         } else if (c == '\'') {
             toEol();
         } else if (c == ':') {
-            separator();
+            if (lineIf) {
+                out.emplace_back(1, kLineIfSep);
+            } else {
+                separator();
+            }
             i++;
         } else if (c == '_' && (i + 1 == n || !isWord(utf8[i + 1]))) {
             // " _" then only blanks to the end of the line: a continuation
@@ -401,9 +469,9 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
             }
             out.push_back(lower(std::string(utf8.substr(i, j - i))));
             i = j;
-        } else if (c == '&' && i + 1 < n && (utf8[i + 1] == 'h' || utf8[i + 1] == 'H' || utf8[i + 1] == 'o' || utf8[i + 1] == 'O')) {
+        } else if (c == '&' && i + 2 < n && radixDigit(utf8[i + 1], utf8[i + 2])) {
             size_t j = i + 2;
-            while (j < n && isWord(utf8[j])) {
+            while (j < n && radixDigit(utf8[i + 1], utf8[j])) {
                 j++;
             }
             if (j < n && utf8[j] == '&') {
@@ -439,6 +507,14 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
             if (word == "rem") {
                 toEol();
             } else {
+                if (word == "then") {
+                    // Code after Then on the same line makes it a single-line If
+                    size_t k = j;
+                    while (k < n && (utf8[k] == ' ' || utf8[k] == '\t')) {
+                        k++;
+                    }
+                    lineIf = k < n && !isEol(utf8[k]) && utf8[k] != '\'';
+                }
                 out.push_back(std::move(word));
                 i = j;
             }
@@ -490,9 +566,11 @@ inline auto scriptReferences(const std::vector<std::string> &tokens) -> ScriptRe
         if (j < tokens.size() && tokens[j] == "(") {
             j++;
         }
+        // A literal argument ends the call: ")", the statement's end, or a single-line If's ':' or Else
         const bool literal = j < tokens.size() && tokens[j].size() >= 2 && tokens[j].front() == '"'
                              && (j + 1 == tokens.size() || tokens[j + 1] == ")"
-                                 || tokens[j + 1] == std::string(1, kStatementSep));
+                                 || tokens[j + 1] == std::string(1, kStatementSep)
+                                 || tokens[j + 1] == std::string(1, kLineIfSep) || tokens[j + 1] == "else");
         if (!literal) {
             out.dynamic++;
             continue;
@@ -611,9 +689,13 @@ inline auto procedures(const std::vector<std::string> &tokens) -> std::vector<Pr
 struct Signature
 {
     std::string version = kVersion;
+    /// Why there is no signature; empty when there is one. Report it rather than a partial digest.
+    std::string unavailable;
     Digest top {}, script {}, items {}, physics {};
     std::vector<Procedure> procedures;
 };
+
+constexpr const char *kUnnamedHelper = "script loads a helper it does not name";
 
 namespace detail {
 
@@ -639,6 +721,23 @@ inline auto lower(std::string s) -> std::string
     return s;
 }
 
+/// A field's value as hashed. VPOS/VSIZ keep x, y, z (VPX writes w as 0, older files may not);
+/// SURF and GRUP name another item, which VPX looks up ignoring ASCII case.
+inline auto fieldValue(std::string_view tag, const std::vector<uint8_t> &value) -> std::string
+{
+    std::string v(reinterpret_cast<const char *>(value.data()), value.size());
+    if ((tag == "VPOS" || tag == "VSIZ") && v.size() > 12) {
+        v.resize(12);
+    } else if ((tag == "SURF" || tag == "GRUP") && v.size() > 4) {
+        for (size_t i = 4; i < v.size(); i++) {
+            if (v[i] >= 'A' && v[i] <= 'Z') {
+                v[i] = static_cast<char>(v[i] - 'A' + 'a');
+            }
+        }
+    }
+    return v;
+}
+
 /// Each allow-listed tag in order, present or explicitly absent.
 inline void putFields(Sha256 &h, const std::vector<Field> &fields, const std::vector<std::string_view> &allow)
 {
@@ -651,17 +750,25 @@ inline void putFields(Sha256 &h, const std::vector<Field> &fields, const std::ve
         } else {
             const uint8_t present = 1;
             h.update(&present, 1);
-            putBytes(h, std::string_view(reinterpret_cast<const char *>(it->value.data()), it->value.size()));
+            putBytes(h, fieldValue(tag, it->value));
         }
     }
+}
+
+/// Little-endian, so the digest is the same on every host.
+inline void putFloat(Sha256 &h, float f)
+{
+    uint32_t bits = 0;
+    std::memcpy(&bits, &f, sizeof bits);
+    putU32(h, bits);
 }
 
 } // namespace detail
 
 /// The main script's canonical form, then each helper (sorted by name) as name and canonical form,
-/// then the VPX-shipped names (sorted), then the dynamic-load count.
+/// then the VPX-shipped names (sorted).
 inline auto scriptDigest(const std::vector<std::string> &tokens, std::vector<HelperScript> helpers,
-                         std::vector<std::string> vpxScripts, uint32_t dynamicLoads) -> Digest
+                         std::vector<std::string> vpxScripts) -> Digest
 {
     Sha256 h;
     detail::putBytes(h, canonicalScript(tokens));
@@ -683,7 +790,6 @@ inline auto scriptDigest(const std::vector<std::string> &tokens, std::vector<Hel
     for (const auto &name : vpxScripts) {
         detail::putBytes(h, name);
     }
-    detail::putU32(h, dynamicLoads);
     return h.finish();
 }
 
@@ -699,8 +805,25 @@ inline auto itemsDigest(std::vector<Item> items) -> Digest
     for (const auto &item : items) {
         detail::putU32(h, item.type);
         detail::putBytes(h, item.name);
-        detail::putFields(h, item.fields, timerAllowList());
+        detail::putFields(h, item.fields, commonAllowList());
         detail::putFields(h, item.fields, itemAllowList(item.type));
+        const auto pointAllow = dragPointAllowList(item.type);
+        if (!pointAllow.empty()) {
+            detail::putU32(h, static_cast<uint32_t>(item.dragPoints.size()));
+            for (const auto &point : item.dragPoints) {
+                detail::putFields(h, point, pointAllow);
+            }
+        }
+        if (item.type == kPrimitive) {
+            detail::putU32(h, static_cast<uint32_t>(item.mesh.positions.size()));
+            for (const float f : item.mesh.positions) {
+                detail::putFloat(h, f);
+            }
+            detail::putU32(h, static_cast<uint32_t>(item.mesh.indices.size()));
+            for (const uint32_t i : item.mesh.indices) {
+                detail::putU32(h, i);
+            }
+        }
     }
     return h.finish();
 }
@@ -728,8 +851,13 @@ inline auto physicsDigest(const std::vector<Field> &tableFields, std::vector<Phy
 inline auto compute(const Inputs &in) -> Signature
 {
     Signature s;
+    // An edit to a helper it cannot name would not change the digest, so claim nothing
+    if (in.dynamicLoads > 0) {
+        s.unavailable = kUnnamedHelper;
+        return s;
+    }
     const auto tokens = tokenize(decodeScript(in.script));
-    s.script = scriptDigest(tokens, in.helperScripts, in.vpxScripts, in.dynamicLoads);
+    s.script = scriptDigest(tokens, in.helperScripts, in.vpxScripts);
     s.items = itemsDigest(in.items);
     s.physics = physicsDigest(in.tableFields, in.materials);
     s.procedures = procedures(tokens);

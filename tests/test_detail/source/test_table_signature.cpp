@@ -56,7 +56,15 @@ auto inputs(const nlohmann::json &j) -> Inputs
     in.vpxScripts = j.at("vpxScripts").get<std::vector<std::string>>();
     in.dynamicLoads = j.at("dynamicLoads").get<uint32_t>();
     for (const auto &i : j.at("items")) {
-        in.items.push_back({i.at("type").get<uint32_t>(), i.at("name").get<std::string>(), fields(i.at("fields"))});
+        Item item {i.at("type").get<uint32_t>(), i.at("name").get<std::string>(), fields(i.at("fields"))};
+        for (const auto &p : i.value("dragPoints", nlohmann::json::array())) {
+            item.dragPoints.push_back(fields(p));
+        }
+        if (i.contains("mesh")) {
+            item.mesh.positions = i.at("mesh").at("positions").get<std::vector<float>>();
+            item.mesh.indices = i.at("mesh").at("indices").get<std::vector<uint32_t>>();
+        }
+        in.items.push_back(std::move(item));
     }
     in.tableFields = fields(j.at("tableFields"));
     for (const auto &m : j.at("materials")) {
@@ -155,6 +163,17 @@ TEST_CASE("table_signature: a cosmetic edit keeps the signature and each rule ed
     CHECK(helper.script != base.script);
     CHECK(procedure(helper, "rules.vbs:enableballsaver") != procedure(base, "rules.vbs:enableballsaver"));
     CHECK(procedure(helper, "bumper1_hit") == procedure(base, "bumper1_hit"));
+
+    const auto lineIf = byName(v, "line_if_edit");
+    CHECK(lineIf.script != base.script);
+    CHECK(procedure(lineIf, "") != procedure(base, ""));
+    CHECK(lineIf.items == base.items);
+
+    for (const char *name : {"bumper_moved", "wall_reshaped"}) {
+        const auto s = byName(v, name);
+        CHECK(s.items != base.items);
+        CHECK(s.script == base.script);
+    }
 }
 
 TEST_CASE("table_signature: string literals keep their case, identifiers do not")
@@ -183,6 +202,124 @@ TEST_CASE("table_signature: script references list literal loads and count the r
             "LoadScript(\"rules.vbs\")\nExecuteGlobal GetTextFile(name & \".vbs\")"));
     CHECK(refs.names == std::vector<std::string> {"core.vbs", "rules.vbs"});
     CHECK(refs.dynamic == 1);
+}
+
+TEST_CASE("table_signature: a colon inside a single-line If is not a line break")
+{
+    // Both assignments are conditional here; split by a newline, the second is not
+    CHECK(canonicalScript(tokenize("If False Then score = 1 : bonus = 2"))
+          != canonicalScript(tokenize("If False Then score = 1\nbonus = 2")));
+    CHECK(canonicalScript(tokenize("If award Then _\n  score = 1 : balls = 2"))
+          != canonicalScript(tokenize("If award Then score = 1\nballs = 2")));
+    // A block If and its statements keep the ordinary separator
+    CHECK(canonicalScript(tokenize("If x Then\n a = 1 : b = 2\nEnd If"))
+          == canonicalScript(tokenize("If x Then ' note\n a = 1\n b = 2\nEnd If")));
+}
+
+TEST_CASE("table_signature: a literal load before Else is still listed")
+{
+    const auto refs = scriptReferences(
+            tokenize("If useRules Then LoadScript \"rules.vbs\" Else LoadScript \"fallback.vbs\""));
+    CHECK(refs.names == std::vector<std::string> {"rules.vbs", "fallback.vbs"});
+    CHECK(refs.dynamic == 0);
+    const auto colon = scriptReferences(tokenize("If a Then LoadScript \"a.vbs\" : LoadScript \"b.vbs\""));
+    CHECK(colon.names == std::vector<std::string> {"a.vbs", "b.vbs"});
+}
+
+TEST_CASE("table_signature: a script that loads a helper it does not name has no signature")
+{
+    Inputs in;
+    in.script = "helper = \"rules.vbs\"\nExecuteGlobal GetTextFile(helper)";
+    in.dynamicLoads = scriptReferences(tokenize(in.script)).dynamic;
+    REQUIRE(in.dynamicLoads == 1);
+    const auto s = compute(in);
+    CHECK(s.unavailable == kUnnamedHelper);
+    CHECK(s.top == Digest {});
+    CHECK(s.procedures.empty());
+    in.dynamicLoads = 0;
+    CHECK(compute(in).unavailable.empty());
+}
+
+TEST_CASE("table_signature: &H and &O take only their own digits")
+{
+    CHECK(tokenize("x = a &hxyz") == tokenize("x = a & hxyz"));
+    CHECK(tokenize("x = &o78") == std::vector<std::string> {"x", "=", "&o7", "8"});
+    CHECK(tokenize("x = &h1F&") == std::vector<std::string> {"x", "=", "&h1f&"});
+}
+
+TEST_CASE("table_signature: ill-formed UTF-8 is read as Latin-1")
+{
+    // C0 AF is an overlong '/', ED A0 80 a surrogate, F4 90 80 80 above U+10FFFF
+    for (const std::string bad : {"x\xc0\xaf", "x\xed\xa0\x80", "x\xf4\x90\x80\x80"}) {
+        INFO(hex(reinterpret_cast<const uint8_t *>(bad.data()), bad.size()));
+        CHECK(decodeScript(bad) != bad);
+    }
+    CHECK(decodeScript("x\xc0\xa0") == "x\xc3\x80\xc2\xa0");
+    const std::string good = "x\xe2\x82\xac\xf0\x9f\x8e\xb1"; // the euro sign and an 8-ball
+    CHECK(decodeScript(good) == good);
+}
+
+TEST_CASE("table_signature: moving or resizing a collision shape changes the items section")
+{
+    auto f32x2 = [](float x, float y) {
+        std::vector<uint8_t> v(8);
+        std::memcpy(v.data(), &x, 4);
+        std::memcpy(v.data() + 4, &y, 4);
+        return v;
+    };
+    auto name = [](const std::string &s) {
+        std::vector<uint8_t> v {static_cast<uint8_t>(s.size()), 0, 0, 0};
+        v.insert(v.end(), s.begin(), s.end());
+        return v;
+    };
+    const Item bumper {kBumper, "B", {{"VCEN", f32x2(100, 200)}, {"SURF", name("Wall1")}}};
+    Item moved = bumper;
+    moved.fields[0].value = f32x2(100, 260);
+    CHECK(itemsDigest({bumper}) != itemsDigest({moved}));
+    // SURF is looked up ignoring case, so only its case changing is not a change
+    Item recased = bumper;
+    recased.fields[1].value = name("WALL1");
+    CHECK(itemsDigest({bumper}) == itemsDigest({recased}));
+    Item retargeted = bumper;
+    retargeted.fields[1].value = name("Wall2");
+    CHECK(itemsDigest({bumper}) != itemsDigest({retargeted}));
+
+    // VPOS keeps x, y, z only
+    std::vector<uint8_t> pos(16, 0);
+    Item prim {kPrimitive, "P", {{"VPOS", pos}}};
+    Item junkW = prim;
+    junkW.fields[0].value[12] = 0x7f;
+    CHECK(itemsDigest({prim}) == itemsDigest({junkW}));
+}
+
+TEST_CASE("table_signature: drag points and a primitive's mesh shape collision")
+{
+    auto point = [](float x, float y, int32_t sling) {
+        std::vector<uint8_t> vcen(8), slng(4);
+        std::memcpy(vcen.data(), &x, 4);
+        std::memcpy(vcen.data() + 4, &y, 4);
+        std::memcpy(slng.data(), &sling, 4);
+        return DragPoint {{"VCEN", vcen}, {"SLNG", slng}, {"TEXC", {1, 2, 3, 4}}};
+    };
+    Item wall {kSurface, "W", {}, {point(0, 0, 0), point(10, 0, 0), point(10, 10, 0)}};
+    Item reordered = wall;
+    std::swap(reordered.dragPoints[1], reordered.dragPoints[2]);
+    CHECK(itemsDigest({wall}) != itemsDigest({reordered}));
+    Item sling = wall;
+    sling.dragPoints[1] = point(10, 0, 1);
+    CHECK(itemsDigest({wall}) != itemsDigest({sling}));
+    Item retextured = wall;
+    retextured.dragPoints[1][2].value = {9, 9, 9, 9}; // TEXC: visual only
+    CHECK(itemsDigest({wall}) == itemsDigest({retextured}));
+
+    Item prim {kPrimitive, "P"};
+    prim.mesh = {{0, 0, 0, 1, 0, 0, 0, 1, 0}, {0, 1, 2}};
+    Item reshaped = prim;
+    reshaped.mesh.positions[3] = 2;
+    CHECK(itemsDigest({prim}) != itemsDigest({reshaped}));
+    Item rewound = prim;
+    rewound.mesh.indices = {0, 2, 1};
+    CHECK(itemsDigest({prim}) != itemsDigest({rewound}));
 }
 
 TEST_CASE("table_signature: an item that loses an allow-listed field is not the same as one at its default")
