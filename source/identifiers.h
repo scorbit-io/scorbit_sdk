@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <string_view>
+
 namespace scorbit {
 namespace detail {
 
@@ -106,6 +108,16 @@ constexpr auto HDR_KEY_RETRY_AFTER {"Retry-After"};
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};
 constexpr auto PROVIDER_VSCORBITRON {"vscorbitron"};
+constexpr auto PROVIDER_VPXPLUGIN {"vpxplugin"};
+
+/// A device that is the user's own Scorbitron rather than one machine's game code: no fixed
+/// machine id, the Scorbitron firmware list, scorbitd in its discovery string. The VPIN daemon
+/// (vpxplugin) is one, switching machine per table.
+inline bool isScorbitronClass(std::string_view provider)
+{
+    return provider == PROVIDER_SCORBITRON || provider == PROVIDER_VSCORBITRON
+           || provider == PROVIDER_VPXPLUGIN;
+}
 
 // Protocols
 constexpr auto PROTO_HTTPS {"https"};

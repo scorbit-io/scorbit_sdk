@@ -427,8 +427,7 @@ bool Net::validateDeviceInfo() const
         return false;
     }
 
-    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
-        && m_deviceInfo.provider != PROVIDER_VSCORBITRON) {
+    if (!isScorbitronClass(m_deviceInfo.provider)) {
         if (m_deviceInfo.machineId == 0) {
             ERR("Machine ID not set");
             return false;
@@ -5318,8 +5317,7 @@ void Net::requestFirmwaresList()
 
 task_t Net::createRequestFirmwaresListTask()
 {
-    if (m_deviceInfo.provider != PROVIDER_SCORBITRON
-        && m_deviceInfo.provider != PROVIDER_VSCORBITRON)
+    if (!isScorbitronClass(m_deviceInfo.provider))
         return {};
 
     return createGetRequestTask(
@@ -5368,8 +5366,7 @@ void Net::checkSystemTimeAccuracy(int64_t timestamp) const
 void Net::updateDiscoveryDescription()
 {
     const auto providerVersion = std::invoke([this]() {
-        if (m_deviceInfo.provider == PROVIDER_SCORBITRON
-            || m_deviceInfo.provider == PROVIDER_VSCORBITRON) {
+        if (isScorbitronClass(m_deviceInfo.provider)) {
             return fmt::format("scorbitd {}", m_deviceInfo.scorbitdVersion);
         }
         return fmt::format("{} {}", m_deviceInfo.provider, m_deviceInfo.gameCodeVersion);
