@@ -581,9 +581,13 @@ struct ScriptReferences
     uint32_t dynamic = 0;
 };
 
-inline auto scriptReferences(const std::vector<std::string> &tokens) -> ScriptReferences
+/// Code inside a string literal (Execute "LoadScript ""x.vbs""") is scanned too, to this depth.
+constexpr int kMaxStringDepth = 3;
+
+inline auto scriptReferences(const std::vector<std::string> &tokens, int depth = 0) -> ScriptReferences
 {
     ScriptReferences out;
+    std::vector<size_t> arguments; // literal arguments, which are file names, not code
     for (size_t i = 0; i < tokens.size(); i++) {
         if (tokens[i] != "gettextfile" && tokens[i] != "loadscript") {
             continue;
@@ -606,6 +610,7 @@ inline auto scriptReferences(const std::vector<std::string> &tokens) -> ScriptRe
             out.dynamic++;
             continue;
         }
+        arguments.push_back(j);
         std::string name;
         const auto &t = tokens[j];
         for (size_t k = 1; k + 1 < t.size(); k++) {
@@ -616,6 +621,43 @@ inline auto scriptReferences(const std::vector<std::string> &tokens) -> ScriptRe
         }
         if (std::find(out.names.begin(), out.names.end(), name) == out.names.end()) {
             out.names.push_back(name);
+        }
+    }
+    // A string that mentions a load may be executed: scan its contents as code, and refuse what is
+    // nested too deep to follow. A string that merely mentions one costs a signature, never a match.
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const auto &t = tokens[i];
+        if (t.empty() || t.front() != '"' || std::find(arguments.begin(), arguments.end(), i) != arguments.end()) {
+            continue;
+        }
+        std::string inner;
+        for (size_t k = 1; k < t.size(); k++) {
+            if (t[k] == '"') {
+                if (k + 1 < t.size() && t[k + 1] == '"') {
+                    k++; // "" is one quote
+                } else {
+                    break;
+                }
+            }
+            inner += t[k];
+        }
+        std::string words = inner;
+        for (auto &c : words) {
+            c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        }
+        if (words.find("loadscript") == std::string::npos && words.find("gettextfile") == std::string::npos) {
+            continue;
+        }
+        if (depth >= kMaxStringDepth) {
+            out.dynamic++;
+            continue;
+        }
+        const auto nested = scriptReferences(tokenize(inner), depth + 1);
+        out.dynamic += nested.dynamic;
+        for (const auto &name : nested.names) {
+            if (std::find(out.names.begin(), out.names.end(), name) == out.names.end()) {
+                out.names.push_back(name);
+            }
         }
     }
     return out;

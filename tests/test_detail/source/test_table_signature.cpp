@@ -230,6 +230,26 @@ TEST_CASE("table_signature: a script's own Sub LoadScript is a declaration, not 
     CHECK(scriptReferences(tokenize("Sub LoadScript(n)\nEnd Sub\nLoadScript helper")).dynamic == 1);
 }
 
+TEST_CASE("table_signature: a load inside an executed string is followed")
+{
+    // The standard core.vbs idiom is a named load, not a refusal
+    const auto core = scriptReferences(tokenize("ExecuteGlobal GetTextFile(\"core.vbs\")"));
+    CHECK(core.names == std::vector<std::string> {"core.vbs"});
+    CHECK(core.dynamic == 0);
+    // A literal name inside the string becomes a helper, so its edits count
+    const auto hidden = scriptReferences(tokenize("ExecuteGlobal \"LoadScript \"\"rules.vbs\"\"\""));
+    CHECK(hidden.names == std::vector<std::string> {"rules.vbs"});
+    CHECK(hidden.dynamic == 0);
+    const auto nested = scriptReferences(tokenize("Execute \"ExecuteGlobal GetTextFile(\"\"x.vbs\"\")\""));
+    CHECK(nested.names == std::vector<std::string> {"x.vbs"});
+    // A name built at run time is unnamed
+    CHECK(scriptReferences(tokenize("ExecuteGlobal \"LoadScript \"\"\" & f & \"\"\"\"")).dynamic > 0);
+    // A file name that contains the word is a name, not code
+    CHECK(scriptReferences(tokenize("LoadScript \"loadscript_helpers.vbs\"")).dynamic == 0);
+    // Plain strings and generated handlers are left alone
+    CHECK(scriptReferences(tokenize("ExecuteGlobal \"Sub \" & n & \"_Hit : AddScore 10 : End Sub\"")).dynamic == 0);
+}
+
 TEST_CASE("table_signature: a literal load before Else is still listed")
 {
     const auto refs = scriptReferences(

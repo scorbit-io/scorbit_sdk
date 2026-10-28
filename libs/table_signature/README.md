@@ -64,7 +64,12 @@ digest rather than a failure.
 The one input with no signature is a script that loads a helper by a name that is not a literal
 (`GetTextFile(name)`, `LoadScript name`): an edit to that helper could not change the digest.
 `compute` finds such loads itself, in the script and in every helper passed in, so a caller's
-`dynamicLoads` count can only add to them. A caller passes every helper a script reaches by literal
+`dynamicLoads` count can only add to them. A string literal that mentions `LoadScript` or `GetTextFile` may be
+executed (`ExecuteGlobal "LoadScript ""x.vbs"""`), so its contents are scanned as code, three
+levels deep: a literal name inside is a helper like any other, and anything else refuses the
+signature. Code assembled at run time from pieces that never spell either name is not followed;
+like the rest of the signature, this tells an honest client's state and is not proof against one
+that hides a load. A caller passes every helper a script reaches by literal
 name, including those named by other helpers.
 `compute` then returns a `Signature` whose `unavailable` is `kUnnamedHelper`, with no digests or
 procedures; report that reason, never a partial signature.
