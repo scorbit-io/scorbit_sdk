@@ -69,6 +69,7 @@ static Inputs base()
     Item post {kPrimitive, "Post", {{"VPOS", vec4(300.f, 400.f, 0.f)}, {"U3DM", i32(1)}}, {},
                {{0.f, 0.f, 0.f, 10.f, 0.f, 0.f, 0.f, 10.f, 0.f, 0.f, 0.f, 30.f}, {0, 1, 2, 0, 1, 3}}};
     in.items = {flipper, bumper, timer, wall, post};
+    in.collections = {{"Targets", {"Bumper1", "Post"}, {{"EVNT", i32(1)}, {"SSNG", i32(0)}}}};
     in.tableFields = {{"GAVT", f32(1.762f)}, {"SLOP", f32(6.f)}, {"SLPX", f32(6.f)}, {"TDFT", f32(0.2f)}, {"OFFX", f32(12.f)}, {"ZOOM", f32(0.5f)}};
     in.materials = {{"Rubber", 0.9f, 0.3f, 0.6f, 5.f}, {"Metal", 0.3f, 0.f, 0.15f, 0.f}};
     return in;
@@ -122,6 +123,15 @@ static void emit(std::string &o, const char *name, const char *note, const Input
         for (size_t j = 0; j < in.items[i].mesh.indices.size(); j++) o += (j ? "," : "") + std::to_string(in.items[i].mesh.indices[j]);
         o += "]}}";
     }
+    o += "],\"collections\":[";
+    for (size_t i = 0; i < in.collections.size(); i++) {
+        const auto &c = in.collections[i];
+        o += (i ? "," : "") + std::string("{\"name\":\"") + esc(c.name) + "\",\"members\":[";
+        for (size_t j = 0; j < c.members.size(); j++) o += (j ? "," : "") + std::string("\"") + esc(c.members[j]) + "\"";
+        o += "],\"fields\":[";
+        for (size_t j = 0; j < c.fields.size(); j++) { if (j) o += ","; field(o, c.fields[j]); }
+        o += "]}";
+    }
     o += "],\"tableFields\":[";
     for (size_t i = 0; i < in.tableFields.size(); i++) { if (i) o += ","; field(o, in.tableFields[i]); }
     o += "],\"materials\":[";
@@ -154,6 +164,8 @@ int main()
     cosmetic.items[2].fields[2].value = i32(0); // VSBL: visual only
     cosmetic.items[1].fields[5].value = str("WALL1"); // SURF is looked up ignoring case
     cosmetic.items[3].dragPoints[1][3].value = f32(0.5f); // TEXC: visual only
+    cosmetic.collections[0].name = "TARGETS";               // collections match ignoring case
+    cosmetic.collections[0].members[0] = "bumper1";
     cosmetic.tableFields[4].value = f32(40.f);  // OFFX: editor only
     std::swap(cosmetic.materials[0], cosmetic.materials[1]);
     emit(o, "cosmetic", "comments, case, whitespace, continuations, line endings, item and material order, a visual and an editor field: same signature as unmodified", cosmetic, false);
@@ -189,7 +201,11 @@ int main()
 
     auto outline = base();
     outline.items[3].dragPoints[1] = dp(520.f, 550.f);
-    emit(o, "wall_reshaped", "one corner of a wall's outline moves: items section changes", outline, true);
+    emit(o, "wall_reshaped", "one corner of a wall's outline moves: items section changes", outline, false);
+
+    auto collection = base();
+    collection.collections[0].members = {"Post"};
+    emit(o, "collection_edit", "the bumper leaves the Targets collection its script iterates: items section changes", collection, true);
     o += "]\n";
     std::fputs(o.c_str(), stdout);
 }

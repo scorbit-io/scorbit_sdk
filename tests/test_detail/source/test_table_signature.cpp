@@ -66,6 +66,10 @@ auto inputs(const nlohmann::json &j) -> Inputs
         }
         in.items.push_back(std::move(item));
     }
+    for (const auto &c : j.value("collections", nlohmann::json::array())) {
+        in.collections.push_back({c.at("name").get<std::string>(), c.at("members").get<std::vector<std::string>>(),
+                                  fields(c.at("fields"))});
+    }
     in.tableFields = fields(j.at("tableFields"));
     for (const auto &m : j.at("materials")) {
         in.materials.push_back({m.at("name").get<std::string>(), m.at("elasticity").get<float>(),
@@ -169,7 +173,7 @@ TEST_CASE("table_signature: a cosmetic edit keeps the signature and each rule ed
     CHECK(procedure(lineIf, "") != procedure(base, ""));
     CHECK(lineIf.items == base.items);
 
-    for (const char *name : {"bumper_moved", "wall_reshaped"}) {
+    for (const char *name : {"bumper_moved", "wall_reshaped", "collection_edit"}) {
         const auto s = byName(v, name);
         CHECK(s.items != base.items);
         CHECK(s.script == base.script);
@@ -253,6 +257,25 @@ TEST_CASE("table_signature: a legacy script is Windows-1252, and a BOM is droppe
     CHECK(decodeScript("x = \"\x80\"") == "x = \"\xe2\x82\xac\""); // the euro sign
     CHECK(decodeScript("x = \"\x81\"") == "x = \"\xc2\x81\"");     // unassigned: kept as U+0081
     CHECK(decodeScript("\xef\xbb\xbfx = 1") == "x = 1");
+}
+
+TEST_CASE("table_signature: collection membership and order are part of the items section")
+{
+    const Item t1 {kHitTarget, "T1", {}, {}, {}}, t2 {kHitTarget, "T2", {}, {}, {}};
+    const Collection both {"DropTargets", {"T1", "T2"}, {{"EVNT", {1, 0, 0, 0}}}};
+    Collection fewer = both;
+    fewer.members = {"T1"};
+    CHECK(itemsDigest({t1, t2}, {both}) != itemsDigest({t1, t2}, {fewer}));
+    Collection swapped = both;
+    swapped.members = {"T2", "T1"}; // the index each member's events receive changes
+    CHECK(itemsDigest({t1, t2}, {both}) != itemsDigest({t1, t2}, {swapped}));
+    Collection recased = both;
+    recased.name = "droptargets";
+    recased.members = {"t1", "T2"};
+    CHECK(itemsDigest({t1, t2}, {both}) == itemsDigest({t1, t2}, {recased}));
+    Collection noEvents = both;
+    noEvents.fields[0].value = {0, 0, 0, 0};
+    CHECK(itemsDigest({t1, t2}, {both}) != itemsDigest({t1, t2}, {noEvents}));
 }
 
 TEST_CASE("table_signature: a repeated field takes its last value, as VPX applies it")

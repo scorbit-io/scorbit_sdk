@@ -188,6 +188,15 @@ struct Item
     Mesh mesh;
 };
 
+/// One GameStg/CollectionN stream: its NAME and its members' names (ITEM, repeated) as UTF-8, members
+/// in file order (a member's index reaches the script), and its other fields.
+struct Collection
+{
+    std::string name;
+    std::vector<std::string> members;
+    std::vector<Field> fields;
+};
+
 /// One physics material from the PHMA record.
 struct PhysicsMaterial
 {
@@ -213,6 +222,7 @@ struct Inputs
     /// GetTextFile/LoadScript calls whose argument is not a string literal.
     uint32_t dynamicLoads = 0;
     std::vector<Item> items;
+    std::vector<Collection> collections;
     /// All fields of GameStg/GameData; only the physics allow-list is used.
     std::vector<Field> tableFields;
     std::vector<PhysicsMaterial> materials;
@@ -292,6 +302,9 @@ inline auto dragPointAllowList(uint32_t type) -> std::vector<std::string_view>
         return {};
     }
 }
+
+/// A collection's fields: whether it fires its own events, and whether those replace the members'.
+inline auto collectionAllowList() -> std::vector<std::string_view> { return {"EVNT", "SSNG"}; }
 
 /// Every item's timer, and the part group that can switch its collision off.
 inline auto commonAllowList() -> std::vector<std::string_view> { return {"TMON", "TMIN", "GRUP"}; }
@@ -807,7 +820,9 @@ inline auto scriptDigest(const std::vector<std::string> &tokens, std::vector<Hel
     return h.finish();
 }
 
-inline auto itemsDigest(std::vector<Item> items) -> Digest
+/// Items sorted by (type, name), then collections sorted by name, each with its members in file
+/// order. Names are lower-cased, as VPX matches collection members ignoring case.
+inline auto itemsDigest(std::vector<Item> items, std::vector<Collection> collections = {}) -> Digest
 {
     for (auto &item : items) {
         item.name = detail::lower(item.name);
@@ -838,6 +853,20 @@ inline auto itemsDigest(std::vector<Item> items) -> Digest
                 detail::putU32(h, i);
             }
         }
+    }
+    for (auto &c : collections) {
+        c.name = detail::lower(c.name);
+    }
+    std::sort(collections.begin(), collections.end(),
+              [](const Collection &a, const Collection &b) { return a.name < b.name; });
+    detail::putU32(h, static_cast<uint32_t>(collections.size()));
+    for (const auto &c : collections) {
+        detail::putBytes(h, c.name);
+        detail::putU32(h, static_cast<uint32_t>(c.members.size()));
+        for (const auto &member : c.members) {
+            detail::putBytes(h, detail::lower(member));
+        }
+        detail::putFields(h, c.fields, collectionAllowList());
     }
     return h.finish();
 }
@@ -877,7 +906,7 @@ inline auto compute(const Inputs &in) -> Signature
         return s;
     }
     s.script = scriptDigest(tokens, in.helperScripts, in.vpxScripts);
-    s.items = itemsDigest(in.items);
+    s.items = itemsDigest(in.items, in.collections);
     s.physics = physicsDigest(in.tableFields, in.materials);
     s.procedures = procedures(tokens);
     for (const auto &helper : in.helperScripts) {

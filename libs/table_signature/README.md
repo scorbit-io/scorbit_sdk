@@ -16,7 +16,7 @@ Three SHA-256 section digests, a top-level digest over them, and a per-procedure
 | Section | Input |
 |---|---|
 | `script` | The script that runs: a sidecar `.vbs` beside the table if VPX would load one, else the `CODE` record of `GameStg/GameData`. Then every script it loads from the table's own folder by a literal `GetTextFile("…")` or `LoadScript "…"` name, and the names of scripts it loads from VPX's own folders. A script that loads any helper by a name that is not a literal has no signature (see Errors). |
-| `items` | For every `GameStg/GameItemN`: its type, lower-cased `NAME`, timer enabled and interval, part group (`GRUP`), and the rule-bearing fields for its type (`itemAllowList`): its physics, and the placement and size of its collision shape. Then, for walls, ramps, rubbers and triggers, each drag point's outline fields in file order (`dragPointAllowList`), and for a primitive its mesh's vertex positions and triangle indices. Sorted by type and name. |
+| `items` | For every `GameStg/GameItemN`: its type, lower-cased `NAME`, timer enabled and interval, part group (`GRUP`), and the rule-bearing fields for its type (`itemAllowList`): its physics, and the placement and size of its collision shape. Then, for walls, ramps, rubbers and triggers, each drag point's outline fields in file order (`dragPointAllowList`), and for a primitive its mesh's vertex positions and triangle indices. Sorted by type and name. Then every `GameStg/CollectionN`: its lower-cased name, its members' lower-cased names in file order (a script iterates them, and a member's index reaches the collection's events) and `EVNT`/`SSNG` (`collectionAllowList`), sorted by name. |
 | `physics` | The table physics fields of `GameStg/GameData` (`tableAllowList`) and the physics of each material, sorted by name. |
 
 The top-level digest is SHA-256 over `"vts1\0"` and the three section digests, in that order.
@@ -73,7 +73,7 @@ procedures; report that reason, never a partial signature.
 
 `vectors.json` holds inputs and expected outputs for an unmodified table, a cosmetic edit (same
 signature) and rule edits to the script, a timer, a flipper, the slope, a helper script, a
-single-line `If`, a bumper's position and a wall's outline.
+single-line `If`, a bumper's position, a wall's outline and a collection's members.
 `tools/make_vectors.cpp` regenerates it; a change to the output is a change to the algorithm and
 needs a new version.
 
