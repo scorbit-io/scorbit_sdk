@@ -31,6 +31,7 @@
 #include "signer_key_resolver.h"
 #include "nfc_tpm_key_resolver.h"
 #include "soft_key_resolver.h"
+#include "key_resolvers.h"
 #include "utils/thread_priority.h"
 #include <logger/logger.h>
 #include <blockingconcurrentqueue.h>
@@ -525,8 +526,7 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
 
         resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
     } else {
-        resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
-        resolvers.push_back(std::make_unique<SoftKeyResolver>());
+        resolvers = makeUnsignedKeyResolvers(config->softKeyOnly);
     }
 
     auto net = std::make_unique<Net>(*config, std::move(resolvers));

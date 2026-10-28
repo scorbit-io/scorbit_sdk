@@ -102,6 +102,13 @@ void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable)
     }
 }
 
+void sb_config_set_soft_key_only(sb_config_t config, bool enable)
+{
+    if (config) {
+        config->softKeyOnly = enable;
+    }
+}
+
 void sb_config_set_threads_priority(sb_config_t config, int priority)
 {
     if (config) {

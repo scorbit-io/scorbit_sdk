@@ -250,6 +250,7 @@ target_sources(
         source/provisioning_client.h
         source/provisioning_client.cpp
         source/soft_key_resolver.h
+        source/key_resolvers.h
         source/soft_key_resolver.cpp
 )
 

@@ -188,6 +188,18 @@ public:
     }
 
     /**
+     * @brief Use only soft-key provisioning for the device identity, never a tap pad TPM.
+     * @param enable If true, the TPM resolver is not used; needs the encrypted key and both key
+     *        callbacks.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setSoftKeyOnly(bool enable)
+    {
+        sb_config_set_soft_key_only(m_handle.get(), enable);
+        return *this;
+    }
+
+    /**
      * @brief Set nice / QOS for SDK background threads (see @ref sb_config_set_threads_priority).
      */
     Config &setThreadsPriority(int priority)

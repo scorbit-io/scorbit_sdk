@@ -18,6 +18,7 @@
  */
 
 #include "identifiers.h"
+#include "key_resolvers.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -35,4 +36,17 @@ TEST_CASE("provider class: a game's own provider is not a Scorbitron")
     CHECK_FALSE(isScorbitronClass("spooky"));
     CHECK_FALSE(isScorbitronClass(""));
     CHECK_FALSE(isScorbitronClass("VPXPLUGIN")); // slugs are exact
+}
+
+TEST_CASE("key resolvers: with no signer a tap pad TPM comes first, unless soft key only")
+{
+    using namespace scorbit::detail;
+    const auto both = makeUnsignedKeyResolvers(false);
+    REQUIRE(both.size() == 2);
+    CHECK(dynamic_cast<NfcTpmKeyResolver *>(both[0].get()) != nullptr);
+    CHECK(dynamic_cast<SoftKeyResolver *>(both[1].get()) != nullptr);
+
+    const auto soft = makeUnsignedKeyResolvers(true);
+    REQUIRE(soft.size() == 1);
+    CHECK(dynamic_cast<SoftKeyResolver *>(soft[0].get()) != nullptr);
 }

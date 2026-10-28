@@ -183,6 +183,7 @@ target_sources(
         ../../source/nfc_tpm_key_resolver.cpp
         source/test_soft_key_resolver.cpp
         source/test_provider_class.cpp
+        ../../source/key_resolvers.h
         source/test_nfc_tpm_key_resolver.cpp
         source/test_list_usb_devices.cpp
         ../../libs/tpm/source/atca_retry.h

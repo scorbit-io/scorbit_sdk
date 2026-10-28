@@ -150,6 +150,19 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
 
 /**
+ * @brief Use only soft-key provisioning for the device identity.
+ *
+ * Without a signer the SDK otherwise tries a tap pad TPM first, so an attached one would supply
+ * its identity, or defer authentication while it is busy, instead of the soft key. Needs the
+ * encrypted key and both key callbacks.
+ *
+ * @param config The configuration handle.
+ * @param enable If true, the TPM resolver is not used.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_soft_key_only(sb_config_t config, bool enable);
+
+/**
  * @brief Set scheduling priority for SDK-owned background threads (worker and C API queue).
  *
  * On Linux this is the value passed to setpriority(2) for each of those threads (higher means

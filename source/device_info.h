@@ -87,6 +87,8 @@ struct DeviceInfo {
     std::string uuid;
     uint64_t serialNumber {0};
     bool autoDownloadPlayerPics {false};
+    /// Resolve the key only by soft key, never a tap pad TPM that happens to be attached
+    bool softKeyOnly {false};
     std::vector<std::string> scoreFeatures;
     int scoreFeaturesVersion {0};
 
