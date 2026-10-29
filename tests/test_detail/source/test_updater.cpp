@@ -139,6 +139,12 @@ protected:
     {
         return "/fake/test_binary";
     }
+    // As TestableUpdater: never remount the host's /tmp (SB-6104).
+    utils::MakeWritableResult makeWritable(const boost::filesystem::path &) const override
+    {
+        return {true, {}};
+    }
+    bool remountReadOnly(const std::string &) const override { return true; }
 
 private:
     boost::filesystem::path m_library;

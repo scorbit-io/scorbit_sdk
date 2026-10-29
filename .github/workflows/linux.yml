@@ -20,10 +20,11 @@ on:
 permissions:
   contents: read
 
-# A new push supersedes the run in flight for the same PR. Runs on main are never cancelled, so
-# every merge's build reports.
+# A new push supersedes the run in flight for the same PR. Every other run groups by its own
+# commit: a group keeps one pending run, so sharing one across main would drop a queued merge's
+# build, cancel-in-progress or not.
 concurrency:
-  group: linux-${{ github.event.pull_request.number || github.ref }}
+  group: linux-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
