@@ -48,6 +48,31 @@ TEST_CASE("redact: replaces the short code in JSON escaped inside a string", "[l
           == R"({"detail":"{\"shortcode\":\"<redacted>\"}"})");
 }
 
+TEST_CASE("redact: any JSON whitespace around the colon", "[logger][redact]")
+{
+    CHECK(redact("{\"shortcode\"\n:\r\n\t\"AB12CD\"}") == "{\"shortcode\"\n:\r\n\t\"<redacted>\"}");
+    // Escaped inside a string, the same layout carries \n and \t escapes.
+    CHECK(redact(R"({"detail":"{\"shortcode\"\n:\t\"AB12CD\"}"})")
+          == R"({"detail":"{\"shortcode\"\n:\t\"<redacted>\"}"})");
+}
+
+TEST_CASE("redact: the whole value, through its own escapes", "[logger][redact]")
+{
+    CHECK(redact(R"({"shortcode":"\u0041B12CD","x":1})") == R"({"shortcode":"<redacted>","x":1})");
+    CHECK(redact(R"({"shortcode":"AB\"12CD"})") == R"({"shortcode":"<redacted>"})");
+    // Escaped inside a string, the value's escapes have a doubled backslash.
+    CHECK(redact(R"({"detail":"{\"shortcode\":\"\\u0041B12CD\",\"x\":1}"})")
+          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+}
+
+TEST_CASE("redact: only the key itself, not a longer one ending in it", "[logger][redact]")
+{
+    const std::string text = R"({"previous_shortcode":"diagnostic-value"})";
+    CHECK(redact(text) == text);
+    CHECK(redact(R"({"previous_shortcode":"v","shortcode":"AB12CD"})")
+          == R"({"previous_shortcode":"v","shortcode":"<redacted>"})");
+}
+
 TEST_CASE("redact: a cut-off value is redacted to the end", "[logger][redact]")
 {
     CHECK(redact(R"(reply: {"shortcode":"AB12)") == R"(reply: {"shortcode":"<redacted>)");

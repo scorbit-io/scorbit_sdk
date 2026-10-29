@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -36,40 +37,67 @@ inline constexpr std::string_view kRedactedValue = "<redacted>";
  */
 inline std::string redact(std::string message)
 {
-    auto skipBlanks = [&message](size_t i) {
-        while (i < message.size() && (message[i] == ' ' || message[i] == '\t')) {
-            ++i;
+    constexpr auto npos = std::string::npos;
+    const auto at = [&message](size_t i, char c) { return i < message.size() && message[i] == c; };
+    // JSON whitespace; in JSON escaped inside a string, also the \n, \r and \t escapes.
+    const auto skipBlanks = [&](size_t i, bool escaped) {
+        while (i < message.size()) {
+            const char c = message[i];
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                ++i;
+            } else if (escaped && c == '\\'
+                       && (at(i + 1, 'n') || at(i + 1, 'r') || at(i + 1, 't'))) {
+                i += 2;
+            } else {
+                break;
+            }
         }
         return i;
     };
-    // A quote, optionally escaped; returns the index after it, or npos.
-    auto quote = [&message](size_t i) {
-        if (i < message.size() && message[i] == '\\') {
-            ++i;
+    // A quote, as \" in escaped JSON; returns the index after it, or npos.
+    const auto quote = [&](size_t i, bool escaped) {
+        if (escaped && !at(i++, '\\')) {
+            return npos;
         }
-        return i < message.size() && message[i] == '"' ? i + 1 : std::string::npos;
+        return at(i, '"') ? i + 1 : npos;
     };
 
     for (const auto key : kRedactedKeys) {
         size_t pos = 0;
-        while ((pos = message.find(key, pos)) != std::string::npos) {
+        while ((pos = message.find(key, pos)) != npos) {
+            const size_t keyStart = pos;
             pos += key.size();
-            size_t i = quote(pos);
-            if (i == std::string::npos) {
+            if (keyStart == 0 || message[keyStart - 1] != '"') {
+                continue; // a longer key that merely ends in this one
+            }
+            const bool escaped = keyStart >= 2 && message[keyStart - 2] == '\\';
+            size_t i = quote(pos, escaped);
+            if (i == npos || !at(i = skipBlanks(i, escaped), ':')) {
                 continue;
             }
-            i = skipBlanks(i);
-            if (i >= message.size() || message[i] != ':') {
+            const size_t start = quote(skipBlanks(i + 1, escaped), escaped);
+            if (start == npos) {
                 continue;
             }
-            const size_t start = quote(skipBlanks(i + 1));
-            if (start == std::string::npos) {
-                continue;
-            }
+            // Up to the value's closing quote, stepping over the value's own escapes, which
+            // escaped JSON writes with a doubled backslash.
             size_t end = start;
-            while (end < message.size() && message[end] != '"' && message[end] != '\\') {
-                ++end;
+            while (end < message.size()) {
+                if (!escaped) {
+                    if (message[end] == '"') {
+                        break;
+                    }
+                    end += message[end] == '\\' ? 2 : 1;
+                } else if (message[end] == '\\') {
+                    if (at(end + 1, '"')) {
+                        break;
+                    }
+                    end += at(end + 1, '\\') ? 3 : 2;
+                } else {
+                    ++end;
+                }
             }
+            end = std::min(end, message.size());
             message.replace(start, end - start, kRedactedValue);
             pos = start + kRedactedValue.size();
         }
