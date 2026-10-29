@@ -2184,13 +2184,15 @@ void Net::resumeNfcFlash()
         return;
     }
     // The unit is busy with this run until it is finished, but only once the run is ours: a run
-    // another process finishes first must not leave a hold here.
+    // another process finishes first must not leave a hold here. A flash accepted meanwhile owns
+    // the unit, so the resume waits for the next start rather than run beside it.
     const auto claimed = [this](const std::string &runId) {
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
         if (!m_probeFlashRunId) {
             m_probeFlashRunId = runId;
             m_probeFlashRunExpires = std::chrono::steady_clock::now() + NFC_FLASH_RESUME_WINDOW;
         }
+        return m_probeFlashRunId == runId;
     };
     std::optional<nfc_flash::Flasher::Resumed> resumed;
     try {

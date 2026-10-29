@@ -206,9 +206,10 @@ public:
 
     /**
      * Finishes a run a restart cut short, if its record is left. @p claimed is called with its
-     * run id once the run is this process's: under the tap pad lock, its record re-checked.
+     * run id once the run is this process's: under the tap pad lock, its record re-checked. If it
+     * returns false the unit is busy with another flash: nothing is done and the record is kept.
      */
-    std::optional<Resumed> resume(const std::function<void(const std::string &)> &claimed = {});
+    std::optional<Resumed> resume(const std::function<bool(const std::string &)> &claimed = {});
 
 private:
     std::optional<Outcome> waitForIdle(const Request &request);

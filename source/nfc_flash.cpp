@@ -640,7 +640,7 @@ std::optional<Outcome> Flasher::finish(const fs::path &dir, const Record &record
 }
 
 std::optional<Flasher::Resumed>
-Flasher::resume(const std::function<void(const std::string &)> &claimed)
+Flasher::resume(const std::function<bool(const std::string &)> &claimed)
 {
     const auto loaded = m_store.load();
     if (!loaded) {
@@ -673,8 +673,11 @@ Flasher::resume(const std::function<void(const std::string &)> &claimed)
         INF("NFC flash run_id={}: already resumed elsewhere", record.runId);
         return std::nullopt;
     }
-    if (claimed) {
-        claimed(record.runId);
+    if (claimed && !claimed(record.runId)) {
+        WRN("NFC flash run_id={}: the unit is busy with another flash; resume left for the next "
+            "start",
+            record.runId);
+        return std::nullopt;
     }
 
     Outcome outcome;

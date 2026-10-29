@@ -473,7 +473,10 @@ TEST_CASE("nfc flash: resume rides out a slow pad", "[nfc_flash]")
         f.pad.failReads = 5;
     }
     std::vector<std::string> claims;
-    const auto resumed = f.flasher().resume([&](const std::string &id) { claims.push_back(id); });
+    const auto resumed = f.flasher().resume([&](const std::string &id) {
+        claims.push_back(id);
+        return true;
+    });
     REQUIRE(resumed);
     CHECK(sameOutcome(resumed->outcome, {Status::Succeeded, Stage::Done}));
     CHECK(claims == std::vector<std::string> {"run-1"});
@@ -645,7 +648,7 @@ TEST_CASE("nfc flash: resume leaves a run another process finished", "[nfc_flash
     // The other process finishes and clears the run while this one waits for the lock.
     f.pad.beforeHold = [&] { f.store.clear(stateDir); };
     bool claimed = false; // so the caller sets no one-flash hold for it
-    CHECK_FALSE(f.flasher().resume([&](const std::string &) { claimed = true; }));
+    CHECK_FALSE(f.flasher().resume([&](const std::string &) { return claimed = true; }));
     CHECK_FALSE(claimed);
     CHECK(f.pad.opens == 0);
 }
@@ -678,6 +681,19 @@ TEST_CASE("nfc flash: resume on a pad back on firmware clears only under the loc
         REQUIRE(left);
         CHECK(left->second.runId == "run-2");
     }
+}
+
+TEST_CASE("nfc flash: resume yields to a flash that owns the unit", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+    f.pad.present = false;
+    f.pad.rom = std::make_shared<FakeBootrom>();
+    CHECK_FALSE(f.flasher().resume([](const std::string &) { return false; }));
+    CHECK(f.pad.opens == 0);
+    CHECK(f.recordLeft());
 }
 
 TEST_CASE("nfc flash: a record that cannot be finished yet is kept", "[nfc_flash]")
