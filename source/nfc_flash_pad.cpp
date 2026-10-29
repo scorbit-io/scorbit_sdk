@@ -154,11 +154,12 @@ bool nfcFlashable([[maybe_unused]] nfc::ProbesManager &probes)
     if (!device || ::access(nfc::usb::deviceNode(*device).c_str(), R_OK | W_OK) != 0) {
         return false;
     }
-    // Every flash is refused without a cross-process lock, so don't advertise one. Busy means
-    // another holder has the lock file, so one can be had.
+    // Every flash is refused without a cross-process lock, so don't advertise one. Busy can come
+    // from the in-process fallback too; the lock files' state is process-wide and kept open
+    // across holds, so it tells either way.
     constexpr uint32_t LOCK_PROBE_MS = 100;
     const TappadLock lock {LOCK_PROBE_MS};
-    return lock.ok() ? TappadLock::isCrossProcess() : lock.status() == TappadLock::BUSY;
+    return (lock.ok() || lock.status() == TappadLock::BUSY) && TappadLock::isCrossProcess();
 #else
     return false;
 #endif
