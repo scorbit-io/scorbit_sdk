@@ -55,7 +55,6 @@ public:
 private:
     UrlInfo parseUrls(const nlohmann::json &sdk) const;
     bool update(const std::string &archivePath, const BinaryInfo &binaryInfo) const;
-    bool replaceBinary(const std::string &libPath, const std::string &newLibPath) const;
 
     bool canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
     bool canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
