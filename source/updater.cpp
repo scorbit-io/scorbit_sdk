@@ -88,6 +88,16 @@ fs::path Updater::getProcessExecutablePath() const
     return fs::canonical(boost::dll::program_location());
 }
 
+utils::MakeWritableResult Updater::makeWritable(const fs::path &dir) const
+{
+    return utils::fsMakeWritable(dir.native());
+}
+
+void Updater::remountReadOnly(const std::string &mountPoint) const
+{
+    utils::fsRemountReadOnly(mountPoint);
+}
+
 void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
                                        std::shared_ptr<EventManager> eventManager)
 {
@@ -451,7 +461,7 @@ bool Updater::isScorbitdVersionCompatible(const std::string &newVersion) const
 
 bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo)
 {
-    const auto mountResult = utils::fsMakeWritable(binaryInfo.path.parent_path().native());
+    const auto mountResult = makeWritable(binaryInfo.path.parent_path());
     if (!mountResult.ok) {
         const auto msg =
                 fmt::format("Failed to make filesystem writable: {}", mountResult.mountPoint);
@@ -461,7 +471,7 @@ bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &bi
     }
 
     const auto ok = downloadAndupdateTgz(urlInfo, binaryInfo);
-    utils::fsRemountReadOnly(mountResult.mountPoint);
+    remountReadOnly(mountResult.mountPoint);
     return ok;
 }
 

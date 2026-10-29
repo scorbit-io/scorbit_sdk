@@ -104,6 +104,13 @@ protected:
     {
         return "/fake/test_binary";
     }
+    // On Linux the real ones look up and remount /fake's filesystem, which does not exist; tests
+    // must never remount the host's (SB-6104).
+    utils::MakeWritableResult makeWritable(const boost::filesystem::path &) const override
+    {
+        return {true, {}};
+    }
+    void remountReadOnly(const std::string &) const override {}
 };
 
 } // namespace

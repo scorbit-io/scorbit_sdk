@@ -18,6 +18,11 @@ project(test)
 # so the tests project could not configure at all.
 set(MY_CMAKE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
 
+# The SDK is a shared library linking static dependencies (fmt, cpr, ...), so they must be PIC.
+# tools.cmake sets this only for a top-level project and the subdirectories include it from their
+# own, so without this a Linux build of the suite fails to link (SB-6104).
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 # Register this directory with CTest so a top-level CTestTestfile.cmake is generated and the
 # subdirectories' tests are reachable from the build root. Without it, `ctest` run from the build
 # root reports "No test configuration file found!" and exits 0 — a pass having run nothing.
