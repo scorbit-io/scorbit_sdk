@@ -391,7 +391,7 @@ class Util
         */
         const uint16_t polynom = 0x8005; // Polynome used
         uint16_t crc = 0;
-        for (int i = 0; i < Len; i++)
+        for (size_t i = 0; i < Len; i++)
             for (uint8_t shift_register = 0x01; shift_register > 0x00; shift_register <<= 1)
             {
                 uint8_t data_bit = (Data[i] & shift_register) ? 1 : 0;

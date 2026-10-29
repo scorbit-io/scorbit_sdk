@@ -369,6 +369,15 @@ scorbit_sdk_packageProject(
 # Dynamic linker path for official Linux layout (written by runtime DEB postinst).
 set(SCORBIT_SDK_LD_SO_PATH "${SCORBIT_SDK_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 set(SCORBIT_SDK_LIBDIR "${SCORBIT_SDK_LD_SO_PATH}")
+# Probe udev rule (SB-6046). u12 hosts run the SDK as a user the package cannot know, so any user;
+# elsewhere the scorbit group.
+if(SCORBIT_SDK_ABI STREQUAL "u12" OR SCORBIT_SDK_ABI STREQUAL "u12dev")
+    set(SCORBIT_SDK_PROBE_GROUP "")
+    set(SCORBIT_SDK_PROBE_ACCESS "MODE=\"0666\"")
+else()
+    set(SCORBIT_SDK_PROBE_GROUP "scorbit")
+    set(SCORBIT_SDK_PROBE_ACCESS "MODE=\"0660\", GROUP=\"scorbit\"")
+endif()
 set(_SCORBIT_RUNTIME_CTRL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/deb")
 configure_file(
     "${_SCORBIT_RUNTIME_CTRL_DIR}/postinst.in"
@@ -406,13 +415,6 @@ file(
 )
 set(CPACK_DEBIAN_SCORBIT_SDK_RUNTIME_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/postinst;${CMAKE_CURRENT_BINARY_DIR}/cpack-debian-runtime/prerm;${_SCORBIT_RUNTIME_CTRL_DIR}/postrm"
-)
-
-# RP2040 UF2 fstab helper (same behavior as scorbitd). Installed under prefix/bin; not added to PATH.
-install(
-    PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/assets/scripts/add-rpi-rp2-fstab.sh"
-    DESTINATION ${CMAKE_INSTALL_BINDIR}
-    COMPONENT scorbit_sdk_Runtime
 )
 
 set(CPACK_GENERATOR DEB)
