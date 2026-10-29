@@ -164,6 +164,8 @@ struct NetTestAccess {
     static bool reattachNfc(Net &net, int attemptsLeft);
     static bool nfcCapable(const Net &net);
     static void setNfcCapable(Net &net, bool capable);
+    static void setNfcNonces(Net &net, std::vector<std::string> nonces);
+    static void setNfcTag(Net &net);
 
     /// Stands in for every network call the authentication task makes.
     struct AuthTransport {

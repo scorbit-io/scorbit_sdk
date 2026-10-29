@@ -4442,6 +4442,17 @@ void NetTestAccess::setNfcCapable(Net &net, bool capable)
     net.m_isNfcCapable = capable;
 }
 
+void NetTestAccess::setNfcNonces(Net &net, std::vector<std::string> nonces)
+{
+    std::scoped_lock lock(net.m_noncesMutex);
+    net.m_nonces = std::move(nonces);
+}
+
+void NetTestAccess::setNfcTag(Net &net)
+{
+    net.setNfcTag();
+}
+
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
                                  std::vector<AuthStatus> allowedStatuses)
 {
@@ -5580,8 +5591,14 @@ void Net::startNfcCheckTimer()
 
 void Net::setNfcTag()
 {
+    // A tag without a nonce opens a dead link (SB-6101). consumeNonce() has asked for a batch,
+    // and its reply programs the tag.
+    const auto nonce = consumeNonce();
+    if (nonce.empty()) {
+        return;
+    }
     const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
-                                 fmt::arg("nonce", consumeNonce()));
+                                 fmt::arg("nonce", nonce));
 
     // The probe stores the URI length in a single byte, so a longer URI is truncated on the
     // wire with no error signal. Skip programming rather than write a corrupt tag.
