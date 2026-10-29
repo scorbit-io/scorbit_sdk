@@ -110,6 +110,8 @@ target_sources(
         ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
+        ../../source/utils/binary_installer.h
+        ../../source/utils/binary_installer.cpp
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
@@ -172,6 +174,8 @@ target_sources(
         ../../source/safe_multipart.h
         source/test_safe_multipart.cpp
         source/test_archiver.cpp
+        source/executable_bytes.h
+        source/test_binary_installer.cpp
         ../../source/event_queue.h
         ../../source/event_classes.h
         source/test_event_queue.cpp

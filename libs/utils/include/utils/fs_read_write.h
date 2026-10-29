@@ -30,6 +30,7 @@ struct MakeWritableResult {
 };
 
 MakeWritableResult fsMakeWritable(const std::filesystem::path &p);
-void fsRemountReadOnly(const std::string &mp);
+/// Remounts @p mp read-only; an empty @p mp (nothing was remounted) is a no-op. False on failure.
+bool fsRemountReadOnly(const std::string &mp);
 
 } // namespace utils

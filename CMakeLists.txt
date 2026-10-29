@@ -234,6 +234,8 @@ target_sources(
         source/utils/jwt_parser.cpp
         source/utils/archiver.h
         source/utils/archiver.cpp
+        source/utils/binary_installer.h
+        source/utils/binary_installer.cpp
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
