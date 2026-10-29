@@ -134,7 +134,7 @@ class ProbeBase
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
     {
         std::vector<ProbeBase::ProbeInformations_t> ProbeInfos;
-        const auto devices = listUsbDevices();
+        const auto devices = nfc::listUsbDevices();
 
         // Browse the devices
         for (const auto& device : devices)
@@ -155,7 +155,7 @@ class ProbeBase
 
     bool FindProbe(const std::string &sType, uint32_t UID = 0)
     {
-        const auto devices = listUsbDevices();
+        const auto devices = nfc::listUsbDevices();
         // Browse the devices
         for (const auto& device : devices)
         {

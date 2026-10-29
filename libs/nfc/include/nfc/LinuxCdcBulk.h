@@ -19,6 +19,8 @@
 
 // One CDC ACM pair (comm + data) via libusb. Path: "usb:<bus>:<addr>:<dataIface>"
 // e.g. probe data If 1 → usb:1:3:1 ; TPM data If 3 → usb:1:3:3
+namespace nfc { // not global: a host may define its own LinuxCdcBulk (SB-6100)
+
 class LinuxCdcBulk
 {
     libusb_device_handle* m_handle = nullptr;
@@ -342,5 +344,7 @@ public:
         return buffer;
     }
 };
+
+} // namespace nfc
 
 #endif
