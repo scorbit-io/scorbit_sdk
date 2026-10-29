@@ -25,6 +25,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -93,12 +94,16 @@ TEST_CASE("redact: leaves everything else alone", "[logger][redact]")
 
 TEST_CASE("redact: a logged reply reaches the host without the short code", "[logger][redact]")
 {
-    std::mutex mutex;
-    std::vector<std::string> lines;
+    // Owned by the callback too: the logger thread may still be inside it after resetLogger().
+    struct Received {
+        std::mutex mutex;
+        std::vector<std::string> lines;
+    };
+    auto received = std::make_shared<Received>();
     scorbit::addLoggerCallback(
-            [&](std::string_view msg, scorbit::LogLevel, const char *, int, int64_t) {
-                std::lock_guard lock(mutex);
-                lines.emplace_back(msg);
+            [received](std::string_view msg, scorbit::LogLevel, const char *, int, int64_t) {
+                std::lock_guard lock(received->mutex);
+                received->lines.emplace_back(msg);
             },
             512);
 
@@ -106,19 +111,19 @@ TEST_CASE("redact: a logged reply reaches the host without the short code", "[lo
     ERR("API set {}: failed, error code: {}, reply: {}", "name", 400, R"({"shortcode":"ZX81QQ"})");
     DBG("API {} request OK, {}", "PATCH", R"({"shortcode":"ZX81QQ"})");
 
-    // Delivery is asynchronous; poll rather than sleep a fixed time.
+    // Delivery is asynchronous; poll for all three rather than sleep a fixed time.
     std::vector<std::string> seen;
     for (auto deadline = std::chrono::steady_clock::now() + 5s;
          std::chrono::steady_clock::now() < deadline; std::this_thread::sleep_for(5ms)) {
-        std::lock_guard lock(mutex);
-        seen = lines;
-        if (seen.size() >= 2) {
+        std::lock_guard lock(received->mutex);
+        seen = received->lines;
+        if (seen.size() >= 3) {
             break;
         }
     }
     scorbit::resetLogger();
 
-    REQUIRE(seen.size() >= 2);
+    REQUIRE(seen.size() == 3);
     for (const auto &line : seen) {
         INFO(line);
         CHECK(line.find("ZX81QQ") == std::string::npos);
