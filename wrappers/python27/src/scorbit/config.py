@@ -447,7 +447,7 @@ class Config(object):
 
     def set_probe_flash_nfc_trigger(self, triggers):
         # type: (bool) -> Config
-        """Internal use: whether the host triggers the NFC pad's flash."""
+        """Deprecated, no effect: the SDK flashes the NFC pad itself."""
         _lib.sb_config_set_probe_flash_nfc_trigger(self._handle, bool(triggers))
         return self
 

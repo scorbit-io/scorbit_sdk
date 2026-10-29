@@ -18,9 +18,9 @@
  */
 
 #include "nfc/PicobootUsb.h"
+#include "nfc/UsbPort.h"
 
 #include <algorithm>
-#include <fstream>
 #include <optional>
 #include <system_error>
 
@@ -32,28 +32,7 @@
 
 namespace nfc::picoboot {
 
-namespace {
-
-std::optional<unsigned> readNumber(const std::filesystem::path &file, int base)
-{
-    std::ifstream in(file);
-    std::string text;
-    if (!(in >> text)) {
-        return std::nullopt;
-    }
-    try {
-        size_t used = 0;
-        const unsigned long value = std::stoul(text, &used, base);
-        if (used != text.size()) {
-            return std::nullopt;
-        }
-        return unsigned(value);
-    } catch (const std::exception &) {
-        return std::nullopt;
-    }
-}
-
-} // namespace
+using usb::readSysfsNumber;
 
 std::vector<BootselDevice> listBootselDevices(const std::filesystem::path &sysfsDevices)
 {
@@ -63,12 +42,12 @@ std::vector<BootselDevice> listBootselDevices(const std::filesystem::path &sysfs
          it.increment(ec)) {
         const auto &dir = it->path();
         // Interface entries ("1-1:1.0") and root hubs have no matching ids and drop out here.
-        if (readNumber(dir / "idVendor", 16) != kBootselVid
-            || readNumber(dir / "idProduct", 16) != kBootselPid) {
+        if (readSysfsNumber(dir / "idVendor", 16) != kBootselVid
+            || readSysfsNumber(dir / "idProduct", 16) != kBootselPid) {
             continue;
         }
-        const auto bus = readNumber(dir / "busnum", 10);
-        const auto address = readNumber(dir / "devnum", 10);
+        const auto bus = readSysfsNumber(dir / "busnum", 10);
+        const auto address = readSysfsNumber(dir / "devnum", 10);
         if (!bus || !address) {
             continue;
         }

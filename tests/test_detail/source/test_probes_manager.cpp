@@ -92,6 +92,15 @@ public:
         return true;
     }
 
+    void enterBootloader() override
+    {
+        InFlight guard {*this};
+        ++bootloaderCommands;
+    }
+
+    std::string devicePath() const override { return "/dev/ttyACM7"; }
+
+    std::atomic<int> bootloaderCommands {0};
     nfc::ProbeInformation probe;
     nfc::NfcInformation nfc;
     std::atomic<uint32_t> tapIndicator {0};
@@ -578,4 +587,70 @@ TEST_CASE("ProbesManager records the last tap seen by any read", "[nfc][ProbesMa
         CHECK(info.lastSeenTapId == 41);
         CHECK(info.lastSeenTapUnixMs > 0);
     }
+}
+
+TEST_CASE("ProbesManager flash hold keeps every caller off the probe", "[nfc][ProbesManager]")
+{
+    auto device = std::make_shared<FakeNfcProbeDevice>();
+    device->probe.id = "NFC";
+    int scans = 0;
+    nfc::ProbesManager manager {device, [&](nfc::probe_t, const nfc::ProbeDisplayCallback &) {
+                                    ++scans;
+                                    return std::shared_ptr<nfc::NfcProbeDevice> {};
+                                }};
+
+    CHECK(manager.nfcDevicePath() == "/dev/ttyACM7");
+    auto hold = manager.holdNfcForFlash();
+    REQUIRE(hold);
+    CHECK(hold->devicePath() == "/dev/ttyACM7");
+    CHECK(manager.nfcDevicePath().empty());
+    CHECK_FALSE(manager.holdNfcForFlash()); // one flash at a time
+
+    // Every call returns at once instead of waiting for the hold.
+    CHECK(manager.hasNfc());
+    CHECK_FALSE(manager.isNfcTagRead());
+    CHECK_FALSE(manager.setNfcTag("uri"));
+    CHECK(manager.setNfcLeds(nfc::NfcLedMode::GameSession)); // queued
+    CHECK_FALSE(manager.probesBootReason(nfc::ProbeType::NFC));
+    CHECK(manager.nfcProbeInfo().status == nfc::NfcProbeInfoResult::Status::ReadFailed);
+    manager.rescanNfc();
+    CHECK(scans == 0);
+    CHECK(device->lastUri.empty());
+
+    hold.reset();
+    CHECK(manager.hasNfc()); // no bootloader command: the probe is kept
+    CHECK(manager.nfcProbeInfo().status == nfc::NfcProbeInfoResult::Status::Ok);
+    CHECK_FALSE(device->overlapped);
+}
+
+TEST_CASE("ProbesManager forgets a probe sent to its bootloader", "[nfc][ProbesManager]")
+{
+    auto device = std::make_shared<FakeNfcProbeDevice>();
+    device->probe.id = "NFC";
+    auto reflashed = std::make_shared<FakeNfcProbeDevice>();
+    reflashed->probe.id = "NFC";
+    std::shared_ptr<nfc::NfcProbeDevice> onBus;
+    nfc::ProbesManager manager {
+            device, [&](nfc::probe_t, const nfc::ProbeDisplayCallback &) { return onBus; }};
+
+    {
+        auto hold = manager.holdNfcForFlash();
+        REQUIRE(hold);
+        hold->enterBootloader();
+        CHECK(device->bootloaderCommands == 1);
+    }
+    CHECK_FALSE(manager.hasNfc());
+
+    onBus = reflashed; // the pad is back on its new firmware
+    manager.rescanNfc();
+    CHECK(manager.hasNfc());
+    CHECK(manager.nfcProbeInfo().status == nfc::NfcProbeInfoResult::Status::Ok);
+}
+
+TEST_CASE("ProbesManager gives no flash hold without an NFC probe", "[nfc][ProbesManager]")
+{
+    nfc::ProbesManager manager {nullptr};
+    CHECK_FALSE(manager.holdNfcForFlash());
+    CHECK_FALSE(manager.holdNfcForFlash()); // the failed attempt left no hold behind
+    CHECK_FALSE(manager.hasNfc());
 }

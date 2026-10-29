@@ -87,6 +87,8 @@ struct FlashNet : IoHolder, Net {
         posts.push_back({pathTemplate, runId, json::parse(body), std::move(callback)});
     }
 
+    void startNfcFlash(json request) override { nfcRuns.push_back(std::move(request)); }
+
     void handle(const json &payload)
     {
         NetTestAccess::handleProbeFlash(*this, payload);
@@ -99,6 +101,7 @@ struct FlashNet : IoHolder, Net {
 
     std::vector<Post> posts;
     std::vector<json> requests;
+    std::vector<json> nfcRuns; ///< nfc runs handed to the SDK's own flash
 };
 
 DeviceInfo flashesCpuAndDmd()
@@ -134,7 +137,7 @@ TEST_CASE("probe_flash for a probe not flashed here is refused as unsupported")
 {
     DeviceInfo info;
     info.probeFlashProbes = {"cpu"};
-    info.probeFlashNfcTrigger = true; // the SDK's NFC routine is not built in yet
+    info.probeFlashNfcTrigger = true; // no effect: this process cannot open a pad here
     FlashNet net(info);
 
     SECTION("a host probe the host did not list")
@@ -280,13 +283,58 @@ TEST_CASE("The Scorbitron object advertises the probes flashed here")
         CHECK(object.at("probe_flash_capable") == false);
         CHECK(object.at("probe_flash_probes") == json::array());
     }
-    SECTION("the NFC trigger alone, before the SDK can flash the pad")
+    SECTION("the NFC trigger alone advertises nothing")
     {
         DeviceInfo info;
         info.probeFlashNfcTrigger = true;
         FlashNet net(info);
         CHECK(NetTestAccess::scorbitronObject(net).at("probe_flash_capable") == false);
     }
+}
+
+TEST_CASE("An nfc run goes to the SDK's own flash once this process can flash the pad")
+{
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::setNfcFlashable(net, true);
+
+    net.handle(flashPayload(RUN_A, "nfc"));
+
+    CHECK(net.requests.empty()); // never handed to the host
+    CHECK(net.posts.empty());
+    REQUIRE(net.nfcRuns.size() == 1);
+    const auto &run = net.nfcRuns[0];
+    CHECK(run.at("run_id") == RUN_A);
+    CHECK(run.at("probe") == "nfc");
+    CHECK(run.at("target_build") == 20261025091656u);
+    CHECK(run.at("sha256") == SHA);
+    CHECK(run.at("size") == 74240u);
+    CHECK(run.at("image_url")
+                  .get<std::string>()
+                  .ends_with(std::string {"/internal/api/diagnostics/probe-flash/"} + RUN_A
+                             + "/image/"));
+
+    // It holds the unit like any other flash.
+    net.handle(flashPayload(RUN_B, "cpu"));
+    CHECK(net.requests.empty());
+    REQUIRE(net.posts.size() == 1);
+    CHECK(net.posts[0].body == json {{"status", "refused"}, {"reason", "already_running"}});
+}
+
+TEST_CASE("The NFC trigger does not decide whether the SDK flashes the pad")
+{
+    DeviceInfo info;
+    info.probeFlashNfcTrigger = false;
+    FlashNet net(info);
+    NetTestAccess::setNfcFlashable(net, true);
+
+    net.handle(flashPayload(RUN_A, "nfc"));
+    CHECK(net.nfcRuns.size() == 1);
+}
+
+TEST_CASE("The NFC flash waits until the unit has been idle for a while")
+{
+    FlashNet net;
+    CHECK_FALSE(NetTestAccess::nfcFlashIdle(net)); // just started
 }
 
 TEST_CASE("A probe flash stage is posted once, stamped when it has no time")

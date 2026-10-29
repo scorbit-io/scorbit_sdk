@@ -53,6 +53,10 @@
 namespace scorbit {
 namespace detail {
 
+namespace nfc_flash {
+class Flasher;
+}
+
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
                          const std::string &timestamp);
 
@@ -134,6 +138,8 @@ struct NetTestAccess {
     static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
     static void handleProbeFlash(Net &net, const nlohmann::json &payload);
+    static void setNfcFlashable(Net &net, bool flashable);
+    static bool nfcFlashIdle(Net &net);
     /// Runs the result resend pass as if the clock read @p now.
     static void resendDueProbeFlashResults(Net &net, std::chrono::steady_clock::time_point now);
     /// How many probe_flash results are waiting to be resent.
@@ -630,7 +636,27 @@ private:
     /// Gives every result still waiting for a retry its final callback; for shutdown.
     void finishPendingProbeFlashResults();
 
+    // SB-5759: the SDK's own NFC tap pad flash
+    /** Carries out an nfc run on this thread and submits its result. */
+    void runNfcFlash(const nlohmann::json &request);
+    /** Finishes a run a restart cut short; posted to the worker by setProbesManager. */
+    void resumeNfcFlash();
+    /** Re-decides whether this process can flash the pad, and re-advertises if that changed. */
+    void refreshNfcFlashable();
+    /** No game running, and none for long enough. */
+    bool nfcFlashIdle();
+    /**
+     * Runs @p body with a Flasher over this Net and the real pad, flagging the flash as running.
+     * False, without running it, if another flash of the pad is running.
+     */
+    bool withNfcFlasher(const std::function<void(nfc_flash::Flasher &)> &body);
+    /** Finds the pad again after a flash, which made the SDK forget it, and reports it. */
+    void reattachNfc();
+
 protected:
+    /** Starts an nfc run (@p request as runNfcFlash takes it) off the caller's thread. */
+    virtual void startNfcFlash(nlohmann::json request);
+
     /// One POST of @p body to @p pathTemplate's endpoint for @p runId. Virtual so tests capture it.
     virtual void postProbeFlash(const char *pathTemplate, const std::string &runId,
                                 std::string body, HttpStatusCallback callback);
@@ -773,7 +799,7 @@ private:
     DeviceInfo m_deviceInfo;
     MachineInfo m_machineInfo;
     std::map<int, GameSession> m_gameSessions; // key: session id
-    bool m_isNfcCapable {false};
+    std::atomic<bool> m_isNfcCapable {false};
     // SDK-section posts queued by handleHardwareProbe(); observed by tests only
     std::atomic<int> m_hardwareProbeSdkPosts {0};
 
@@ -812,6 +838,13 @@ private:
     /// When the retry timer next fires; nullopt when no result is waiting.
     std::optional<std::chrono::steady_clock::time_point> m_probeFlashRetryAt;
     std::vector<PendingProbeFlashResult> m_probeFlashResults;
+    /// Whether this process can flash the pad, which is when nfc is advertised (SB-5759)
+    std::atomic<bool> m_nfcFlashable {false};
+    /// Set while the SDK flashes the pad, which then reads as absent
+    std::atomic<bool> m_nfcFlashRunning {false};
+    /// Last game data from the host; with m_createdAt, how long the unit has been idle
+    std::atomic<std::chrono::steady_clock::time_point> m_lastGameActivity {};
+    const std::chrono::steady_clock::time_point m_createdAt {std::chrono::steady_clock::now()};
     /// Guards the pointer only. Never held across stop() or the destructor -- both join.
     std::mutex m_networkMonitorMutex;
     std::unique_ptr<wifi::NetworkMonitor> m_networkMonitor;

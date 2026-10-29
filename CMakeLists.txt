@@ -205,6 +205,10 @@ target_sources(
         include/scorbit_sdk/net_types.h
         source/net_util.h
         source/net_util.cpp
+        source/nfc_flash.h
+        source/nfc_flash.cpp
+        source/nfc_flash_pad.h
+        source/nfc_flash_pad.cpp
         source/download_options.h
         source/http_session_pool.h
         source/http_session_pool.cpp

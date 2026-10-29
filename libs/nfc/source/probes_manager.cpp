@@ -54,8 +54,9 @@ namespace {
 class ProbeNfcDevice final : public NfcProbeDevice
 {
 public:
-    explicit ProbeNfcDevice(std::unique_ptr<ProbeNFC> probe)
+    ProbeNfcDevice(std::unique_ptr<ProbeNFC> probe, std::string devicePath)
         : m_probe {std::move(probe)}
+        , m_devicePath {std::move(devicePath)}
     {
     }
 
@@ -116,8 +117,17 @@ public:
                                                      : ProbeNFC::NfcType_t::READER);
     }
 
+    void enterBootloader() override
+    {
+        // The probe resets before it can acknowledge, so the missing reply is expected.
+        m_probe->Cable.CommandWrite(ProbeCommand_t::Bootloader, 0, {0x05, 0xC0, 0x4B, 0x17});
+    }
+
+    std::string devicePath() const override { return m_devicePath; }
+
 private:
     std::unique_ptr<ProbeNFC> m_probe;
+    std::string m_devicePath;
 };
 
 } // namespace
@@ -155,7 +165,7 @@ static std::shared_ptr<NfcProbeDevice> scanUsbForNfcProbe(probe_t probesSet,
                 if (callback) {
                     callback(probe.get(), device);
                 }
-                found = std::make_shared<ProbeNfcDevice>(std::move(probe));
+                found = std::make_shared<ProbeNfcDevice>(std::move(probe), device);
             }
         }
     }
@@ -178,12 +188,18 @@ void ProbesManager::enumerate(probe_t probesSet, const std::string pbspk2commPat
                               const ProbeDisplayCallback &callback)
 {
     (void)pbspk2commPath;
+    if (m_flashing) {
+        return;
+    }
     std::scoped_lock lock {m_mutex};
     enumerateLocked(probesSet, callback);
 }
 
 auto ProbesManager::rescanNfc() -> void
 {
+    if (m_flashing) {
+        return;
+    }
     std::scoped_lock lock {m_mutex};
     enumerateLocked(ProbeType::NFC, nullptr, true);
 }
@@ -225,8 +241,20 @@ void ProbesManager::enumerateLocked(probe_t probesSet, const ProbeDisplayCallbac
 
 auto ProbesManager::hasNfc() const -> bool
 {
+    if (m_flashing) {
+        return true; // the pad being flashed is still this unit's NFC probe
+    }
     std::scoped_lock lock {m_mutex};
     return m_nfc != nullptr;
+}
+
+auto ProbesManager::nfcDevicePath() const -> std::string
+{
+    if (m_flashing) {
+        return {};
+    }
+    std::scoped_lock lock {m_mutex};
+    return m_nfc ? m_nfc->devicePath() : std::string {};
 }
 
 auto ProbesManager::isNfcTagRead() -> bool
@@ -263,6 +291,9 @@ auto ProbesManager::isNfcTagRead() -> bool
 
 auto ProbesManager::setNfcTag(const std::string &tag) -> bool
 {
+    if (m_flashing) {
+        return false;
+    }
     std::scoped_lock lock {m_mutex};
     if (m_nfc) {
         return m_nfc->setUri(tag);
@@ -325,6 +356,9 @@ auto ProbesManager::setDiscoveryDescription(uint64_t providerSerial, const std::
     info.ProviderInfo = providerInfo;
     info.ExtraInfo = extraInfo;
 
+    if (m_flashing) {
+        return false;
+    }
     // m_discovery is created by enumerate(); lock so a concurrent (re)scan never races this
     std::scoped_lock lock {m_mutex};
 
@@ -357,6 +391,9 @@ auto ProbesManager::probesBootReason(ProbeType probeType, std::optional<ProbeInf
         return fmt::format("Unsupported probe type: {}", static_cast<uint32_t>(probeType));
     }
 
+    if (m_flashing) {
+        return std::nullopt;
+    }
     std::scoped_lock lock {m_mutex};
 
     if (!m_nfc) {
@@ -405,6 +442,10 @@ auto ProbesManager::nfcProbeInfo() -> NfcProbeInfoResult
 {
     NfcProbeInfoResult result;
 
+    if (m_flashing) {
+        result.status = NfcProbeInfoResult::Status::ReadFailed;
+        return result;
+    }
     std::scoped_lock lock {m_mutex};
 
     if (!m_nfc) {
@@ -438,6 +479,47 @@ void ProbesManager::recordSeenTapLocked(uint32_t tapId)
             std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
                     .count());
+}
+
+auto ProbesManager::holdNfcForFlash() -> std::unique_ptr<FlashHold>
+{
+    if (m_flashing.exchange(true)) {
+        return nullptr; // another flash holds it
+    }
+    std::unique_ptr<FlashHold> hold {new FlashHold(*this)};
+    if (!m_nfc) {
+        return nullptr; // the hold's destructor clears the flag
+    }
+    return hold;
+}
+
+ProbesManager::FlashHold::FlashHold(ProbesManager &manager)
+    : m_manager {manager}
+    , m_lock {manager.m_mutex}
+{
+}
+
+ProbesManager::FlashHold::~FlashHold()
+{
+    if (m_bootloaderSent) {
+        m_manager.m_nfc.reset();
+        m_manager.m_appliedLedMode = NO_LED_MODE;
+    }
+    m_lock.unlock();
+    m_manager.m_flashing = false;
+}
+
+auto ProbesManager::FlashHold::devicePath() const -> std::string
+{
+    return m_manager.m_nfc ? m_manager.m_nfc->devicePath() : std::string {};
+}
+
+auto ProbesManager::FlashHold::enterBootloader() -> void
+{
+    if (m_manager.m_nfc) {
+        m_manager.m_nfc->enterBootloader();
+        m_bootloaderSent = true;
+    }
 }
 
 } // namespace nfc

@@ -187,10 +187,32 @@ constexpr auto JKEY_PF_STATUS {"status"};
 constexpr auto JKEY_PF_FAILURE {"failure"};
 constexpr auto JKEY_PF_REASON {"reason"};
 constexpr auto JVAL_PF_STAGE_IDLE_CHECK {"idle_check"};
+constexpr auto JVAL_PF_STAGE_STAGING {"staging"};
+constexpr auto JVAL_PF_STAGE_LOCKING {"locking"};
+constexpr auto JVAL_PF_STAGE_BOOTLOADER {"bootloader"};
+constexpr auto JVAL_PF_STAGE_COPY {"copy"};
+constexpr auto JVAL_PF_STAGE_REBOOT {"reboot"};
+constexpr auto JVAL_PF_STAGE_VERIFY {"verify"};
+constexpr auto JVAL_PF_STAGE_DONE {"done"};
+constexpr auto JVAL_PF_STATUS_SUCCEEDED {"succeeded"};
 constexpr auto JVAL_PF_STATUS_FAILED {"failed"};
+constexpr auto JVAL_PF_STATUS_DEFERRED {"deferred"};
 constexpr auto JVAL_PF_STATUS_REFUSED {"refused"};
+constexpr auto JVAL_PF_FAILURE_DOWNLOAD {"download"};
+constexpr auto JVAL_PF_FAILURE_CHECKSUM {"checksum"};
+constexpr auto JVAL_PF_FAILURE_BUSY {"busy"};
+constexpr auto JVAL_PF_FAILURE_BOOTLOADER_REFUSED {"bootloader_refused"};
+constexpr auto JVAL_PF_FAILURE_STUCK_IN_BOOTLOADER {"stuck_in_bootloader"};
+constexpr auto JVAL_PF_FAILURE_OLD_BUILD {"old_build"};
+constexpr auto JVAL_PF_FAILURE_PROBE_LOST {"probe_lost"};
+constexpr auto JVAL_PF_FAILURE_NOT_RESPONDING {"not_responding"};
+constexpr auto JVAL_PF_FAILURE_FOREIGN_BOOTLOADER {"foreign_bootloader"};
+constexpr auto JVAL_PF_FAILURE_INTERRUPTED {"interrupted"};
 constexpr auto JVAL_PF_FAILURE_INVALID_POLICY {"invalid_policy"};
+constexpr auto JVAL_PF_FAILURE_INTERNAL {"internal"};
 constexpr auto JVAL_PF_REASON_UNSUPPORTED {"unsupported"};
+// The SDK's NFC flash record (local file): run_id, target_build and sha256 as above, plus
+constexpr auto JKEY_NFR_PORT {"port"};
 constexpr auto JVAL_PF_REASON_ALREADY_RUNNING {"already_running"};
 
 // Download options (SB-5526), as sb_download_with_options() takes them
