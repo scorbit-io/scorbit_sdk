@@ -83,19 +83,25 @@ std::optional<uint64_t> SdkPad::build()
     return nfcProbeFirmware(info.probe).timestampUtc;
 }
 
-std::unique_ptr<Pad::Hold> SdkPad::hold(bool withProbe, bool &busy)
+std::unique_ptr<Pad::Hold> SdkPad::hold(bool withProbe, Refused &why)
 {
     auto lock = std::make_unique<TappadLock>();
     if (!lock->ok()) {
-        busy = lock->status() == TappadLock::BUSY;
+        why = lock->status() == TappadLock::BUSY ? Refused::Busy : Refused::NoLock;
         return nullptr;
     }
-    busy = false;
+    // A fallback lock lets another SDK process write the same pad and the same record.
+    if (!TappadLock::isCrossProcess()) {
+        ERR("NFC flash: no tap pad lock file can be opened; flashing refused");
+        why = Refused::NoLock;
+        return nullptr;
+    }
     std::unique_ptr<nfc::ProbesManager::FlashHold> probe;
     if (withProbe) {
         probe = m_probes->holdNfcForFlash();
         if (!probe) {
-            busy = m_probes->hasNfc(); // present but held by another flash, or not present
+            // Present but held by another flash, or not present
+            why = m_probes->hasNfc() ? Refused::Busy : Refused::NoProbe;
             return nullptr;
         }
     }

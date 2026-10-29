@@ -114,15 +114,22 @@ public:
         virtual void enterBootloader() = 0;
     };
 
+    /** Why @ref hold returned null. */
+    enum class Refused {
+        Busy,    // the lock, or the probe, is held elsewhere
+        NoProbe, // no NFC probe is present
+        NoLock   // no lock that excludes other processes can be had
+    };
+
     virtual ~Pad() = default;
 
     /** Rescans for the NFC probe and reads its firmware build; nullopt if none answers. */
     virtual std::optional<uint64_t> build() = 0;
     /**
      * Takes the cross-process tap pad lock and, with @p withProbe, the SDK's own hold on the
-     * NFC probe. Null if the lock is taken elsewhere (@p busy set) or no probe is present.
+     * NFC probe. Null, with @p why set, if either cannot be had.
      */
-    virtual std::unique_ptr<Hold> hold(bool withProbe, bool &busy) = 0;
+    virtual std::unique_ptr<Hold> hold(bool withProbe, Refused &why) = 0;
     /** Ports of every BOOTSEL device (2e8a:0003) on the bus. */
     virtual std::vector<std::string> bootselPorts() = 0;
     /** True if a Scorbit probe (USB vendor cafe) is at @p port. */

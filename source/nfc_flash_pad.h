@@ -38,7 +38,7 @@ public:
     explicit SdkPad(std::shared_ptr<nfc::ProbesManager> probes);
 
     std::optional<uint64_t> build() override;
-    std::unique_ptr<Hold> hold(bool withProbe, bool &busy) override;
+    std::unique_ptr<Hold> hold(bool withProbe, Refused &why) override;
     std::vector<std::string> bootselPorts() override;
     bool probeAt(const std::string &port) override;
     std::unique_ptr<nfc::picoboot::Transport> openBootsel(const std::string &port) override;

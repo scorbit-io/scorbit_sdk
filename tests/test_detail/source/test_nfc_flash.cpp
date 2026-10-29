@@ -165,14 +165,14 @@ public:
         ++builds;
         return present && !failRead ? std::optional {firmware} : std::nullopt;
     }
-    std::unique_ptr<Hold> hold(bool withProbe, bool &busy) override
+    std::unique_ptr<Hold> hold(bool withProbe, Refused &why) override
     {
         settle();
         if (beforeHold) {
             beforeHold();
         }
-        busy = lockBusy;
-        if (lockBusy || (withProbe && !present)) {
+        if (lockBusy || noLock || (withProbe && !present)) {
+            why = lockBusy ? Refused::Busy : noLock ? Refused::NoLock : Refused::NoProbe;
             return nullptr;
         }
         return std::make_unique<FakeHold>(*this);
@@ -222,6 +222,7 @@ public:
     bool failRead = false;
     bool failReadAfterReboot = false;
     bool lockBusy = false;
+    bool noLock = false;
     bool bootloaderWorks = true;
     bool vanishOnBootloader = false;
     bool failOpen = false;
@@ -371,6 +372,11 @@ TEST_CASE("nfc flash: refuses before the bootloader command", "[nfc_flash]")
     {
         f.pad.lockBusy = true;
         expected = {Status::Failed, Stage::Locking, Failure::Busy};
+    }
+    SECTION("no lock that excludes other processes")
+    {
+        f.pad.noLock = true;
+        expected = {Status::Failed, Stage::Locking, Failure::Internal};
     }
     SECTION("another device already in BOOTSEL")
     {
@@ -592,6 +598,36 @@ TEST_CASE("nfc flash: resume leaves a run another process finished", "[nfc_flash
     CHECK(f.pad.opens == 0);
 }
 
+TEST_CASE("nfc flash: resume on a pad back on firmware clears only under the lock", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+    SECTION("the lock is taken")
+    {
+        f.pad.lockBusy = true;
+        CHECK_FALSE(f.flasher().resume());
+        CHECK(f.store.load()->second.runId == "run-1");
+    }
+    SECTION("no lock that excludes other processes")
+    {
+        f.pad.noLock = true;
+        CHECK_FALSE(f.flasher().resume());
+        CHECK(f.store.load()->second.runId == "run-1");
+    }
+    SECTION("another process replaced the run meanwhile")
+    {
+        f.pad.beforeHold = [&] {
+            REQUIRE(f.store.commit(stateDir, Record {"run-2", PORT, NEW_BUILD, "other"}));
+        };
+        CHECK_FALSE(f.flasher().resume());
+        const auto left = f.store.load();
+        REQUIRE(left);
+        CHECK(left->second.runId == "run-2");
+    }
+}
+
 TEST_CASE("nfc flash: a record that cannot be finished yet is kept", "[nfc_flash]")
 {
     Fixture f;
@@ -706,9 +742,17 @@ TEST_CASE("nfc flash: the record store", "[nfc_flash]")
     CHECK(loaded->second.targetBuild == NEW_BUILD);
     CHECK(loaded->second.sha256 == "ab");
 
+    // Unreadable: ignored, left for the next commit, which runs under the lock, to replace.
     std::ofstream(RecordStore::recordPath(*picked)) << "{not json";
     CHECK_FALSE(store.load());
-    CHECK_FALSE(fs::exists(RecordStore::recordPath(*picked)));
+    CHECK(fs::exists(RecordStore::recordPath(*picked)));
+    REQUIRE(store.commit(*picked, Record {"run-10", "1-1.3", NEW_BUILD, "ab"}));
+    CHECK(store.load()->second.runId == "run-10");
+
+    // Nothing but run-private files is ever written before the lock.
+    for (const auto &entry : fs::directory_iterator(*picked)) {
+        CHECK(entry.path().filename().string().rfind(".write-probe", 0) != 0);
+    }
 
     CHECK_FALSE(RecordStore::defaultDirs().empty());
 }

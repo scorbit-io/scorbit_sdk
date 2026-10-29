@@ -182,6 +182,14 @@ long processId()
 #endif
 }
 
+// ".<pid>.<n>": a name no other run, in this process or another, will use. Outside the tap pad
+// lock only files named so are written; the shared record and image only under it.
+std::string uniqueSuffix()
+{
+    static std::atomic<unsigned> runs {0};
+    return "." + std::to_string(processId()) + "." + std::to_string(++runs);
+}
+
 bool writeDurably(const fs::path &file, const std::string &content)
 {
     std::FILE *out = std::fopen(file.string().c_str(), "wb");
@@ -276,7 +284,7 @@ std::optional<fs::path> RecordStore::pick() const
         }
         fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
 #endif
-        const auto probe = dir / ".write-probe";
+        const auto probe = dir / (".write-probe" + uniqueSuffix());
         if (writeDurably(probe, "ok")) {
             fs::remove(probe, ec);
             return dir;
@@ -320,15 +328,12 @@ std::optional<std::pair<fs::path, Record>> RecordStore::load() const
             WRN("NFC flash: record in {} ignored: not this user's alone", dir.string());
             continue;
         }
-        std::string text;
-        {
-            // Closed before a bad record is removed: Windows cannot delete an open file.
-            std::ifstream in(recordPath(dir), std::ios::binary);
-            if (!in) {
-                continue;
-            }
-            text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        std::ifstream in(recordPath(dir), std::ios::binary);
+        if (!in) {
+            continue;
         }
+        const std::string text {std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>()};
         try {
             const auto body = json::parse(text);
             Record record;
@@ -338,8 +343,8 @@ std::optional<std::pair<fs::path, Record>> RecordStore::load() const
             record.sha256 = body.at(JKEY_PF_SHA256).get<std::string>();
             return std::make_pair(dir, record);
         } catch (const std::exception &e) {
+            // Read-only, as it runs outside the lock too; the next commit replaces it.
             WRN("NFC flash: unreadable record in {} ignored: {}", dir.string(), e.what());
-            clear(dir);
         }
     }
     return std::nullopt;
@@ -473,9 +478,8 @@ std::optional<Outcome> Flasher::run(const Request &request)
         dir->string());
     // Another run of this user, in this process or another, may stage in the same directory, so
     // this run downloads to a name of its own and touches the shared files only under the lock.
-    static std::atomic<unsigned> runs {0};
     auto part = RecordStore::imagePath(*dir);
-    part += "." + std::to_string(processId()) + "." + std::to_string(++runs) + ".part";
+    part += uniqueSuffix() + ".part";
     auto fail = [&](Stage stage, Failure failure) {
         std::error_code ignored;
         fs::remove(part, ignored);
@@ -505,10 +509,12 @@ std::optional<Outcome> Flasher::run(const Request &request)
         fail(Stage::Locking, Failure::None);
         return deferred;
     }
-    bool busy = false;
-    auto hold = m_pad.hold(true, busy);
+    auto refused = Pad::Refused::Busy;
+    auto hold = m_pad.hold(true, refused);
     if (!hold) {
-        return fail(Stage::Locking, busy ? Failure::Busy : Failure::ProbeLost);
+        return fail(Stage::Locking, refused == Pad::Refused::Busy      ? Failure::Busy
+                                    : refused == Pad::Refused::NoProbe ? Failure::ProbeLost
+                                                                       : Failure::Internal);
     }
     const auto port = hold->port();
     if (!port) {
@@ -645,23 +651,25 @@ std::optional<Flasher::Resumed> Flasher::resume()
         return std::nullopt; // the record is kept for the next start
     }
 
+    // Every outcome below clears the shared record, so it is decided only under the lock.
+    auto refused = Pad::Refused::Busy;
+    std::unique_ptr<Pad::Hold> hold;
+    waitFor(m_timing.bootselWait, [&] { return (hold = m_pad.hold(false, refused)) != nullptr; });
+    if (!hold) {
+        // Only this record can bring a pad out of BOOTSEL; keep it for the next start.
+        WRN("NFC flash run_id={}: the tap pad lock cannot be had; resume left for the next start",
+            record.runId);
+        return std::nullopt;
+    }
+    // Another process may have finished this run, or started a new one, meanwhile.
+    const auto current = m_store.load();
+    if (!current || current->first != dir || current->second.runId != record.runId) {
+        INF("NFC flash run_id={}: already resumed elsewhere", record.runId);
+        return std::nullopt;
+    }
+
     Outcome outcome;
     if (inBootsel(port) && !m_pad.probeAt(port)) {
-        bool busy = false;
-        std::unique_ptr<Pad::Hold> hold;
-        waitFor(m_timing.bootselWait, [&] { return (hold = m_pad.hold(false, busy)) != nullptr; });
-        if (!hold) {
-            // Only this record can bring the pad out of BOOTSEL; keep it for the next start.
-            WRN("NFC flash run_id={}: the tap pad lock is busy; resume left for the next start",
-                record.runId);
-            return std::nullopt;
-        }
-        // Another process may have finished this run while the lock was out of reach.
-        const auto current = m_store.load();
-        if (!current || current->first != dir || current->second.runId != record.runId) {
-            INF("NFC flash run_id={}: already resumed elsewhere", record.runId);
-            return std::nullopt;
-        }
         auto finished = finish(dir, record);
         if (!finished) {
             return std::nullopt; // stopping again; the record is still there
