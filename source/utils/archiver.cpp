@@ -110,7 +110,7 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
     archive_read_support_format_all(reader.get());
 
     int flags = ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_ACL
-              | ARCHIVE_EXTRACT_FFLAGS;
+              | ARCHIVE_EXTRACT_FFLAGS | ARCHIVE_EXTRACT_SECURE_NODOTDOT;
 
     archive_write_disk_set_options(writer.get(), flags);
     archive_write_disk_set_standard_lookup(writer.get());
@@ -124,27 +124,41 @@ bool extract(const std::string &archivePath, const std::string &outputDir)
     struct archive_entry *entry = nullptr;
     int r = ARCHIVE_OK;
 
+    // Any entry that is not fully written fails the whole extraction: a write error (e.g. disk
+    // full) leaves a short or empty file behind, which must never be taken for a good one.
     while ((r = archive_read_next_header(reader.get(), &entry)) == ARCHIVE_OK) {
         // Prepend outputDir to the pathname
         const char *entryPath = archive_entry_pathname(entry);
         fs::path fullPath = fs::path(outputDir) / entryPath;
         archive_entry_set_pathname(entry, fullPath.string().c_str());
 
-        // Write header and content
+        // Write header and content. A warning on the header is about metadata, the file itself
+        // was created, so its data is still written.
         r = archive_write_header(writer.get(), entry);
-        if (r < ARCHIVE_OK) {
+        if (r < ARCHIVE_WARN) {
             ERR("Failed to write header: {}", archiveErrorString(writer.get()));
-        } else if (archive_entry_size(entry) > 0) {
+            return false;
+        }
+        if (r < ARCHIVE_OK) {
+            WRN("Header written with warning: {}", archiveErrorString(writer.get()));
+        }
+
+        if (archive_entry_size(entry) > 0) {
             r = copy_data(reader.get(), writer.get());
             if (r < ARCHIVE_OK) {
-                ERR("Data copy error: {}", archiveErrorString(writer.get()));
+                ERR("Data copy error, reader: {}, writer: {}", archiveErrorString(reader.get()),
+                    archiveErrorString(writer.get()));
+                return false;
             }
         }
 
         r = archive_write_finish_entry(writer.get());
-        if (r < ARCHIVE_OK) {
+        if (r < ARCHIVE_WARN) {
             ERR("Failed to finish entry: {}", archiveErrorString(writer.get()));
-            break;
+            return false;
+        }
+        if (r < ARCHIVE_OK) {
+            WRN("Entry finished with warning: {}", archiveErrorString(writer.get()));
         }
     }
 

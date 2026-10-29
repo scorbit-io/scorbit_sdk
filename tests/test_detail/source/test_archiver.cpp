@@ -176,6 +176,25 @@ TEST_CASE("createTarGz with extract round-trip")
     CHECK(extraContent == "extra content");
 }
 
+TEST_CASE("extract fails on a truncated archive")
+{
+    TempDir tmpDir;
+    const auto archivePath = (tmpDir.path() / "update.tar.gz").string();
+
+    // Data that doesn't compress, so cutting the archive cuts into the file's data
+    std::string payload(256 * 1024, '\0');
+    unsigned seed = 1;
+    for (auto &c : payload) {
+        seed = seed * 1103515245 + 12345;
+        c = static_cast<char>(seed >> 16);
+    }
+    REQUIRE(createTarGz(archivePath, {}, {{"lib/libscorbit_sdk.so", payload}}));
+
+    fs::resize_file(archivePath, fs::file_size(archivePath) / 2);
+
+    CHECK_FALSE(extract(archivePath, (tmpDir.path() / "out").string()));
+}
+
 TEST_CASE("createTarGz edge cases")
 {
     TempDir tmpDir;
