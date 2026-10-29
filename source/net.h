@@ -48,7 +48,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include "net_util.h"
+#include <atomic>
 #include <optional>
+#include <thread>
 
 namespace scorbit {
 namespace detail {
@@ -652,6 +654,12 @@ private:
     bool withNfcFlasher(const std::function<void(nfc_flash::Flasher &)> &body);
     /** Finds the pad again after a flash, which made the SDK forget it, and reports it. */
     void reattachNfc();
+    /**
+     * Runs @p work on the SDK's own NFC flash thread, not the worker pool: a flash may wait hours
+     * for idle. False, without running it, while that thread is busy or the SDK is stopping.
+     */
+    bool runOnNfcThread(std::function<void()> work);
+    void joinNfcThread();
 
 protected:
     /** Starts an nfc run (@p request as runNfcFlash takes it) off the caller's thread. */
@@ -842,6 +850,12 @@ private:
     std::atomic<bool> m_nfcFlashable {false};
     /// Set while the SDK flashes the pad, which then reads as absent
     std::atomic<bool> m_nfcFlashRunning {false};
+    /// The thread runOnNfcThread() uses, joined at shutdown
+    std::mutex m_nfcThreadMutex;
+    std::thread m_nfcThread;
+    std::atomic<bool> m_nfcThreadDone {true};
+    /// Rescans left to find the pad again after a flash
+    std::atomic<int> m_nfcReattachLeft {0};
     /// Last game data from the host; with m_createdAt, how long the unit has been idle
     std::atomic<std::chrono::steady_clock::time_point> m_lastGameActivity {};
     const std::chrono::steady_clock::time_point m_createdAt {std::chrono::steady_clock::now()};

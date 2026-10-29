@@ -424,6 +424,21 @@ TEST_CASE("nfc flash: a copy that never verifies leaves the pad in BOOTSEL", "[n
     CHECK(sameOutcome(*outcome, {Status::Failed, Stage::Copy, Failure::StuckInBootloader}));
     CHECK(f.pad.opens == 3);
     CHECK_FALSE(f.pad.rom->rebooted);
+    CHECK(f.recordLeft()); // the next start retries it
+
+    // Meanwhile another run must not stage over that record.
+    f.request.runId = "run-1"; // FakeHost checks the run id it reports
+    const auto again = f.flasher().run(f.request);
+    REQUIRE(again);
+    CHECK(sameOutcome(*again, {Status::Failed, Stage::IdleCheck, Failure::Busy}));
+    CHECK(f.recordLeft());
+
+    // The next start, with the ROM reading back correctly again, finishes the pad.
+    f.pad.rom->corruptReadAt = 0;
+    const auto resumed = f.flasher().resume();
+    REQUIRE(resumed);
+    CHECK(sameOutcome(resumed->outcome, {Status::Succeeded, Stage::Done}));
+    CHECK_FALSE(f.recordLeft());
 }
 
 TEST_CASE("nfc flash: what comes back after the reboot", "[nfc_flash]")

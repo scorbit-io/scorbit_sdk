@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -248,12 +249,17 @@ bool RecordStore::commit(const fs::path &dir, const Record &record) const
 std::optional<std::pair<fs::path, Record>> RecordStore::load() const
 {
     for (const auto &dir : m_dirs) {
-        std::ifstream in(recordPath(dir));
-        if (!in) {
-            continue;
+        std::string text;
+        {
+            // Closed before a bad record is removed: Windows cannot delete an open file.
+            std::ifstream in(recordPath(dir), std::ios::binary);
+            if (!in) {
+                continue;
+            }
+            text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         }
         try {
-            const auto body = json::parse(in);
+            const auto body = json::parse(text);
             Record record;
             record.runId = body.at(JKEY_DIAG_RUN_ID).get<std::string>();
             record.port = body.at(JKEY_NFR_PORT).get<std::string>();
@@ -368,6 +374,11 @@ std::optional<Outcome> Flasher::run(const Request &request)
 {
     const auto &runId = request.runId;
     m_host.stage(runId, Stage::IdleCheck);
+    if (const auto pending = m_store.load()) {
+        // A pad stuck in BOOTSEL waits for the next start; staging now would wipe its record.
+        WRN("NFC flash run_id={}: run_id={} still awaits recovery", runId, pending->second.runId);
+        return Outcome {Status::Failed, Stage::IdleCheck, Failure::Busy};
+    }
     if (auto deferred = waitForIdle(request)) {
         return deferred;
     }
@@ -490,8 +501,13 @@ std::optional<Outcome> Flasher::finish(const fs::path &dir, const Record &record
                 result.address, attempt);
         }
     }
+    // A pad left in BOOTSEL keeps its record and image: only they let the next start finish it.
+    auto stuck = [&](Stage stage) {
+        WRN("NFC flash run_id={}: the pad is stuck in BOOTSEL; the next start retries it", runId);
+        return Outcome {Status::Failed, stage, Failure::StuckInBootloader};
+    };
     if (!copied) {
-        return end(Stage::Copy, inBootsel(port) ? Failure::StuckInBootloader : Failure::ProbeLost);
+        return inBootsel(port) ? stuck(Stage::Copy) : end(Stage::Copy, Failure::ProbeLost);
     }
 
     m_host.stage(runId, Stage::Reboot);
@@ -499,8 +515,7 @@ std::optional<Outcome> Flasher::finish(const fs::path &dir, const Record &record
         if (m_host.stopping()) {
             return std::nullopt;
         }
-        return end(Stage::Reboot,
-                   inBootsel(port) ? Failure::StuckInBootloader : Failure::NotResponding);
+        return inBootsel(port) ? stuck(Stage::Reboot) : end(Stage::Reboot, Failure::NotResponding);
     }
 
     m_host.stage(runId, Stage::Verify);

@@ -590,6 +590,8 @@ Net::~Net()
         // taken here no arm can land after the worker cancels its timers below.
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
     }
+    // With m_stop set an NFC flash winds down at its next wait; its last posts need the worker.
+    joinNfcThread();
 
     // m_worker.stop() below drains the posted teardown, so the join still happens in this dtor.
     retireNetworkMonitor("shutdown");
@@ -1173,7 +1175,7 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
     refreshNfcFlashable();
     if (SDK_NFC_FLASH_ROUTINE && m_probesManager) {
         // Off the host's thread: its startup may run under a watchdog.
-        m_worker.post([this] { resumeNfcFlash(); });
+        runOnNfcThread([this] { resumeNfcFlash(); });
     }
 }
 
@@ -1972,6 +1974,9 @@ namespace {
 constexpr auto NFC_FLASH_IDLE_REQUIRED = std::chrono::minutes {10};
 // A resumed run holds the unit like a requested one past its deadline.
 constexpr auto NFC_FLASH_RESUME_WINDOW = std::chrono::minutes {30};
+// After a flash, how often and how many times to look for a pad that has not come back yet.
+constexpr auto NFC_REATTACH_RETRY = std::chrono::seconds {10};
+constexpr int NFC_REATTACH_ATTEMPTS = 30;
 
 /** nfc_flash::Host over callbacks, so the routine needs no access to Net's internals. */
 class CallbackFlashHost : public nfc_flash::Host
@@ -2010,7 +2015,50 @@ public:
 
 void Net::startNfcFlash(json request)
 {
-    m_worker.post([this, request = std::move(request)] { runNfcFlash(request); });
+    const auto runId = request.value(JKEY_DIAG_RUN_ID, std::string {});
+    if (!runOnNfcThread([this, request = std::move(request)] { runNfcFlash(request); })) {
+        WRN("NFC flash run_id={}: another flash of the pad is running", runId);
+        submitProbeFlashResult(
+                runId,
+                nfc_flash::resultJson({nfc_flash::Status::Failed, nfc_flash::Stage::IdleCheck,
+                                       nfc_flash::Failure::Busy})
+                        .dump(),
+                {});
+    }
+}
+
+bool Net::runOnNfcThread(std::function<void()> work)
+{
+    std::lock_guard<std::mutex> lock(m_nfcThreadMutex);
+    if (m_stop) {
+        return false;
+    }
+    if (m_nfcThread.joinable()) {
+        if (!m_nfcThreadDone) {
+            return false;
+        }
+        m_nfcThread.join();
+    }
+    m_nfcThreadDone = false;
+    m_nfcThread = std::thread([this, work = std::move(work)] {
+        try {
+            work();
+        } catch (const std::exception &e) {
+            ERR("NFC flash: {}", e.what());
+        } catch (...) {
+            ERR("NFC flash: unknown error");
+        }
+        m_nfcThreadDone = true;
+    });
+    return true;
+}
+
+void Net::joinNfcThread()
+{
+    std::lock_guard<std::mutex> lock(m_nfcThreadMutex);
+    if (m_nfcThread.joinable()) {
+        m_nfcThread.join();
+    }
 }
 
 bool Net::withNfcFlasher(const std::function<void(nfc_flash::Flasher &)> &body)
@@ -2057,10 +2105,15 @@ bool Net::withNfcFlasher(const std::function<void(nfc_flash::Flasher &)> &body)
 
 void Net::reattachNfc()
 {
-    if (!m_probesManager) {
+    if (!m_probesManager || m_stop) {
         return;
     }
     m_probesManager->rescanNfc();
+    if (!m_probesManager->hasNfc() && m_nfcReattachLeft.fetch_sub(1) > 0) {
+        // A pad back from BOOTSEL, or power cycled out of it, can take a while to enumerate.
+        m_worker.startTimer(Worker::Timer::NfcReattach, NFC_REATTACH_RETRY,
+                            [this] { m_worker.post([this] { reattachNfc(); }); });
+    }
     if (m_probesManager->hasNfc() && !m_isNfcCapable.exchange(true)) {
         // Absent at startup (in BOOTSEL, say) and back now: what setProbesManager would have run
         INF("NFC probe found after a flash");
@@ -2113,6 +2166,7 @@ void Net::runNfcFlash(const json &request)
     const auto result = nfc_flash::resultJson(*outcome);
     INF("NFC flash run_id={}: {}", flash.runId, result.dump());
     submitProbeFlashResult(flash.runId, result.dump(), {});
+    m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     reattachNfc();
 }
 
@@ -2141,6 +2195,7 @@ void Net::resumeNfcFlash()
         INF("NFC flash run_id={}: resumed, {}", resumed->runId, result.dump());
         submitProbeFlashResult(resumed->runId, result.dump(), {});
     }
+    m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     reattachNfc();
 }
 
