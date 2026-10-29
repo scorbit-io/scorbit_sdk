@@ -160,6 +160,10 @@ struct NetTestAccess {
     static int hardwareProbeSdkPosts(const Net &net);
     /// Installs @p manager without starting the NFC timers that setProbesManager() starts.
     static void setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManager> manager);
+    /// One reattach after a flash, with @p attemptsLeft retries left; true if a retag is queued.
+    static bool reattachNfc(Net &net, int attemptsLeft);
+    static bool nfcCapable(const Net &net);
+    static void setNfcCapable(Net &net, bool capable);
 
     /// Stands in for every network call the authentication task makes.
     struct AuthTransport {
@@ -856,6 +860,8 @@ private:
     std::atomic<bool> m_nfcThreadDone {true};
     /// Rescans left to find the pad again after a flash
     std::atomic<int> m_nfcReattachLeft {0};
+    /// The pad was flashed or rebooted: program its tag again once it is found
+    std::atomic<bool> m_nfcRetag {false};
     /// Last game data from the host; with m_createdAt, how long the unit has been idle
     std::atomic<std::chrono::steady_clock::time_point> m_lastGameActivity {};
     const std::chrono::steady_clock::time_point m_createdAt {std::chrono::steady_clock::now()};

@@ -2110,18 +2110,27 @@ void Net::reattachNfc()
         return;
     }
     m_probesManager->rescanNfc();
-    if (!m_probesManager->hasNfc() && m_nfcReattachLeft.fetch_sub(1) > 0) {
-        // A pad back from BOOTSEL, or power cycled out of it, can take a while to enumerate.
-        m_worker.startTimer(Worker::Timer::NfcReattach, NFC_REATTACH_RETRY,
-                            [this] { m_worker.post([this] { reattachNfc(); }); });
-    }
-    if (m_probesManager->hasNfc() && !m_isNfcCapable.exchange(true)) {
+    if (!m_probesManager->hasNfc()) {
+        if (m_nfcReattachLeft.fetch_sub(1) > 0) {
+            // A pad back from BOOTSEL, or power cycled out of it, can take a while to enumerate.
+            m_worker.startTimer(Worker::Timer::NfcReattach, NFC_REATTACH_RETRY,
+                                [this] { m_worker.post([this] { reattachNfc(); }); });
+        } else if (m_isNfcCapable.exchange(false)) {
+            WRN("NFC probe not found again after a flash; NFC is off until it is");
+            m_worker.stopTimer(Worker::Timer::NfcCheckTag);
+            updateScorbitronObject({{JKEY_SOBJ_NFC_CAPABLE, false}}, "nfc capable");
+        }
+    } else if (!m_isNfcCapable.exchange(true)) {
         // Absent at startup (in BOOTSEL, say) and back now: what setProbesManager would have run
         INF("NFC probe found after a flash");
+        m_nfcRetag = false;
         updateScorbitronObject({{JKEY_SOBJ_NFC_CAPABLE, true}}, "nfc capable");
         startNfcCheckTimer();
         checkNfcBootReason();
         createNfcNonces(); // skipped at connect while not capable; its reply programs the tag
+    } else if (m_nfcRetag.exchange(false)) {
+        // A rebooted pad comes back with no tag programmed
+        m_worker.post([this] { setNfcTag(); });
     }
     refreshNfcFirmware();
     refreshNfcFlashable();
@@ -2174,6 +2183,7 @@ void Net::runNfcFlash(const json &request)
     INF("NFC flash run_id={}: {}", flash.runId, result.dump());
     submitProbeFlashResult(flash.runId, result.dump(), {});
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
+    m_nfcRetag = true;
     reattachNfc();
 }
 
@@ -2204,6 +2214,7 @@ void Net::resumeNfcFlash()
         const auto result = nfc_flash::resultJson(resumed->outcome);
         INF("NFC flash run_id={}: resumed, {}", resumed->runId, result.dump());
         submitProbeFlashResult(resumed->runId, result.dump(), {});
+        m_nfcRetag = true;
     }
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     reattachNfc();
@@ -4411,6 +4422,24 @@ void NetTestAccess::setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManage
 {
     net.m_isNfcCapable = manager && manager->hasNfc();
     net.m_probesManager = std::move(manager);
+}
+
+bool NetTestAccess::reattachNfc(Net &net, int attemptsLeft)
+{
+    net.m_nfcReattachLeft = attemptsLeft;
+    net.m_nfcRetag = true;
+    net.reattachNfc();
+    return !net.m_nfcRetag; // consumed by a found pad
+}
+
+bool NetTestAccess::nfcCapable(const Net &net)
+{
+    return net.m_isNfcCapable;
+}
+
+void NetTestAccess::setNfcCapable(Net &net, bool capable)
+{
+    net.m_isNfcCapable = capable;
 }
 
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
