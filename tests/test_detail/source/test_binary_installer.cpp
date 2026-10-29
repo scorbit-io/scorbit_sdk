@@ -103,6 +103,75 @@ TEST_CASE("isExecutableImage")
     }
 }
 
+TEST_CASE("readElfImage")
+{
+    TempDir tmp;
+    const auto file = tmp.path() / "libscorbit_sdk.so";
+    const auto image = elfBytes(std::string(1000, 'x'));
+    std::string error;
+
+    SECTION("Complete 64-bit image")
+    {
+        writeFile(file, image);
+        const auto info = readElfImage(file, error);
+        REQUIRE(info);
+        CHECK(*info == ElfInfo {2, 1, TEST_ELF_MACHINE});
+    }
+
+    SECTION("Complete 32-bit image")
+    {
+        writeFile(file, elfBytes("code", 40, false));
+        const auto info = readElfImage(file, error);
+        REQUIRE(info);
+        CHECK(*info == ElfInfo {1, 1, 40});
+    }
+
+    SECTION("Cut off inside a loadable segment")
+    {
+        writeFile(file, image.substr(0, image.size() - 10));
+        CHECK_FALSE(readElfImage(file, error));
+        CHECK(error.find("loadable segment") != std::string::npos);
+    }
+
+    SECTION("Cut off inside the header")
+    {
+        writeFile(file, image.substr(0, 30));
+        CHECK_FALSE(readElfImage(file, error));
+        CHECK(error.find("header cut short") != std::string::npos);
+    }
+
+    SECTION("Only the magic")
+    {
+        writeFile(file, image.substr(0, 4));
+        CHECK_FALSE(readElfImage(file, error));
+    }
+
+    SECTION("Section headers past the end of the file")
+    {
+        auto cut = image;
+        putLittleEndian(cut, 40, cut.size(), 8); // e_shoff
+        putLittleEndian(cut, 60, 1, 2);          // e_shnum
+        writeFile(file, cut);
+        CHECK_FALSE(readElfImage(file, error));
+        CHECK(error.find("section headers") != std::string::npos);
+    }
+
+    SECTION("Relocatable object, not loadable")
+    {
+        auto object = image;
+        putLittleEndian(object, 16, 1, 2); // e_type: ET_REL
+        writeFile(file, object);
+        CHECK_FALSE(readElfImage(file, error));
+    }
+
+    SECTION("Not an ELF image")
+    {
+        writeFile(file, std::string(200, 'x'));
+        CHECK_FALSE(readElfImage(file, error));
+        CHECK(error.find("bad magic") != std::string::npos);
+    }
+}
+
 TEST_CASE("installBinary")
 {
     TempDir tmp;
@@ -183,6 +252,58 @@ TEST_CASE("installBinary")
         CHECK_FALSE(fs::exists(staged));
         CHECK_FALSE(fs::exists(backup));
     }
+
+    SECTION("The target itself as the candidate is refused, the target stays")
+    {
+        CHECK_FALSE(installBinary(target, target, error));
+        CHECK(error.find("is the current one") != std::string::npos);
+        CHECK(readFile(target) == original);
+        CHECK_FALSE(fs::exists(staged));
+    }
+
+    SECTION("A backup that can't be removed refuses the update, the target stays")
+    {
+        writeFile(backup / "in_use", "can't remove a directory with files in it");
+        writeFile(candidate, updated);
+
+        CHECK_FALSE(installBinary(target, candidate, error));
+        CHECK(error.find("previous backup") != std::string::npos);
+        CHECK(readFile(target) == original);
+        CHECK(readFile(candidate) == updated);
+    }
+
+#if !BOOST_OS_WINDOWS
+    SECTION("A candidate linked to the target is refused, the target stays")
+    {
+        fs::create_directories(candidate.parent_path());
+        fs::create_symlink(target, candidate);
+
+        CHECK_FALSE(installBinary(target, candidate, error));
+        CHECK(readFile(target) == original);
+        CHECK_FALSE(fs::exists(staged));
+        CHECK_FALSE(fs::exists(backup));
+    }
+#endif
+
+#if !BOOST_OS_WINDOWS && !BOOST_OS_MACOS
+    SECTION("A binary for another architecture is refused, the target stays")
+    {
+        writeFile(candidate, elfBytes("other", 40)); // EM_ARM
+
+        CHECK_FALSE(installBinary(target, candidate, error));
+        CHECK(error.find("another architecture") != std::string::npos);
+        CHECK(readFile(target) == original);
+    }
+
+    SECTION("A cut off binary is refused, the target stays")
+    {
+        writeFile(candidate, updated.substr(0, updated.size() - 1));
+
+        CHECK_FALSE(installBinary(target, candidate, error));
+        CHECK(error.find("Not a complete ELF image") != std::string::npos);
+        CHECK(readFile(target) == original);
+    }
+#endif
 
 #if !BOOST_OS_WINDOWS
     SECTION("The target keeps its permissions")

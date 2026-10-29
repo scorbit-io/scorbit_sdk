@@ -50,10 +50,12 @@ namespace fs = boost::filesystem;
 using namespace scorbit;
 using namespace detail;
 
+// Finds a file in @p dir itself, not a symlink, which could lead anywhere, even to the binary
+// being replaced
 fs::path findFile(const fs::path &dir, const std::regex &pattern)
 {
     for (const auto &entry : fs::recursive_directory_iterator(dir)) {
-        if (entry.is_regular_file()
+        if (fs::is_regular_file(entry.symlink_status())
             && std::regex_search(entry.path().filename().string(), pattern)) {
             return entry.path().string();
         }
@@ -228,7 +230,15 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
 
     try {
         // An interrupted earlier update may have left files here, none may be taken for this one's
-        cleanup();
+        boost::system::error_code ec;
+        fs::remove_all(tempDir, ec);
+        if (ec) {
+            const auto msg = fmt::format("Can't clear the update directory: {}, {}",
+                                         tempDir.string(), ec.message());
+            feedback(msg);
+            ERR("Updater: {}", msg);
+            return false;
+        }
 
         // update from tgz archive
         const auto archivePath = fs::path {archive};

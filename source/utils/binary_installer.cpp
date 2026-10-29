@@ -70,6 +70,37 @@ bool hasExecutableMagic(const Magic &header)
 #endif
 }
 
+// ELF layout, the offsets of the fields read, for 32 and 64-bit images
+struct ElfLayout {
+    std::size_t ehdrSize, phoff, shoff, phentsize, phnum, shentsize, shnum;
+    std::size_t addrSize; // size of an address or offset field
+    std::size_t phdrSize, pOffset, pFilesz;
+    std::size_t shdrSize;
+};
+
+constexpr ElfLayout ELF32 {52, 28, 32, 42, 44, 46, 48, 4, 32, 4, 16, 40};
+constexpr ElfLayout ELF64 {64, 32, 40, 54, 56, 58, 60, 8, 56, 8, 32, 64};
+
+constexpr std::uint32_t PT_LOAD_TYPE = 1;
+constexpr std::uint16_t ET_EXEC_TYPE = 2;
+constexpr std::uint16_t ET_DYN_TYPE = 3;
+
+// Reads an unsigned field of @p size bytes in the image's byte order
+std::uint64_t readField(const unsigned char *p, std::size_t size, bool bigEndian)
+{
+    std::uint64_t value = 0;
+    for (std::size_t i = 0; i < size; ++i) {
+        value |= std::uint64_t {p[bigEndian ? size - 1 - i : i]} << (8 * i);
+    }
+    return value;
+}
+
+// True if [offset, offset + length) lies within a file of @p fileSize bytes
+bool fits(std::uint64_t offset, std::uint64_t length, std::uint64_t fileSize)
+{
+    return offset <= fileSize && length <= fileSize - offset;
+}
+
 // Flushes a file's data, or a directory's entries, to the disk. Without it a power cut can leave a
 // renamed file with its new name but none of its data, i.e. empty.
 bool syncToDisk(const fs::path &path, std::string &error)
@@ -139,6 +170,91 @@ bool moveFile(const fs::path &from, const fs::path &to, std::string &error)
 namespace scorbit {
 namespace detail {
 
+std::optional<ElfInfo> readElfImage(const fs::path &path, std::string &error)
+{
+    boost::system::error_code ec;
+    const std::uint64_t size = fs::file_size(path, ec);
+    if (ec) {
+        error = fmt::format("Can't read the size of {}: {}", path.string(), ec.message());
+        return std::nullopt;
+    }
+
+    std::ifstream in(path.c_str(), std::ios::binary);
+    const auto readAt = [&in](std::uint64_t offset, unsigned char *out, std::size_t length) {
+        in.seekg(static_cast<std::streamoff>(offset));
+        return static_cast<bool>(in.read(reinterpret_cast<char *>(out), length));
+    };
+    const auto fail = [&](std::string_view why) {
+        error = fmt::format("Not a complete ELF image: {}, {}", path.string(), why);
+        return std::nullopt;
+    };
+
+    std::array<unsigned char, ELF64.ehdrSize> ehdr {};
+    if (size < 16 || !readAt(0, ehdr.data(), 16)) {
+        return fail("no identification");
+    }
+    if (ehdr[0] != 0x7f || ehdr[1] != 'E' || ehdr[2] != 'L' || ehdr[3] != 'F') {
+        return fail("bad magic");
+    }
+
+    const ElfInfo info {ehdr[4], ehdr[5], 0};
+    if ((info.elfClass != 1 && info.elfClass != 2) || (info.byteOrder != 1 && info.byteOrder != 2)
+        || ehdr[6] != 1) {
+        return fail("unknown class, byte order or version");
+    }
+    const auto &layout = info.elfClass == 2 ? ELF64 : ELF32;
+    const bool bigEndian = info.byteOrder == 2;
+    const auto field = [bigEndian](const unsigned char *p, std::size_t offset, std::size_t len) {
+        return readField(p + offset, len, bigEndian);
+    };
+
+    if (size < layout.ehdrSize || !readAt(0, ehdr.data(), layout.ehdrSize)) {
+        return fail("header cut short");
+    }
+
+    const auto type = field(ehdr.data(), 16, 2);
+    if (type != ET_EXEC_TYPE && type != ET_DYN_TYPE) {
+        return fail("neither an executable nor a shared object");
+    }
+    const auto machine = static_cast<std::uint16_t>(field(ehdr.data(), 18, 2));
+
+    // Program headers: there must be some, all within the file, and so must every loadable
+    // segment they describe
+    const auto phoff = field(ehdr.data(), layout.phoff, layout.addrSize);
+    const auto phentsize = field(ehdr.data(), layout.phentsize, 2);
+    const auto phnum = field(ehdr.data(), layout.phnum, 2);
+    if (phnum == 0 || phentsize != layout.phdrSize || !fits(phoff, phnum * phentsize, size)) {
+        return fail("program headers missing or past the end of the file");
+    }
+
+    std::array<unsigned char, ELF64.phdrSize> phdr {};
+    for (std::uint64_t i = 0; i < phnum; ++i) {
+        if (!readAt(phoff + i * phentsize, phdr.data(), layout.phdrSize)) {
+            return fail("can't read a program header");
+        }
+        if (field(phdr.data(), 0, 4) != PT_LOAD_TYPE) {
+            continue;
+        }
+        const auto offset = field(phdr.data(), layout.pOffset, layout.addrSize);
+        const auto filesz = field(phdr.data(), layout.pFilesz, layout.addrSize);
+        if (!fits(offset, filesz, size)) {
+            return fail("a loadable segment is past the end of the file");
+        }
+    }
+
+    // Section headers usually come last in the file, so they show a cut-off tail too
+    const auto shoff = field(ehdr.data(), layout.shoff, layout.addrSize);
+    const auto shentsize = field(ehdr.data(), layout.shentsize, 2);
+    const auto shnum = field(ehdr.data(), layout.shnum, 2);
+    if (shoff != 0
+        && (shentsize != layout.shdrSize
+            || !fits(shoff, std::max<std::uint64_t>(shnum, 1) * shentsize, size))) {
+        return fail("section headers past the end of the file");
+    }
+
+    return ElfInfo {info.elfClass, info.byteOrder, machine};
+}
+
 bool isExecutableImage(const fs::path &path, std::string &error)
 {
     boost::system::error_code ec;
@@ -165,6 +281,12 @@ bool isExecutableImage(const fs::path &path, std::string &error)
         return false;
     }
 
+#if !BOOST_OS_WINDOWS && !BOOST_OS_MACOS
+    if (!readElfImage(path, error)) {
+        return false;
+    }
+#endif
+
     return true;
 }
 
@@ -181,9 +303,37 @@ bool installBinary(const fs::path &target, const fs::path &candidate, std::strin
     fs::remove(staged, ec);
     fs::remove(backup, ec);
 
+    // Without a free backup name there would be nothing to roll back to. On Windows a backup that
+    // can't be removed is the image this process runs from, after an update earlier in this
+    // session; the next update after a restart removes it.
+    if (fs::exists(backup, ec)) {
+        error = fmt::format("Can't remove the previous backup: {}", backup.string());
+        return false;
+    }
+
+    // Moving the target onto its staging name would leave nothing to back up
+    if (fs::equivalent(candidate, target, ec)) {
+        error = fmt::format("The new binary is the current one: {}", candidate.string());
+        return false;
+    }
+
     if (!isExecutableImage(candidate, error)) {
         return false;
     }
+
+#if !BOOST_OS_WINDOWS && !BOOST_OS_MACOS
+    // A binary for another architecture would not load. A target that can't be read gives
+    // nothing to compare with, the update may replace it.
+    if (std::string targetError; const auto current = readElfImage(target, targetError)) {
+        if (const auto incoming = readElfImage(candidate, error); incoming != current) {
+            error = fmt::format("Built for another architecture: {}, machine {}, expected {}",
+                                candidate.string(), incoming ? incoming->machine : 0,
+                                current->machine);
+            return false;
+        }
+    }
+#endif
+
     const auto size = fs::file_size(candidate, ec);
 
     // 1. Stage the new binary next to the target, with the target's permissions, and get its data
@@ -208,13 +358,10 @@ bool installBinary(const fs::path &target, const fs::path &candidate, std::strin
         return false;
     }
 
-    // From here on the target may change; any failure puts the original back
-    bool haveBackup = false;
+    // Once the backup is made the target may change; any failure puts the original back
     const auto rollback = [&](const std::string &why) {
         std::string restoreError;
-        if (!haveBackup) {
-            error = fmt::format("{}; no backup to restore", why);
-        } else if (moveFile(backup, target, restoreError) && syncToDisk(dir, restoreError)) {
+        if (moveFile(backup, target, restoreError) && syncToDisk(dir, restoreError)) {
             error = fmt::format("{}; original restored", why);
         } else {
             error = fmt::format("{}; restoring the original failed: {}", why, restoreError);
@@ -226,15 +373,11 @@ bool installBinary(const fs::path &target, const fs::path &candidate, std::strin
     // 2. Keep the original under the backup name, and 3. swap the new binary in
 #if BOOST_OS_WINDOWS
     // A loaded DLL or a running executable can't be replaced or deleted, only renamed, so the
-    // original is moved aside. A backup that couldn't be removed is the image this process was
-    // loaded from, by an update earlier in this session: the target isn't in use then, and is
-    // replaced directly.
-    if (!fs::exists(backup, ec)) {
-        if (!moveFile(target, backup, error)) {
-            dropStaged();
-            return false;
-        }
-        haveBackup = true;
+    // original is moved aside. A crash between the two moves leaves the target missing: only a
+    // launcher that runs before the binary loads could recover from that.
+    if (!moveFile(target, backup, error)) {
+        dropStaged();
+        return false;
     }
     if (!moveFile(staged, target, error)) {
         return rollback(error);
@@ -255,7 +398,6 @@ bool installBinary(const fs::path &target, const fs::path &candidate, std::strin
             return false;
         }
     }
-    haveBackup = true;
     if (!syncToDisk(dir, error)) {
         fs::remove(backup, ec);
         dropStaged();

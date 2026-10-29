@@ -29,8 +29,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <trompeloeil.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/predef.h>
 #include <fstream>
 #include <iterator>
+
+#if !BOOST_OS_WINDOWS
+#    include <unistd.h>
+#endif
 
 using namespace scorbit;
 using namespace scorbit::detail;
@@ -352,6 +357,65 @@ TEST_CASE("Updater replaces the library only with a good one")
     CHECK_FALSE(fs::exists(library.string() + ".old"));
     CHECK_FALSE(fs::exists(library.string() + ".new"));
 }
+
+#if !BOOST_OS_WINDOWS
+// Files left by an interrupted update could be taken for the new ones
+TEST_CASE("Updater stops when it can't clear the update directory")
+{
+    namespace fs = boost::filesystem;
+
+    if (::geteuid() == 0) {
+        SKIP("root can remove from a read-only directory");
+    }
+
+    nlohmann::json json = nlohmann::json::parse(R"(
+            {
+                "sdk": {
+                    "version": "1.0.2",
+                    "assets_json": [
+                        "https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz"
+                    ]
+                }
+            }
+        )");
+
+    const auto dir = fs::temp_directory_path() / fs::unique_path("test_updater_%%%%-%%%%");
+    const auto locked = dir / "scorbit_update" / "lib";
+    fs::create_directories(locked);
+    {
+        std::ofstream ofs((locked / "libscorbit_sdk.so").string(), std::ios::binary);
+        ofs << executableBytes("version 1.0.0, left by an interrupted update");
+    }
+    fs::permissions(locked, fs::owner_read | fs::owner_exe);
+    std::shared_ptr<void> removeDir(nullptr, [&dir, &locked](void *) {
+        fs::permissions(locked, fs::owner_all);
+        fs::remove_all(dir);
+    });
+
+    const auto library = dir / "libscorbit_sdk.so";
+    const auto original = executableBytes("version 1.0.1");
+    {
+        std::ofstream ofs(library.string(), std::ios::binary);
+        ofs << original;
+    }
+
+    MockNetBase mockNet;
+    TempDirUpdater updater(mockNet, library);
+
+    REQUIRE_CALL(mockNet, download(false, _, _, _, _))
+            .LR_SIDE_EFFECT(REQUIRE(createTarGz(_4, {}, {{"README", "no library in here"}}));
+                            _2(Error::Success, "");)
+            .TIMES(1);
+    REQUIRE_CALL(mockNet, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(false), _, _))
+            .WITH(_4.has_value()
+                  && _4->find("Can't clear the update directory") != std::string::npos)
+            .TIMES(1);
+
+    updater.checkNewVersionAndUpdate(json, nullptr);
+
+    CHECK(readFile(library) == original);
+}
+#endif
 
 TEST_CASE("Updater relies on host-based internal download auth (not device provider)")
 {

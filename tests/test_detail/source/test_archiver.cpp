@@ -195,6 +195,18 @@ TEST_CASE("extract fails on a truncated archive")
     CHECK_FALSE(extract(archivePath, (tmpDir.path() / "out").string()));
 }
 
+TEST_CASE("extract refuses an entry with an absolute path")
+{
+    TempDir tmpDir;
+    const auto archivePath = (tmpDir.path() / "absolute.tar.gz").string();
+    const auto outside = tmpDir.path() / "outside.txt";
+
+    REQUIRE(createTarGz(archivePath, {}, {{outside.string(), "escaped"}}));
+
+    CHECK_FALSE(extract(archivePath, (tmpDir.path() / "out").string()));
+    CHECK_FALSE(fs::exists(outside));
+}
+
 TEST_CASE("createTarGz edge cases")
 {
     TempDir tmpDir;
