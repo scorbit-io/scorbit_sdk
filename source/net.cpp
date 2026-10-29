@@ -2120,6 +2120,7 @@ void Net::reattachNfc()
         updateScorbitronObject({{JKEY_SOBJ_NFC_CAPABLE, true}}, "nfc capable");
         startNfcCheckTimer();
         checkNfcBootReason();
+        createNfcNonces(); // skipped at connect while not capable; its reply programs the tag
     }
     refreshNfcFirmware();
     refreshNfcFlashable();

@@ -35,7 +35,9 @@
 #include <system_error>
 
 #if defined(_WIN32)
+#    include <fcntl.h>
 #    include <io.h>
+#    include <process.h>
 #else
 #    include <fcntl.h>
 #    include <sys/stat.h>
@@ -143,6 +145,42 @@ bool isOwnDirectory(const fs::path &dir)
 }
 #endif
 
+// A directory whose record may be trusted: this user's, and no one else can write into it.
+// Startup flashes what the record names, so a record another user could plant is ignored.
+bool isPrivateDirectory([[maybe_unused]] const fs::path &dir)
+{
+#if defined(_WIN32)
+    return true;
+#else
+    struct stat st {
+    };
+    return ::lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == ::getuid()
+        && (st.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+#endif
+}
+
+// A regular file of this user's, not a link to one elsewhere.
+bool isOwnFile(const fs::path &file)
+{
+#if defined(_WIN32)
+    std::error_code ec;
+    return fs::is_regular_file(fs::symlink_status(file, ec));
+#else
+    struct stat st {
+    };
+    return ::lstat(file.c_str(), &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == ::getuid();
+#endif
+}
+
+long processId()
+{
+#if defined(_WIN32)
+    return long(::_getpid());
+#else
+    return long(::getpid());
+#endif
+}
+
 bool writeDurably(const fs::path &file, const std::string &content)
 {
     std::FILE *out = std::fopen(file.string().c_str(), "wb");
@@ -159,14 +197,38 @@ bool writeDurably(const fs::path &file, const std::string &content)
     return std::fclose(out) == 0 && ok;
 }
 
-void syncDirectory([[maybe_unused]] const fs::path &dir)
+bool syncDirectory([[maybe_unused]] const fs::path &dir)
 {
-#if !defined(_WIN32)
+#if defined(_WIN32)
+    return true;
+#else
     // The rename is only durable once the directory entry is on disk.
-    if (const int fd = ::open(dir.c_str(), O_RDONLY); fd >= 0) {
-        ::fsync(fd);
-        ::close(fd);
+    const int fd = ::open(dir.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
     }
+    const bool ok = ::fsync(fd) == 0;
+    return ::close(fd) == 0 && ok;
+#endif
+}
+
+// Flushes a file written elsewhere, such as the downloaded image.
+bool syncFile(const fs::path &file)
+{
+#if defined(_WIN32)
+    const int fd = ::_open(file.string().c_str(), _O_RDWR | _O_BINARY);
+    if (fd < 0) {
+        return false;
+    }
+    const bool ok = ::_commit(fd) == 0;
+    return ::_close(fd) == 0 && ok;
+#else
+    const int fd = ::open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    const bool ok = ::fsync(fd) == 0;
+    return ::close(fd) == 0 && ok;
 #endif
 }
 
@@ -242,13 +304,21 @@ bool RecordStore::commit(const fs::path &dir, const Record &record) const
         fs::remove(staged, ec);
         return false;
     }
-    syncDirectory(dir);
-    return true;
+    return syncDirectory(dir);
 }
 
 std::optional<std::pair<fs::path, Record>> RecordStore::load() const
 {
     for (const auto &dir : m_dirs) {
+        std::error_code ec;
+        if (!fs::exists(fs::symlink_status(recordPath(dir), ec))) {
+            continue;
+        }
+        if (!isPrivateDirectory(dir) || !isOwnFile(recordPath(dir))) {
+            // Not ours to trust, nor to remove.
+            WRN("NFC flash: record in {} ignored: not this user's alone", dir.string());
+            continue;
+        }
         std::string text;
         {
             // Closed before a bad record is removed: Windows cannot delete an open file.
@@ -359,15 +429,16 @@ bool Flasher::inBootsel(const std::string &port)
 
 std::optional<Outcome> Flasher::waitForIdle(const Request &request)
 {
-    while (!m_host.idle()) {
-        if (request.deadline && m_host.now() >= *request.deadline) {
-            return Outcome {Status::Deferred, Stage::IdleCheck};
+    // The deadline first: a run past it is deferred even on an idle unit.
+    while (!request.deadline || m_host.now() < *request.deadline) {
+        if (m_host.idle()) {
+            return std::nullopt;
         }
         if (!m_host.sleepFor(m_timing.idlePoll)) {
             return Outcome {Status::Failed, Stage::IdleCheck, Failure::Interrupted};
         }
     }
-    return std::nullopt;
+    return Outcome {Status::Deferred, Stage::IdleCheck};
 }
 
 std::optional<Outcome> Flasher::run(const Request &request)
@@ -399,14 +470,16 @@ std::optional<Outcome> Flasher::run(const Request &request)
     }
     INF("NFC flash run_id={}: build {} -> {}, staging in {}", runId, *current, request.targetBuild,
         dir->string());
-    m_store.clear(*dir);
+    // Another process of this user may stage in the same directory, so this run downloads to a
+    // name of its own and touches the shared image and record only under the tap pad lock.
+    auto part = RecordStore::imagePath(*dir);
+    part += "." + std::to_string(processId()) + ".part";
     auto fail = [&](Stage stage, Failure failure) {
-        m_store.clear(*dir);
+        std::error_code ignored;
+        fs::remove(part, ignored);
         return Outcome {Status::Failed, stage, failure};
     };
 
-    auto part = RecordStore::imagePath(*dir);
-    part += ".part";
     if (!m_host.download(request.imageUrl, part, request.size)) {
         return fail(Stage::Staging, Failure::Download);
     }
@@ -419,14 +492,15 @@ std::optional<Outcome> Flasher::run(const Request &request)
             nfc::uf2::errorName(image.error));
         return fail(Stage::Staging, Failure::InvalidPolicy);
     }
-    fs::rename(part, RecordStore::imagePath(*dir), ec);
-    if (ec) {
+    // The record will name this image, so it must be on disk before the record is.
+    if (!syncFile(part)) {
+        ERR("NFC flash run_id={}: the image could not be synced to disk", runId);
         return fail(Stage::Staging, Failure::Internal);
     }
 
     m_host.stage(runId, Stage::Locking);
     if (auto deferred = waitForIdle(request)) {
-        m_store.clear(*dir);
+        fail(Stage::Locking, Failure::None);
         return deferred;
     }
     bool busy = false;
@@ -444,13 +518,27 @@ std::optional<Outcome> Flasher::run(const Request &request)
         WRN("NFC flash run_id={}: a BOOTSEL device is already at {}", runId, foreign.front());
         return fail(Stage::Locking, Failure::ForeignBootloader);
     }
+    // Under the lock, so no other run can be between this check and the commit.
+    if (const auto pending = m_store.load()) {
+        WRN("NFC flash run_id={}: run_id={} still awaits recovery", runId, pending->second.runId);
+        return fail(Stage::Locking, Failure::Busy);
+    }
+    // From here the shared image and record are this run's.
+    auto failShared = [&](Stage stage, Failure failure) {
+        m_store.clear(*dir);
+        return fail(stage, failure);
+    };
+    fs::rename(part, RecordStore::imagePath(*dir), ec);
+    if (ec) {
+        return failShared(Stage::Locking, Failure::Internal);
+    }
     const Record record {runId, *port, request.targetBuild, request.sha256};
     if (!m_store.commit(*dir, record)) {
         ERR("NFC flash run_id={}: the record could not be committed in {}", runId, dir->string());
-        return fail(Stage::Locking, Failure::Internal);
+        return failShared(Stage::Locking, Failure::Internal);
     }
     if (m_host.stopping()) {
-        return fail(Stage::Locking, Failure::Interrupted);
+        return failShared(Stage::Locking, Failure::Interrupted);
     }
 
     hold->enterBootloader();
@@ -459,8 +547,8 @@ std::optional<Outcome> Flasher::run(const Request &request)
         if (m_host.stopping()) {
             return std::nullopt; // resumed after the restart
         }
-        return fail(Stage::Bootloader,
-                    m_pad.probeAt(*port) ? Failure::BootloaderRefused : Failure::ProbeLost);
+        return failShared(Stage::Bootloader,
+                          m_pad.probeAt(*port) ? Failure::BootloaderRefused : Failure::ProbeLost);
     }
     return finish(*dir, record);
 }
@@ -476,8 +564,9 @@ std::optional<Outcome> Flasher::finish(const fs::path &dir, const Record &record
 
     m_host.stage(runId, Stage::Copy);
     const auto imageFile = RecordStore::imagePath(dir);
-    const auto image = nfc::uf2::parseFile(imageFile);
-    if (!image.ok() || sha256File(imageFile) != record.sha256) {
+    nfc::uf2::ParseResult image;
+    if (!isOwnFile(imageFile) || !(image = nfc::uf2::parseFile(imageFile)).ok()
+        || sha256File(imageFile) != record.sha256) {
         ERR("NFC flash run_id={}: the staged image is gone or changed", runId);
         return end(Stage::Copy, Failure::StuckInBootloader);
     }
@@ -549,7 +638,10 @@ std::optional<Flasher::Resumed> Flasher::resume()
 
     // After a cold boot the pad, in BOOTSEL or not, may not have enumerated yet.
     const auto &port = record.port;
-    waitFor(m_timing.bootselWait, [&] { return inBootsel(port) || m_pad.probeAt(port); });
+    if (!waitFor(m_timing.bootselWait, [&] { return inBootsel(port) || m_pad.probeAt(port); })
+        && m_host.stopping()) {
+        return std::nullopt; // the record is kept for the next start
+    }
 
     Outcome outcome;
     if (inBootsel(port) && !m_pad.probeAt(port)) {

@@ -79,6 +79,9 @@ public:
     {
         CHECK(url == "https://api.example/image");
         downloadLimit = maxBytes;
+        if (duringDownload) {
+            duringDownload();
+        }
         if (failDownload) {
             return false;
         }
@@ -88,6 +91,7 @@ public:
     }
 
     std::vector<uint8_t> image;
+    std::function<void()> duringDownload;
     bool failDownload = false;
     bool stop = false;
     std::optional<Stage> stopAt;
@@ -530,6 +534,34 @@ TEST_CASE("nfc flash: resume reports what a restart left behind", "[nfc_flash]")
     CHECK_FALSE(f.recordLeft());
 }
 
+TEST_CASE("nfc flash: another process's run in the same directory is left alone", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    // Another SDK process of this user commits its run while this one downloads.
+    f.host.duringDownload = [&] {
+        fs::create_directories(stateDir);
+        std::ofstream(RecordStore::imagePath(stateDir)) << "other image";
+        REQUIRE(f.store.commit(stateDir, Record {"run-2", PORT, NEW_BUILD, "other"}));
+    };
+
+    const auto outcome = f.flasher().run(f.request);
+
+    REQUIRE(outcome);
+    CHECK(sameOutcome(*outcome, {Status::Failed, Stage::Locking, Failure::Busy}));
+    CHECK(f.pad.bootloaderCommands == 0);
+    const auto left = f.store.load();
+    REQUIRE(left);
+    CHECK(left->second.runId == "run-2");
+    std::ifstream image(RecordStore::imagePath(stateDir));
+    std::string text;
+    std::getline(image, text);
+    CHECK(text == "other image");
+    for (const auto &entry : fs::directory_iterator(stateDir)) {
+        CHECK(entry.path().extension() != ".part"); // this run's download is gone
+    }
+}
+
 TEST_CASE("nfc flash: a record that cannot be finished yet is kept", "[nfc_flash]")
 {
     Fixture f;
@@ -551,6 +583,77 @@ TEST_CASE("nfc flash: a record that cannot be finished yet is kept", "[nfc_flash
     }
     CHECK(f.recordLeft());
 }
+
+TEST_CASE("nfc flash: a deadline already past is deferred, idle or not", "[nfc_flash]")
+{
+    Fixture f;
+    SECTION("before staging")
+    {
+        f.request.deadline = f.host.clock - 1s;
+    }
+    SECTION("crossed during the download")
+    {
+        f.request.deadline = f.host.clock + 1h;
+        f.host.duringDownload = [&] { f.host.clock += 2h; };
+    }
+    const auto outcome = f.flasher().run(f.request);
+    REQUIRE(outcome);
+    CHECK(sameOutcome(*outcome, {Status::Deferred, Stage::IdleCheck}));
+    CHECK(f.pad.bootloaderCommands == 0);
+    CHECK_FALSE(f.recordLeft());
+}
+
+TEST_CASE("nfc flash: a stop while resume waits for the pad keeps the record", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+    f.pad.present = false;
+    f.host.stop = true;
+    CHECK_FALSE(f.flasher().resume());
+    CHECK(f.recordLeft());
+}
+
+#if !defined(_WIN32)
+TEST_CASE("nfc flash: a record others could have written is not trusted", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+
+    SECTION("a directory others can write to")
+    {
+        fs::permissions(stateDir, fs::perms::others_write, fs::perm_options::add);
+        CHECK_FALSE(f.store.load());
+        CHECK_FALSE(f.flasher().resume());
+        CHECK(fs::exists(RecordStore::recordPath(stateDir))); // not this user's to remove
+    }
+    SECTION("a directory that is a link")
+    {
+        const auto linked = f.dir.path / "linked";
+        fs::create_directory_symlink(stateDir, linked);
+        RecordStore store {{linked}};
+        CHECK_FALSE(store.load());
+    }
+    SECTION("a staged image that is a link is not written")
+    {
+        const auto real = f.dir.path / "real.uf2";
+        std::ofstream(real, std::ios::binary)
+                .write(reinterpret_cast<const char *>(f.host.image.data()),
+                       std::streamsize(f.host.image.size()));
+        fs::create_symlink(real, RecordStore::imagePath(stateDir));
+        f.pad.present = false;
+        f.pad.rom = std::make_shared<FakeBootrom>();
+        const auto resumed = f.flasher().resume();
+        REQUIRE(resumed);
+        CHECK(sameOutcome(resumed->outcome,
+                          {Status::Failed, Stage::Copy, Failure::StuckInBootloader}));
+        CHECK(f.pad.opens == 0);
+    }
+}
+#endif
 
 TEST_CASE("nfc flash: the record store", "[nfc_flash]")
 {
