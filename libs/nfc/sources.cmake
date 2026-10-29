@@ -11,6 +11,13 @@ set(headers
     include/nfc/Uf2.h
     include/nfc/Picoboot.h
     include/nfc/PicobootUsb.h
+    include/nfc/UsbPort.h
 )
 
-set(sources source/probes_manager.cpp source/Uf2.cpp source/Picoboot.cpp source/PicobootUsb.cpp)
+set(sources
+    source/probes_manager.cpp
+    source/Uf2.cpp
+    source/Picoboot.cpp
+    source/PicobootUsb.cpp
+    source/UsbPort.cpp
+)

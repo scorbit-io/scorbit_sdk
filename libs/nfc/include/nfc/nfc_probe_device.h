@@ -94,6 +94,15 @@ public:
     virtual bool setUri(const std::string &uri) = 0;
     virtual bool setLedsBrightness(uint8_t brightness) = 0;
     virtual bool setType(NfcType type) = 0;
+
+    /**
+     * Sends the bootloader command. The probe reboots into its RP2040 boot ROM (BOOTSEL) without
+     * replying, so only a BOOTSEL device appearing shows that it worked.
+     */
+    virtual void enterBootloader() {}
+
+    /** What the probe was opened on: "/dev/ttyACM<n>" or "usb:<bus>:<addr>:<iface>". */
+    virtual std::string devicePath() const { return {}; }
 };
 
 } // namespace nfc

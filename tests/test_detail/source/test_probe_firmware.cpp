@@ -255,6 +255,35 @@ TEST_CASE("The SDK reports the NFC pad itself")
     CHECK(net.patches.empty()); // not authenticated: the first send carries it
 }
 
+TEST_CASE("After a flash the pad is found again and retagged, or NFC is withdrawn")
+{
+    CapturingNet net;
+    SECTION("found, already capable: its tag is programmed again")
+    {
+        NetTestAccess::setProbesManager(
+                net, std::make_shared<nfc::ProbesManager>(nfcPad(1761000000, 0xcafe)));
+        CHECK(NetTestAccess::reattachNfc(net, 30));
+        CHECK(NetTestAccess::nfcCapable(net));
+    }
+    SECTION("missing with retries left: NFC is kept while it is looked for")
+    {
+        NetTestAccess::setProbesManager(
+                net, std::make_shared<nfc::ProbesManager>(nfcPad(1761000000, 0xcafe)));
+        NetTestAccess::setProbesManager(net, std::make_shared<nfc::ProbesManager>(nullptr));
+        NetTestAccess::setNfcCapable(net, true);
+        CHECK_FALSE(NetTestAccess::reattachNfc(net, 30));
+        CHECK(NetTestAccess::nfcCapable(net));
+    }
+    SECTION("missing with no retries left: NFC is withdrawn")
+    {
+        NetTestAccess::setProbesManager(net, std::make_shared<nfc::ProbesManager>(nullptr));
+        NetTestAccess::setNfcCapable(net, true);
+        CHECK_FALSE(NetTestAccess::reattachNfc(net, 0));
+        CHECK_FALSE(NetTestAccess::nfcCapable(net));
+        CHECK(NetTestAccess::currentScorbitronObject(net).at("nfc_capable") == false);
+    }
+}
+
 TEST_CASE("Installing the probe manager at startup reads the NFC pad")
 {
     CapturingNet net;

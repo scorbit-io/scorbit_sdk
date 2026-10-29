@@ -19,6 +19,8 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "nfc_flash.h"
+#include "nfc_flash_pad.h"
 #include "http_session_pool.h"
 #include "soft_key_resolver.h"
 #include "fmt_formatters.h"
@@ -81,9 +83,11 @@ constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto NUM_RETRIES = 3;
-/// Whether the SDK's own NFC pad flash routine is built in (SB-5759). Until it is, NFC is never
-/// in probe_flash_probes, so the API never sends an NFC probe_flash.
-constexpr bool SDK_NFC_FLASH_ROUTINE = false;
+/// Whether the SDK flashes its own NFC pad (SB-5759). With it off, NFC is never in
+/// probe_flash_probes, so the API never sends an NFC probe_flash.
+constexpr bool SDK_NFC_FLASH_ROUTINE = true;
+/// A probe_flash deadline counts at most this far ahead, so a skewed clock can't hold the unit.
+constexpr auto PROBE_FLASH_DEADLINE_HORIZON = 24h;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 // A busy hardware key defers authentication indefinitely; this long into it, say so once.
@@ -588,6 +592,8 @@ Net::~Net()
         // taken here no arm can land after the worker cancels its timers below.
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
     }
+    // With m_stop set an NFC flash winds down at its next wait; its last posts need the worker.
+    joinNfcThread();
 
     // m_worker.stop() below drains the posted teardown, so the join still happens in this dtor.
     retireNetworkMonitor("shutdown");
@@ -726,6 +732,7 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 
 void Net::applyGameData(const GameData &data, SessionFlags flags)
 {
+    m_lastGameActivity = std::chrono::steady_clock::now();
     int sessionCounterAfterUpdate = 0;
     {
         std::scoped_lock lock(m_gameSessionsMutex);
@@ -1157,7 +1164,7 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
 
     {
         std::scoped_lock lock(m_scorbitronObjectMutex);
-        m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
+        m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable.load();
     }
 
     if (m_isNfcCapable) {
@@ -1167,6 +1174,11 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
     checkNfcBootReason();
     updateDiscoveryDescription();
     refreshNfcFirmware();
+    refreshNfcFlashable();
+    if (SDK_NFC_FLASH_ROUTINE && m_probesManager) {
+        // Off the host's thread: its startup may run under a watchdog.
+        runOnNfcThread([this] { resumeNfcFlash(); });
+    }
 }
 
 void Net::refreshNfcFirmware()
@@ -1857,7 +1869,9 @@ std::vector<std::string> Net::probeFlashProbes() const
 {
     std::vector<std::string> probes(m_deviceInfo.probeFlashProbes.begin(),
                                     m_deviceInfo.probeFlashProbes.end());
-    if (SDK_NFC_FLASH_ROUTINE && m_deviceInfo.probeFlashNfcTrigger) {
+    // Governing: SB-5759. The SDK flashes the pad itself wherever this process can open it;
+    // probeFlashNfcTrigger plays no part.
+    if (SDK_NFC_FLASH_ROUTINE && m_nfcFlashable) {
         probes.emplace_back(JVAL_PROBE_NFC);
     }
     return probes;
@@ -1909,12 +1923,11 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
     // its deadline (at most a day off, so a skewed clock can't hold it) and the longest a flash
     // can take have passed. Measured on the steady clock; a past deadline still holds the window.
     constexpr auto MAX_FLASH_WINDOW = std::chrono::minutes {30};
-    constexpr auto MAX_DEADLINE_HORIZON = std::chrono::hours {24};
     const auto deadline =
             parseProbeFlashDeadline(payload.at(JKEY_PF_DEADLINE).get_ref<const std::string &>());
     const auto untilDeadline = std::clamp<std::chrono::system_clock::duration>(
             deadline.value_or(std::chrono::system_clock::now()) - std::chrono::system_clock::now(),
-            std::chrono::system_clock::duration::zero(), MAX_DEADLINE_HORIZON);
+            std::chrono::system_clock::duration::zero(), PROBE_FLASH_DEADLINE_HORIZON);
     const auto now = std::chrono::steady_clock::now();
     std::optional<std::string> running;
     {
@@ -1948,7 +1961,296 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
                   {JKEY_PF_IMAGE_URL,
                    url(URL_DIAGNOSTICS_PROBE_FLASH_IMAGE_PATH, fmt::arg(ARG_RUN_ID, runId))}};
     INF("DIAG: probe flash requested run_id={} probe={}", runId, probe);
+    if (probe == JVAL_PROBE_NFC) {
+        // Governing: SB-5759. The SDK carries out an nfc run itself, on every host.
+        startNfcFlash(std::move(request));
+        return;
+    }
     m_eventManager->push(std::make_shared<ProbeFlashRequestedEvent>(runId, request.dump()));
+}
+
+namespace {
+
+// As scorbitd's probe flash: a flash waits until the unit has seen no game for this long.
+constexpr auto NFC_FLASH_IDLE_REQUIRED = std::chrono::minutes {10};
+// A resumed run holds the unit like a requested one past its deadline.
+constexpr auto NFC_FLASH_RESUME_WINDOW = std::chrono::minutes {30};
+// After a flash, how often and how many times to look for a pad that has not come back yet.
+constexpr auto NFC_REATTACH_RETRY = std::chrono::seconds {10};
+constexpr int NFC_REATTACH_ATTEMPTS = 30;
+
+/** nfc_flash::Host over callbacks, so the routine needs no access to Net's internals. */
+class CallbackFlashHost : public nfc_flash::Host
+{
+public:
+    std::function<bool()> stoppingFn;
+    std::function<bool()> idleFn;
+    std::function<void(const std::string &, nfc_flash::Stage)> stageFn;
+    std::function<bool(const std::string &, const std::filesystem::path &, uint64_t)> downloadFn;
+
+    bool stopping() override { return stoppingFn(); }
+    bool idle() override { return idleFn(); }
+    bool sleepFor(std::chrono::milliseconds duration) override
+    {
+        constexpr auto SLICE = std::chrono::milliseconds {100};
+        while (duration.count() > 0 && !stoppingFn()) {
+            const auto step = std::min(duration, SLICE);
+            std::this_thread::sleep_for(step);
+            duration -= step;
+        }
+        return !stoppingFn();
+    }
+    std::chrono::system_clock::time_point now() override
+    {
+        return std::chrono::system_clock::now();
+    }
+    void stage(const std::string &runId, nfc_flash::Stage stage) override { stageFn(runId, stage); }
+    bool download(const std::string &url, const std::filesystem::path &to,
+                  uint64_t maxBytes) override
+    {
+        return downloadFn(url, to, maxBytes);
+    }
+};
+
+} // namespace
+
+void Net::startNfcFlash(json request)
+{
+    const auto runId = request.value(JKEY_DIAG_RUN_ID, std::string {});
+    if (!runOnNfcThread([this, request = std::move(request)] { runNfcFlash(request); })) {
+        WRN("NFC flash run_id={}: another flash of the pad is running", runId);
+        submitProbeFlashResult(
+                runId,
+                nfc_flash::resultJson({nfc_flash::Status::Failed, nfc_flash::Stage::IdleCheck,
+                                       nfc_flash::Failure::Busy})
+                        .dump(),
+                {});
+    }
+}
+
+bool Net::runOnNfcThread(std::function<void()> work)
+{
+    std::lock_guard<std::mutex> lock(m_nfcThreadMutex);
+    if (m_stop) {
+        return false;
+    }
+    if (m_nfcThread.joinable()) {
+        if (!m_nfcThreadDone) {
+            return false;
+        }
+        m_nfcThread.join();
+    }
+    m_nfcThreadDone = false;
+    m_nfcThread = std::thread([this, work = std::move(work)] {
+        try {
+            work();
+        } catch (const std::exception &e) {
+            ERR("NFC flash: {}", e.what());
+        } catch (...) {
+            ERR("NFC flash: unknown error");
+        }
+        m_nfcThreadDone = true;
+    });
+    return true;
+}
+
+void Net::joinNfcThread()
+{
+    std::lock_guard<std::mutex> lock(m_nfcThreadMutex);
+    if (m_nfcThread.joinable()) {
+        m_nfcThread.join();
+    }
+}
+
+bool Net::withNfcFlasher(const std::function<void(nfc_flash::Flasher &)> &body)
+{
+    CallbackFlashHost host;
+    host.stoppingFn = [this] { return m_stop.load(); };
+    host.idleFn = [this] { return nfcFlashIdle(); };
+    host.stageFn = [this](const std::string &runId, nfc_flash::Stage stage) {
+        submitProbeFlashStage(runId, json {{JKEY_PF_STAGE, nfc_flash::stageName(stage)}}.dump(),
+                              {});
+    };
+    host.downloadFn = [this](const std::string &url, const std::filesystem::path &to,
+                             uint64_t maxBytes) {
+        DownloadOptions options;
+        options.maxBytes = maxBytes;
+        options.given = true;
+        bool ok = false;
+        downloadWithOptions(
+                false,
+                [&ok](Error error, const std::string &reply) {
+                    ok = error == Error::Success;
+                    if (!ok) {
+                        WRN("NFC flash: image download failed: {}", reply);
+                    }
+                },
+                url, to.string(), {}, options);
+        return ok;
+    };
+    nfc_flash::SdkPad pad {m_probesManager};
+    const nfc_flash::RecordStore store {nfc_flash::RecordStore::defaultDirs()};
+    nfc_flash::Flasher flasher {host, pad, store};
+
+    // A run can outlive its one-flash hold, so a second one must not start beside it.
+    if (m_nfcFlashRunning.exchange(true)) {
+        return false;
+    }
+    struct ClearOnExit {
+        std::atomic<bool> &flag;
+        ~ClearOnExit() { flag = false; }
+    } clear {m_nfcFlashRunning};
+    body(flasher);
+    return true;
+}
+
+void Net::reattachNfc()
+{
+    if (!m_probesManager || m_stop) {
+        return;
+    }
+    m_probesManager->rescanNfc();
+    if (!m_probesManager->hasNfc()) {
+        if (m_nfcReattachLeft.fetch_sub(1) > 0) {
+            // A pad back from BOOTSEL, or power cycled out of it, can take a while to enumerate.
+            m_worker.startTimer(Worker::Timer::NfcReattach, NFC_REATTACH_RETRY,
+                                [this] { m_worker.post([this] { reattachNfc(); }); });
+        } else if (m_isNfcCapable.exchange(false)) {
+            WRN("NFC probe not found again after a flash; NFC is off until it is");
+            m_worker.stopTimer(Worker::Timer::NfcCheckTag);
+            updateScorbitronObject({{JKEY_SOBJ_NFC_CAPABLE, false}}, "nfc capable");
+        }
+    } else if (!m_isNfcCapable.exchange(true)) {
+        // Absent at startup (in BOOTSEL, say) and back now: what setProbesManager would have run
+        INF("NFC probe found after a flash");
+        m_nfcRetag = false;
+        updateScorbitronObject({{JKEY_SOBJ_NFC_CAPABLE, true}}, "nfc capable");
+        startNfcCheckTimer();
+        checkNfcBootReason();
+        createNfcNonces(); // skipped at connect while not capable; its reply programs the tag
+    } else if (m_nfcRetag.exchange(false)) {
+        // A rebooted pad comes back with no tag programmed
+        m_worker.post([this] { setNfcTag(); });
+    }
+    refreshNfcFirmware();
+    refreshNfcFlashable();
+}
+
+void Net::runNfcFlash(const json &request)
+{
+    nfc_flash::Request flash;
+    try {
+        flash.runId = request.at(JKEY_DIAG_RUN_ID).get<std::string>();
+        flash.targetBuild = request.at(JKEY_PF_TARGET_BUILD).get<uint64_t>();
+        flash.sha256 = toLowerAscii(request.at(JKEY_PF_SHA256).get<std::string>());
+        flash.size = request.at(JKEY_PF_SIZE).get<uint64_t>();
+        flash.deadline = parseProbeFlashDeadline(
+                request.at(JKEY_PF_DEADLINE).get_ref<const std::string &>());
+        // Bounded as the one-flash guard is, so the guard cannot expire while this run waits.
+        if (const auto horizon = std::chrono::system_clock::now() + PROBE_FLASH_DEADLINE_HORIZON;
+            flash.deadline && *flash.deadline > horizon) {
+            flash.deadline = horizon;
+        }
+        flash.imageUrl = request.at(JKEY_PF_IMAGE_URL).get<std::string>();
+    } catch (const std::exception &e) {
+        ERR("NFC flash: bad request: {}", e.what());
+        return;
+    }
+
+    using nfc_flash::Failure;
+    using nfc_flash::Outcome;
+    using nfc_flash::Stage;
+    using nfc_flash::Status;
+    std::optional<Outcome> outcome;
+    try {
+        if (!m_probesManager) {
+            outcome = Outcome {Status::Failed, Stage::IdleCheck, Failure::ProbeLost};
+        } else if (!withNfcFlasher([&](nfc_flash::Flasher &f) { outcome = f.run(flash); })) {
+            WRN("NFC flash run_id={}: another flash of the pad is running", flash.runId);
+            outcome = Outcome {Status::Failed, Stage::IdleCheck, Failure::Busy};
+        }
+    } catch (const std::exception &e) {
+        // Never into the worker, and so the host: a record already committed resumes next start.
+        ERR("NFC flash run_id={}: {}", flash.runId, e.what());
+        outcome = Outcome {Status::Failed, Stage::IdleCheck, Failure::Internal};
+    }
+    if (!outcome) {
+        WRN("NFC flash run_id={}: stopped with the pad in BOOTSEL; the next start resumes it",
+            flash.runId);
+        return;
+    }
+    const auto result = nfc_flash::resultJson(*outcome);
+    INF("NFC flash run_id={}: {}", flash.runId, result.dump());
+    submitProbeFlashResult(flash.runId, result.dump(), {});
+    m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
+    m_nfcRetag = true;
+    reattachNfc();
+}
+
+void Net::resumeNfcFlash()
+{
+    const auto pending = nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.load();
+    if (!pending || !m_probesManager) {
+        return;
+    }
+    // The unit is busy with this run until it is finished, but only once the run is ours: a run
+    // another process finishes first must not leave a hold here. A flash accepted meanwhile owns
+    // the unit, so the resume waits for the next start rather than run beside it.
+    const auto claimed = [this](const std::string &runId) {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        if (!m_probeFlashRunId) {
+            m_probeFlashRunId = runId;
+            m_probeFlashRunExpires = std::chrono::steady_clock::now() + NFC_FLASH_RESUME_WINDOW;
+        }
+        return m_probeFlashRunId == runId;
+    };
+    std::optional<nfc_flash::Flasher::Resumed> resumed;
+    try {
+        withNfcFlasher([&](nfc_flash::Flasher &flasher) { resumed = flasher.resume(claimed); });
+    } catch (const std::exception &e) {
+        ERR("NFC flash: resume failed, record kept for the next start: {}", e.what());
+    }
+    if (resumed) {
+        const auto result = nfc_flash::resultJson(resumed->outcome);
+        INF("NFC flash run_id={}: resumed, {}", resumed->runId, result.dump());
+        submitProbeFlashResult(resumed->runId, result.dump(), {});
+        m_nfcRetag = true;
+    }
+    m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
+    reattachNfc();
+}
+
+void Net::refreshNfcFlashable()
+{
+    if (!SDK_NFC_FLASH_ROUTINE || !m_probesManager || m_nfcFlashRunning) {
+        return; // mid-flash the pad reads as absent, which says nothing about access
+    }
+    const bool flashable = nfc_flash::nfcFlashable(*m_probesManager);
+    if (m_nfcFlashRunning) {
+        return; // a flash began while the pad was read
+    }
+    if (flashable == m_nfcFlashable.exchange(flashable)) {
+        return;
+    }
+    INF("NFC flash: this process can {}flash the pad", flashable ? "" : "no longer ");
+    const auto probes = probeFlashProbes();
+    updateScorbitronObject({{JKEY_SOBJ_PROBE_FLASH_CAPABLE, !probes.empty()},
+                            {JKEY_SOBJ_PROBE_FLASH_PROBES, probes}},
+                           "probe flash probes");
+}
+
+bool Net::nfcFlashIdle()
+{
+    {
+        std::scoped_lock lock(m_gameSessionsMutex);
+        for (const auto &[id, session] : m_gameSessions) {
+            if (session.gameData.isGameActive) {
+                return false;
+            }
+        }
+    }
+    const auto since = std::max(m_lastGameActivity.load(), m_createdAt);
+    return std::chrono::steady_clock::now() - since >= NFC_FLASH_IDLE_REQUIRED;
 }
 
 void Net::submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
@@ -3301,7 +3603,7 @@ void Net::initScorbitronObject()
     }
 
     // Set capabilities
-    m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable;
+    m_scorbitronObject[JKEY_SOBJ_NFC_CAPABLE] = m_isNfcCapable.load();
     m_scorbitronObject[JKEY_SOBJ_START_GAME_CAPABLE] = false;
     m_scorbitronObject[JKEY_SOBJ_CREDIT_DROP_CAPABLE] = false;
     // SB-3363 — handler ships unconditionally; advertise so the API can gate
@@ -4050,6 +4352,16 @@ void NetTestAccess::handleProbeFlash(Net &net, const nlohmann::json &payload)
     net.handleProbeFlash(payload);
 }
 
+void NetTestAccess::setNfcFlashable(Net &net, bool flashable)
+{
+    net.m_nfcFlashable = flashable;
+}
+
+bool NetTestAccess::nfcFlashIdle(Net &net)
+{
+    return net.nfcFlashIdle();
+}
+
 void NetTestAccess::resendDueProbeFlashResults(Net &net, std::chrono::steady_clock::time_point now)
 {
     net.resendDueProbeFlashResults(now);
@@ -4110,6 +4422,24 @@ void NetTestAccess::setProbesManager(Net &net, std::shared_ptr<nfc::ProbesManage
 {
     net.m_isNfcCapable = manager && manager->hasNfc();
     net.m_probesManager = std::move(manager);
+}
+
+bool NetTestAccess::reattachNfc(Net &net, int attemptsLeft)
+{
+    net.m_nfcReattachLeft = attemptsLeft;
+    net.m_nfcRetag = true;
+    net.reattachNfc();
+    return !net.m_nfcRetag; // consumed by a found pad
+}
+
+bool NetTestAccess::nfcCapable(const Net &net)
+{
+    return net.m_isNfcCapable;
+}
+
+void NetTestAccess::setNfcCapable(Net &net, bool capable)
+{
+    net.m_isNfcCapable = capable;
 }
 
 task_t Net::createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -5286,6 +5616,7 @@ void Net::checkNfcBootReason()
                       {{JVAL_PROBE_NFC, probeFirmwareEntry(nfcProbeFirmware(*identity))}}}},
                     "probe firmware");
         }
+        refreshNfcFlashable();
 
         m_worker.startTimer(Worker::Timer::NfcBootReason, NFC_BOOT_REASON_DELAY,
                             [this]() { checkNfcBootReason(); });

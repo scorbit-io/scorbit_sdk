@@ -119,7 +119,7 @@ struct DeviceInfo {
     std::map<std::string, std::optional<ProbeFirmware>> probeFirmware;
     /// Probes the host flashes itself on a probe_flash request; empty routes none to it.
     std::set<std::string> probeFlashProbes;
-    /// The host runs the NFC pad's flash checks (idle, game), then calls the SDK's routine.
+    /// Set by the deprecated sb_config_set_probe_flash_nfc_trigger; unused (SB-5759).
     bool probeFlashNfcTrigger {false};
     std::string machineTitle;
     std::string extraFingerprint;

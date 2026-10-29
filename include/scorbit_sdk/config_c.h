@@ -290,9 +290,9 @@ SCORBIT_SDK_EXPORT
 void sb_config_add_probe_flash_probe(sb_config_t config, const char *probe);
 
 /**
- * Internal use. Whether the host triggers the NFC pad's flash: it then receives NFC requests as
- * @ref SB_EVT_PROBE_FLASH_REQUESTED, applies its idle and game checks, and calls the SDK's NFC
- * routine. Off by default.
+ * Internal use. Deprecated: has no effect. The SDK flashes the NFC pad itself on every host,
+ * from its own idle check to the result, wherever its process can open the pad; NFC requests
+ * never reach the host. Kept so existing callers still build and link.
  */
 SCORBIT_SDK_EXPORT
 void sb_config_set_probe_flash_nfc_trigger(sb_config_t config, bool triggers);

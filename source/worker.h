@@ -54,6 +54,7 @@ public:
         ScorbitronRetry,
         PairCode,
         ProbeFlashResultRetry,
+        NfcReattach,
 
         // IMPORTANT! This must be last entry!
         Count,

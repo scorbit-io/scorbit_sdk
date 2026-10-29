@@ -103,6 +103,7 @@ target_sources(
         source/test_modes.cpp
         source/test_game_state.cpp
         source/test_probes_manager.cpp
+        source/test_nfc_usb_port.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
         ../../source/updater.h
@@ -117,6 +118,11 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
+        ../../source/nfc_flash.h
+        ../../source/nfc_flash.cpp
+        ../../source/nfc_flash_pad.h
+        ../../source/nfc_flash_pad.cpp
+        source/test_nfc_flash.cpp
         ../../source/config_c.cpp
         source/test_game_firmware.cpp
         source/test_probe_firmware.cpp
