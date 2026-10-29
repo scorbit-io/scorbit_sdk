@@ -1,9 +1,18 @@
 #!/bin/sh
 set -e
+RULES=/etc/udev/rules.d/60-scorbit-probes.rules
 case "$1" in
-  remove|upgrade|deconfigure)
-    if [ -x "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" ]; then
-      "@SCORBIT_SDK_INSTALL_PREFIX@/bin/add-rpi-rp2-fstab.sh" remove || true
+  remove|deconfigure)
+    # On upgrade the new postinst rewrites the rules, so they are only dropped on removal.
+    if [ -e "$RULES" ]; then
+      rm -f "$RULES" || true
+      if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules || true
+        # Re-apply the default rules so devices already connected lose the access too.
+        udevadm trigger --subsystem-match=usb --attr-match=idVendor=cafe || true
+        udevadm trigger --subsystem-match=usb --attr-match=idVendor=2e8a --attr-match=idProduct=0003 || true
+        udevadm trigger --subsystem-match=tty --sysname-match='ttyACM*' --property-match=ID_VENDOR_ID=cafe || true
+      fi
     fi
     ;;
 esac

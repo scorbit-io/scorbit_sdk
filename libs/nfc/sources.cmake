@@ -8,8 +8,9 @@ set(headers
     include/nfc/ListUsbDevices.h
     include/nfc/probes_manager.h
     include/nfc/nfc_probe_device.h
+    include/nfc/Uf2.h
+    include/nfc/Picoboot.h
+    include/nfc/PicobootUsb.h
 )
 
-set(sources
-    source/probes_manager.cpp
-)
+set(sources source/probes_manager.cpp source/Uf2.cpp source/Picoboot.cpp source/PicobootUsb.cpp)

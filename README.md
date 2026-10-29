@@ -19,7 +19,7 @@ From [releases](https://github.com/scorbit-io/scorbit_sdk/releases) page the nec
 
 Currently, they are available as `DEB` and `TGZ` packages for C/C++ and as wheel files `WHL` for Python.
 
-Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`777`** (world-writable, no sticky bit) so a non-root process can rename root-owned `.so` files for self-update, and run **`bin/add-rpi-rp2-fstab.sh add`** to add the same **RPI-RP2** `/etc/fstab` block used by scorbitd (mount label `RPI-RP2` at `/mnt/RPI-RP2`). The fstab helper is shipped from **`assets/scripts/`** to **`/opt/scorbit/bin/`** and is **not** placed on `PATH`; it is only invoked from package maintainer scripts. On remove/upgrade, `prerm` runs **`add ... remove`**. Tighter production setups can adjust permissions or fstab after install.
+Linux packages install under **`/opt/scorbit`** (not under `/usr/local`). Maintainer script sources live under **`assets/deb/`** (like scorbitd). The runtime Debian package installs `postinst`/`postrm`/`prerm` scripts that add `/etc/ld.so.conf.d/scorbit-sdk.conf` (listing `/opt/scorbit/lib`), run `ldconfig`, set **`/opt/scorbit/lib`** to mode **`777`** (world-writable, no sticky bit) so a non-root process can rename root-owned `.so` files for self-update, and install the udev rule **`/etc/udev/rules.d/60-scorbit-probes.rules`**. The rule lets a non-root SDK open Scorbit probes (USB vendor `cafe`, including their `/dev/ttyACM*` ports) and flash a tap pad's RP2040 over PICOBOOT while it is in BOOTSEL (`2e8a:0003`), with no mount and no `/etc/fstab` entry. On `u12` builds it grants mode **`0666`**; on other builds mode **`0660`** to group **`scorbit`**, which `postinst` creates (add the user that runs your game to it). `prerm` deletes the rule on removal. The rule is rewritten on every upgrade, so to tighten it, add a later-sorting rule file (e.g. `61-scorbit-probes-local.rules`) that sets your own `MODE`/`GROUP`.
 
 ### Install C/C++ SDK
 
@@ -41,7 +41,7 @@ scorbit_sdk-dev-<version>-<arch>_<abi_tag>.deb
 
 **Tarball (.tar.gz):** two archives per build, with the same split as the `.deb` packages:
 
-* **`scorbit_sdk`**: shared library and `bin/add-rpi-rp2-fstab.sh` (runtime).
+* **`scorbit_sdk`**: shared library (runtime).
 * **`scorbit_sdk-dev`**: headers and CMake package files (development).
 
 Example file names:

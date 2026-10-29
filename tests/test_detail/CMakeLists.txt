@@ -185,6 +185,7 @@ target_sources(
         source/test_provider_class.cpp
         source/test_nfc_tpm_key_resolver.cpp
         source/test_list_usb_devices.cpp
+        source/test_picoboot.cpp
         ../../libs/tpm/source/atca_retry.h
         source/test_atca_retry.cpp
         source/tappad_lock_test_path.h
