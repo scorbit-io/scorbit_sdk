@@ -166,11 +166,9 @@ MakeWritableResult fsMakeWritable(const fs::path &p)
     return {true, mp};
 }
 
-void fsRemountReadOnly(const std::string &mp)
+bool fsRemountReadOnly(const std::string &mp)
 {
-    if (!mp.empty()) {
-        remountRO(mp);
-    }
+    return mp.empty() || remountRO(mp);
 }
 
 } // namespace utils

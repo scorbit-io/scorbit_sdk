@@ -20,6 +20,7 @@
 #include "updater.h"
 #include <logger/logger.h>
 #include "utils/archiver.h"
+#include "utils/binary_installer.h"
 #include <platform_id.h>
 #include <utils/fs_read_write.h>
 #include <scorbit_sdk/version.h>
@@ -27,7 +28,6 @@
 #include <fmt/chrono.h>
 #include <nlohmann/json.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <boost/predef.h>
 #include <regex>
 
 #ifndef SCORBIT_SDK_PRODUCTION_KEY_HASH
@@ -50,10 +50,12 @@ namespace fs = boost::filesystem;
 using namespace scorbit;
 using namespace detail;
 
+// Finds a file in @p dir itself, not a symlink, which could lead anywhere, even to the binary
+// being replaced
 fs::path findFile(const fs::path &dir, const std::regex &pattern)
 {
     for (const auto &entry : fs::recursive_directory_iterator(dir)) {
-        if (entry.is_regular_file()
+        if (fs::is_regular_file(entry.symlink_status())
             && std::regex_search(entry.path().filename().string(), pattern)) {
             return entry.path().string();
         }
@@ -105,9 +107,14 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getSdkLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
 
-        if (canUpdateSdk(urlInfo, binaryInfo)) {
+        if (isInstalledThisSession(urlInfo.version, m_sdkInstalledVersion)) {
+            DBG("Updater: SDK {} is installed, waiting for a restart", urlInfo.version);
+        } else if (canUpdateSdk(urlInfo, binaryInfo)) {
             INF("Updater: trying to update SDK to version: {}", urlInfo.version);
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
+            if (success) {
+                m_sdkInstalledVersion = urlInfo.version;
+            }
         }
 
         if (!m_feedback.empty() || success) {
@@ -124,10 +131,15 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getProcessExecutablePath(), std::regex {SCORBITD_PATTERN}};
 
-        if (canUpdateScorbitd(urlInfo, binaryInfo)) {
+        if (isInstalledThisSession(urlInfo.version, m_scorbitdInstalledVersion)) {
+            DBG("Updater: scorbitd {} is installed, waiting for a restart", urlInfo.version);
+        } else if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
 
+            if (success) {
+                m_scorbitdInstalledVersion = urlInfo.version;
+            }
             if (success && eventManager) {
                 eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(
                         urlInfo.version, binaryInfo.path.string()));
@@ -146,6 +158,14 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     }
 
     m_updateInProgress = false;
+}
+
+// The running binary reports its own version until a restart, so the version it installed would
+// be offered again on every config fetch. Installing it again would only repeat the work; on
+// Windows it would fail, the backup of the running binary being locked.
+bool Updater::isInstalledThisSession(const std::string &version, const std::string &installed)
+{
+    return !installed.empty() && version == installed;
 }
 
 Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
@@ -214,7 +234,6 @@ Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const
 
 bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) const
 {
-    bool rv = false;
     const auto tempDir = binaryInfo.path.parent_path() / UPDATE_DIR;
 
     // RAII cleanup guard
@@ -228,6 +247,17 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
     std::shared_ptr<void> guard(nullptr, [&](void *) { cleanup(); });
 
     try {
+        // An interrupted earlier update may have left files here, none may be taken for this one's
+        boost::system::error_code ec;
+        fs::remove_all(tempDir, ec);
+        if (ec) {
+            const auto msg = fmt::format("Can't clear the update directory: {}, {}",
+                                         tempDir.string(), ec.message());
+            feedback(msg);
+            ERR("Updater: {}", msg);
+            return false;
+        }
+
         // update from tgz archive
         const auto archivePath = fs::path {archive};
 
@@ -248,10 +278,17 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
         }
         const auto newLibPath = fs::canonical(candidatePath);
 
-        // Replace the binary with the new one
+        // Replace the binary with the new one; on any failure the current one stays
         INF("Updater: replacing current file: {} by: {}", binaryInfo.path.string(),
             newLibPath.string());
-        rv = replaceBinary(binaryInfo.path.string(), newLibPath.string());
+        std::string error;
+        if (!installBinary(binaryInfo.path, newLibPath, error)) {
+            const auto msg = fmt::format("Failed to replace binary: {}", error);
+            feedback(msg);
+            ERR("Updater: {}", msg);
+            return false;
+        }
+        return true;
 
     } catch (fs::filesystem_error &e) {
         const auto msg = fmt::format("Error occurred while updating library: {}", e.what());
@@ -259,63 +296,7 @@ bool Updater::update(const std::string &archive, const BinaryInfo &binaryInfo) c
         ERR("Updater: {}", msg);
     }
 
-    return rv;
-}
-
-bool Updater::replaceBinary(const std::string &libPath, const std::string &newLibPath) const
-{
-    try {
-        std::string backupPath = libPath + ".old";
-
-#if BOOST_OS_WINDOWS
-        if (fs::exists(backupPath)) {
-            boost::system::error_code ec;
-            fs::remove(backupPath, ec); // Try removing .old
-            if (ec) {
-                // .old still locked from previous session
-                fs::remove(libPath); // Try removing the current one
-            } else {
-                // We successfully removed .old - safe to backup current
-                fs::rename(libPath, backupPath);
-            }
-        } else if (fs::exists(libPath)) {
-            // No old file blocking, just rename current
-            fs::rename(libPath, backupPath);
-        }
-
-        // Finally, rename new library into place
-        fs::rename(newLibPath, libPath);
-        return true;
-
-#else // POSIX systems
-
-        if (fs::exists(libPath)) {
-            fs::rename(libPath, backupPath); // Backup current lib
-
-            try {
-                fs::rename(newLibPath, libPath); // Replace with new lib
-                fs::remove(backupPath);          // Remove backup on success
-                return true;
-            } catch (const fs::filesystem_error &e) {
-                const auto msg =
-                        fmt::format("Error occurred while replacing library: {}", e.what());
-                feedback(msg);
-                ERR("Updater: {}", msg);
-                fs::rename(backupPath, libPath); // Restore original
-                return false;
-            }
-        } else {
-            // Current lib doesn't exist - simple case
-            fs::rename(newLibPath, libPath);
-            return true;
-        }
-#endif
-    } catch (const fs::filesystem_error &e) {
-        const auto msg = fmt::format("Error occurred while replacing library: {}", e.what());
-        feedback(msg);
-        ERR("Updater: {}", msg);
-        return false;
-    }
+    return false;
 }
 
 bool Updater::canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const
@@ -461,7 +442,9 @@ bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &bi
     }
 
     const auto ok = downloadAndupdateTgz(urlInfo, binaryInfo);
-    utils::fsRemountReadOnly(mountResult.mountPoint);
+    if (!utils::fsRemountReadOnly(mountResult.mountPoint)) {
+        WRN("Updater: failed to remount read-only: {}", mountResult.mountPoint);
+    }
     return ok;
 }
 
@@ -480,7 +463,21 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
                 success = false;
                 if (error == Error::Success) {
                     INF("Updater: downloaded successfully: {}", filename);
-                    success = update(filename, binaryInfo);
+
+                    // Only scorbitd assets announce their size
+                    boost::system::error_code ec;
+                    const auto downloaded = fs::file_size(filename, ec);
+                    if (urlInfo.size > 0
+                        && (ec || downloaded != static_cast<std::uintmax_t>(urlInfo.size))) {
+                        const auto msg =
+                                fmt::format("Downloaded size mismatch: expected {}, found {}",
+                                            urlInfo.size, ec ? 0 : downloaded);
+                        feedback(msg);
+                        ERR("Updater: {}", msg);
+                    } else {
+                        success = update(filename, binaryInfo);
+                    }
+
                     if (success) {
                         const auto msg =
                                 fmt::format("Updated successfully, ver: {}", urlInfo.version);
@@ -489,7 +486,6 @@ bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &bin
                     }
 
                     // Cleanup downloaded archive
-                    boost::system::error_code ec;
                     fs::remove(filename, ec);
                     if (ec) {
                         WRN("Updater: failed to remove temp file: {}, {}", filename, ec.message());
