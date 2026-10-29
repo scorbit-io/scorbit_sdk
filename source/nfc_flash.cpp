@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -470,10 +471,11 @@ std::optional<Outcome> Flasher::run(const Request &request)
     }
     INF("NFC flash run_id={}: build {} -> {}, staging in {}", runId, *current, request.targetBuild,
         dir->string());
-    // Another process of this user may stage in the same directory, so this run downloads to a
-    // name of its own and touches the shared image and record only under the tap pad lock.
+    // Another run of this user, in this process or another, may stage in the same directory, so
+    // this run downloads to a name of its own and touches the shared files only under the lock.
+    static std::atomic<unsigned> runs {0};
     auto part = RecordStore::imagePath(*dir);
-    part += "." + std::to_string(processId()) + ".part";
+    part += "." + std::to_string(processId()) + "." + std::to_string(++runs) + ".part";
     auto fail = [&](Stage stage, Failure failure) {
         std::error_code ignored;
         fs::remove(part, ignored);
@@ -652,6 +654,12 @@ std::optional<Flasher::Resumed> Flasher::resume()
             // Only this record can bring the pad out of BOOTSEL; keep it for the next start.
             WRN("NFC flash run_id={}: the tap pad lock is busy; resume left for the next start",
                 record.runId);
+            return std::nullopt;
+        }
+        // Another process may have finished this run while the lock was out of reach.
+        const auto current = m_store.load();
+        if (!current || current->first != dir || current->second.runId != record.runId) {
+            INF("NFC flash run_id={}: already resumed elsewhere", record.runId);
             return std::nullopt;
         }
         auto finished = finish(dir, record);

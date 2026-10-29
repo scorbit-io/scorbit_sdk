@@ -79,6 +79,7 @@ public:
     {
         CHECK(url == "https://api.example/image");
         downloadLimit = maxBytes;
+        downloadedTo.push_back(to);
         if (duringDownload) {
             duringDownload();
         }
@@ -99,6 +100,7 @@ public:
     std::chrono::system_clock::time_point clock {std::chrono::seconds {1'800'000'000}};
     std::vector<Stage> stages;
     uint64_t downloadLimit = 0;
+    std::vector<fs::path> downloadedTo;
 };
 
 // A tap pad at PORT that drops into BOOTSEL on the bootloader command and comes back, on
@@ -166,6 +168,9 @@ public:
     std::unique_ptr<Hold> hold(bool withProbe, bool &busy) override
     {
         settle();
+        if (beforeHold) {
+            beforeHold();
+        }
         busy = lockBusy;
         if (lockBusy || (withProbe && !present)) {
             return nullptr;
@@ -224,6 +229,7 @@ public:
     uint32_t corruptReadAt = 0;
     int appearAfterPolls = 0;
     std::vector<std::string> foreign;
+    std::function<void()> beforeHold;
     std::shared_ptr<FakeBootrom> rom;
     bool settled = false;
     int bootloaderCommands = 0;
@@ -560,6 +566,30 @@ TEST_CASE("nfc flash: another process's run in the same directory is left alone"
     for (const auto &entry : fs::directory_iterator(stateDir)) {
         CHECK(entry.path().extension() != ".part"); // this run's download is gone
     }
+}
+
+TEST_CASE("nfc flash: each run in a process stages under its own name", "[nfc_flash]")
+{
+    Fixture f;
+    f.host.failDownload = true;
+    f.flasher().run(f.request);
+    f.flasher().run(f.request);
+    REQUIRE(f.host.downloadedTo.size() == 2);
+    CHECK(f.host.downloadedTo[0] != f.host.downloadedTo[1]);
+}
+
+TEST_CASE("nfc flash: resume leaves a run another process finished", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+    f.pad.present = false;
+    f.pad.rom = std::make_shared<FakeBootrom>();
+    // The other process finishes and clears the run while this one waits for the lock.
+    f.pad.beforeHold = [&] { f.store.clear(stateDir); };
+    CHECK_FALSE(f.flasher().resume());
+    CHECK(f.pad.opens == 0);
 }
 
 TEST_CASE("nfc flash: a record that cannot be finished yet is kept", "[nfc_flash]")
