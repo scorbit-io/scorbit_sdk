@@ -551,12 +551,17 @@ std::optional<Outcome> Flasher::run(const Request &request)
 
     hold->enterBootloader();
     m_host.stage(runId, Stage::Bootloader);
-    if (!waitFor(m_timing.bootselWait, [&] { return inBootsel(*port); })) {
+    if (!waitFor(m_timing.enumerateWait, [&] { return inBootsel(*port); })) {
         if (m_host.stopping()) {
             return std::nullopt; // resumed after the restart
         }
-        return failShared(Stage::Bootloader,
-                          m_pad.probeAt(*port) ? Failure::BootloaderRefused : Failure::ProbeLost);
+        if (m_pad.probeAt(*port)) {
+            return failShared(Stage::Bootloader, Failure::BootloaderRefused);
+        }
+        // Not seen in either mode: it may yet show up in BOOTSEL, and only the record gets it out.
+        WRN("NFC flash run_id={}: the pad is gone after the command; the next start resumes it",
+            runId);
+        return Outcome {Status::Failed, Stage::Bootloader, Failure::ProbeLost};
     }
     return finish(*dir, record);
 }
@@ -634,7 +639,8 @@ std::optional<Outcome> Flasher::finish(const fs::path &dir, const Record &record
     return Outcome {Status::Succeeded, Stage::Done};
 }
 
-std::optional<Flasher::Resumed> Flasher::resume()
+std::optional<Flasher::Resumed>
+Flasher::resume(const std::function<void(const std::string &)> &claimed)
 {
     const auto loaded = m_store.load();
     if (!loaded) {
@@ -646,7 +652,7 @@ std::optional<Flasher::Resumed> Flasher::resume()
 
     // After a cold boot the pad, in BOOTSEL or not, may not have enumerated yet.
     const auto &port = record.port;
-    if (!waitFor(m_timing.bootselWait, [&] { return inBootsel(port) || m_pad.probeAt(port); })
+    if (!waitFor(m_timing.enumerateWait, [&] { return inBootsel(port) || m_pad.probeAt(port); })
         && m_host.stopping()) {
         return std::nullopt; // the record is kept for the next start
     }
@@ -667,6 +673,9 @@ std::optional<Flasher::Resumed> Flasher::resume()
         INF("NFC flash run_id={}: already resumed elsewhere", record.runId);
         return std::nullopt;
     }
+    if (claimed) {
+        claimed(record.runId);
+    }
 
     Outcome outcome;
     if (inBootsel(port) && !m_pad.probeAt(port)) {
@@ -678,12 +687,16 @@ std::optional<Flasher::Resumed> Flasher::resume()
     } else if (m_pad.probeAt(port)) {
         // Cut short before the pad left its firmware, or after it came back. Whether the
         // command went out cannot be told, so an unflashed pad reports the stage before it.
-        const auto build = m_pad.build();
-        outcome = build == record.targetBuild
+        // On its firmware the pad needs no rescue, so the record goes whatever the build says.
+        std::optional<uint64_t> build;
+        waitFor(m_timing.verifyWait, [&] { return (build = m_pad.build()).has_value(); });
+        outcome = !build ? Outcome {Status::Failed, Stage::Verify, Failure::NotResponding}
+                : *build == record.targetBuild
                         ? Outcome {Status::Succeeded, Stage::Done}
                         : Outcome {Status::Failed, Stage::Locking, Failure::Interrupted};
         m_store.clear(dir);
     } else {
+        // Absent through a restart and the whole enumeration wait: gone, not late.
         outcome = Outcome {Status::Failed, Stage::Bootloader, Failure::ProbeLost};
         m_store.clear(dir);
     }

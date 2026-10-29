@@ -181,6 +181,8 @@ struct Timing {
     std::chrono::milliseconds idlePoll {std::chrono::seconds {5}};
     std::chrono::milliseconds devicePoll {std::chrono::milliseconds {250}};
     std::chrono::milliseconds bootselWait {std::chrono::seconds {10}};
+    // How long a pad may take to show up after a mode change or a cold boot.
+    std::chrono::milliseconds enumerateWait {std::chrono::seconds {60}};
     std::chrono::milliseconds rebootWait {std::chrono::seconds {30}};
     std::chrono::milliseconds verifyWait {std::chrono::seconds {15}};
     int copyAttempts {3};
@@ -202,8 +204,11 @@ public:
         Outcome outcome;
     };
 
-    /** Finishes a run a restart cut short, if its record is left. */
-    std::optional<Resumed> resume();
+    /**
+     * Finishes a run a restart cut short, if its record is left. @p claimed is called with its
+     * run id once the run is this process's: under the tap pad lock, its record re-checked.
+     */
+    std::optional<Resumed> resume(const std::function<void(const std::string &)> &claimed = {});
 
 private:
     std::optional<Outcome> waitForIdle(const Request &request);

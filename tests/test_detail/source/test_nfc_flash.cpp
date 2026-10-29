@@ -124,6 +124,7 @@ public:
         void enterBootloader() override
         {
             ++m_pad.bootloaderCommands;
+            m_pad.bootselIn = m_pad.bootselAfterPolls;
             if (m_pad.bootloaderWorks) {
                 m_pad.present = false;
                 m_pad.rom = std::make_shared<FakeBootrom>();
@@ -163,6 +164,10 @@ public:
     {
         settle();
         ++builds;
+        if (present && failReads > 0) {
+            --failReads;
+            return std::nullopt;
+        }
         return present && !failRead ? std::optional {firmware} : std::nullopt;
     }
     std::unique_ptr<Hold> hold(bool withProbe, Refused &why) override
@@ -204,6 +209,10 @@ public:
     // After PICOBOOT REBOOT the ROM leaves the bus and the pad comes back.
     void settle()
     {
+        if (bootselIn > 0 && --bootselIn == 0) {
+            rom = std::make_shared<FakeBootrom>(); // a late BOOTSEL after the command
+            rom->corruptReadAt = corruptReadAt;
+        }
         if (appearAfterPolls > 0 && --appearAfterPolls == 0) {
             present = true; // enumerated late, as after a cold boot
         }
@@ -220,6 +229,9 @@ public:
     bool present = true;
     bool portKnown = true;
     bool failRead = false;
+    int failReads = 0;
+    int bootselAfterPolls = 0;
+    int bootselIn = 0;
     bool failReadAfterReboot = false;
     bool lockBusy = false;
     bool noLock = false;
@@ -415,18 +427,56 @@ TEST_CASE("nfc flash: the pad does not reach BOOTSEL", "[nfc_flash]")
     Fixture f;
     f.pad.bootloaderWorks = false;
     Outcome expected;
+    bool kept = false;
     SECTION("it stays on its firmware")
     {
         expected = {Status::Failed, Stage::Bootloader, Failure::BootloaderRefused};
     }
-    SECTION("it disappears")
+    SECTION("it disappears, and may yet show up in BOOTSEL")
     {
         f.pad.vanishOnBootloader = true;
         expected = {Status::Failed, Stage::Bootloader, Failure::ProbeLost};
+        kept = true;
     }
     const auto outcome = f.flasher().run(f.request);
     REQUIRE(outcome);
     CHECK(sameOutcome(*outcome, expected));
+    CHECK(f.recordLeft() == kept);
+}
+
+TEST_CASE("nfc flash: a slow BOOTSEL after the command is still flashed", "[nfc_flash]")
+{
+    Fixture f;
+    // Gone from its firmware at once, in BOOTSEL only after 15 s
+    f.pad.vanishOnBootloader = true;
+    f.pad.bootloaderWorks = false;
+    f.pad.bootselAfterPolls = 60;
+    const auto outcome = f.flasher().run(f.request);
+    REQUIRE(outcome);
+    CHECK(sameOutcome(*outcome, {Status::Succeeded, Stage::Done}));
+}
+
+TEST_CASE("nfc flash: resume rides out a slow pad", "[nfc_flash]")
+{
+    Fixture f;
+    const auto stateDir = f.dir.path / "state";
+    fs::create_directories(stateDir);
+    REQUIRE(f.store.commit(stateDir, Record {"run-1", PORT, NEW_BUILD, f.request.sha256}));
+    f.pad.firmware = NEW_BUILD;
+    SECTION("it enumerates after 15 s")
+    {
+        f.pad.present = false;
+        f.pad.appearAfterPolls = 60;
+    }
+    SECTION("its first build reads fail")
+    {
+        f.pad.failReads = 5;
+    }
+    std::vector<std::string> claims;
+    const auto resumed = f.flasher().resume([&](const std::string &id) { claims.push_back(id); });
+    REQUIRE(resumed);
+    CHECK(sameOutcome(resumed->outcome, {Status::Succeeded, Stage::Done}));
+    CHECK(claims == std::vector<std::string> {"run-1"});
     CHECK_FALSE(f.recordLeft());
 }
 
@@ -594,7 +644,9 @@ TEST_CASE("nfc flash: resume leaves a run another process finished", "[nfc_flash
     f.pad.rom = std::make_shared<FakeBootrom>();
     // The other process finishes and clears the run while this one waits for the lock.
     f.pad.beforeHold = [&] { f.store.clear(stateDir); };
-    CHECK_FALSE(f.flasher().resume());
+    bool claimed = false; // so the caller sets no one-flash hold for it
+    CHECK_FALSE(f.flasher().resume([&](const std::string &) { claimed = true; }));
+    CHECK_FALSE(claimed);
     CHECK(f.pad.opens == 0);
 }
 

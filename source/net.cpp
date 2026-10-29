@@ -86,6 +86,8 @@ constexpr auto NUM_RETRIES = 3;
 /// Whether the SDK flashes its own NFC pad (SB-5759). With it off, NFC is never in
 /// probe_flash_probes, so the API never sends an NFC probe_flash.
 constexpr bool SDK_NFC_FLASH_ROUTINE = true;
+/// A probe_flash deadline counts at most this far ahead, so a skewed clock can't hold the unit.
+constexpr auto PROBE_FLASH_DEADLINE_HORIZON = 24h;
 constexpr auto AUTH_RETRY_INITIAL_BACKOFF = 2s;
 constexpr auto AUTH_RETRY_MAX_BACKOFF = 1min;
 // A busy hardware key defers authentication indefinitely; this long into it, say so once.
@@ -1921,12 +1923,11 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
     // its deadline (at most a day off, so a skewed clock can't hold it) and the longest a flash
     // can take have passed. Measured on the steady clock; a past deadline still holds the window.
     constexpr auto MAX_FLASH_WINDOW = std::chrono::minutes {30};
-    constexpr auto MAX_DEADLINE_HORIZON = std::chrono::hours {24};
     const auto deadline =
             parseProbeFlashDeadline(payload.at(JKEY_PF_DEADLINE).get_ref<const std::string &>());
     const auto untilDeadline = std::clamp<std::chrono::system_clock::duration>(
             deadline.value_or(std::chrono::system_clock::now()) - std::chrono::system_clock::now(),
-            std::chrono::system_clock::duration::zero(), MAX_DEADLINE_HORIZON);
+            std::chrono::system_clock::duration::zero(), PROBE_FLASH_DEADLINE_HORIZON);
     const auto now = std::chrono::steady_clock::now();
     std::optional<std::string> running;
     {
@@ -2136,6 +2137,11 @@ void Net::runNfcFlash(const json &request)
         flash.size = request.at(JKEY_PF_SIZE).get<uint64_t>();
         flash.deadline = parseProbeFlashDeadline(
                 request.at(JKEY_PF_DEADLINE).get_ref<const std::string &>());
+        // Bounded as the one-flash guard is, so the guard cannot expire while this run waits.
+        if (const auto horizon = std::chrono::system_clock::now() + PROBE_FLASH_DEADLINE_HORIZON;
+            flash.deadline && *flash.deadline > horizon) {
+            flash.deadline = horizon;
+        }
         flash.imageUrl = request.at(JKEY_PF_IMAGE_URL).get<std::string>();
     } catch (const std::exception &e) {
         ERR("NFC flash: bad request: {}", e.what());
@@ -2177,17 +2183,18 @@ void Net::resumeNfcFlash()
     if (!pending || !m_probesManager) {
         return;
     }
-    {
-        // The unit is busy with this run until it is finished
+    // The unit is busy with this run until it is finished, but only once the run is ours: a run
+    // another process finishes first must not leave a hold here.
+    const auto claimed = [this](const std::string &runId) {
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
         if (!m_probeFlashRunId) {
-            m_probeFlashRunId = pending->second.runId;
+            m_probeFlashRunId = runId;
             m_probeFlashRunExpires = std::chrono::steady_clock::now() + NFC_FLASH_RESUME_WINDOW;
         }
-    }
+    };
     std::optional<nfc_flash::Flasher::Resumed> resumed;
     try {
-        withNfcFlasher([&](nfc_flash::Flasher &flasher) { resumed = flasher.resume(); });
+        withNfcFlasher([&](nfc_flash::Flasher &flasher) { resumed = flasher.resume(claimed); });
     } catch (const std::exception &e) {
         ERR("NFC flash: resume failed, record kept for the next start: {}", e.what());
     }
