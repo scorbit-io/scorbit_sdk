@@ -51,6 +51,11 @@
 #    endif
 #endif
 
+// In nfc, not the global namespace: a host may carry its own global copies of these inline
+// helpers (scorbitd's spb does), and two different definitions of one inline function let the
+// linker keep either one's statics (SB-6100).
+namespace nfc {
+
 #if defined(__linux__)
 constexpr uint16_t kProbeUsbVid = 0xCAFE;
 // TinyUSB: USB_PID = 0x4000 | CFG_TUD_CDC
@@ -230,3 +235,5 @@ inline std::vector<std::string> listUsbDevices()
     return devices;
 #endif
 }
+
+} // namespace nfc
