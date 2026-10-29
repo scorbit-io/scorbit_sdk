@@ -19,6 +19,8 @@
 
 #pragma once
 
+#include "logger/redact.h"
+
 #include <fmt/format.h>
 #include <string>
 #include <string_view>
@@ -77,8 +79,8 @@ inline void logMessage(LogLevel level, const char *file, int line, Fmt &&fmt, Ar
     // fmt::format with a single string pack uses compile-time format checking (consteval on
     // libfmt 10+), which breaks when called from non-constexpr contexts under C++20. Use a
     // runtime format string for this logging path.
-    log(fmt::format(fmt::runtime(std::forward<Fmt>(fmt)), std::forward<Args>(args)...), level,
-        fileName, line);
+    log(redact(fmt::format(fmt::runtime(std::forward<Fmt>(fmt)), std::forward<Args>(args)...)),
+        level, fileName, line);
 }
 
 } // namespace logger

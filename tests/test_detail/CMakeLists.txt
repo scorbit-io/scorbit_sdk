@@ -157,6 +157,7 @@ target_sources(
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp
+        source/test_log_redact.cpp
         ../../source/player_profiles_manager.h
         ../../source/player_profiles_manager.cpp
         source/test_player_profiles_manager.cpp
