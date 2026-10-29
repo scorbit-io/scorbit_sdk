@@ -307,7 +307,8 @@ bool installBinary(const fs::path &target, const fs::path &candidate, std::strin
     // can't be removed is the image this process runs from, after an update earlier in this
     // session; the next update after a restart removes it.
     if (fs::exists(backup, ec)) {
-        error = fmt::format("Can't remove the previous backup: {}", backup.string());
+        error = fmt::format("Can't remove the previous backup, a restart may be needed: {}",
+                            backup.string());
         return false;
     }
 

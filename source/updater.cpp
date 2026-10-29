@@ -107,9 +107,14 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getSdkLibraryPath(), std::regex {SDK_LIBRARY_PATTERN}};
 
-        if (canUpdateSdk(urlInfo, binaryInfo)) {
+        if (isInstalledThisSession(urlInfo.version, m_sdkInstalledVersion)) {
+            DBG("Updater: SDK {} is installed, waiting for a restart", urlInfo.version);
+        } else if (canUpdateSdk(urlInfo, binaryInfo)) {
             INF("Updater: trying to update SDK to version: {}", urlInfo.version);
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
+            if (success) {
+                m_sdkInstalledVersion = urlInfo.version;
+            }
         }
 
         if (!m_feedback.empty() || success) {
@@ -126,10 +131,15 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getProcessExecutablePath(), std::regex {SCORBITD_PATTERN}};
 
-        if (canUpdateScorbitd(urlInfo, binaryInfo)) {
+        if (isInstalledThisSession(urlInfo.version, m_scorbitdInstalledVersion)) {
+            DBG("Updater: scorbitd {} is installed, waiting for a restart", urlInfo.version);
+        } else if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
 
+            if (success) {
+                m_scorbitdInstalledVersion = urlInfo.version;
+            }
             if (success && eventManager) {
                 eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(
                         urlInfo.version, binaryInfo.path.string()));
@@ -148,6 +158,14 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     }
 
     m_updateInProgress = false;
+}
+
+// The running binary reports its own version until a restart, so the version it installed would
+// be offered again on every config fetch. Installing it again would only repeat the work; on
+// Windows it would fail, the backup of the running binary being locked.
+bool Updater::isInstalledThisSession(const std::string &version, const std::string &installed)
+{
+    return !installed.empty() && version == installed;
 }
 
 Updater::UrlInfo Updater::parseUrls(const nlohmann::json &obj) const

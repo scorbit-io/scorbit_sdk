@@ -337,6 +337,24 @@ TEST_CASE("Updater replaces the library only with a good one")
         CHECK(readFile(library) == updated);
     }
 
+    SECTION("The installed version offered again before a restart is left alone")
+    {
+        const auto updated = executableBytes("version 1.0.2");
+
+        // Once only: the second offer neither downloads nor reports
+        REQUIRE_CALL(mockNet, download(false, _, _, _, _))
+                .LR_SIDE_EFFECT(REQUIRE(createTarGz(_4, {}, {{"lib/libscorbit_sdk.so", updated}}));
+                                _2(Error::Success, "");)
+                .TIMES(1);
+        REQUIRE_CALL(mockNet, updateConfig(eq("sdk"), eq(SCORBIT_SDK_VERSION), eq(true), _, _))
+                .TIMES(1);
+
+        updater.checkNewVersionAndUpdate(json, nullptr);
+        updater.checkNewVersionAndUpdate(json, nullptr);
+
+        CHECK(readFile(library) == updated);
+    }
+
     SECTION("Archive with an empty library keeps the current one")
     {
         REQUIRE_CALL(mockNet, download(false, _, _, _, _))
