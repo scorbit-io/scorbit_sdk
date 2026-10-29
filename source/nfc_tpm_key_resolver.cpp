@@ -45,7 +45,7 @@ constexpr uint32_t DISCOVERY_LOCK_TIMEOUT_MS = 10000;
 TpmLocation discoverTpmDeviceUnderLock()
 {
     bool busy = false;
-    auto path = scanUnderTappadLock([] { return CdcTpm().DiscoverTpmDevice(); },
+    auto path = scanUnderTappadLock([] { return nfc::CdcTpm().DiscoverTpmDevice(); },
                                     DISCOVERY_LOCK_TIMEOUT_MS, &busy);
     if (busy) {
         return TpmLocation::busyTapPad();

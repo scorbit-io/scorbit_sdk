@@ -54,9 +54,9 @@ public:
                                   std::shared_ptr<EventManager> eventManager);
 
 private:
+    static bool isInstalledThisSession(const std::string &version, const std::string &installed);
     UrlInfo parseUrls(const nlohmann::json &sdk) const;
     bool update(const std::string &archivePath, const BinaryInfo &binaryInfo) const;
-    bool replaceBinary(const std::string &libPath, const std::string &newLibPath) const;
 
     bool canUpdateSdk(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
     bool canUpdateScorbitd(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const;
@@ -77,7 +77,7 @@ protected:
     virtual boost::filesystem::path getProcessExecutablePath() const;
     // Remount around the replacement; virtual so tests never touch the host's mounts (SB-6104).
     virtual utils::MakeWritableResult makeWritable(const boost::filesystem::path &dir) const;
-    virtual void remountReadOnly(const std::string &mountPoint) const;
+    virtual bool remountReadOnly(const std::string &mountPoint) const;
 
 private:
     NetBase &m_net;
@@ -87,6 +87,10 @@ private:
 
     const std::string m_scorbitdVersion;
     const std::string m_scorbitdPlatformId;
+
+    // Versions installed by this process, they run after a restart
+    std::string m_sdkInstalledVersion;
+    std::string m_scorbitdInstalledVersion;
 
     mutable std::string m_feedback;
 };

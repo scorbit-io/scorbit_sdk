@@ -83,6 +83,9 @@ public:
 
     auto hasNfc() const -> bool;
 
+    /** What the NFC probe was opened on (NfcProbeDevice::devicePath); empty if none or flashing. */
+    auto nfcDevicePath() const -> std::string;
+
     /**
      * Scan for the NFC probe again, adopting one found (e.g. attached or replaced after start).
      * If none is found the current device is kept. A tap read during the scan is queued for
@@ -122,6 +125,16 @@ public:
      */
     auto nfcProbeInfo() -> NfcProbeInfoResult;
 
+    class FlashHold;
+
+    /**
+     * Holds the NFC probe for a firmware flash (SB-5759). Until the hold is destroyed every other
+     * method returns at once without touching the probe, so no poll waits on a flash. Destroying
+     * it after @ref FlashHold::enterBootloader forgets the probe, which re-enumerates; call
+     * @ref rescanNfc to find it again. Null when no NFC probe is present.
+     */
+    auto holdNfcForFlash() -> std::unique_ptr<FlashHold>;
+
 private:
     // forceRescan: treat as a rescan (queue a tap read here) even if no probe was known yet
     auto enumerateLocked(probe_t probesSet, const ProbeDisplayCallback &callback,
@@ -132,6 +145,8 @@ private:
     static constexpr int NO_LED_MODE {-1};
 
     mutable std::mutex m_mutex;
+    // Set by FlashHold before it takes m_mutex, so callers return instead of queueing behind it
+    std::atomic<bool> m_flashing {false};
     // LED mode the host asked for (set without the lock) and the one last written to the probe
     std::atomic<int> m_desiredLedMode {NO_LED_MODE};
     int m_appliedLedMode {NO_LED_MODE};
@@ -144,6 +159,27 @@ private:
     uint64_t m_lastSeenTapUnixMs {0};
     std::shared_ptr<NetworkDiscovery> m_discovery;
     NetworkDiscovery::DeviceInfo_t m_discoveryInfo;
+};
+
+class ProbesManager::FlashHold
+{
+public:
+    ~FlashHold();
+    FlashHold(const FlashHold &) = delete;
+    FlashHold &operator=(const FlashHold &) = delete;
+
+    /** See NfcProbeDevice::devicePath. */
+    auto devicePath() const -> std::string;
+    /** See NfcProbeDevice::enterBootloader. */
+    auto enterBootloader() -> void;
+
+private:
+    friend class ProbesManager;
+    explicit FlashHold(ProbesManager &manager);
+
+    ProbesManager &m_manager;
+    std::unique_lock<std::mutex> m_lock;
+    bool m_bootloaderSent {false};
 };
 
 } // namespace nfc

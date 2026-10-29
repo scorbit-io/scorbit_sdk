@@ -24,6 +24,7 @@ add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 set(headers
     include/logger/logger.h
+    include/logger/redact.h
 )
 
 target_sources(${PROJECT_NAME} PRIVATE ${headers})

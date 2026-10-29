@@ -103,12 +103,15 @@ target_sources(
         source/test_modes.cpp
         source/test_game_state.cpp
         source/test_probes_manager.cpp
+        source/test_nfc_usb_port.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
         ../../source/updater.h
         ../../source/updater.cpp
         ../../source/utils/archiver.h
         ../../source/utils/archiver.cpp
+        ../../source/utils/binary_installer.h
+        ../../source/utils/binary_installer.cpp
         ../../source/net.h
         ../../source/net.cpp
         source/test_net.cpp
@@ -117,6 +120,11 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
+        ../../source/nfc_flash.h
+        ../../source/nfc_flash.cpp
+        ../../source/nfc_flash_pad.h
+        ../../source/nfc_flash_pad.cpp
+        source/test_nfc_flash.cpp
         ../../source/config_c.cpp
         source/test_game_firmware.cpp
         source/test_probe_firmware.cpp
@@ -157,6 +165,7 @@ target_sources(
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp
+        source/test_log_redact.cpp
         ../../source/player_profiles_manager.h
         ../../source/player_profiles_manager.cpp
         source/test_player_profiles_manager.cpp
@@ -165,6 +174,8 @@ target_sources(
         ../../source/safe_multipart.h
         source/test_safe_multipart.cpp
         source/test_archiver.cpp
+        source/executable_bytes.h
+        source/test_binary_installer.cpp
         ../../source/event_queue.h
         ../../source/event_classes.h
         source/test_event_queue.cpp
@@ -182,8 +193,11 @@ target_sources(
         ../../source/nfc_tpm_key_resolver.h
         ../../source/nfc_tpm_key_resolver.cpp
         source/test_soft_key_resolver.cpp
+        source/test_provider_class.cpp
         source/test_nfc_tpm_key_resolver.cpp
         source/test_list_usb_devices.cpp
+        source/test_nfc_usb_namespace.cpp
+        source/test_picoboot.cpp
         ../../libs/tpm/source/atca_retry.h
         source/test_atca_retry.cpp
         source/tappad_lock_test_path.h

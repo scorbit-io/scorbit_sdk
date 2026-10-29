@@ -34,7 +34,7 @@ TEST_CASE("probeLibusbContext: concurrent callers share one context", "[nfc][lib
     std::vector<libusb_context *> seen(8);
     std::vector<std::thread> threads;
     for (size_t i = 0; i < seen.size(); ++i) {
-        threads.emplace_back([&seen, i] { seen[i] = probeLibusbContext(); });
+        threads.emplace_back([&seen, i] { seen[i] = nfc::probeLibusbContext(); });
     }
     for (auto &thread : threads) {
         thread.join();

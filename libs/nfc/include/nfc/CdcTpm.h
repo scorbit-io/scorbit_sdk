@@ -38,6 +38,8 @@
 #include "LinuxCdcBulk.h"
 #endif
 
+namespace nfc { // not global: a host may define its own CdcTpm (SB-6100)
+
 class CdcTpm
 {
     private:
@@ -362,3 +364,5 @@ class CdcTpm
         return false;
     }
 };
+
+} // namespace nfc
