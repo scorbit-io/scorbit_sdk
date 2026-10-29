@@ -64,6 +64,13 @@ TEST_CASE("redact: the whole value, through its own escapes", "[logger][redact]"
     // Escaped inside a string, the value's escapes have a doubled backslash.
     CHECK(redact(R"({"detail":"{\"shortcode\":\"\\u0041B12CD\",\"x\":1}"})")
           == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    // There, an escaped quote in the value, and a backslash before one, do not end it.
+    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\"12CD\",\"x\":1}"})")
+          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\\\\\"12CD\",\"x\":1}"})")
+          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\\\",\"x\":1}"})")
+          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
 }
 
 TEST_CASE("redact: only the key itself, not a longer one ending in it", "[logger][redact]")

@@ -79,23 +79,27 @@ inline std::string redact(std::string message)
             if (start == npos) {
                 continue;
             }
-            // Up to the value's closing quote, stepping over the value's own escapes, which
-            // escaped JSON writes with a doubled backslash.
+            // Up to the value's closing quote, stepping over the value's own escapes. Escaped
+            // JSON is read one outer escape at a time (\\ is a backslash, \" a quote), so a
+            // quote closes the value only when no unpaired backslash comes before it.
             size_t end = start;
+            bool innerEscape = false;
             while (end < message.size()) {
-                if (!escaped) {
-                    if (message[end] == '"') {
-                        break;
-                    }
-                    end += message[end] == '\\' ? 2 : 1;
-                } else if (message[end] == '\\') {
-                    if (at(end + 1, '"')) {
-                        break;
-                    }
-                    end += at(end + 1, '\\') ? 3 : 2;
-                } else {
-                    ++end;
+                char c = message[end];
+                size_t width = 1;
+                if (escaped && c == '\\' && end + 1 < message.size()) {
+                    const char next = message[end + 1];
+                    c = (next == '\\' || next == '"') ? next : 'x'; // \n and the like: content
+                    width = 2;
                 }
+                if (innerEscape) {
+                    innerEscape = false;
+                } else if (c == '\\') {
+                    innerEscape = true;
+                } else if (c == '"') {
+                    break;
+                }
+                end += width;
             }
             end = std::min(end, message.size());
             message.replace(start, end - start, kRedactedValue);
