@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "time_interval.h"
 #include "timeline_row.h"
 #include <cstddef>
 #include <cstdint>
@@ -49,6 +50,13 @@ struct Occurrence {
 
     /** 1 for a mode occurrence, the added amount for an event operation. */
     int64_t value {1};
+
+    /**
+     * When it stopped lasting, exclusive: a mode activation until the mode left `game_modes`, a
+     * stack until it broke, and one still lasting until just after the latest row. A completion
+     * or an event operation is an instant, so it ends just after its own row.
+     */
+    int64_t endMs {0};
 };
 
 /**
@@ -82,6 +90,19 @@ struct Duration {
     int64_t ms {0};
     BallNumber ball {0};
     size_t span {0};
+
+    /**
+     * What it measured, as an occurrence to place in a window: a timed activation lasts until its
+     * mode leaves `game_modes`, though it stops timing earlier (§5.5.2).
+     */
+    int64_t startMs {0};
+    int64_t endMs {0};
+};
+
+/** The player's score on one of their own rows. */
+struct ScoreSample {
+    int64_t timeMs {0};
+    int64_t score {0};
 };
 
 /**
@@ -109,6 +130,12 @@ public:
     /** Time spent at the machine: the sum of this player's turns, not wall clock. */
     int64_t sessionTimeMs() const;
 
+    /** This player's turns, the one in progress lasting until just after the latest row. */
+    std::vector<TimeInterval> turns() const;
+
+    /** The player's score on each row of their own turns, in order. */
+    const std::vector<ScoreSample> &ownRowScores() const { return m_ownRowScores; }
+
     /** Every distinct value this player's score column took this session. */
     const std::set<int64_t> &scoreValues() const { return m_scoreValues; }
 
@@ -118,12 +145,17 @@ public:
 private:
     friend class SessionFacts;
 
+    /** One activation: timed until its mode leaves, completes or the ball ends. */
     struct Activation {
         int64_t startMs {0};
         int64_t endMs {0};
         bool open {true};
         BallNumber ball {0};
         size_t span {0};
+
+        /** When the mode left `game_modes`, which may be later; open until then. */
+        int64_t presenceEndMs {0};
+        bool presenceOpen {true};
     };
 
     struct BallSpan {
@@ -135,6 +167,9 @@ private:
 
     int64_t elapsed(int64_t startMs, int64_t endMs, bool open) const;
 
+    /** The exclusive end of something that ended at @p endMs, or is still @p open. */
+    int64_t until(int64_t endMs, bool open) const { return open ? m_nowMs + 1 : endMs; }
+
     std::unordered_map<std::string, std::vector<Activation>> m_activations;
     std::unordered_map<std::string, std::vector<Occurrence>> m_completions;
     std::unordered_map<std::string, std::vector<Occurrence>> m_eventOps;
@@ -142,7 +177,10 @@ private:
     std::set<int64_t> m_scoreValues;
     std::optional<int64_t> m_latestScore;
 
+    std::vector<ScoreSample> m_ownRowScores;
+
     int64_t m_closedTurnsMs {0};
+    std::vector<TimeInterval> m_closedTurns;
     std::optional<int64_t> m_openTurnStartMs;
     int64_t m_nowMs {0};
 };
@@ -182,6 +220,9 @@ public:
     /** The activations of @p mode that @p player owns, in order, as `MODE_SCORE` sees them. */
     std::vector<ModeRun> modeRuns(const std::string &mode, PlayerNumber player) const;
 
+    /** The time of the latest row, or of the session's end once finished. */
+    int64_t nowMs() const { return m_nowMs; }
+
     /** Whether the last applied row ended a ball, and for whom. */
     std::optional<PlayerNumber> lastRowEndedBallOf() const { return m_ballEndedFor; }
 
@@ -208,7 +249,8 @@ private:
 
     PlayerFacts *facts(PlayerNumber player);
     int64_t scoreOf(PlayerNumber player) const;
-    void closeRun(PresenceRun &run, int64_t timeMs);
+    void closeRun(const std::string &mode, int64_t timeMs);
+    void closeTurn(PlayerNumber player, int64_t timeMs);
     void closeBall(int64_t timeMs);
     void openBall(PlayerNumber player, BallNumber ball, int64_t timeMs);
     void closeActivation(const std::string &mode, int64_t timeMs);
@@ -225,6 +267,7 @@ private:
     std::map<std::string, PlayerNumber> m_openActivations;
 
     std::optional<PlayerNumber> m_ballEndedFor;
+    int64_t m_nowMs {0};
     bool m_finished {false};
 };
 

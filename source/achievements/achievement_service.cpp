@@ -414,7 +414,7 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
 
 void AchievementService::evaluate(Session &session, PlayerNumber player, Claim &claim)
 {
-    claim.tracker->reevaluate({session.facts, player}, session.definitions());
+    claim.tracker->reevaluate(session.seat(player), session.definitions());
     publish(session, player, claim);
 }
 
@@ -534,7 +534,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
         }
         for (auto &[player, claim] : session->claims) {
             if (claim.userId == request.userId && claim.tracker) {
-                claim.tracker->applyOutcome(*sent, outcome, {session->facts, player},
+                claim.tracker->applyOutcome(*sent, outcome, session->seat(player),
                                             session->definitions());
                 publish(*session, player, claim);
             }

@@ -38,11 +38,12 @@ struct Evaluator {
     DefinitionSet definitions;
     HeldSet held;
     Baselines baselines;
+    CalendarData calendar;
 
     Evaluation operator()(const Definition &def) const
     {
         const auto it = baselines.find(def.key);
-        const EvaluationContext context {{timeline.facts, 1},
+        const EvaluationContext context {{timeline.facts, 1, &calendar},
                                          it == baselines.end() ? nullptr : &it->second,
                                          held,
                                          definitions};
@@ -535,4 +536,216 @@ TEST_CASE("An unlimited MODE_SCORE merges with the best gain before", "[achievem
     ev.timeline.at(1000).score(1, 55'000'000).modes({}).commit();
 
     CHECK(ev(def).rules.at(0) == RuleProgress {55'000'000, true});
+}
+
+// ---- CALENDAR (§5.5.2), in Chicago in late October 2026 (CDT, UTC-5) ---------------------------
+
+namespace {
+
+/** The UTC instant of Chicago local time @p hour:@p minute on @p date, in October 2026. */
+int64_t cdt(CivilDate date, int64_t hour, int64_t minute)
+{
+    return daysFromCivil(date) * MS_PER_DAY + (hour + 5) * 3'600'000 + minute * 60'000;
+}
+
+constexpr CivilDate TUESDAY {2026, 10, 27};
+constexpr CivilDate WEDNESDAY {2026, 10, 28};
+constexpr CivilDate FRIDAY {2026, 10, 30};
+constexpr CivilDate HALLOWEEN {2026, 10, 31}; // a Saturday
+
+/** An evaluator judging calendar conditions in Chicago. */
+Evaluator inChicago()
+{
+    Evaluator ev;
+    ev.calendar.timezone = "America/Chicago";
+    ev.calendar.offsets = UtcOffsetTable::create(
+            {{1767225600000, -21600}, {1772956800000, -18000}, {1793516400000, -21600}});
+    return ev;
+}
+
+Rule calendar(const char *condition, int64_t target = 1)
+{
+    return rule(RuleType::Calendar, GE, target, condition);
+}
+
+} // namespace
+
+TEST_CASE("Hump Day Wizard: a mode started on a Wednesday", "[achievements]")
+{
+    const auto def = inSession("game-wiz-hump",
+                               {rule(RuleType::Mode, GE, 1, "wizard"), calendar("weekday=WED")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(TUESDAY, 23, 50)).commit();
+    ev.timeline.at(cdt(TUESDAY, 23, 59)).modes({"wizard"}).commit(); // started on Tuesday
+    ev.timeline.at(cdt(WEDNESDAY, 0, 10)).modes({}).commit();
+
+    auto e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {0, false});
+    CHECK(e.rules.at(1) == RuleProgress {0, false});
+
+    ev.timeline.at(cdt(WEDNESDAY, 0, 20)).modes({"wizard"}).commit();
+    e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {1, true});
+    CHECK(e.rules.at(1) == RuleProgress {1, true});
+    CHECK(e.allSatisfied);
+}
+
+TEST_CASE("Midnight Multiball: a mode running at midnight", "[achievements]")
+{
+    const auto def = inSession("game-mb-midnight", {rule(RuleType::Mode, GE, 1, "multiball"),
+                                                    calendar("active:time=00:00-00:01")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(FRIDAY, 23, 58)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(FRIDAY, 23, 59)).commit();
+    CHECK_FALSE(ev(def).allSatisfied);
+
+    // Recognised at the first commit at or after midnight, though no row fell inside the window
+    ev.timeline.at(cdt(HALLOWEEN, 0, 3)).modes({}).commit();
+    CHECK(ev(def).allSatisfied);
+
+    SECTION("Without active:, it had to start inside the window")
+    {
+        const auto started = inSession(
+                "x", {rule(RuleType::Mode, GE, 1, "multiball"), calendar("time=00:00-00:01")});
+        CHECK_FALSE(ev(started).allSatisfied);
+    }
+}
+
+TEST_CASE("Trick or Treat: alone, CALENDAR means played during", "[achievements]")
+{
+    const auto def = inSession("game-halloween", {calendar("date=10-31")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(FRIDAY, 23, 50)).commit();
+    CHECK(ev(def).rules.at(0) == RuleProgress {0, false});
+
+    // A turn that runs past midnight is play on Halloween, whenever its rows fell
+    ev.timeline.at(cdt(HALLOWEEN, 0, 5)).score(1, 10).commit();
+    CHECK(ev(def).rules.at(0) == RuleProgress {1, true});
+}
+
+TEST_CASE("Turkey Week Regular: four sessions in a named window, for life", "[achievements]")
+{
+    const auto def = unlimited("game-turkey", {calendar("window=thanksgiving-week", 4)});
+    auto ev = inChicago();
+    ev.calendar.ranges["window=thanksgiving-week"] = {
+            {cdt(HALLOWEEN, 0, 0), cdt(HALLOWEEN, 12, 0)}};
+    ev.baselines["game-turkey"] = Baseline {false, {{0, RuleProgress {3, false}}}};
+
+    ev.timeline.at(cdt(FRIDAY, 22, 0)).commit();
+    CHECK(ev(def).rules.at(0) == RuleProgress {3, false});
+
+    ev.timeline.at(cdt(HALLOWEEN, 1, 0)).commit();
+    ev.timeline.at(cdt(HALLOWEEN, 2, 0)).ball(2).commit(); // more play: still one session
+    CHECK(ev(def).rules.at(0) == RuleProgress {4, true});
+}
+
+TEST_CASE("Expo Jackpots: only occurrences inside the window count", "[achievements]")
+{
+    const auto def = inSession("game-expo-jackpots", {rule(RuleType::Event, GE, 3, "jackpot"),
+                                                      calendar("event=expo-2026")});
+    auto ev = inChicago();
+    ev.calendar.ranges["event=expo-2026"] = {{cdt(HALLOWEEN, 9, 0), cdt(HALLOWEEN, 18, 0)}};
+
+    ev.timeline.at(cdt(HALLOWEEN, 8, 50)).event("jackpot", 2).commit(); // before the expo opens
+    ev.timeline.at(cdt(HALLOWEEN, 9, 10)).event("jackpot", 1).commit();
+    auto e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {1, false});
+    CHECK(e.rules.at(1) == RuleProgress {1, true}); // counted though the sibling isn't met yet
+
+    ev.timeline.at(cdt(HALLOWEEN, 9, 20)).event("jackpot", 2).commit();
+    CHECK(ev(def).allSatisfied);
+}
+
+TEST_CASE("Midnight Millions: one activation, at midnight, worth the target", "[achievements]")
+{
+    const auto def = inSession("game-mb-midnight-millions",
+                               {rule(RuleType::ModeScore, GE, 10'000'000, "multiball"),
+                                calendar("active:time=00:00-00:01")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(FRIDAY, 21, 0)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(FRIDAY, 21, 5)).score(1, 20'000'000).modes({}).commit(); // too early
+    ev.timeline.at(cdt(FRIDAY, 23, 59)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(HALLOWEEN, 0, 2)).score(1, 22'000'000).modes({}).commit();
+
+    const auto e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {2'000'000, false});
+    CHECK(e.rules.at(1) == RuleProgress {1, true});
+    CHECK_FALSE(e.allSatisfied);
+}
+
+TEST_CASE("Halloween Million: only the player's own rows inside the window", "[achievements]")
+{
+    const auto def = inSession("game-halloween-million",
+                               {rule(RuleType::Score, GE, 1'000'000), calendar("date=10-31")});
+
+    SECTION("A score reached the evening before counts once the player has a row after midnight")
+    {
+        auto ev = inChicago();
+        ev.timeline.at(cdt(FRIDAY, 23, 50)).score(1, 1'500'000).commit();
+        CHECK(ev(def).rules.at(0) == RuleProgress {0, false});
+
+        ev.timeline.at(cdt(HALLOWEEN, 0, 1)).commit();
+        CHECK(ev(def).allSatisfied);
+    }
+
+    SECTION("A game crossing into 1 November counts only the score before midnight")
+    {
+        auto ev = inChicago();
+        ev.timeline.at(cdt(HALLOWEEN, 23, 50)).score(1, 500'000).commit();
+        ev.timeline.at(cdt({2026, 11, 1}, 0, 5)).score(1, 2'000'000).commit();
+        CHECK(ev(def).rules.at(0) == RuleProgress {500'000, false});
+    }
+
+    SECTION("Another player's rows never count")
+    {
+        auto ev = inChicago();
+        ev.timeline.at(cdt(FRIDAY, 23, 50)).score(1, 1'500'000).commit();
+        ev.timeline.at(cdt(HALLOWEEN, 0, 5)).player(2).score(2, 10).commit();
+        const auto e = ev(def);
+        CHECK(e.rules.at(0) == RuleProgress {0, false});
+        CHECK(e.rules.at(1) == RuleProgress {0, false});
+    }
+}
+
+TEST_CASE("Monster Mash: a mode started in the window counts in full", "[achievements]")
+{
+    const auto def = unlimited("game-monster-mash", {rule(RuleType::ModeScore, GE, 1, "multiball"),
+                                                     calendar("date=10-31")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(HALLOWEEN, 23, 59)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt({2026, 11, 1}, 0, 30)).score(1, 9'000'000).modes({}).commit();
+
+    CHECK(ev(def).rules.at(0) == RuleProgress {9'000'000, true}); // points after midnight too
+}
+
+TEST_CASE("Beside CALENDAR, MODE_SCORE waits for a qualifying activation to close",
+          "[achievements]")
+{
+    const auto def = inSession("game-mb-small-halloween",
+                               {rule(RuleType::ModeScore, LE, 999'999, "multiball"),
+                                rule(RuleType::Mode, GE, 1, "multiball"), calendar("date=10-31")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(FRIDAY, 22, 0)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(FRIDAY, 22, 5)).score(1, 100).modes({}).commit(); // closed, not Halloween
+    ev.timeline.at(cdt(HALLOWEEN, 0, 5)).modes({"multiball"}).commit();  // running, Halloween
+
+    const auto e = ev(def);
+    CHECK_FALSE(e.rules.contains(0)); // the earlier one does not decide it
+    CHECK(e.rules.at(1) == RuleProgress {1, true});
+    CHECK(e.rules.at(2) == RuleProgress {1, true});
+    CHECK_FALSE(e.allSatisfied);
+}
+
+TEST_CASE("TIMER_MODE beside CALENDAR times qualifying activations only", "[achievements]")
+{
+    const auto def =
+            inSession("game-mb-long-halloween",
+                      {rule(RuleType::TimerMode, GE, 60'000, "multiball"), calendar("date=10-31")});
+    auto ev = inChicago();
+    ev.timeline.at(cdt(FRIDAY, 22, 0)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(FRIDAY, 22, 5)).modes({}).commit(); // five minutes, on the 30th
+    ev.timeline.at(cdt(HALLOWEEN, 0, 5)).modes({"multiball"}).commit();
+    ev.timeline.at(cdt(HALLOWEEN, 0, 5) + 30'000).modes({}).commit();
+
+    CHECK(ev(def).rules.at(0) == RuleProgress {30'000, false});
 }

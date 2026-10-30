@@ -23,7 +23,9 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <map>
 #include <string_view>
+#include <utility>
 
 namespace scorbit {
 namespace detail {
@@ -74,6 +76,11 @@ constexpr auto KEY_SESSION_UUID = "session_uuid";
 constexpr auto KEY_SEQUENCE = "sequence";
 constexpr auto KEY_ACHIEVEMENTS = "achievements";
 constexpr auto KEY_STATUS = "status";
+
+// Definitions response (§10.3)
+constexpr auto KEY_TIMEZONE = "timezone";
+constexpr auto KEY_UTC_OFFSETS = "utc_offsets";
+constexpr auto KEY_CALENDAR = "calendar";
 constexpr auto KEY_CODE = "code";
 constexpr auto KEY_DETAIL = "detail";
 
@@ -156,6 +163,96 @@ std::vector<std::string> splitStack(const std::string &reference)
     return modes;
 }
 
+/** `[a, b]`: two integers. */
+std::optional<std::pair<int64_t, int64_t>> integerPair(const json &value)
+{
+    if (!value.is_array() || value.size() != 2 || !value[0].is_number_integer()
+        || !value[1].is_number_integer()) {
+        return std::nullopt;
+    }
+    return std::pair {value[0].get<int64_t>(), value[1].get<int64_t>()};
+}
+
+/** `utc_offsets`: `[from_ms, offset_seconds]` changes, ascending. */
+std::optional<UtcOffsetTable> parseUtcOffsets(const json &value)
+{
+    if (!value.is_array()) {
+        return std::nullopt;
+    }
+    std::vector<UtcOffsetTable::Change> changes;
+    for (const auto &entry : value) {
+        const auto pair = integerPair(entry);
+        if (!pair) {
+            return std::nullopt;
+        }
+        changes.push_back({pair->first, pair->second});
+    }
+    return UtcOffsetTable::create(std::move(changes));
+}
+
+/** `[[start_ms, end_ms], …]`: UTC ranges. */
+std::optional<std::vector<TimeInterval>> parseRanges(const json &value)
+{
+    if (!value.is_array()) {
+        return std::nullopt;
+    }
+    std::vector<TimeInterval> rv;
+    for (const auto &entry : value) {
+        const auto pair = integerPair(entry);
+        if (!pair) {
+            return std::nullopt;
+        }
+        rv.push_back({pair->first, pair->second});
+    }
+    return rv;
+}
+
+/** `calendar`: each `window=` / `event=` condition's ranges. */
+std::map<std::string, std::vector<TimeInterval>> parseCalendarRanges(const json &value)
+{
+    std::map<std::string, std::vector<TimeInterval>> rv;
+    if (!value.is_object()) {
+        return rv;
+    }
+    for (const auto &[condition, ranges] : value.items()) {
+        auto parsed = parseRanges(ranges);
+        if (!parsed) {
+            // Left out, it matches nothing, as a condition the API did not resolve
+            WRN("Achievements: ignoring malformed calendar ranges of '{}': {}", condition,
+                ranges.dump());
+            continue;
+        }
+        rv.emplace(condition, std::move(*parsed));
+    }
+    return rv;
+}
+
+/**
+ * What `CALENDAR` rules are judged with. Anything malformed is left out with a warning: without
+ * offsets, achievements that need local time are skipped rather than judged in the wrong time.
+ */
+CalendarData parseCalendarData(const json &document)
+{
+    CalendarData data;
+    if (const auto timezone = document.find(KEY_TIMEZONE);
+        timezone != document.end() && timezone->is_string()) {
+        data.timezone = timezone->get<std::string>();
+    }
+
+    if (const auto offsets = document.find(KEY_UTC_OFFSETS);
+        offsets != document.end() && !offsets->is_null()) {
+        data.offsets = parseUtcOffsets(*offsets);
+        if (!data.offsets) {
+            WRN("Achievements: ignoring malformed utc_offsets: {}", offsets->dump());
+        }
+    }
+
+    if (const auto ranges = document.find(KEY_CALENDAR); ranges != document.end()) {
+        data.ranges = parseCalendarRanges(*ranges);
+    }
+    return data;
+}
+
 Rule parseRule(const json &object)
 {
     const auto typeStr = requiredField<std::string>(object, KEY_TYPE);
@@ -177,6 +274,9 @@ Rule parseRule(const json &object)
     rule.reference = fieldOr<std::string>(object, KEY_REFERENCE, {});
     if (rule.type == RuleType::ModeStack) {
         rule.stackModes = splitStack(rule.reference);
+    }
+    if (rule.type == RuleType::Calendar) {
+        rule.calendar = parseCalendarCondition(rule.reference);
     }
     return rule;
 }
@@ -243,6 +343,8 @@ std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
         return std::nullopt;
     }
 
+    auto calendar = parseCalendarData(document);
+
     std::vector<Definition> definitions;
     definitions.reserve(results->size());
     for (size_t i = 0; i < results->size(); ++i) {
@@ -252,7 +354,7 @@ std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
             WRN("Achievements: skipping malformed definition #{}: {}", i, error);
             continue;
         }
-        if (auto problem = findEvaluationProblem(*definition)) {
+        if (auto problem = findEvaluationProblem(*definition, calendar)) {
             WRN("Achievements: skipping '{}', it can't be evaluated: {}", definition->key,
                 *problem);
             continue;
@@ -264,7 +366,7 @@ std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
         WRN("Achievements: skipping '{}', its ACHIEVEMENT rules form a cycle", key);
     }
 
-    return DefinitionFeed {DefinitionSet {std::move(definitions)}};
+    return DefinitionFeed {DefinitionSet {std::move(definitions)}, std::move(calendar)};
 }
 
 std::optional<Baselines> parseProgressResponse(const json &document)

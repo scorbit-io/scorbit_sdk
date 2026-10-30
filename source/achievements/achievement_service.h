@@ -137,6 +137,9 @@ private:
         std::shared_ptr<const DefinitionFeed> feed;
 
         const DefinitionSet &definitions() const { return feed->definitions; }
+
+        /** @p player's seat, evaluated with the calendar the game started with. */
+        PlayerSession seat(PlayerNumber player) const { return {facts, player, &feed->calendar}; }
         SessionFacts facts;
         std::map<PlayerNumber, Claim> claims;
         std::shared_ptr<ReportOutbox> outbox = std::make_shared<ReportOutbox>();

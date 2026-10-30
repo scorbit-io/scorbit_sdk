@@ -34,10 +34,15 @@ namespace achievements {
  * This is the SDK side of §6.7: a definition that reaches a device has already passed the API's
  * publish-time validation, so only what the evaluator itself depends on is checked here — rule
  * references present, `MODE_STACK` naming two or more modes, qualifiers having instant-valued
- * siblings, at least one rule. Authoring checks (zero-satisfiable rule sets, LE/NE pairing, trophy
- * shape) belong to the API and are not repeated.
+ * siblings, `CALENDAR` rules with a condition the machine can judge and siblings it can restrict,
+ * at least one rule. Authoring checks (zero-satisfiable rule sets, LE/NE pairing, trophy shape)
+ * belong to the API and are not repeated.
+ *
+ * A `CALENDAR` condition on the venue's wall clock cannot be judged without the venue's UTC
+ * offsets in @p calendar, so its achievement is skipped rather than judged in the wrong time.
  */
-std::optional<std::string> findEvaluationProblem(const Definition &definition);
+std::optional<std::string> findEvaluationProblem(const Definition &definition,
+                                                 const CalendarData &calendar);
 
 /**
  * Removes from @p definitions every achievement that takes part in, or depends on, a cycle of

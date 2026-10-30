@@ -51,7 +51,8 @@ std::vector<Occurrence> PlayerFacts::activations(const std::string &mode) const
 {
     std::vector<Occurrence> rv;
     for (const auto &a : entriesOf(m_activations, mode)) {
-        rv.push_back(Occurrence {a.startMs, a.ball, a.span, 1});
+        rv.push_back(
+                Occurrence {a.startMs, a.ball, a.span, 1, until(a.presenceEndMs, a.presenceOpen)});
     }
     return rv;
 }
@@ -70,7 +71,8 @@ std::vector<Duration> PlayerFacts::activationDurations(const std::string &mode) 
 {
     std::vector<Duration> rv;
     for (const auto &a : entriesOf(m_activations, mode)) {
-        rv.push_back(Duration {elapsed(a.startMs, a.endMs, a.open), a.ball, a.span});
+        rv.push_back(Duration {elapsed(a.startMs, a.endMs, a.open), a.ball, a.span, a.startMs,
+                               until(a.presenceEndMs, a.presenceOpen)});
     }
     return rv;
 }
@@ -80,7 +82,8 @@ std::vector<Duration> PlayerFacts::ballDurations() const
     std::vector<Duration> rv;
     for (size_t i = 0; i < m_balls.size(); ++i) {
         const auto &b = m_balls[i];
-        rv.push_back(Duration {elapsed(b.startMs, b.endMs, b.open), b.ball, i});
+        rv.push_back(Duration {elapsed(b.startMs, b.endMs, b.open), b.ball, i, b.startMs,
+                               until(b.endMs, b.open)});
     }
     return rv;
 }
@@ -90,6 +93,15 @@ int64_t PlayerFacts::sessionTimeMs() const
     const int64_t running =
             m_openTurnStartMs ? std::max<int64_t>(0, m_nowMs - *m_openTurnStartMs) : 0;
     return m_closedTurnsMs + running;
+}
+
+std::vector<TimeInterval> PlayerFacts::turns() const
+{
+    auto rv = m_closedTurns;
+    if (m_openTurnStartMs) {
+        rv.push_back({*m_openTurnStartMs, until(0, true)});
+    }
+    return rv;
 }
 
 // ---- SessionFacts ------------------------------------------------------------------------------
@@ -120,12 +132,14 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
     struct Overlap {
         size_t startRow;
         size_t endRow;
+        int64_t endMs;
         const PresenceRun *formedBy;
     };
-    const auto overlapsOf = [](const std::vector<PresenceRun> &runs) {
+    const auto overlapsOf = [this](const std::vector<PresenceRun> &runs) {
         std::vector<Overlap> rv;
         for (const auto &run : runs) {
-            rv.push_back({run.startRow, run.endRow.value_or(SIZE_MAX), &run});
+            rv.push_back({run.startRow, run.endRow.value_or(SIZE_MAX),
+                          run.endRow ? run.endMs : m_nowMs + 1, &run});
         }
         return rv;
     };
@@ -140,7 +154,8 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
             if (const auto start = std::max(a.startRow, b.startRow),
                 end = std::min(a.endRow, b.endRow);
                 start < end) {
-                next.push_back({start, end, a.startRow >= b.startRow ? a.formedBy : b.formedBy});
+                next.push_back({start, end, a.endRow <= b.endRow ? a.endMs : b.endMs,
+                                a.startRow >= b.startRow ? a.formedBy : b.formedBy});
             }
             (a.endRow < b.endRow ? i : j)++;
         }
@@ -150,7 +165,8 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
     std::vector<Occurrence> rv;
     for (const auto &o : overlaps) {
         if (o.formedBy->player == player) {
-            rv.push_back(Occurrence {o.formedBy->startMs, o.formedBy->ball, o.formedBy->span, 1});
+            rv.push_back(Occurrence {o.formedBy->startMs, o.formedBy->ball, o.formedBy->span, 1,
+                                     o.endMs});
         }
     }
     return rv;
@@ -177,12 +193,32 @@ int64_t SessionFacts::scoreOf(PlayerNumber player) const
     return this->player(player).latestScore().value_or(0);
 }
 
-void SessionFacts::closeRun(PresenceRun &run, int64_t timeMs)
+void SessionFacts::closeRun(const std::string &mode, int64_t timeMs)
 {
+    auto &run = m_presence[mode].back();
     run.endRow = m_rows;
     run.endMs = timeMs;
     run.endScore = scoreOf(run.player);
     run.peakGain = std::max(run.peakGain, run.endScore - run.startScore);
+
+    // The owner's activation of it is the latest one: a mode can't be activated twice at once
+    if (auto *f = facts(run.player)) {
+        if (auto &list = f->m_activations[mode]; !list.empty()) {
+            list.back().presenceEndMs = timeMs;
+            list.back().presenceOpen = false;
+        }
+    }
+}
+
+void SessionFacts::closeTurn(PlayerNumber player, int64_t timeMs)
+{
+    auto *f = facts(player);
+    if (!f || !f->m_openTurnStartMs) {
+        return;
+    }
+    f->m_closedTurnsMs += std::max<int64_t>(0, timeMs - *f->m_openTurnStartMs);
+    f->m_closedTurns.push_back({*f->m_openTurnStartMs, timeMs});
+    f->m_openTurnStartMs.reset();
 }
 
 void SessionFacts::closeActivation(const std::string &mode, int64_t timeMs)
@@ -241,15 +277,15 @@ void SessionFacts::apply(const TimelineRow &row)
     if (ballChanged) {
         m_ballEndedFor = m_prev->player;
         closeBall(row.timeMs);
-        if (auto *f = facts(m_prev->player); f && playerChanged && f->m_openTurnStartMs) {
-            f->m_closedTurnsMs += std::max<int64_t>(0, row.timeMs - *f->m_openTurnStartMs);
-            f->m_openTurnStartMs.reset();
+        if (playerChanged) {
+            closeTurn(m_prev->player, row.timeMs);
         }
     }
     if (isFirstRow || ballChanged) {
         openBall(row.player, row.ball, row.timeMs);
     }
 
+    m_nowMs = row.timeMs;
     for (auto &[number, f] : m_players) {
         f.m_nowMs = row.timeMs;
     }
@@ -264,6 +300,10 @@ void SessionFacts::apply(const TimelineRow &row)
             f->m_latestScore = score;
             f->m_nowMs = row.timeMs;
         }
+    }
+
+    if (active && active->m_latestScore) {
+        active->m_ownRowScores.push_back({row.timeMs, *active->m_latestScore});
     }
 
     // Modes: a state, diffed as a set against the previous row
@@ -284,14 +324,14 @@ void SessionFacts::apply(const TimelineRow &row)
                                                 .span = span,
                                                 .startScore = scoreOf(row.player)});
         if (active) {
-            active->m_activations[mode].push_back(
-                    PlayerFacts::Activation {row.timeMs, row.timeMs, true, row.ball, span});
+            active->m_activations[mode].push_back(PlayerFacts::Activation {
+                    .startMs = row.timeMs, .endMs = row.timeMs, .ball = row.ball, .span = span});
             m_openActivations[mode] = row.player;
         }
     }
     for (const auto &mode : m_presentModes) {
         if (!current.count(mode)) {
-            closeRun(m_presence[mode].back(), row.timeMs);
+            closeRun(mode, row.timeMs);
             closeActivation(mode, row.timeMs);
         }
     }
@@ -307,7 +347,8 @@ void SessionFacts::apply(const TimelineRow &row)
             continue;
         }
         if (active) {
-            active->m_completions[mode].push_back(Occurrence {row.timeMs, row.ball, span, 1});
+            active->m_completions[mode].push_back(
+                    Occurrence {row.timeMs, row.ball, span, 1, row.timeMs + 1});
         }
         closeActivation(mode, row.timeMs);
     }
@@ -315,7 +356,8 @@ void SessionFacts::apply(const TimelineRow &row)
     if (active) {
         for (const auto &[name, value] : row.events) {
             if (isValidTimelineName(name)) {
-                active->m_eventOps[name].push_back(Occurrence {row.timeMs, row.ball, span, value});
+                active->m_eventOps[name].push_back(
+                        Occurrence {row.timeMs, row.ball, span, value, row.timeMs + 1});
             }
         }
     }
@@ -336,20 +378,18 @@ void SessionFacts::finish(int64_t timeMs)
         return;
     }
 
+    m_nowMs = std::max(m_nowMs, timeMs);
     for (auto &[number, f] : m_players) {
         f.m_nowMs = std::max(f.m_nowMs, timeMs);
     }
 
     for (const auto &mode : m_presentModes) {
-        closeRun(m_presence[mode].back(), timeMs);
+        closeRun(mode, timeMs);
     }
 
     m_ballEndedFor = m_prev->player;
     closeBall(timeMs);
-    if (auto *f = facts(m_prev->player); f && f->m_openTurnStartMs) {
-        f->m_closedTurnsMs += std::max<int64_t>(0, timeMs - *f->m_openTurnStartMs);
-        f->m_openTurnStartMs.reset();
-    }
+    closeTurn(m_prev->player, timeMs);
 }
 
 } // namespace achievements

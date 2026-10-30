@@ -215,6 +215,7 @@ class AchievementRuleType(IntEnum):
     Ball = 10
     Achievement = 11
     ModeScore = 12
+    Calendar = 13
 
 
 class AchievementComparison(IntEnum):
