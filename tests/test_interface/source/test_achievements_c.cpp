@@ -131,7 +131,10 @@ TEST_CASE("Cached definitions are served through the C and C++ API", "[Achieveme
     const std::string definitionsFile = cacheDir + "/definitions.json";
     makeDir(dataDir);
     makeDir(cacheDir);
-    std::ofstream(definitionsFile) << R"([
+    std::ofstream(definitionsFile) << R"({
+      "game": "cactus-canyon", "frames_version": 0,
+      "timezone": null, "utc_offsets": null, "calendar": {},
+      "results": [
         {"id": "0b7c4f0e-5c1e-4f55-9a43-0f6d2b8f6a11", "key": "game-cv-boom",
          "name": "Boom", "description": "Pop it.", "icon": "https://cdn.example/boom.png",
          "is_single_session": false, "is_trophy": false, "is_badge": true, "scope": "game",
@@ -140,7 +143,7 @@ TEST_CASE("Cached definitions are served through the C and C++ API", "[Achieveme
          "frame": null, "frame_version": 0, "notify_when_achieved": true,
          "rules": [{"type": "MODE", "comparison": ">=", "target": 3, "reference": "balloon",
                     "subachievement": null}]}
-    ])";
+    ]})";
 
     sb_config_t cfg = sb_config_create();
     sb_config_set_provider(cfg, "vscorbitron");

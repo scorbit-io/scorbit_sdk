@@ -30,10 +30,19 @@ namespace scorbit {
 namespace detail {
 namespace achievements {
 
+/** A definitions response as cached: its body, and the `ETag` to revalidate it with. */
+struct CachedDefinitions {
+    std::string body;
+
+    /** Empty when the response carried none. */
+    std::string etag;
+};
+
 /**
  * The machine's on-disk achievements cache, under `<data dir>/achievements/`:
  *
- * - the last definitions response, so a machine that boots offline still evaluates;
+ * - the last definitions response and its `ETag`, so a machine that boots offline still
+ *   evaluates, and a reboot revalidates rather than downloads (§10.3);
  * - each achievement's DMD frame (`frames/<key><ext>`) and the `frame_version` it was downloaded
  *   at (`frames.json`), so a frame is local before it is needed and is downloaded again only when
  *   its version changes (§3.9).
@@ -43,11 +52,13 @@ namespace achievements {
 class AchievementStorage
 {
 public:
-    /** Also removes what an older SDK left behind: the definitions ETag and the frame bundle. */
     explicit AchievementStorage(std::string dataDir);
 
-    std::optional<std::string> loadDefinitions() const;
-    bool saveDefinitions(const std::string &body) const;
+    std::optional<CachedDefinitions> loadDefinitions() const;
+    bool saveDefinitions(const CachedDefinitions &definitions) const;
+
+    /** Forgets the cached definitions, e.g. a body that no longer parses, with its `ETag`. */
+    void discardDefinitions() const;
 
     /** The `frame_version` of every installed frame, keyed by achievement key. */
     std::map<std::string, int64_t> frameVersions() const;

@@ -60,10 +60,13 @@ using TokenRefreshedCallback = std::function<void()>;
 struct ApiReply {
     Error error {Error::ApiError};
 
-    /** Status of the final attempt; 0 when no HTTP response was received. */
+    /** Status of the final attempt; 0 when no HTTP response was received. 304 is a success. */
     int httpStatus {0};
 
     std::string body;
+
+    /** The response's `ETag`, when it carried one. */
+    std::string etag;
 };
 
 using ApiReplyCallback = std::function<void(ApiReply reply)>;
@@ -198,8 +201,12 @@ public:
 
     // ---- Achievements (contract v1, §10) --------------------------------------------
 
-    /** `GET achievements/scorbitron/`. */
-    virtual void fetchAchievementDefinitions(ApiReplyCallback callback) { (void)callback; }
+    /** `GET achievements/scorbitron/`, revalidated with `If-None-Match: @p etag` when not empty. */
+    virtual void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback)
+    {
+        (void)etag;
+        (void)callback;
+    }
 
     /** `GET achievements/scorbitron/progress/?user_id=@p userId`. */
     virtual void fetchAchievementProgress(std::string userId, ApiReplyCallback callback)

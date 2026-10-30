@@ -95,9 +95,13 @@ AchievementService::AchievementService(NetBase &net, AchievementStorage storage,
     , m_poster {std::move(poster)}
     , m_sink {std::move(sink)}
 {
-    if (const auto cached = m_storage.loadDefinitions()) {
-        applyDefinitions(*cached, false);
+    if (const auto cached = m_storage.loadDefinitions();
+        cached && !applyDefinitions(*cached, false)) {
+        // E.g. written by a build that knew another format: revalidating it could only answer 304
+        WRN("Achievements: discarding cached definitions that no longer parse");
+        m_storage.discardDefinitions();
     }
+    updateView();
 }
 
 AchievementService::~AchievementService()
@@ -114,37 +118,49 @@ void AchievementService::refreshDefinitions()
     }
     m_fetchingDefinitions = true;
 
-    m_net.fetchAchievementDefinitions([this, alive = std::weak_ptr(m_alive)](ApiReply reply) {
+    auto onReply = [this, alive = std::weak_ptr(m_alive)](ApiReply reply) {
         m_poster([this, alive, reply = std::move(reply)]() mutable {
-            if (alive.expired()) {
-                return;
+            if (!alive.expired()) {
+                onDefinitions(std::move(reply));
             }
-            m_fetchingDefinitions = false;
-            if (reply.error != Error::Success) {
-                WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
-                return;
-            }
-            applyDefinitions(reply.body, true);
-            refreshFrames();
         });
-    });
+    };
+    m_net.fetchAchievementDefinitions(m_feedEtag, std::move(onReply));
 }
 
-void AchievementService::applyDefinitions(const std::string &body, bool persist)
+void AchievementService::onDefinitions(ApiReply reply)
 {
-    auto definitions = parseJson<DefinitionSet>(body, &parseDefinitionsResponse);
-    if (!definitions) {
+    m_fetchingDefinitions = false;
+    if (reply.error != Error::Success) {
+        WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
         return;
     }
 
-    INF("Achievements: {} definitions", definitions->size());
-    m_definitions = std::make_shared<const DefinitionSet>(std::move(*definitions));
+    // 304: the definitions in force are still current
+    if (reply.httpStatus != 304
+        && !applyDefinitions({std::move(reply.body), std::move(reply.etag)}, true)) {
+        return;
+    }
+    refreshFrames();
+}
+
+bool AchievementService::applyDefinitions(const CachedDefinitions &response, bool persist)
+{
+    auto feed = parseJson<DefinitionFeed>(response.body, &parseDefinitionFeed);
+    if (!feed) {
+        return false;
+    }
+
+    INF("Achievements: {} definitions", feed->definitions.size());
+    m_feed = std::make_shared<const DefinitionFeed>(std::move(*feed));
+    m_feedEtag = response.etag;
     if (persist) {
-        m_storage.saveDefinitions(body);
+        m_storage.saveDefinitions(response);
     }
 
     // Not applied to a game in progress: it keeps the definitions it started with (§10.3)
     updateView();
+    return true;
 }
 
 // ---- Frames ------------------------------------------------------------------------------------
@@ -152,7 +168,7 @@ void AchievementService::applyDefinitions(const std::string &body, bool persist)
 void AchievementService::refreshFrames()
 {
     for (const auto &[key, version] : m_storage.frameVersions()) {
-        const auto *definition = m_definitions->find(key);
+        const auto *definition = m_feed->definitions.find(key);
         if (!definition || definition->frameUrl.empty()) {
             INF("Achievements: removing frame of '{}'", key);
             m_storage.removeFrame(key);
@@ -170,7 +186,7 @@ void AchievementService::downloadNextFrame()
     }
 
     const auto installed = m_storage.frameVersions();
-    const auto &definitions = m_definitions->all();
+    const auto &definitions = m_feed->definitions.all();
     const auto next = std::ranges::find_if(definitions, [&](const Definition &definition) {
         if (definition.frameUrl.empty() || m_frameFailures.contains(definition.key)) {
             return false;
@@ -227,7 +243,7 @@ void AchievementService::onSessionStarted(int sessionId, const TimelineRow &firs
     m_current = m_sessions.back().get();
     m_current->id = ++m_lastSessionId;
     m_current->gameSessionId = sessionId;
-    m_current->definitions = m_definitions;
+    m_current->feed = m_feed;
     m_current->facts.apply(firstRow);
     updateView();
 }
@@ -398,7 +414,7 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
 
 void AchievementService::evaluate(Session &session, PlayerNumber player, Claim &claim)
 {
-    claim.tracker->reevaluate({session.facts, player}, *session.definitions);
+    claim.tracker->reevaluate({session.facts, player}, session.definitions());
     publish(session, player, claim);
 }
 
@@ -519,7 +535,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
         for (auto &[player, claim] : session->claims) {
             if (claim.userId == request.userId && claim.tracker) {
                 claim.tracker->applyOutcome(*sent, outcome, {session->facts, player},
-                                            *session->definitions);
+                                            session->definitions());
                 publish(*session, player, claim);
             }
         }
@@ -559,7 +575,9 @@ void AchievementService::updateView()
 {
     auto view = std::make_shared<AchievementsView>();
     // While a game runs, the definitions it is evaluated against; a newer set shows once it ends
-    view->definitions = m_current ? m_current->definitions : m_definitions;
+    // The definitions in force for game code: a game in progress keeps those it started with
+    const auto &feed = m_current ? m_current->feed : m_feed;
+    view->definitions = std::shared_ptr<const DefinitionSet> {feed, &feed->definitions};
     if (const auto *session = m_current) {
         for (const auto &[player, claim] : session->claims) {
             auto &entry = view->players[player];
