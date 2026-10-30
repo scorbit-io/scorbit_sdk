@@ -825,6 +825,55 @@ TEST_CASE("nfc flash: the record store", "[nfc_flash]")
     CHECK_FALSE(RecordStore::defaultDirs().empty());
 }
 
+// SB-6130: a result outlives the record until the api settles it, so a restart resends it.
+TEST_CASE("nfc flash: undelivered results are kept until dropped", "[nfc_flash]")
+{
+    TempDir dir;
+    RecordStore store {{dir.path / "state"}};
+    const std::string run = "38ff3bd2-549b-419d-9a31-8e624c352ac7";
+    const std::string other = "4f6f766b-a81c-489a-b127-3d7a0dd2c888";
+    const auto body = resultJson({Status::Succeeded, Stage::Done}).dump();
+
+    REQUIRE(store.keepResult(run, body));
+    REQUIRE(store.keepResult(other, body));
+    auto kept = store.pendingResults();
+    REQUIRE(kept.size() == 2);
+    for (const auto &result : kept) {
+        CHECK((result.runId == run || result.runId == other));
+        CHECK(result.body == body);
+    }
+
+    // Kept beside a record, and untouched when the record goes.
+    REQUIRE(store.commit(dir.path / "state", Record {run, "1-1.3", NEW_BUILD, "ab"}));
+    store.clear(dir.path / "state");
+    CHECK(store.pendingResults().size() == 2);
+
+    store.dropResult(run);
+    kept = store.pendingResults();
+    REQUIRE(kept.size() == 1);
+    CHECK(kept.front().runId == other);
+
+    SECTION("a run id that is no uuid never becomes a file name")
+    {
+        CHECK_FALSE(store.keepResult("../escape", body));
+        CHECK_FALSE(fs::exists(dir.path / "escape.json"));
+    }
+    SECTION("a result older than the cap is removed, not resent")
+    {
+        const auto file = RecordStore::resultPath(dir.path / "state", other);
+        fs::last_write_time(file, fs::file_time_type::clock::now() - RESULT_MAX_AGE - 1h);
+        CHECK(store.pendingResults().empty());
+        CHECK_FALSE(fs::exists(file));
+    }
+    SECTION("an unreadable result is removed")
+    {
+        const auto file = RecordStore::resultPath(dir.path / "state", other);
+        std::ofstream(file) << "{not json";
+        CHECK(store.pendingResults().empty());
+        CHECK_FALSE(fs::exists(file));
+    }
+}
+
 TEST_CASE("nfc flash: sha256 and the result body", "[nfc_flash]")
 {
     TempDir dir;

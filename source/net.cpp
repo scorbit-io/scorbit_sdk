@@ -2181,7 +2181,7 @@ void Net::runNfcFlash(const json &request)
     }
     const auto result = nfc_flash::resultJson(*outcome);
     INF("NFC flash run_id={}: {}", flash.runId, result.dump());
-    submitProbeFlashResult(flash.runId, result.dump(), {});
+    submitNfcFlashResult(flash.runId, result);
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     m_nfcRetag = true;
     reattachNfc();
@@ -2190,6 +2190,8 @@ void Net::runNfcFlash(const json &request)
 void Net::resumeNfcFlash()
 {
     const auto pending = nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.load();
+    // A run still in the record gets a fresh result from the resume below.
+    resendKeptNfcFlashResults(pending ? pending->second.runId : std::string {});
     if (!pending || !m_probesManager) {
         return;
     }
@@ -2213,11 +2215,48 @@ void Net::resumeNfcFlash()
     if (resumed) {
         const auto result = nfc_flash::resultJson(resumed->outcome);
         INF("NFC flash run_id={}: resumed, {}", resumed->runId, result.dump());
-        submitProbeFlashResult(resumed->runId, result.dump(), {});
+        submitNfcFlashResult(resumed->runId, result);
         m_nfcRetag = true;
     }
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     reattachNfc();
+}
+
+void Net::submitNfcFlashResult(const std::string &runId, const nlohmann::json &result)
+{
+    const auto run = toLowerAscii(runId);
+    if (!nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.keepResult(run,
+                                                                                   result.dump())) {
+        WRN("NFC flash run_id={}: result not written down; a restart before it is sent loses it",
+            run);
+    }
+    sendKeptNfcFlashResult(run, result.dump());
+}
+
+void Net::sendKeptNfcFlashResult(const std::string &runId, const std::string &body)
+{
+    // Only an answer that a retry cannot change settles it; running out of attempts or stopping
+    // leaves the file for the next start.
+    submitProbeFlashResult(runId, body, [runId](Error error, int httpStatus, const std::string &) {
+        if (!isProbeFlashResultRetryable(error, httpStatus)) {
+            nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.dropResult(runId);
+        }
+    });
+}
+
+void Net::resendKeptNfcFlashResults(const std::string &skipRunId)
+{
+    const auto skip = toLowerAscii(skipRunId);
+    // Not written again: the file's age, which bounds how long it is kept, is the run's.
+    for (const auto &kept :
+         nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.pendingResults()) {
+        if (kept.runId == skip) {
+            continue;
+        }
+        INF("NFC flash run_id={}: resending the result an earlier start did not deliver",
+            kept.runId);
+        sendKeptNfcFlashResult(kept.runId, kept.body);
+    }
 }
 
 void Net::refreshNfcFlashable()

@@ -649,6 +649,15 @@ private:
     void runNfcFlash(const nlohmann::json &request);
     /** Finishes a run a restart cut short; posted to the worker by setProbesManager. */
     void resumeNfcFlash();
+    /**
+     * Writes an nfc run's result down before submitting it, and drops it once the api has
+     * settled it, so a restart before authentication resends it (SB-6130).
+     */
+    void submitNfcFlashResult(const std::string &runId, const nlohmann::json &result);
+    /** Submits a written-down result, dropping its file once the api has settled it. */
+    void sendKeptNfcFlashResult(const std::string &runId, const std::string &body);
+    /** Resubmits results an earlier process wrote down but never delivered, except @p skipRunId. */
+    void resendKeptNfcFlashResults(const std::string &skipRunId);
     /** Re-decides whether this process can flash the pad, and re-advertises if that changed. */
     void refreshNfcFlashable();
     /** No game running, and none for long enough. */

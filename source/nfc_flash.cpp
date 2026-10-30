@@ -20,6 +20,7 @@
 #include "nfc_flash.h"
 
 #include "identifiers.h"
+#include "net_util.h"
 
 #include <logger/logger.h>
 #include <nfc/Uf2.h>
@@ -33,6 +34,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <string_view>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -368,6 +370,86 @@ fs::path RecordStore::imagePath(const fs::path &dir)
 fs::path RecordStore::recordPath(const fs::path &dir)
 {
     return dir / "nfc-flash.json";
+}
+
+fs::path RecordStore::resultPath(const fs::path &dir, const std::string &runId)
+{
+    return dir / ("nfc-result-" + runId + ".json");
+}
+
+bool RecordStore::keepResult(const std::string &runId, const std::string &body) const
+{
+    if (!isUuid(runId)) {
+        return false; // it becomes a file name
+    }
+    const auto dir = pick();
+    if (!dir) {
+        return false;
+    }
+    auto staged = resultPath(*dir, runId);
+    staged += ".tmp" + uniqueSuffix();
+    std::error_code ec;
+    if (!writeDurably(staged, body)) {
+        fs::remove(staged, ec);
+        return false;
+    }
+    fs::rename(staged, resultPath(*dir, runId), ec);
+    if (ec) {
+        fs::remove(staged, ec);
+        return false;
+    }
+    return syncDirectory(*dir);
+}
+
+std::vector<PendingResult> RecordStore::pendingResults(std::chrono::seconds maxAge) const
+{
+    constexpr std::string_view PREFIX = "nfc-result-";
+    constexpr std::string_view SUFFIX = ".json";
+    std::vector<PendingResult> results;
+    for (const auto &dir : m_dirs) {
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec) || !isPrivateDirectory(dir)) {
+            continue;
+        }
+        for (const auto &entry : fs::directory_iterator(dir, ec)) {
+            const auto name = entry.path().filename().string();
+            if (name.size() <= PREFIX.size() + SUFFIX.size() || !name.starts_with(PREFIX)
+                || !name.ends_with(SUFFIX)) {
+                continue;
+            }
+            const auto runId =
+                    name.substr(PREFIX.size(), name.size() - PREFIX.size() - SUFFIX.size());
+            if (!isUuid(runId) || !isOwnFile(entry.path())) {
+                continue;
+            }
+            std::error_code timeEc;
+            const auto written = fs::last_write_time(entry.path(), timeEc);
+            if (timeEc || fs::file_time_type::clock::now() - written > maxAge) {
+                fs::remove(entry.path(), timeEc); // the api gave the run up long ago
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            std::string body {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+            if (json::parse(body, nullptr, false).is_discarded()) {
+                WRN("NFC flash: unreadable result {} removed", entry.path().string());
+                fs::remove(entry.path(), timeEc);
+                continue;
+            }
+            results.push_back({runId, std::move(body)});
+        }
+    }
+    return results;
+}
+
+void RecordStore::dropResult(const std::string &runId) const
+{
+    if (!isUuid(runId)) {
+        return;
+    }
+    for (const auto &dir : m_dirs) {
+        std::error_code ec;
+        fs::remove(resultPath(dir, runId), ec);
+    }
 }
 
 std::string sha256File(const fs::path &file)

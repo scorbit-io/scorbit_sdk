@@ -146,6 +146,15 @@ struct Record {
     std::string sha256;
 };
 
+/** A run's result that was written down but not yet accepted by the api (SB-6130). */
+struct PendingResult {
+    std::string runId;
+    std::string body;
+};
+
+/** How long an undelivered result is kept; the api abandons a run long before this. */
+constexpr std::chrono::hours RESULT_MAX_AGE {24};
+
 class RecordStore
 {
 public:
@@ -167,8 +176,20 @@ public:
     /** Removes the record and the image from @p dir. */
     void clear(const std::filesystem::path &dir) const;
 
+    /**
+     * Writes run @p runId's result durably, so a restart before the api accepts it resends it
+     * rather than losing it; false if no directory can take it or @p runId is not a uuid.
+     */
+    bool keepResult(const std::string &runId, const std::string &body) const;
+    /** Undelivered results in any of the directories; ones older than @p maxAge are removed. */
+    std::vector<PendingResult> pendingResults(std::chrono::seconds maxAge = RESULT_MAX_AGE) const;
+    /** Removes run @p runId's undelivered result from every directory. */
+    void dropResult(const std::string &runId) const;
+
     static std::filesystem::path imagePath(const std::filesystem::path &dir);
     static std::filesystem::path recordPath(const std::filesystem::path &dir);
+    static std::filesystem::path resultPath(const std::filesystem::path &dir,
+                                            const std::string &runId);
 
 private:
     std::vector<std::filesystem::path> m_dirs;
