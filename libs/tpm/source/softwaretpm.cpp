@@ -124,8 +124,11 @@ ByteArray SoftwareTpm::publicKey() const
 void SoftwareTpm::readData(const std::string &filename)
 {
     nlohmann::json json = utils::readJsonFile(filename);
-    if (json.empty())
+    if (json.empty()) {
+        // No identity, not a stale or garbage one: a host falls back to this (SB-6128).
+        clear();
         return;
+    }
 
     m_serial = json.value("serial", 0);
     m_uuid = ByteArray(json.value("uuid", ""));

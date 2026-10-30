@@ -34,7 +34,7 @@ private:
     void clear();
 
 private:
-    uint64_t m_serial;
+    uint64_t m_serial {0};
     utils::ByteArray m_uuid;
     utils::ByteArray m_key;
     utils::ByteArray m_publicKey;
