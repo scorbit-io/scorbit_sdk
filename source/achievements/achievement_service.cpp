@@ -575,6 +575,13 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
 
     outbox->delivered();
 
+    // The player's slot was unclaimed this session: the API acknowledged and discarded the whole
+    // report (§7.3). It was delivered, so it is not retried; nothing in it was acknowledged, so
+    // its records may ride a later report; and nothing was refused, so nothing is retracted.
+    if (outcomes->empty() && !request.items.empty()) {
+        INF("Achievements: report for {} acknowledged and discarded", request.userId);
+    }
+
     auto *session = sessionOf(outbox);
     for (const auto &outcome : *outcomes) {
         if (outcome.status == ReportStatus::Rejected) {
