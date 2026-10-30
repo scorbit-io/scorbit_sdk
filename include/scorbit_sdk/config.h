@@ -197,6 +197,15 @@ public:
     }
 
     /**
+     * @brief Set a writable, persistent directory for SDK data (see @ref sb_config_set_data_dir).
+     */
+    Config &setDataDir(const std::string &path)
+    {
+        sb_config_set_data_dir(m_handle.get(), path.c_str());
+        return *this;
+    }
+
+    /**
      * @brief Set how many threads the SDK uses for blocking work (see @ref
      *        sb_config_set_worker_thread_count).
      * @param count Number of threads, clamped to 1-8. Optional, defaults to 4; use 2 on

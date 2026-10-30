@@ -170,6 +170,23 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_threads_priority(sb_config_t config, int priority);
 
 /**
+ * @brief Set a writable directory the SDK may keep persistent data in.
+ *
+ * The SDK stores its achievements cache there — the last achievement definitions with their
+ * validator, and the DMD frame bundle — so that a reboot revalidates the definitions instead of
+ * downloading them again, and a frame is already local when it has to be shown.
+ *
+ * The directory should survive reboots. When it is not set, a directory under the system
+ * temporary directory is used, which works but may be cleared on reboot.
+ *
+ * @param config The configuration handle.
+ * @param path The directory; it is created if it does not exist. Must be set before @ref
+ * sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_data_dir(sb_config_t config, const char *path);
+
+/**
  * @brief Set how many threads the SDK uses for blocking work.
  *
  * These threads run the work that waits: HTTP requests, cryptography, firmware downloads and

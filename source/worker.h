@@ -55,6 +55,7 @@ public:
         PairCode,
         ProbeFlashResultRetry,
         NfcReattach,
+        AchievementRetry,
 
         // IMPORTANT! This must be last entry!
         Count,
