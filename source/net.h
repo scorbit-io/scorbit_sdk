@@ -37,6 +37,7 @@
 #include <cpr/cpr.h>
 #include <nlohmann/json.hpp>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <functional>
@@ -57,6 +58,7 @@ namespace detail {
 
 namespace nfc_flash {
 class Flasher;
+class RecordStore;
 }
 
 std::string getSignature(const SignerCallback &signer, const std::string &uuid,
@@ -146,6 +148,11 @@ struct NetTestAccess {
     static void resendDueProbeFlashResults(Net &net, std::chrono::steady_clock::time_point now);
     /// How many probe_flash results are waiting to be resent.
     static size_t pendingProbeFlashResults(Net &net);
+    /// Keeps the NFC flash's record and results in @p dirs instead of the user's state directory.
+    static void setNfcStateDirs(Net &net, std::vector<std::filesystem::path> dirs);
+    static void submitNfcFlashResult(Net &net, const std::string &runId,
+                                     const nlohmann::json &result);
+    static void resendKeptNfcFlashResults(Net &net, const std::string &skipRunId);
     /// When the result retry timer is armed to fire; nullopt when it is not.
     static std::optional<std::chrono::steady_clock::time_point> probeFlashRetryAt(Net &net);
     /// Ends the running flash's hold, as if its deadline and flash window had passed.
@@ -658,6 +665,8 @@ private:
     void sendKeptNfcFlashResult(const std::string &runId, const std::string &body);
     /** Resubmits results an earlier process wrote down but never delivered, except @p skipRunId. */
     void resendKeptNfcFlashResults(const std::string &skipRunId);
+    /** Where kept NFC results are written: the user's state directory, or a test's. */
+    nfc_flash::RecordStore nfcResultStore() const;
     /** Re-decides whether this process can flash the pad, and re-advertises if that changed. */
     void refreshNfcFlashable();
     /** No game running, and none for long enough. */
@@ -873,6 +882,8 @@ private:
     std::atomic<int> m_nfcReattachLeft {0};
     /// The pad was flashed or rebooted: program its tag again once it is found
     std::atomic<bool> m_nfcRetag {false};
+    /// Where kept NFC results live; empty for the user's state directory. Set only by tests.
+    std::vector<std::filesystem::path> m_nfcStateDirs;
     /// Last game data from the host; with m_createdAt, how long the unit has been idle
     std::atomic<std::chrono::steady_clock::time_point> m_lastGameActivity {};
     const std::chrono::steady_clock::time_point m_createdAt {std::chrono::steady_clock::now()};

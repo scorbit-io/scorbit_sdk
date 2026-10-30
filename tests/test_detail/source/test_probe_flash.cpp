@@ -28,6 +28,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <filesystem>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -516,6 +518,96 @@ TEST_CASE("The probe flash event's C helper")
 
     HardwareProbeRequestedEvent other {RUN_A, false};
     CHECK_FALSE(sb_event_probe_flash_requested(&other, &runId, &request));
+}
+
+namespace {
+
+/// A private state directory for the NFC flash's kept results, removed afterwards.
+struct NfcStateDir {
+    NfcStateDir()
+    {
+        std::random_device rd;
+        root = std::filesystem::temp_directory_path()
+             / ("scorbit-nfc-result-" + std::to_string(rd()));
+        dir = root / "state";
+    }
+    ~NfcStateDir()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+    bool kept(const char *runId) const
+    {
+        return std::filesystem::exists(dir / ("nfc-result-" + std::string {runId} + ".json"));
+    }
+    std::filesystem::path root;
+    std::filesystem::path dir;
+};
+
+} // namespace
+
+// SB-6130: an NFC run's result is written down until the api settles it.
+TEST_CASE("A kept NFC result is dropped only once the api has settled it")
+{
+    NfcStateDir state;
+    FlashNet net;
+    NetTestAccess::setNfcStateDirs(net, {state.dir});
+    NetTestAccess::submitNfcFlashResult(net, RUN_A, json {{"status", "succeeded"}});
+    REQUIRE(net.posts.size() == 1);
+    CHECK(net.posts[0].path == RESULT_PATH);
+    REQUIRE(state.kept(RUN_A));
+
+    SECTION("accepted")
+    {
+        net.answer(Error::Success, 202);
+        CHECK_FALSE(state.kept(RUN_A));
+    }
+    SECTION("refused for good")
+    {
+        net.answer(Error::ApiError, 409);
+        CHECK_FALSE(state.kept(RUN_A));
+    }
+    SECTION("a server error is retried and keeps it")
+    {
+        net.answer(Error::ApiError, 503);
+        CHECK(NetTestAccess::pendingProbeFlashResults(net) == 1);
+        CHECK(state.kept(RUN_A));
+    }
+    SECTION("no answer while unauthenticated keeps it")
+    {
+        net.answer(Error::NotPaired, 401);
+        CHECK(state.kept(RUN_A));
+    }
+}
+
+TEST_CASE("A kept NFC result survives shutdown and is resent at the next start")
+{
+    NfcStateDir state;
+    {
+        FlashNet net;
+        NetTestAccess::setNfcStateDirs(net, {state.dir});
+        NetTestAccess::submitNfcFlashResult(net, RUN_A, json {{"status", "succeeded"}});
+        net.answer(Error::ApiError, 503); // waiting for a retry when the SDK stops
+    }
+    REQUIRE(state.kept(RUN_A));
+
+    FlashNet next;
+    NetTestAccess::setNfcStateDirs(next, {state.dir});
+    SECTION("a run the resume reported afresh is not sent twice")
+    {
+        NetTestAccess::resendKeptNfcFlashResults(next, RUN_A);
+        CHECK(next.posts.empty());
+        CHECK(state.kept(RUN_A));
+    }
+    SECTION("resent as it was, and dropped once accepted")
+    {
+        NetTestAccess::resendKeptNfcFlashResults(next, "");
+        REQUIRE(next.posts.size() == 1);
+        CHECK(next.posts[0].runId == RUN_A);
+        CHECK(next.posts[0].body == json {{"status", "succeeded"}});
+        next.answer(Error::Success, 202);
+        CHECK_FALSE(state.kept(RUN_A));
+    }
 }
 
 TEST_CASE("The host can declare only the probes it can flash")

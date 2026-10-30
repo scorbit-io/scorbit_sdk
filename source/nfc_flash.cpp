@@ -243,6 +243,29 @@ bool syncFile(const fs::path &file)
 #endif
 }
 
+// Removes @p file only while it is the version written at @p written. Another process keeping a
+// fresh result for the run replaces the file by rename meanwhile, and that one must survive.
+void removeIfUnchanged(const fs::path &file, fs::file_time_type written)
+{
+    std::error_code ec;
+    auto claimed = file;
+    claimed += ".gone" + uniqueSuffix();
+    fs::rename(file, claimed, ec);
+    if (ec) {
+        return; // gone already, or held open elsewhere
+    }
+    const auto claimedWritten = fs::last_write_time(claimed, ec);
+    if (!ec && claimedWritten == written) {
+        fs::remove(claimed, ec);
+        return;
+    }
+    // A fresh result was claimed: put it back, unless a newer one has arrived since.
+    if (!fs::exists(file, ec)) {
+        fs::rename(claimed, file, ec);
+    }
+    fs::remove(claimed, ec);
+}
+
 } // namespace
 
 RecordStore::RecordStore(std::vector<fs::path> dirs)
@@ -434,20 +457,26 @@ std::vector<PendingResult> RecordStore::pendingResults(std::chrono::seconds maxA
                 if (fileEc) {
                     continue;
                 }
-                const auto age = now - written;
+                auto age = now - written;
+                auto version = written;
                 if (age < -std::chrono::hours {1}
                     || age > std::chrono::system_clock::now() - CLOCK_FLOOR) {
                     fs::last_write_time(file, now, fileEc);
+                    version = fs::last_write_time(file, fileEc);
                 } else if (age > maxAge) {
-                    fs::remove(file, fileEc); // the api gave the run up long ago
+                    removeIfUnchanged(file, version); // the api gave the run up long ago
                     continue;
                 }
-                std::ifstream in(file, std::ios::binary);
-                std::string body {std::istreambuf_iterator<char>(in),
-                                  std::istreambuf_iterator<char>()};
+                std::string body;
+                {
+                    // Closed before any removal: Windows cannot remove an open file.
+                    std::ifstream in(file, std::ios::binary);
+                    body.assign(std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>());
+                }
                 if (!json::parse(body, nullptr, false).is_object()) {
                     WRN("NFC flash: unreadable result {} removed", file.string());
-                    fs::remove(file, fileEc);
+                    removeIfUnchanged(file, version);
                     continue;
                 }
                 results.push_back({runId, std::move(body)});

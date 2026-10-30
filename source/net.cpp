@@ -2190,11 +2190,10 @@ void Net::runNfcFlash(const json &request)
 void Net::resumeNfcFlash()
 {
     const auto pending = nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.load();
-    // After the resume, which a stuck pad needs first; the run still in the record is the
-    // resume's to report.
-    const auto resendKept = [&] {
-        resendKeptNfcFlashResults(pending ? pending->second.runId : std::string {});
-    };
+    // After the resume, which a stuck pad needs first. Only a run the resume reported afresh is
+    // skipped: one it left for the next start still has its kept result to deliver.
+    std::string reported;
+    const auto resendKept = [&] { resendKeptNfcFlashResults(reported); };
     if (!pending || !m_probesManager) {
         resendKept();
         return;
@@ -2220,6 +2219,7 @@ void Net::resumeNfcFlash()
         const auto result = nfc_flash::resultJson(resumed->outcome);
         INF("NFC flash run_id={}: resumed, {}", resumed->runId, result.dump());
         submitNfcFlashResult(resumed->runId, result);
+        reported = resumed->runId;
         m_nfcRetag = true;
     }
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
@@ -2227,11 +2227,16 @@ void Net::resumeNfcFlash()
     resendKept();
 }
 
+nfc_flash::RecordStore Net::nfcResultStore() const
+{
+    return nfc_flash::RecordStore {m_nfcStateDirs.empty() ? nfc_flash::RecordStore::defaultDirs()
+                                                          : m_nfcStateDirs};
+}
+
 void Net::submitNfcFlashResult(const std::string &runId, const nlohmann::json &result)
 {
     const auto run = toLowerAscii(runId);
-    if (!nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.keepResult(run,
-                                                                                   result.dump())) {
+    if (!nfcResultStore().keepResult(run, result.dump())) {
         WRN("NFC flash run_id={}: result not written down; a restart before it is sent loses it",
             run);
     }
@@ -2242,11 +2247,13 @@ void Net::sendKeptNfcFlashResult(const std::string &runId, const std::string &bo
 {
     // Only an answer that a retry cannot change settles it; running out of attempts or stopping
     // leaves the file for the next start.
-    submitProbeFlashResult(runId, body, [runId](Error error, int httpStatus, const std::string &) {
-        if (!isProbeFlashResultRetryable(error, httpStatus)) {
-            nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.dropResult(runId);
-        }
-    });
+    submitProbeFlashResult(
+            runId, body,
+            [store = nfcResultStore(), runId](Error error, int httpStatus, const std::string &) {
+                if (!isProbeFlashResultRetryable(error, httpStatus)) {
+                    store.dropResult(runId);
+                }
+            });
 }
 
 void Net::resendKeptNfcFlashResults(const std::string &skipRunId)
@@ -2254,8 +2261,7 @@ void Net::resendKeptNfcFlashResults(const std::string &skipRunId)
     const auto skip = toLowerAscii(skipRunId);
     try {
         // Not written again: the file's age, which bounds how long it is kept, is the run's.
-        for (const auto &kept :
-             nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.pendingResults()) {
+        for (const auto &kept : nfcResultStore().pendingResults()) {
             if (kept.runId == skip) {
                 continue;
             }
@@ -4419,6 +4425,22 @@ size_t NetTestAccess::pendingProbeFlashResults(Net &net)
 {
     std::lock_guard<std::mutex> lock(net.m_probeFlashMutex);
     return net.m_probeFlashResults.size();
+}
+
+void NetTestAccess::setNfcStateDirs(Net &net, std::vector<std::filesystem::path> dirs)
+{
+    net.m_nfcStateDirs = std::move(dirs);
+}
+
+void NetTestAccess::submitNfcFlashResult(Net &net, const std::string &runId,
+                                         const nlohmann::json &result)
+{
+    net.submitNfcFlashResult(runId, result);
+}
+
+void NetTestAccess::resendKeptNfcFlashResults(Net &net, const std::string &skipRunId)
+{
+    net.resendKeptNfcFlashResults(skipRunId);
 }
 
 std::optional<std::chrono::steady_clock::time_point> NetTestAccess::probeFlashRetryAt(Net &net)
