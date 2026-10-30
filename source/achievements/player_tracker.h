@@ -23,6 +23,7 @@
 #include "definition.h"
 #include "player_facts.h"
 #include "progress.h"
+#include "report.h"
 #include "rule_evaluator.h"
 #include <optional>
 #include <string>
@@ -52,26 +53,6 @@ struct AchievementUpdate {
     std::string key;
     AchievementStatus status {AchievementStatus::Progress};
     RuleProgressMap rules;
-};
-
-/** One item of `POST /achievements/report/` (§10.5). */
-struct ReportItem {
-    std::string key;
-
-    /** The claim: true asks for the grant, false says "evaluated, not earned", nullopt = no verdict. */
-    std::optional<bool> achieved;
-
-    /** Sparse: only rules the machine could judge. */
-    RuleProgressMap rules;
-};
-
-/** Per-item report result (§10.5). */
-enum class ReportStatus { Unlocked, InProgress, AlreadyHeld, Rejected };
-
-struct ReportOutcome {
-    std::string key;
-    ReportStatus status {ReportStatus::InProgress};
-    std::string code;
 };
 
 /**

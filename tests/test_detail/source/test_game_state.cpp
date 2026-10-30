@@ -71,12 +71,12 @@ public:
     MAKE_MOCK2(switchMachine, void(const std::string &, MachineSwitch::Callback), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
-                       std::function<void()> onCreated) override
+                       scorbit::detail::SessionCreatedCallback onCreated) override
     {
         createReplies.push_back(std::move(onCreated));
     };
     /// Each session's onCreated, in start order: calling one stands in for its create reply.
-    std::vector<std::function<void()>> createReplies;
+    std::vector<scorbit::detail::SessionCreatedCallback> createReplies;
     void getConfig() override {};
     MAKE_MOCK5(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>,
@@ -308,7 +308,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         REQUIRE(mockNetRef.createReplies.size() == 1);
 
         REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.id == 1 && _1.isGameActive).TIMES(1);
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
     }
     SECTION("a reply after the game ended sends nothing")
     {
@@ -318,7 +318,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         gameState.setGameFinished();
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
     }
     SECTION("a reply after the next game started sends nothing for either")
     {
@@ -329,7 +329,7 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         REQUIRE(mockNetRef.createReplies.size() == 2);
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
     }
 }
 

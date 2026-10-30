@@ -57,6 +57,7 @@ public:
         NfcReattach,
         TableMappingsRefresh,
         SwitchDrain,
+        AchievementRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

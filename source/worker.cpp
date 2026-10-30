@@ -96,6 +96,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::SwitchDrain:
             name = "SwitchDrain";
             break;
+        case Worker::Timer::AchievementRetry:
+            name = "AchievementRetry";
+            break;
         case Worker::Timer::Count:
             break;
         }
@@ -111,6 +114,7 @@ Worker::Worker(int threadNiceValue, int blockingThreadCount)
     , m_blockingThreadCount(
               std::clamp(blockingThreadCount, MIN_BLOCKING_THREADS, MAX_BLOCKING_THREADS))
     , m_timers {{
+              boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc},

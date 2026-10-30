@@ -527,7 +527,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     // This prevents situation when just started game doesn't publish 0 and app stuck waiting
     // Only for this game, and only while it runs: a reply after the game ended would otherwise
     // submit the reset GameData, session id 0 (SB-5673).
-    m_net->sessionCreate(m_data, origin, [this, sessionId = m_data.id]() {
+    m_net->sessionCreate(m_data, origin, [this, sessionId = m_data.id](const std::string &) {
         if (m_data.isGameActive && m_data.id == sessionId) {
             submitGameData(true);
         }
