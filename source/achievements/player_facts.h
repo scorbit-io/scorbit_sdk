@@ -51,6 +51,32 @@ struct Occurrence {
     int64_t value {1};
 };
 
+/**
+ * One activation of a mode for as long as the mode stays in `game_modes`: unlike a timed
+ * activation, it does not close at ball end or on completion, only when the mode leaves or the
+ * session ends (§5.5.1).
+ */
+struct ModeRun {
+    int64_t startMs {0};
+
+    /** When the mode left `game_modes` or the session ended; nullopt while it is still running. */
+    std::optional<int64_t> endMs;
+
+    BallNumber ball {0};
+    size_t span {0};
+
+    /**
+     * Points the owning player scored during it, never below zero: up to the closing row, or up
+     * to now while it is still running.
+     */
+    int64_t gain {0};
+
+    /** The highest @ref gain it reached at any row, which a `GE` rule keeps once met. */
+    int64_t peakGain {0};
+
+    bool open() const { return !endMs; }
+};
+
 /** Something that lasted, inside one ball: a mode activation or a ball. */
 struct Duration {
     int64_t ms {0};
@@ -153,6 +179,9 @@ public:
     std::vector<Occurrence> stacks(const std::vector<std::string> &modes,
                                    PlayerNumber player) const;
 
+    /** The activations of @p mode that @p player owns, in order, as `MODE_SCORE` sees them. */
+    std::vector<ModeRun> modeRuns(const std::string &mode, PlayerNumber player) const;
+
     /** Whether the last applied row ended a ball, and for whom. */
     std::optional<PlayerNumber> lastRowEndedBallOf() const { return m_ballEndedFor; }
 
@@ -164,14 +193,22 @@ private:
         size_t startRow {0};
         std::optional<size_t> endRow {};
         int64_t startMs {0};
+        int64_t endMs {0};
 
-        /** Active player, ball and ball span on the row the mode arrived. */
+        /** Active player, ball and ball span on the row the mode arrived: its owner. */
         PlayerNumber player {0};
         BallNumber ball {0};
         size_t span {0};
+
+        /** The owner's score on the row the mode arrived, and on the row that closed the run. */
+        int64_t startScore {0};
+        int64_t endScore {0};
+        int64_t peakGain {0};
     };
 
     PlayerFacts *facts(PlayerNumber player);
+    int64_t scoreOf(PlayerNumber player) const;
+    void closeRun(PresenceRun &run, int64_t timeMs);
     void closeBall(int64_t timeMs);
     void openBall(PlayerNumber player, BallNumber ball, int64_t timeMs);
     void closeActivation(const std::string &mode, int64_t timeMs);

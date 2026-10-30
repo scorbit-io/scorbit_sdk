@@ -49,6 +49,7 @@ enum class AchievementRuleType {
     TimerBetween = SB_ACHIEVEMENT_RULE_TIMER_BETWEEN,
     Ball = SB_ACHIEVEMENT_RULE_BALL,
     Achievement = SB_ACHIEVEMENT_RULE_ACHIEVEMENT,
+    ModeScore = SB_ACHIEVEMENT_RULE_MODE_SCORE,
 };
 
 enum class AchievementComparison {

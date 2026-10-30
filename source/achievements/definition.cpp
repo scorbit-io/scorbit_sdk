@@ -27,7 +27,7 @@ namespace achievements {
 
 namespace {
 
-constexpr std::array<std::pair<RuleType, std::string_view>, 12> RULE_TYPE_NAMES {{
+constexpr auto RULE_TYPE_NAMES = std::to_array<std::pair<RuleType, std::string_view>>({
         {RuleType::Mode, "MODE"},
         {RuleType::ModeCompleted, "MODE_COMPLETED"},
         {RuleType::ModeStack, "MODE_STACK"},
@@ -40,14 +40,15 @@ constexpr std::array<std::pair<RuleType, std::string_view>, 12> RULE_TYPE_NAMES 
         {RuleType::TimerBetween, "TIMER_BETWEEN"},
         {RuleType::Ball, "BALL"},
         {RuleType::Achievement, "ACHIEVEMENT"},
-}};
+        {RuleType::ModeScore, "MODE_SCORE"},
+});
 
-constexpr std::array<std::pair<Comparison, std::string_view>, 4> COMPARISON_NAMES {{
+constexpr auto COMPARISON_NAMES = std::to_array<std::pair<Comparison, std::string_view>>({
         {Comparison::Eq, "="},
         {Comparison::Le, "<="},
         {Comparison::Ge, ">="},
         {Comparison::Ne, "!="},
-}};
+});
 
 template<typename Enum, size_t N>
 std::optional<Enum> lookup(const std::array<std::pair<Enum, std::string_view>, N> &table,
@@ -108,6 +109,7 @@ bool isObservation(RuleType type)
 {
     switch (type) {
     case RuleType::Score:
+    case RuleType::ModeScore:
     case RuleType::TimerSession:
     case RuleType::TimerBall:
     case RuleType::TimerMode:
@@ -141,6 +143,7 @@ bool isRankingRule(RuleType type)
 {
     switch (type) {
     case RuleType::Score:
+    case RuleType::ModeScore:
     case RuleType::TimerSession:
     case RuleType::TimerBall:
     case RuleType::TimerMode:
@@ -153,7 +156,8 @@ bool isRankingRule(RuleType type)
 
 bool isSingleModeRule(RuleType type)
 {
-    return type == RuleType::Mode || type == RuleType::ModeCompleted || type == RuleType::TimerMode;
+    return type == RuleType::Mode || type == RuleType::ModeCompleted || type == RuleType::TimerMode
+        || type == RuleType::ModeScore;
 }
 
 std::optional<RuleType> ruleTypeFromString(std::string_view str)

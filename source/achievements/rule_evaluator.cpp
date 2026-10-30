@@ -153,6 +153,9 @@ private:
         case RuleType::Score:
             return resolveObservation(scoreValues(), rule, baseline);
 
+        case RuleType::ModeScore:
+            return modeScore(rule, baseline);
+
         case RuleType::TimerSession:
             return resolveObservation({m_facts.sessionTimeMs()}, rule, baseline);
 
@@ -230,6 +233,30 @@ private:
         }
         const auto &values = m_facts.scoreValues();
         return {values.begin(), values.end()};
+    }
+
+    /**
+     * `MODE_SCORE`: one gain per activation of the mode (§5.5.1). A `GE` rule also observes a
+     * running activation, and keeps the highest gain any activation reached. `LE`, `EQ` and `NE`
+     * judge closed activations only, so while the only ones are still running they have no
+     * verdict rather than the `0` of a mode that never ran.
+     */
+    std::optional<RuleProgress> modeScore(const Rule &rule, const RuleProgress *baseline) const
+    {
+        const auto runs = m_session.facts.modeRuns(rule.reference, m_session.player);
+
+        std::vector<int64_t> gains;
+        for (const auto &run : runs) {
+            if (rule.comparison == Comparison::Ge) {
+                gains.push_back(run.peakGain);
+            } else if (!run.open()) {
+                gains.push_back(run.gain);
+            }
+        }
+        if (gains.empty() && !runs.empty()) {
+            return std::nullopt;
+        }
+        return resolveObservation(std::move(gains), rule, baseline);
     }
 
     static std::vector<int64_t> durationValues(const std::vector<Duration> &durations)

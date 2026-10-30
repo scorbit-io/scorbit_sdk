@@ -36,7 +36,7 @@ namespace scorbit {
 namespace detail {
 namespace achievements {
 
-/** The twelve rule types (§5.1). */
+/** The rule types (§5.1); new ones are appended, as their values are public. */
 enum class RuleType {
     Mode,          ///< Times the referenced mode was activated
     ModeCompleted, ///< Times the referenced mode was completed
@@ -50,6 +50,7 @@ enum class RuleType {
     TimerBetween,  ///< Milliseconds to bring the sibling rules' facts together within one ball
     Ball,          ///< The ball number on which the sibling rules' facts occurred
     Achievement,   ///< Whether the referenced prerequisite achievement is held
+    ModeScore,     ///< Points the player scored during one activation of the referenced mode
 };
 
 /** The four inclusive predicates (§6.1); `=`, `<=`, `>=`, `!=` on the wire. */
@@ -137,7 +138,7 @@ bool isQualifier(RuleType type);
 /** Accumulators whose occurrences happen at an identifiable instant in a session (§6.4). */
 bool isInstantValued(RuleType type);
 
-/** Rules a trophy may be ranked by: `SCORE` and the timers (§7.5). */
+/** Rules a trophy may be ranked by: `SCORE`, `MODE_SCORE` and the timers (§7.5). */
 bool isRankingRule(RuleType type);
 
 /** Rule types whose `reference` names a single mode. */

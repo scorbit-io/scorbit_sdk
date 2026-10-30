@@ -30,6 +30,7 @@ namespace {
 constexpr auto GE = Comparison::Ge;
 constexpr auto LE = Comparison::Le;
 constexpr auto EQ = Comparison::Eq;
+constexpr auto NE = Comparison::Ne;
 
 /** Evaluates achievements for player 1 of a timeline. */
 struct Evaluator {
@@ -429,4 +430,109 @@ TEST_CASE("Observation value is the best one for the predicate", "[achievements]
           == RuleProgress {3000, true});
     CHECK(ev(inSession("eq", {rule(RuleType::TimerMode, EQ, 10000, "m")})).rules.at(0)
           == RuleProgress {10000, true});
+}
+
+TEST_CASE("Multiball Millions: points from one multiball do not add to the next", "[achievements]")
+{
+    const auto def =
+            inSession("game-mb-millions", {rule(RuleType::ModeScore, GE, 50'000'000, "multiball")});
+    Evaluator ev;
+    ev.timeline.at(0).commit();
+    ev.timeline.at(1000).modes({"multiball"}).commit();
+    ev.timeline.at(2000).score(1, 30'000'000).modes({}).commit();
+    ev.timeline.at(3000).modes({"multiball"}).commit();
+    ev.timeline.at(4000).score(1, 60'000'000).modes({}).commit();
+
+    const auto e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {30'000'000, false});
+    CHECK_FALSE(e.allSatisfied);
+}
+
+TEST_CASE("A running mode counts toward GE, and GE keeps what it met", "[achievements]")
+{
+    const auto def =
+            inSession("game-mb-ten", {rule(RuleType::ModeScore, GE, 10'000'000, "multiball")});
+    Evaluator ev;
+    ev.timeline.at(0).commit();
+    ev.timeline.at(1000).modes({"multiball"}).commit();
+    CHECK(ev(def).rules.at(0) == RuleProgress {0, false});
+
+    ev.timeline.at(2000).score(1, 12'000'000).commit();
+    CHECK(ev(def).allSatisfied);
+
+    ev.timeline.at(3000).score(1, 9'000'000).modes({}).commit(); // closes lower
+    CHECK(ev(def).rules.at(0) == RuleProgress {12'000'000, true});
+}
+
+TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
+{
+    const auto small =
+            inSession("game-mb-small", {rule(RuleType::ModeScore, LE, 999'999, "multiball"),
+                                        rule(RuleType::Mode, GE, 1, "multiball")});
+    Evaluator ev;
+    ev.timeline.at(0).commit();
+
+    SECTION("Never activated: 0, and the pairing fails")
+    {
+        const auto e = ev(small);
+        CHECK(e.rules.at(0) == RuleProgress {0, true});
+        CHECK(e.rules.at(1) == RuleProgress {0, false});
+        CHECK_FALSE(e.allSatisfied);
+    }
+
+    SECTION("Running: no verdict, so no claim, rather than 0")
+    {
+        ev.timeline.at(1000).modes({"multiball"}).commit();
+        const auto e = ev(small);
+        CHECK_FALSE(e.rules.contains(0));
+        CHECK(e.rules.at(1) == RuleProgress {1, true});
+        CHECK_FALSE(e.allSatisfied);
+
+        for (const auto comparison : {EQ, NE}) {
+            const auto other = inSession("game-mb-other",
+                                         {rule(RuleType::ModeScore, comparison, 5, "multiball")});
+            CHECK(ev(other).rules.empty());
+        }
+    }
+
+    SECTION("Closed: judged on its gain")
+    {
+        ev.timeline.at(1000).modes({"multiball"}).commit();
+        ev.timeline.at(2000).score(1, 400'000).modes({}).commit();
+        CHECK(ev(small).allSatisfied);
+    }
+
+    SECTION("Running again after a closed one: judged on the closed one")
+    {
+        ev.timeline.at(1000).modes({"multiball"}).commit();
+        ev.timeline.at(2000).score(1, 400'000).modes({}).commit();
+        ev.timeline.at(3000).modes({"multiball"}).commit();
+        ev.timeline.at(4000).score(1, 5'000'000).commit();
+        CHECK(ev(small).rules.at(0) == RuleProgress {400'000, true});
+    }
+}
+
+TEST_CASE("Stacked modes are scored independently", "[achievements]")
+{
+    const auto multiball = inSession("a", {rule(RuleType::ModeScore, GE, 1'000, "multiball")});
+    const auto wizard = inSession("b", {rule(RuleType::ModeScore, GE, 1'000, "wizard")});
+    Evaluator ev;
+    ev.timeline.at(0).modes({"multiball"}).commit();
+    ev.timeline.at(1000).modes({"multiball", "wizard"}).commit();
+    ev.timeline.at(2000).score(1, 1'500).commit(); // one shot, counted in full by both
+
+    CHECK(ev(multiball).rules.at(0) == RuleProgress {1'500, true});
+    CHECK(ev(wizard).rules.at(0) == RuleProgress {1'500, true});
+}
+
+TEST_CASE("An unlimited MODE_SCORE merges with the best gain before", "[achievements]")
+{
+    const auto def =
+            unlimited("game-mb-best", {rule(RuleType::ModeScore, GE, 50'000'000, "multiball")});
+    Evaluator ev;
+    ev.baselines["game-mb-best"] = Baseline {false, {{0, RuleProgress {40'000'000, false}}}};
+    ev.timeline.at(0).modes({"multiball"}).commit();
+    ev.timeline.at(1000).score(1, 55'000'000).modes({}).commit();
+
+    CHECK(ev(def).rules.at(0) == RuleProgress {55'000'000, true});
 }

@@ -156,6 +156,35 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
     return rv;
 }
 
+std::vector<ModeRun> SessionFacts::modeRuns(const std::string &mode, PlayerNumber player) const
+{
+    std::vector<ModeRun> rv;
+    for (const auto &run : entriesOf(m_presence, mode)) {
+        if (run.player != player) {
+            continue;
+        }
+        const bool open = !run.endRow;
+        const auto gain =
+                std::max<int64_t>(0, (open ? scoreOf(player) : run.endScore) - run.startScore);
+        rv.push_back(ModeRun {run.startMs, open ? std::nullopt : std::optional {run.endMs},
+                              run.ball, run.span, gain, std::max(run.peakGain, gain)});
+    }
+    return rv;
+}
+
+int64_t SessionFacts::scoreOf(PlayerNumber player) const
+{
+    return this->player(player).latestScore().value_or(0);
+}
+
+void SessionFacts::closeRun(PresenceRun &run, int64_t timeMs)
+{
+    run.endRow = m_rows;
+    run.endMs = timeMs;
+    run.endScore = scoreOf(run.player);
+    run.peakGain = std::max(run.peakGain, run.endScore - run.startScore);
+}
+
 void SessionFacts::closeActivation(const std::string &mode, int64_t timeMs)
 {
     const auto it = m_openActivations.find(mode);
@@ -228,6 +257,15 @@ void SessionFacts::apply(const TimelineRow &row)
     auto *active = facts(row.player);
     const size_t span = active && !active->m_balls.empty() ? active->m_balls.size() - 1 : 0;
 
+    // Scores first: a mode's activation row and closing row are measured with their own scores
+    for (const auto &[number, score] : row.scores) {
+        if (auto *f = facts(number)) {
+            f->m_scoreValues.insert(score);
+            f->m_latestScore = score;
+            f->m_nowMs = row.timeMs;
+        }
+    }
+
     // Modes: a state, diffed as a set against the previous row
     std::set<std::string> current;
     for (const auto &mode : row.modes) {
@@ -239,8 +277,12 @@ void SessionFacts::apply(const TimelineRow &row)
         if (m_presentModes.count(mode)) {
             continue;
         }
-        m_presence[mode].push_back(
-                PresenceRun {m_rows, std::nullopt, row.timeMs, row.player, row.ball, span});
+        m_presence[mode].push_back(PresenceRun {.startRow = m_rows,
+                                                .startMs = row.timeMs,
+                                                .player = row.player,
+                                                .ball = row.ball,
+                                                .span = span,
+                                                .startScore = scoreOf(row.player)});
         if (active) {
             active->m_activations[mode].push_back(
                     PlayerFacts::Activation {row.timeMs, row.timeMs, true, row.ball, span});
@@ -249,11 +291,15 @@ void SessionFacts::apply(const TimelineRow &row)
     }
     for (const auto &mode : m_presentModes) {
         if (!current.count(mode)) {
-            m_presence[mode].back().endRow = m_rows;
+            closeRun(m_presence[mode].back(), row.timeMs);
             closeActivation(mode, row.timeMs);
         }
     }
     m_presentModes = std::move(current);
+    for (const auto &mode : m_presentModes) {
+        auto &run = m_presence[mode].back();
+        run.peakGain = std::max(run.peakGain, scoreOf(run.player) - run.startScore);
+    }
 
     // Completions and events: edges of this row only
     for (const auto &mode : row.completedModes) {
@@ -271,15 +317,6 @@ void SessionFacts::apply(const TimelineRow &row)
             if (isValidTimelineName(name)) {
                 active->m_eventOps[name].push_back(Occurrence {row.timeMs, row.ball, span, value});
             }
-        }
-    }
-
-    // Scores: every value each player's column takes
-    for (const auto &[number, score] : row.scores) {
-        if (auto *f = facts(number)) {
-            f->m_scoreValues.insert(score);
-            f->m_latestScore = score;
-            f->m_nowMs = row.timeMs;
         }
     }
 
@@ -301,6 +338,10 @@ void SessionFacts::finish(int64_t timeMs)
 
     for (auto &[number, f] : m_players) {
         f.m_nowMs = std::max(f.m_nowMs, timeMs);
+    }
+
+    for (const auto &mode : m_presentModes) {
+        closeRun(m_presence[mode].back(), timeMs);
     }
 
     m_ballEndedFor = m_prev->player;
