@@ -214,6 +214,9 @@ target_sources(
         source/achievements/json_codec.h
         source/achievements/json_codec.cpp
         source/achievements/timeline_row.h
+        source/achievements/time_interval.h
+        source/achievements/local_time.h
+        source/achievements/local_time.cpp
         source/achievements/player_facts.h
         source/achievements/player_facts.cpp
         source/achievements/rule_evaluator.h
