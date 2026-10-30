@@ -203,6 +203,21 @@ TEST_CASE("MODE_STACK reference is split, trimmed and de-duplicated", "[achievem
           == std::vector<std::string> {"multiball", "wizard"});
 }
 
+TEST_CASE("MODE_SCORE names one mode", "[achievements]")
+{
+    const auto set = parse({
+            achievement("game-mb-millions", {rule("MODE_SCORE", ">=", 50'000'000, "multiball")}),
+            achievement("game-mb-bad", {rule("MODE_SCORE", ">=", 1, "multiball;wizard")}),
+    });
+
+    const auto *def = set.find("game-mb-millions");
+    REQUIRE(def);
+    CHECK(def->rules[0].type == RuleType::ModeScore);
+    CHECK(def->rules[0].reference == "multiball");
+    CHECK(isRankingRule(RuleType::ModeScore));
+    CHECK_FALSE(set.contains("game-mb-bad"));
+}
+
 TEST_CASE("Only the total score is evaluable", "[achievements]")
 {
     const auto set = parse({

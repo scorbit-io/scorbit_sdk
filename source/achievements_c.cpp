@@ -88,6 +88,7 @@ void fill(const Definition &definition, sb_achievement_t *out)
 
 // The public enums mirror the domain ones value for value
 static_assert(static_cast<int>(RuleType::Achievement) == SB_ACHIEVEMENT_RULE_ACHIEVEMENT);
+static_assert(static_cast<int>(RuleType::ModeScore) == SB_ACHIEVEMENT_RULE_MODE_SCORE);
 static_assert(static_cast<int>(RuleType::TimerBetween) == SB_ACHIEVEMENT_RULE_TIMER_BETWEEN);
 static_assert(static_cast<int>(Comparison::Ne) == SB_ACHIEVEMENT_NE);
 static_assert(static_cast<int>(EvaluationClass::Unlimited) == SB_ACHIEVEMENT_UNLIMITED);

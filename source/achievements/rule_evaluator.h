@@ -62,7 +62,8 @@ struct EvaluationContext {
 struct Evaluation {
     /**
      * One entry per rule the machine could judge, keyed by rule index. A rule it cannot judge —
-     * an `ACHIEVEMENT` rule whose prerequisite was never delivered — has no entry (§10.5).
+     * an `ACHIEVEMENT` rule whose prerequisite was never delivered, or a `MODE_SCORE` rule waiting
+     * for an activation to close — has no entry (§10.5).
      */
     RuleProgressMap rules;
 
@@ -80,9 +81,12 @@ struct Evaluation {
  *   satisfies the predicate; the reported value is the best one for the predicate;
  * - a fact that never happened is `0`, with the predicate applied to it (§5.4.1), except for the
  *   qualifiers `TIMER_BETWEEN` and `BALL`, which are unsatisfied when nothing qualifies (§5.5);
+ * - `MODE_SCORE` observes one gain per activation, which lasts until the mode leaves `game_modes`
+ *   rather than to the end of the ball; an `LE`, `EQ` or `NE` rule has no verdict while its mode's
+ *   only activations are still running (§5.5.1);
  * - `BALL` filters: sibling accumulators and `TIMER_BETWEEN` spans only consider occurrences on
  *   a ball that satisfies every `BALL` rule of the achievement;
- * - everything but `TIMER_SESSION` is confined to a single ball.
+ * - everything but `TIMER_SESSION` and `MODE_SCORE` is confined to a single ball.
  */
 Evaluation evaluate(const Definition &definition, const EvaluationContext &context);
 

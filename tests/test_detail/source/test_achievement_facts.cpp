@@ -281,3 +281,68 @@ TEST_CASE("The row that ends a ball reports whose ball ended", "[achievements]")
     CHECK(t.facts.lastRowEndedBallOf() == 2u);
     CHECK(t.facts.finished());
 }
+
+TEST_CASE("A mode's score gain spans balls until the mode leaves", "[achievements]")
+{
+    Timeline t;
+    t.at(0).score(1, 1000).modes({"multiball"}).commit();        // the activation row's own score
+    t.at(1000).score(1, 5000).ball(2).commit();                  // the drain does not close it
+    t.at(2000).score(1, 9000).completed({"multiball"}).commit(); // nor a completion it survives
+
+    auto runs = t.facts.modeRuns("multiball", 1);
+    REQUIRE(runs.size() == 1);
+    CHECK(runs[0].open());
+    CHECK(runs[0].gain == 8000);
+    CHECK(runs[0].ball == 1);
+
+    t.at(3000).score(1, 9500).modes({}).commit();
+    runs = t.facts.modeRuns("multiball", 1);
+    REQUIRE(runs.size() == 1);
+    CHECK_FALSE(runs[0].open());
+    CHECK(runs[0].endMs == 3000);
+    CHECK(runs[0].gain == 8500);
+
+    // The timed activation, by contrast, closed at the drain
+    REQUIRE(t.facts.player(1).activationDurations("multiball").size() == 1);
+    CHECK(t.facts.player(1).activationDurations("multiball")[0].ms == 1000);
+}
+
+TEST_CASE("A mode's score gain is its owner's alone", "[achievements]")
+{
+    Timeline t;
+    t.at(0).score(1, 100).score(2, 0).modes({"multiball"}).commit(); // p1 starts it
+    t.at(1000).player(2).score(2, 70'000).commit();                  // p2 plays on with it
+    t.at(2000).score(1, 400).modes({}).commit();                     // it ends
+
+    const auto runs = t.facts.modeRuns("multiball", 1);
+    REQUIRE(runs.size() == 1);
+    CHECK(runs[0].gain == 300);
+    CHECK(t.facts.modeRuns("multiball", 2).empty());
+}
+
+TEST_CASE("A mode's score gain never goes below zero, and keeps its peak", "[achievements]")
+{
+    Timeline t;
+    t.at(0).score(1, 1000).modes({"multiball"}).commit();
+    t.at(1000).score(1, 6000).commit();
+    t.at(2000).score(1, 500).modes({}).commit(); // e.g. a correction
+
+    const auto runs = t.facts.modeRuns("multiball", 1);
+    REQUIRE(runs.size() == 1);
+    CHECK(runs[0].gain == 0);
+    CHECK(runs[0].peakGain == 5000);
+}
+
+TEST_CASE("The session's end closes a running mode", "[achievements]")
+{
+    Timeline t;
+    t.at(0).modes({"multiball"}).commit();
+    t.at(1000).score(1, 2500).commit();
+    t.facts.finish(4000);
+
+    const auto runs = t.facts.modeRuns("multiball", 1);
+    REQUIRE(runs.size() == 1);
+    CHECK_FALSE(runs[0].open());
+    CHECK(runs[0].endMs == 4000);
+    CHECK(runs[0].gain == 2500);
+}

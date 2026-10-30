@@ -72,11 +72,15 @@ typedef enum {
     SB_ACHIEVEMENT_RETRACTED = 4,
 } sb_achievement_status_t;
 
-/** @brief The twelve rule types. */
+/**
+ * @brief The rule types (contract §5.1).
+ *
+ * Values are stable; types added to the contract later are appended.
+ */
 typedef enum {
     SB_ACHIEVEMENT_RULE_MODE = 0,           ///< Times the referenced mode was activated
     SB_ACHIEVEMENT_RULE_MODE_COMPLETED = 1, ///< Times the referenced mode was completed
-    SB_ACHIEVEMENT_RULE_MODE_STACK = 2,     ///< Times the referenced modes were active together
+    SB_ACHIEVEMENT_RULE_MODE_STACK = 2,     ///< Times the referenced modes became active together
     SB_ACHIEVEMENT_RULE_SCORE = 3,          ///< The player's score
     SB_ACHIEVEMENT_RULE_EVENT = 4,          ///< The value of the referenced event register
     SB_ACHIEVEMENT_RULE_SESSION = 5,        ///< Games played
@@ -86,6 +90,7 @@ typedef enum {
     SB_ACHIEVEMENT_RULE_TIMER_BETWEEN = 9,  ///< Milliseconds to bring the other facts together
     SB_ACHIEVEMENT_RULE_BALL = 10,          ///< The ball the other facts had to happen on
     SB_ACHIEVEMENT_RULE_ACHIEVEMENT = 11,   ///< Whether the referenced achievement is held
+    SB_ACHIEVEMENT_RULE_MODE_SCORE = 12,    ///< Points scored in one activation of the mode
 } sb_achievement_rule_type_t;
 
 /** @brief Rule predicates; all inclusive. */

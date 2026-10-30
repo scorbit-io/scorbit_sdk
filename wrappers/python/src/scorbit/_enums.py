@@ -156,7 +156,7 @@ class AchievementStatus(IntEnum):
 
 
 class AchievementRuleType(IntEnum):
-    """The twelve achievement rule types."""
+    """The achievement rule types; values are stable and new ones are appended."""
 
     Mode = 0
     ModeCompleted = 1
@@ -170,6 +170,7 @@ class AchievementRuleType(IntEnum):
     TimerBetween = 9
     Ball = 10
     Achievement = 11
+    ModeScore = 12
 
 
 class AchievementComparison(IntEnum):

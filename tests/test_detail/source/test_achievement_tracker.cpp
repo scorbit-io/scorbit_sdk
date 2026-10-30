@@ -229,6 +229,24 @@ TEST_CASE("A trophy is never claimed, but its metric is reported", "[achievement
     CHECK(report[0].rules.at(0) == RuleProgress {5'000'000, true});
 }
 
+TEST_CASE("Multiball Monarch: a MODE_SCORE trophy reports its best gain", "[achievements]")
+{
+    auto trophy = unlimited("game-mb-monarch", {rule(RuleType::ModeScore, GE, 1, "multiball")});
+    trophy.isTrophy = true;
+    Session s({trophy});
+
+    s.timeline.at(1000).modes({"multiball"});
+    s.commit();
+    s.timeline.at(2000).score(1, 20'000'000).modes({});
+    s.commit();
+    CHECK_FALSE(s.tracker.holds("game-mb-monarch"));
+
+    const auto report = s.tracker.collectReport();
+    REQUIRE(report.size() == 1);
+    CHECK_FALSE(report[0].achieved.has_value());
+    CHECK(report[0].rules.at(0) == RuleProgress {20'000'000, true});
+}
+
 TEST_CASE("A same-title chain resolves in one pass", "[achievements]")
 {
     Session s({unlimited("game-tom-devotee",
