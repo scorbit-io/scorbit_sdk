@@ -39,8 +39,9 @@ if(NOT MSVC)
     add_subdirectory(test_interface_c)
 endif()
 
-# The Python wrappers' ctypes declarations against the C prototypes. It reads both from source
-# and needs no SDK build, so it runs wherever a Python 3 interpreter is found.
+# The Python wrappers' ctypes declarations against the C prototypes, and every C function's use by
+# the C++ and Python APIs (SB-6151). Both read from source and need no SDK build, so they run
+# wherever a Python 3 interpreter is found.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(
@@ -48,4 +49,26 @@ if(Python3_Interpreter_FOUND)
         COMMAND
             ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_python/test_bindings_abi.py
     )
+    add_test(
+        NAME api_parity
+        COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/test_python/test_api_parity.py
+    )
+
+    # The wrapper itself, imported from source against the SDK built here. Not -I: it needs
+    # PYTHONPATH. test_scrobit.py is left out: it targets the pre-Config wrapper and cannot import.
+    if(TARGET scorbit_sdk AND NOT WIN32)
+        foreach(_module test_leaderboard_types test_wrapper_parity)
+            add_test(
+                NAME python_${_module}
+                COMMAND ${Python3_EXECUTABLE} -m unittest -v ${_module}
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test_python
+            )
+            set_tests_properties(
+                python_${_module}
+                PROPERTIES
+                    ENVIRONMENT
+                        "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../wrappers/python/src;SCORBIT_SDK_PATH=$<TARGET_FILE_DIR:scorbit_sdk>"
+            )
+        endforeach()
+    endif()
 endif()
