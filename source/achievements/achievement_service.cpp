@@ -23,6 +23,7 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <sstream>
 #include <utility>
@@ -86,14 +87,30 @@ std::optional<T> parseJson(const std::string &body,
     }
 }
 
+/** Definitions are revalidated at least this often (§10.3). */
+constexpr int64_t REVALIDATE_EVERY_MS = 24 * 3'600'000;
+
+/**
+ * How long after midnight a machine may wait to revalidate, so that a time zone's machines don't
+ * all ask at once.
+ */
+constexpr int64_t MIDNIGHT_SPREAD_MS = 10 * 60'000;
+
 } // namespace
 
+int64_t systemWallClock()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
 AchievementService::AchievementService(NetBase &net, AchievementStorage storage, Poster poster,
-                                       NotificationSink sink)
+                                       NotificationSink sink, WallClock wallClock)
     : m_net {net}
     , m_storage {std::move(storage)}
     , m_poster {std::move(poster)}
     , m_sink {std::move(sink)}
+    , m_wallClock {std::move(wallClock)}
 {
     if (const auto cached = m_storage.loadDefinitions();
         cached && !applyDefinitions(*cached, false)) {
@@ -141,7 +158,40 @@ void AchievementService::onDefinitions(ApiReply reply)
         && !applyDefinitions({std::move(reply.body), std::move(reply.etag)}, true)) {
         return;
     }
+    scheduleRevalidation();
     refreshFrames();
+}
+
+void AchievementService::scheduleRevalidation()
+{
+    m_validatedMs = m_wallClock();
+
+    // Spread after midnight, but never past the daily bound
+    std::uniform_int_distribution<int64_t> spread {0, MIDNIGHT_SPREAD_MS};
+    const auto at =
+            std::min(revalidationDueMs() + spread(m_random), *m_validatedMs + REVALIDATE_EVERY_MS);
+    const auto delay = std::chrono::milliseconds {at - *m_validatedMs};
+    INF("Achievements: definitions are current, next revalidation in {} s",
+        std::chrono::duration_cast<std::chrono::seconds>(delay).count());
+
+    m_net.scheduleDefinitionsRevalidation(delay, [this, alive = std::weak_ptr(m_alive)] {
+        m_poster([this, alive] {
+            if (!alive.expired()) {
+                refreshDefinitions();
+            }
+        });
+    });
+}
+
+int64_t AchievementService::revalidationDueMs() const
+{
+    return std::min(*m_validatedMs + REVALIDATE_EVERY_MS,
+                    nextLocalMidnight(m_feed->calendar.offsets, *m_validatedMs));
+}
+
+bool AchievementService::revalidationDue() const
+{
+    return m_validatedMs && m_wallClock() >= revalidationDueMs();
 }
 
 bool AchievementService::applyDefinitions(const CachedDefinitions &response, bool persist)
@@ -237,6 +287,11 @@ void AchievementService::onSessionStarted(int sessionId, const TimelineRow &firs
 {
     if (m_current && !m_current->finished) {
         onSessionFinished(firstRow.timeMs);
+    }
+
+    // The revalidation was missed, e.g. offline at midnight: it can only serve the next game now
+    if (revalidationDue()) {
+        refreshDefinitions();
     }
 
     m_sessions.push_back(std::make_unique<Session>());

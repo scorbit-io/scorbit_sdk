@@ -386,6 +386,8 @@ public:
                                   ApiReplyCallback callback) override;
     void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn) override;
+    void scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,
+                                         std::function<void()> fn) override;
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
     void publishEvent(EventPtr event) override;

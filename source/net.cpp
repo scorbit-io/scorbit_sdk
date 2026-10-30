@@ -2791,6 +2791,13 @@ void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
     m_worker.startTimer(Worker::Timer::AchievementRetry, delay, std::move(fn));
 }
 
+void Net::scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,
+                                          std::function<void()> fn)
+{
+    m_worker.stopTimer(Worker::Timer::AchievementDefinitions);
+    m_worker.startTimer(Worker::Timer::AchievementDefinitions, delay, std::move(fn));
+}
+
 bool Net::isClockSynchronised() const
 {
     // ACQUIRE, paired with the release in noteRestSuccess(), as in the dependency provider

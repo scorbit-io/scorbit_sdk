@@ -56,6 +56,7 @@ public:
         ProbeFlashResultRetry,
         NfcReattach,
         AchievementRetry,
+        AchievementDefinitions,
 
         // IMPORTANT! This must be last entry!
         Count,
