@@ -91,6 +91,7 @@ typedef enum {
     SB_ACHIEVEMENT_RULE_BALL = 10,          ///< The ball the other facts had to happen on
     SB_ACHIEVEMENT_RULE_ACHIEVEMENT = 11,   ///< Whether the referenced achievement is held
     SB_ACHIEVEMENT_RULE_MODE_SCORE = 12,    ///< Points scored in one activation of the mode
+    SB_ACHIEVEMENT_RULE_CALENDAR = 13,      ///< Games in which the other facts fell in a window
 } sb_achievement_rule_type_t;
 
 /** @brief Rule predicates; all inclusive. */

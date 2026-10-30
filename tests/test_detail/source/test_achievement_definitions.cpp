@@ -58,6 +58,19 @@ json feed(std::vector<json> results)
             {"calendar", json::object()}, {"results", json(std::move(results))}};
 }
 
+/** The envelope around @p results for a venue in Chicago, as §10.3's example serves it. */
+json chicagoFeed(std::vector<json> results)
+{
+    auto document = feed(std::move(results));
+    document["timezone"] = "America/Chicago";
+    document["utc_offsets"] = json::array(
+            {json::array({1767225600000, -21600}), json::array({1772956800000, -18000})});
+    document["calendar"] = {
+            {"window=thanksgiving", json::array({json::array({1795672800000, 1795759200000})})},
+            {"event=expo-2026", json::array()}};
+    return document;
+}
+
 DefinitionSet parse(std::vector<json> results)
 {
     auto parsed = parseDefinitionFeed(feed(std::move(results)));
@@ -216,6 +229,93 @@ TEST_CASE("MODE_SCORE names one mode", "[achievements]")
     CHECK(def->rules[0].reference == "multiball");
     CHECK(isRankingRule(RuleType::ModeScore));
     CHECK_FALSE(set.contains("game-mb-bad"));
+}
+
+TEST_CASE("The envelope delivers the venue's calendar", "[achievements]")
+{
+    const auto parsed = parseDefinitionFeed(chicagoFeed(
+            {achievement("game-wiz-hump", {rule("MODE", ">=", 1, "wizard"),
+                                           rule("CALENDAR", ">=", 1, "weekday=WED")})}));
+    REQUIRE(parsed);
+    const auto &calendar = parsed->calendar;
+    CHECK(calendar.timezone == "America/Chicago");
+    REQUIRE(calendar.offsets);
+    CHECK(calendar.offsets->changes()
+          == std::vector<UtcOffsetTable::Change> {{1767225600000, -21600},
+                                                  {1772956800000, -18000}});
+    CHECK(calendar.ranges.at("window=thanksgiving")
+          == std::vector<TimeInterval> {{1795672800000, 1795759200000}});
+    CHECK(calendar.ranges.at("event=expo-2026").empty());
+
+    const auto *def = parsed->definitions.find("game-wiz-hump");
+    REQUIRE(def);
+    CHECK(def->rules[1].type == RuleType::Calendar);
+    REQUIRE(def->rules[1].calendar);
+    CHECK(def->rules[1].calendar->kind == CalendarCondition::Kind::Weekday);
+}
+
+TEST_CASE("Without UTC offsets, only wall-clock CALENDAR achievements are skipped",
+          "[achievements]")
+{
+    const auto set = parse({
+            achievement("game-wed", {rule("CALENDAR", ">=", 1, "weekday=WED")}),
+            achievement("game-night", {rule("CALENDAR", ">=", 1, "time=22:00-02:00")}),
+            achievement("game-halloween", {rule("CALENDAR", ">=", 1, "date=10-31")}),
+            achievement("game-turkey", {rule("CALENDAR", ">=", 1, "window=thanksgiving")}),
+            achievement("game-expo", {rule("CALENDAR", ">=", 1, "event=expo-2026")}),
+    });
+    CHECK(set.size() == 2);
+    CHECK(set.contains("game-turkey"));
+    CHECK(set.contains("game-expo"));
+}
+
+TEST_CASE("Malformed calendar data is left out", "[achievements]")
+{
+    auto document = chicagoFeed(
+            {achievement("game-wed", {rule("CALENDAR", ">=", 1, "weekday=WED")}),
+             achievement("game-turkey", {rule("CALENDAR", ">=", 1, "window=thanksgiving")})});
+
+    SECTION("Offsets out of order: wall-clock conditions can't be judged")
+    {
+        document["utc_offsets"] = json::array({json::array({2000, 0}), json::array({1000, 0})});
+        const auto parsed = parseDefinitionFeed(document);
+        REQUIRE(parsed);
+        CHECK_FALSE(parsed->calendar.offsets);
+        CHECK_FALSE(parsed->definitions.contains("game-wed"));
+        CHECK(parsed->definitions.contains("game-turkey"));
+    }
+
+    SECTION("A malformed range list: that condition matches nothing")
+    {
+        document["calendar"]["window=thanksgiving"] = json::array({json::array({1, "x"})});
+        const auto parsed = parseDefinitionFeed(document);
+        REQUIRE(parsed);
+        CHECK_FALSE(parsed->calendar.ranges.contains("window=thanksgiving"));
+        CHECK(parsed->definitions.contains("game-turkey"));
+    }
+}
+
+TEST_CASE("A CALENDAR rule the machine can't judge skips its achievement", "[achievements]")
+{
+    const auto mode = rule("MODE", ">=", 1, "multiball");
+    const auto set = parseDefinitionFeed(chicagoFeed({
+            achievement("ok", {mode, rule("CALENDAR", ">=", 2, "active:weekday=SAT")}, UNLIMITED),
+            achievement("unparseable", {mode, rule("CALENDAR", ">=", 1, "weekday=sat")}),
+            achievement("not-ge", {mode, rule("CALENDAR", "<=", 1, "weekday=SAT")}),
+            achievement("zero", {mode, rule("CALENDAR", ">=", 0, "weekday=SAT")}),
+            achievement("ball",
+                        {mode, rule("BALL", "=", 1), rule("CALENDAR", ">=", 1, "weekday=SAT")}),
+            achievement("session",
+                        {rule("SESSION", ">=", 1), rule("CALENDAR", ">=", 1, "weekday=SAT")},
+                        UNLIMITED),
+            achievement("anchors", {mode, rule("CALENDAR", ">=", 1, "weekday=SAT"),
+                                    rule("CALENDAR", ">=", 1, "active:time=00:00-01:00")}),
+            achievement("instant", {rule("EVENT", ">=", 1, "jackpot"),
+                                    rule("CALENDAR", ">=", 1, "active:weekday=SAT")}),
+    }));
+    REQUIRE(set);
+    CHECK(set->definitions.size() == 1);
+    CHECK(set->definitions.contains("ok"));
 }
 
 TEST_CASE("Only the total score is evaluable", "[achievements]")

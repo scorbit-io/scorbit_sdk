@@ -84,6 +84,20 @@ RuleProgress resolveAccumulator(int64_t value, const Rule &rule)
     return RuleProgress {value, satisfies(value, rule.comparison, rule.target)};
 }
 
+/** The `CALENDAR` conditions of @p definition. */
+std::vector<const CalendarCondition *> calendarConditions(const Definition &definition)
+{
+    std::vector<const CalendarCondition *> rv;
+    for (const auto &rule : definition.rules) {
+        if (rule.type == RuleType::Calendar && rule.calendar) {
+            rv.push_back(&*rule.calendar);
+        }
+    }
+    return rv;
+}
+
+const CalendarData NO_CALENDAR {};
+
 /** Evaluates the rules of one achievement; holds what is shared between its rules. */
 class AchievementEvaluator
 {
@@ -94,6 +108,8 @@ public:
         , m_session {context.session}
         , m_facts {context.session.own()}
         , m_unlimited {definition.evaluation == EvaluationClass::Unlimited}
+        , m_calendar {calendarConditions(definition),
+                      context.session.calendar ? *context.session.calendar : NO_CALENDAR}
     {
         for (const auto &rule : definition.rules) {
             if (rule.type == RuleType::Ball) {
@@ -163,14 +179,17 @@ private:
             return resolveObservation(durationValues(m_facts.ballDurations()), rule, baseline);
 
         case RuleType::TimerMode:
-            return resolveObservation(durationValues(m_facts.activationDurations(rule.reference)),
-                                      rule, baseline);
+            return resolveObservation(durationValues(timedActivations(rule)), rule, baseline);
 
         case RuleType::TimerBetween:
             return resolveObservation(spans(index), rule, baseline);
 
         case RuleType::Ball:
             return resolveObservation(qualifyingBalls(index), rule, baseline);
+
+        case RuleType::Calendar:
+            // The sessions in which something qualified, counting this one once (§5.5.2)
+            return resolveAccumulator(carried + (sessionQualifies() ? 1 : 0), rule);
         }
 
         return std::nullopt;
@@ -184,7 +203,20 @@ private:
         });
     }
 
-    /** The occurrences an instant-valued rule counts, restricted to qualifying balls. */
+    /**
+     * Whether something that lasted over [@p startMs, @p endMs) is inside every `CALENDAR` window
+     * of the achievement, under its anchor; with no `CALENDAR` rule everything is.
+     */
+    bool inWindows(int64_t startMs, int64_t endMs) const
+    {
+        if (m_calendar.empty()) {
+            return true;
+        }
+        const bool active = m_calendar.anchor() == CalendarAnchor::Active;
+        return m_calendar.qualifies({startMs, active ? std::max(endMs, startMs + 1) : startMs + 1});
+    }
+
+    /** The occurrences an instant-valued rule counts: on qualifying balls, inside the windows. */
     std::vector<Occurrence> occurrences(const Rule &rule) const
     {
         std::vector<Occurrence> all;
@@ -205,7 +237,9 @@ private:
             return {};
         }
 
-        std::erase_if(all, [this](const Occurrence &o) { return !qualifies(o.ball); });
+        std::erase_if(all, [this](const Occurrence &o) {
+            return !qualifies(o.ball) || !inWindows(o.timeMs, o.endMs);
+        });
         return all;
     }
 
@@ -222,8 +256,31 @@ private:
         return rv;
     }
 
+    /** `MODE_SCORE`'s activations of the rule's mode, inside the windows. */
+    std::vector<ModeRun> qualifyingRuns(const Rule &rule) const
+    {
+        auto runs = m_session.facts.modeRuns(rule.reference, m_session.player);
+        const auto running = m_session.facts.nowMs() + 1;
+        std::erase_if(runs, [&](const ModeRun &run) {
+            return !inWindows(run.startMs, run.endMs.value_or(running));
+        });
+        return runs;
+    }
+
+    /** `TIMER_MODE`'s activations of the rule's mode, inside the windows. */
+    std::vector<Duration> timedActivations(const Rule &rule) const
+    {
+        auto durations = m_facts.activationDurations(rule.reference);
+        std::erase_if(durations,
+                      [this](const Duration &d) { return !inWindows(d.startMs, d.endMs); });
+        return durations;
+    }
+
     std::vector<int64_t> scoreValues() const
     {
+        if (!m_calendar.empty()) {
+            return calendarScoreValues();
+        }
         if (m_unlimited) {
             // One value per session, its final score: for the session in progress, the latest
             if (const auto latest = m_facts.latestScore()) {
@@ -243,7 +300,7 @@ private:
      */
     std::optional<RuleProgress> modeScore(const Rule &rule, const RuleProgress *baseline) const
     {
-        const auto runs = m_session.facts.modeRuns(rule.reference, m_session.player);
+        const auto runs = qualifyingRuns(rule);
 
         std::vector<int64_t> gains;
         for (const auto &run : runs) {
@@ -257,6 +314,63 @@ private:
             return std::nullopt;
         }
         return resolveObservation(std::move(gains), rule, baseline);
+    }
+
+    /**
+     * `SCORE` beside a `CALENDAR` rule: the player's score on their own rows inside every window,
+     * whatever the anchor, as a row is an instant; for an `unlimited` window, the last of them.
+     */
+    std::vector<int64_t> calendarScoreValues() const
+    {
+        std::vector<int64_t> rv;
+        for (const auto &sample : m_facts.ownRowScores()) {
+            if (m_calendar.qualifies({sample.timeMs, sample.timeMs + 1})) {
+                rv.push_back(sample.score);
+            }
+        }
+        if (m_unlimited && rv.size() > 1) {
+            rv.erase(rv.begin(), rv.end() - 1);
+        }
+        return rv;
+    }
+
+    /**
+     * Whether this session counts for the `CALENDAR` rules: some occurrence of a sibling, open or
+     * closed, was inside the windows, whether or not the sibling's own predicate is met yet. With
+     * no sibling, some instant of one of the player's turns was.
+     */
+    bool sessionQualifies() const
+    {
+        bool hasSibling = false;
+        for (const auto &rule : m_definition.rules) {
+            if (rule.type == RuleType::Calendar) {
+                continue;
+            }
+            hasSibling = true;
+            if (siblingQualifies(rule)) {
+                return true;
+            }
+        }
+        if (hasSibling) {
+            return false;
+        }
+        return std::ranges::any_of(m_facts.turns(), [this](const TimeInterval &turn) {
+            return m_calendar.qualifies(turn);
+        });
+    }
+
+    bool siblingQualifies(const Rule &rule) const
+    {
+        switch (rule.type) {
+        case RuleType::ModeScore:
+            return !qualifyingRuns(rule).empty();
+        case RuleType::TimerMode:
+            return !timedActivations(rule).empty();
+        case RuleType::Score:
+            return !calendarScoreValues().empty();
+        default:
+            return !occurrences(rule).empty();
+        }
     }
 
     static std::vector<int64_t> durationValues(const std::vector<Duration> &durations)
@@ -347,6 +461,7 @@ private:
     const PlayerSession &m_session;
     const PlayerFacts &m_facts;
     const bool m_unlimited;
+    const CalendarMatcher m_calendar;
     std::vector<const Rule *> m_ballRules;
 };
 

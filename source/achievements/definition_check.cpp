@@ -30,7 +30,55 @@ namespace achievements {
 
 namespace {
 
-std::optional<std::string> findRuleProblem(const Definition &definition, size_t index)
+/** A `CALENDAR` rule (§5.5.2, §6.4, §6.5). */
+std::optional<std::string> findCalendarProblem(const Definition &definition, size_t index,
+                                               const CalendarData &calendar)
+{
+    const auto &rule = definition.rules[index];
+    if (!rule.calendar) {
+        return fmt::format("rule {} (CALENDAR) has an unparseable condition '{}'", index,
+                           rule.reference);
+    }
+    if (rule.comparison != Comparison::Ge || rule.target < 1) {
+        return fmt::format("rule {} (CALENDAR) must be GE 1 or more, got {} {}", index,
+                           toString(rule.comparison), rule.target);
+    }
+    if (rule.calendar->isLocalTime() && !calendar.offsets) {
+        return fmt::format("rule {} (CALENDAR) needs the venue's UTC offsets, which were not "
+                           "delivered",
+                           index);
+    }
+
+    bool hasLastingSibling = false;
+    for (size_t i = 0; i < definition.rules.size(); ++i) {
+        const auto &sibling = definition.rules[i];
+        if (i == index) {
+            continue;
+        }
+        if (!isCalendarSibling(sibling.type)) {
+            return fmt::format("rule {} (CALENDAR) can't restrict rule {} ({})", index, i,
+                               toString(sibling.type));
+        }
+        if (sibling.calendar && sibling.calendar->anchor != rule.calendar->anchor) {
+            return fmt::format("rules {} and {} (CALENDAR) use different anchors", index, i);
+        }
+        hasLastingSibling = hasLastingSibling || sibling.type == RuleType::Mode
+                         || sibling.type == RuleType::ModeStack
+                         || sibling.type == RuleType::ModeScore
+                         || sibling.type == RuleType::TimerMode;
+    }
+
+    // Only something that lasts can be active inside a window
+    if (rule.calendar->anchor == CalendarAnchor::Active && !hasLastingSibling) {
+        return fmt::format("rule {} (CALENDAR) is anchored 'active:' without a MODE, MODE_STACK, "
+                           "MODE_SCORE or TIMER_MODE sibling",
+                           index);
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> findRuleProblem(const Definition &definition, size_t index,
+                                           const CalendarData &calendar)
 {
     const auto &rule = definition.rules[index];
 
@@ -71,6 +119,12 @@ std::optional<std::string> findRuleProblem(const Definition &definition, size_t 
                            toString(rule.comparison), rule.target);
     }
 
+    if (rule.type == RuleType::Calendar) {
+        if (auto problem = findCalendarProblem(definition, index, calendar)) {
+            return problem;
+        }
+    }
+
     if (isQualifier(rule.type)) {
         if (definition.rules.size() < 2) {
             return fmt::format("rule {} ({}) needs at least one sibling rule", index,
@@ -91,7 +145,8 @@ std::optional<std::string> findRuleProblem(const Definition &definition, size_t 
 
 } // namespace
 
-std::optional<std::string> findEvaluationProblem(const Definition &definition)
+std::optional<std::string> findEvaluationProblem(const Definition &definition,
+                                                 const CalendarData &calendar)
 {
     if (definition.key.empty()) {
         return "achievement has no key";
@@ -102,7 +157,7 @@ std::optional<std::string> findEvaluationProblem(const Definition &definition)
     }
 
     for (size_t i = 0; i < definition.rules.size(); ++i) {
-        if (auto problem = findRuleProblem(definition, i)) {
+        if (auto problem = findRuleProblem(definition, i, calendar)) {
             return problem;
         }
     }

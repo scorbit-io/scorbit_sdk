@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "calendar.h"
 #include "definition.h"
 #include "player_facts.h"
 #include "progress.h"
@@ -38,6 +39,9 @@ using HeldSet = std::unordered_set<std::string>;
 struct PlayerSession {
     const SessionFacts &facts;
     PlayerNumber player {0};
+
+    /** The venue's calendar the session started with, for `CALENDAR` rules; none if absent. */
+    const CalendarData *calendar {nullptr};
 
     /** The player's own facts. */
     const PlayerFacts &own() const { return facts.player(player); }
@@ -86,6 +90,9 @@ struct Evaluation {
  *   only activations are still running (§5.5.1);
  * - `BALL` filters: sibling accumulators and `TIMER_BETWEEN` spans only consider occurrences on
  *   a ball that satisfies every `BALL` rule of the achievement;
+ * - `CALENDAR` restricts: each sibling only counts what happened inside every window of the
+ *   achievement, and the `CALENDAR` rule counts the session once anything qualified — alone, once
+ *   the player played inside the windows (§5.5.2);
  * - everything but `TIMER_SESSION` and `MODE_SCORE` is confined to a single ball.
  */
 Evaluation evaluate(const Definition &definition, const EvaluationContext &context);

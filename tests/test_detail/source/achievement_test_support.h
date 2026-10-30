@@ -86,7 +86,10 @@ private:
 
 inline Rule rule(RuleType type, Comparison comparison, int64_t target, std::string reference = {})
 {
-    Rule r {type, comparison, target, std::move(reference), {}};
+    Rule r {type, comparison, target, std::move(reference), {}, {}};
+    if (type == RuleType::Calendar) {
+        r.calendar = parseCalendarCondition(r.reference);
+    }
     if (type == RuleType::ModeStack) {
         size_t start = 0;
         for (size_t comma; (comma = r.reference.find(',', start)) != std::string::npos;

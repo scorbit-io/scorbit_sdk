@@ -22,6 +22,7 @@ class TestAchievementsExports(unittest.TestCase):
         self.assertEqual(scorbit.AchievementStatus.Retracted, 4)
         self.assertEqual(scorbit.AchievementRuleType.Achievement, 11)
         self.assertEqual(scorbit.AchievementRuleType.ModeScore, 12)
+        self.assertEqual(scorbit.AchievementRuleType.Calendar, 13)
         self.assertEqual(scorbit.AchievementComparison.Ne, 3)
         self.assertEqual(scorbit.AchievementEvaluation.Unlimited, 1)
         self.assertEqual(scorbit.AchievementScope.Global, 3)

@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "calendar.h"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -51,6 +52,7 @@ enum class RuleType {
     Ball,          ///< The ball number on which the sibling rules' facts occurred
     Achievement,   ///< Whether the referenced prerequisite achievement is held
     ModeScore,     ///< Points the player scored during one activation of the referenced mode
+    Calendar,      ///< Sessions in which the siblings' facts, or the play, fell in a local window
 };
 
 /** The four inclusive predicates (§6.1); `=`, `<=`, `>=`, `!=` on the wire. */
@@ -72,6 +74,9 @@ struct Rule {
 
     /** For @ref RuleType::ModeStack, the parsed, de-duplicated mode names of @ref reference. */
     std::vector<std::string> stackModes;
+
+    /** For @ref RuleType::Calendar, the parsed @ref reference; absent if it does not parse. */
+    std::optional<CalendarCondition> calendar;
 };
 
 struct Definition {
@@ -121,9 +126,10 @@ private:
     std::unordered_map<std::string, size_t> m_index;
 };
 
-/** The device definitions response (§10.3): what this machine evaluates. */
+/** The device definitions response (§10.3): what this machine evaluates, and with what. */
 struct DefinitionFeed {
     DefinitionSet definitions;
+    CalendarData calendar;
 };
 
 /** Applies @p comparison to @p value against @p target (§6.1; all predicates inclusive). */
@@ -140,6 +146,12 @@ bool isInstantValued(RuleType type);
 
 /** Rules a trophy may be ranked by: `SCORE`, `MODE_SCORE` and the timers (§7.5). */
 bool isRankingRule(RuleType type);
+
+/**
+ * Rules a `CALENDAR` rule can restrict: those with an instant or an activation to place in a
+ * window, the player's score, and other `CALENDAR` rules (§5.5.2).
+ */
+bool isCalendarSibling(RuleType type);
 
 /** Rule types whose `reference` names a single mode. */
 bool isSingleModeRule(RuleType type);

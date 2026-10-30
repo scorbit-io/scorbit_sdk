@@ -41,6 +41,7 @@ constexpr auto RULE_TYPE_NAMES = std::to_array<std::pair<RuleType, std::string_v
         {RuleType::Ball, "BALL"},
         {RuleType::Achievement, "ACHIEVEMENT"},
         {RuleType::ModeScore, "MODE_SCORE"},
+        {RuleType::Calendar, "CALENDAR"},
 });
 
 constexpr auto COMPARISON_NAMES = std::to_array<std::pair<Comparison, std::string_view>>({
@@ -151,6 +152,19 @@ bool isRankingRule(RuleType type)
         return true;
     default:
         return false;
+    }
+}
+
+bool isCalendarSibling(RuleType type)
+{
+    switch (type) {
+    case RuleType::ModeScore:
+    case RuleType::TimerMode:
+    case RuleType::Score:
+    case RuleType::Calendar:
+        return true;
+    default:
+        return isInstantValued(type);
     }
 }
 
