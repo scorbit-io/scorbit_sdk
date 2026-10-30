@@ -22,6 +22,7 @@
 #include "event_manager.h"
 #include "net_base.h"
 #include <nlohmann/json_fwd.hpp>
+#include <utils/fs_read_write.h>
 #include <boost/filesystem.hpp>
 #include <string>
 #include <atomic>
@@ -74,6 +75,9 @@ private:
 protected:
     virtual boost::filesystem::path getSdkLibraryPath() const;
     virtual boost::filesystem::path getProcessExecutablePath() const;
+    // Remount around the replacement; virtual so tests never touch the host's mounts (SB-6104).
+    virtual utils::MakeWritableResult makeWritable(const boost::filesystem::path &dir) const;
+    virtual bool remountReadOnly(const std::string &mountPoint) const;
 
 private:
     NetBase &m_net;

@@ -48,6 +48,10 @@ target_sources(
     PRIVATE source/test_log_c.c ${munit_SOURCE_DIR}/munit.c ${munit_SOURCE_DIR}/munit.h
 )
 target_link_libraries(${PROJECT_NAME} scorbit_sdk::scorbit_sdk)
+# munit calls clock_getres, which glibc before 2.17 (the u12 ABI) keeps in librt (SB-6104).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(${PROJECT_NAME} rt)
+endif()
 target_include_directories(
     ${PROJECT_NAME}
     PRIVATE ${munit_SOURCE_DIR} ${scorbit_sdk_SOURCE_DIR}/source

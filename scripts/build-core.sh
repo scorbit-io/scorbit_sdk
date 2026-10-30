@@ -128,6 +128,10 @@ run_cpack() {
     fi
 }
 
+# A release is a production build. PR CI has no encryption secret and sets OFF to build the same
+# packages without it (SB-6104).
+SCORBIT_SDK_PRODUCTION="${SCORBIT_SDK_PRODUCTION:-ON}"
+
 # Pass through when set in the environment (e.g. ENV in gcc-builder Docker image).
 # Do not use \$ here - that sent the literal "$CMAKE_TOOLCHAIN_FILE" to CMake.
 CMAKE_TOOLCHAIN_ARGS=()
@@ -137,7 +141,7 @@ fi
 
 cmake \
     ${CMAKE_TOOLCHAIN_ARGS[@]+"${CMAKE_TOOLCHAIN_ARGS[@]}"} \
-    -D SCORBIT_SDK_PRODUCTION=ON \
+    -D SCORBIT_SDK_PRODUCTION="$SCORBIT_SDK_PRODUCTION" \
     -D SCORBIT_SDK_ABI="$ABI" \
     -D CMAKE_BUILD_TYPE=Release \
     -G Ninja \
@@ -151,7 +155,7 @@ cmake \
 \
 && cmake \
     ${CMAKE_TOOLCHAIN_ARGS[@]+"${CMAKE_TOOLCHAIN_ARGS[@]}"} \
-    -D SCORBIT_SDK_PRODUCTION=ON \
+    -D SCORBIT_SDK_PRODUCTION="$SCORBIT_SDK_PRODUCTION" \
     -D CMAKE_BUILD_TYPE=Release \
     -G Ninja \
     -B "$BUILD_DIR/encrypt_tool" \

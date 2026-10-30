@@ -33,6 +33,7 @@ docker_build() {
         --workdir /src \
         --user "$(id -u):$(id -g)" \
         -e SCORBIT_SDK_ENCRYPT_SECRET \
+        -e SCORBIT_SDK_PRODUCTION \
         -e SOURCE_DATE_EPOCH \
         -e TZ=UTC \
         -e LC_ALL=C \

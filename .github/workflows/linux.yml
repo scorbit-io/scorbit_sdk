@@ -1,0 +1,185 @@
+name: Linux
+
+# The SDK ships Linux packages for amd64, arm64 and armhf, but a pull request used to be compiled
+# only by MSVC, so Linux first built a change at release time (SB-6104). Every build here goes
+# through the release scripts and the release builder image, so CI cannot drift from what ships.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  # Also on merge. Actions caches are readable from the default branch, so this seeds the CPM
+  # cache every pull request starts from; and main is built as a release would build it.
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push supersedes the run in flight for the same PR. Every other run groups by its own
+# commit: a group keeps one pending run, so sharing one across main would drop a queued merge's
+# build, cancel-in-progress or not.
+concurrency:
+  group: linux-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.arch }} (${{ matrix.run_tests && 'build + test' || 'build only' }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+
+    strategy:
+      # One architecture failing must not hide the others' results.
+      fail-fast: false
+      matrix:
+        # ABIs are the release's (scripts/linux-build.sh); elf is what `file` reports for the
+        # library built for that architecture.
+        include:
+          - arch: amd64
+            abi: u18
+            elf: x86-64
+            run_tests: true
+            runner: ${{ fromJSON((github.event.pull_request.head.repo.fork != true && vars.RUNNER_AMD64) || '"ubuntu-24.04"') }}
+
+          # Native, so the suite really runs on the architecture most devices use.
+          - arch: arm64
+            abi: u18
+            elf: ARM aarch64
+            run_tests: true
+            runner: ${{ fromJSON((github.event.pull_request.head.repo.fork != true && vars.RUNNER_ARM64) || '"ubuntu-24.04-arm"') }}
+
+          # Cross-compiled, build only: arm64 runners cannot execute 32-bit ARM code.
+          - arch: armhf
+            abi: u12
+            elf: ARM, EABI5
+            run_tests: false
+            runner: ${{ fromJSON((github.event.pull_request.head.repo.fork != true && vars.RUNNER_AMD64) || '"ubuntu-24.04"') }}
+
+    # Runners come from repository variables (Settings -> Actions -> Variables) so they can change
+    # without editing this file. The value is JSON, quotes included: '"ubuntu-24.04"'. A pull
+    # request from a fork always gets the GitHub-hosted default: this repository is public, and a
+    # self-hosted runner must never run a stranger's code.
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The workspace is mounted into a container that builds third-party sources.
+          persist-credentials: false
+
+      # Set on the host and passed into the container by scripts/_common.sh, so the build never
+      # needs git inside the container.
+      - name: Set build environment
+        run: |
+          set -euo pipefail
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "TZ=UTC" >> "$GITHUB_ENV"
+          echo "LC_ALL=C" >> "$GITHUB_ENV"
+          echo "LANG=C" >> "$GITHUB_ENV"
+          echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+
+      # scripts/_common.sh mounts build/_cache as CPM_SOURCE_CACHE inside the container.
+      - name: Cache CPM sources
+        uses: actions/cache@v4
+        with:
+          path: build/_cache
+          key: cpm-linux-${{ matrix.arch }}-${{ hashFiles('cmake/**', '**/CMakeLists.txt', 'DOCKER_RELEASE') }}
+          restore-keys: |
+            cpm-linux-${{ matrix.arch }}-
+
+      # The release build itself. A merge to main is a production build with the secret, as a
+      # release is, so a broken release build shows up on the merge and not on release day. Pull
+      # requests have no secret (a fork's get none) and build the same packages non-production.
+      - name: Build release packages
+        env:
+          ARCH: ${{ matrix.arch }}
+          SCORBIT_SDK_PRODUCTION: ${{ github.event_name == 'push' && github.repository == 'scorbit-io/scorbit_sdk' && 'ON' || 'OFF' }}
+          SCORBIT_SDK_ENCRYPT_SECRET: ${{ github.event_name == 'push' && github.repository == 'scorbit-io/scorbit_sdk' && secrets.SCORBIT_SDK_ENCRYPT_SECRET || '' }}
+        run: ./scripts/linux-build.sh "$ARCH"
+
+      # The file names the release workflow uploads, and a library built for this architecture,
+      # so a build that quietly produced nothing, or produced the host's architecture, fails here.
+      - name: Check packages
+        env:
+          ARCH: ${{ matrix.arch }}
+          ABI: ${{ matrix.abi }}
+          ELF: ${{ matrix.elf }}
+        run: |
+          set -euo pipefail
+          dist="build/dist/$VERSION"
+          for f in \
+            "scorbit_sdk-$VERSION-${ARCH}_${ABI}.deb" \
+            "scorbit_sdk-$VERSION-${ARCH}_${ABI}.tar.gz" \
+            "scorbit_sdk-dev-$VERSION-${ARCH}_${ABI}.deb" \
+            "scorbit_sdk-dev-$VERSION-${ARCH}_${ABI}.tar.gz"; do
+            if [ ! -f "$dist/$f" ]; then
+              echo "::error::missing $f"
+              ls -l "$dist"
+              exit 1
+            fi
+          done
+          if ! compgen -G "$dist/encrypt_tool-*.tar.gz" > /dev/null; then
+            echo "::error::missing encrypt_tool-*.tar.gz"
+            exit 1
+          fi
+          lib="$(find "build/${ARCH}_${ABI}" -maxdepth 1 -type f -name 'libscorbit_sdk.so*' | head -n 1)"
+          if [ -z "$lib" ]; then
+            echo "::error::no libscorbit_sdk.so in build/${ARCH}_${ABI}"
+            exit 1
+          fi
+          file "$lib"
+          if ! file "$lib" | grep -q -F "$ELF"; then
+            echo "::error::$lib is not built for $ARCH ($ELF)"
+            exit 1
+          fi
+          ls -l "$dist"
+
+      # Builds the suite with the same toolchain and sysroot as the packages; runs it where the
+      # architecture is the runner's own (scripts/linux-test.sh).
+      - name: Build and run tests
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: ./scripts/linux-test.sh "$ARCH"
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs-${{ matrix.arch }}
+          path: build/tests_${{ matrix.arch }}/Testing/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The two pure-Python wheels a release publishes, built by the release's python-builder image.
+  wheels:
+    name: python wheels
+    runs-on: ${{ fromJSON((github.event.pull_request.head.repo.fork != true && vars.RUNNER_AMD64) || '"ubuntu-24.04"') }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Read VERSION
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+
+      - name: Build wheels
+        run: make python python27
+
+      - name: Check wheels
+        run: |
+          set -euo pipefail
+          dist="build/dist/$VERSION"
+          for f in "scorbit-$VERSION-py3-none-any.whl" "scorbit_py2-$VERSION-py2-none-any.whl"; do
+            if [ ! -f "$dist/$f" ]; then
+              echo "::error::missing $f"
+              ls -l "$dist"
+              exit 1
+            fi
+          done
+          ls -l "$dist"

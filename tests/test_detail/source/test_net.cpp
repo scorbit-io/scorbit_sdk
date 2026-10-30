@@ -28,6 +28,7 @@
 #include <boost/filesystem.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/trompeloeil.hpp>
+#include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <filesystem>
@@ -1194,6 +1195,11 @@ TEST_CASE("A redirect announcing a body past the limit still leads to a small fi
 
 TEST_CASE("A compressed body is limited by its decoded size, not the size it was sent at")
 {
+    // The SDK never asks for compression, so only an unasked gzip body reaches here, and curl can
+    // decode it only when built with zlib -- the Linux release builds are not (SB-6104).
+    if (!(curl_version_info(CURLVERSION_NOW)->features & CURL_VERSION_LIBZ)) {
+        SKIP("libcurl is built without zlib");
+    }
     const std::string limit(100, 'z');
     LocalHttpServer server {{
             {"/at", httpResponse("200 OK", "Content-Encoding: gzip\r\n", gzipStored(limit))},

@@ -54,7 +54,9 @@ TEST_CASE("Worker", "[postStrand]")
     const auto start = std::chrono::high_resolution_clock::now();
     worker.postQueue([] { std::this_thread::sleep_for(100ms); });
     const auto duration1 = std::chrono::high_resolution_clock::now() - start;
-    CHECK(duration1 < 3ms);
+    // Posting must not wait for the 100ms task; a tighter bound only measures the machine's load,
+    // and failed at 3.8ms on a busy host (SB-6104).
+    CHECK(duration1 < 50ms);
 
     worker.stop();
 
