@@ -66,32 +66,6 @@ std::vector<Occurrence> PlayerFacts::eventOps(const std::string &name) const
     return entriesOf(m_eventOps, name);
 }
 
-std::vector<Occurrence> PlayerFacts::stacks(const std::vector<std::string> &modes) const
-{
-    const auto isActiveAt = [this](const std::string &mode, int64_t timeMs) {
-        return std::ranges::any_of(entriesOf(m_activations, mode), [timeMs](const Activation &a) {
-            return a.startMs <= timeMs && (a.open || a.endMs > timeMs);
-        });
-    };
-
-    // A stack can only form at the instant one of its modes activates
-    std::vector<Occurrence> rv;
-    for (const auto &mode : modes) {
-        for (const auto &a : entriesOf(m_activations, mode)) {
-            const bool allActive = std::ranges::all_of(
-                    modes, [&](const std::string &m) { return isActiveAt(m, a.startMs); });
-            const bool alreadyCounted = std::ranges::any_of(
-                    rv, [&](const Occurrence &o) { return o.timeMs == a.startMs; });
-            if (allActive && !alreadyCounted) {
-                rv.push_back(Occurrence {a.startMs, a.ball, a.span, 1});
-            }
-        }
-    }
-
-    std::ranges::sort(rv, {}, &Occurrence::timeMs);
-    return rv;
-}
-
 std::vector<Duration> PlayerFacts::activationDurations(const std::string &mode) const
 {
     std::vector<Duration> rv;
@@ -132,6 +106,54 @@ const PlayerFacts &SessionFacts::player(PlayerNumber player) const
 {
     const auto it = m_players.find(player);
     return it == m_players.end() ? EMPTY_FACTS : it->second;
+}
+
+std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &modes,
+                                             PlayerNumber player) const
+{
+    if (modes.empty()) {
+        return {};
+    }
+
+    // Rows in which every mode seen so far is present: intersections of their runs, each
+    // remembering the run that started last, as that is the row on which the stack formed
+    struct Overlap {
+        size_t startRow;
+        size_t endRow;
+        const PresenceRun *formedBy;
+    };
+    const auto overlapsOf = [](const std::vector<PresenceRun> &runs) {
+        std::vector<Overlap> rv;
+        for (const auto &run : runs) {
+            rv.push_back({run.startRow, run.endRow.value_or(SIZE_MAX), &run});
+        }
+        return rv;
+    };
+
+    auto overlaps = overlapsOf(entriesOf(m_presence, modes.front()));
+    for (size_t m = 1; m < modes.size() && !overlaps.empty(); ++m) {
+        const auto runs = overlapsOf(entriesOf(m_presence, modes[m]));
+        std::vector<Overlap> next;
+        for (size_t i = 0, j = 0; i < overlaps.size() && j < runs.size();) {
+            const auto &a = overlaps[i];
+            const auto &b = runs[j];
+            if (const auto start = std::max(a.startRow, b.startRow),
+                end = std::min(a.endRow, b.endRow);
+                start < end) {
+                next.push_back({start, end, a.startRow >= b.startRow ? a.formedBy : b.formedBy});
+            }
+            (a.endRow < b.endRow ? i : j)++;
+        }
+        overlaps = std::move(next);
+    }
+
+    std::vector<Occurrence> rv;
+    for (const auto &o : overlaps) {
+        if (o.formedBy->player == player) {
+            rv.push_back(Occurrence {o.formedBy->startMs, o.formedBy->ball, o.formedBy->span, 1});
+        }
+    }
+    return rv;
 }
 
 void SessionFacts::closeActivation(const std::string &mode, int64_t timeMs)
@@ -214,7 +236,12 @@ void SessionFacts::apply(const TimelineRow &row)
         }
     }
     for (const auto &mode : current) {
-        if (!m_presentModes.count(mode) && active) {
+        if (m_presentModes.count(mode)) {
+            continue;
+        }
+        m_presence[mode].push_back(
+                PresenceRun {m_rows, std::nullopt, row.timeMs, row.player, row.ball, span});
+        if (active) {
             active->m_activations[mode].push_back(
                     PlayerFacts::Activation {row.timeMs, row.timeMs, true, row.ball, span});
             m_openActivations[mode] = row.player;
@@ -222,6 +249,7 @@ void SessionFacts::apply(const TimelineRow &row)
     }
     for (const auto &mode : m_presentModes) {
         if (!current.count(mode)) {
+            m_presence[mode].back().endRow = m_rows;
             closeActivation(mode, row.timeMs);
         }
     }
@@ -256,6 +284,7 @@ void SessionFacts::apply(const TimelineRow &row)
     }
 
     m_prev = row;
+    ++m_rows;
 }
 
 void SessionFacts::finish(int64_t timeMs)
