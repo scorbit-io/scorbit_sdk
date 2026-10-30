@@ -66,6 +66,17 @@ from .game_state import GameState, create_game_state
 # -- logger API (only when the native library wires callbacks; spdlog builds omit it).
 from ._bindings import _has_logger as _has_logger, _lib as _lib
 
+
+def logger_callbacks_supported():
+    # type: () -> bool
+    """Whether this native library delivers log messages to callbacks.
+
+    When it does not (an spdlog build), :func:`add_logger_callback` and
+    :func:`reset_logger` are not defined.
+    """
+    return _has_logger
+
+
 if _has_logger:
     import traceback as _traceback
 
@@ -139,6 +150,8 @@ __all__ = [
     "GameState",
     # Factory
     "create_game_state",
+    # Logging
+    "logger_callbacks_supported",
 ]
 
 if _has_logger:
