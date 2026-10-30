@@ -113,6 +113,10 @@ target_sources(
         ../../source/achievements/time_interval.h
         ../../source/achievements/local_time.h
         ../../source/achievements/local_time.cpp
+        ../../source/achievements/calendar_condition.h
+        ../../source/achievements/calendar_condition.cpp
+        ../../source/achievements/calendar.h
+        ../../source/achievements/calendar.cpp
         ../../source/achievements/player_facts.h
         ../../source/achievements/player_facts.cpp
         ../../source/achievements/rule_evaluator.h
@@ -133,6 +137,7 @@ target_sources(
         source/test_achievement_evaluator.cpp
         source/test_achievement_facts.cpp
         source/test_achievement_local_time.cpp
+        source/test_achievement_calendar.cpp
         source/test_achievement_definitions.cpp
         source/test_modes.cpp
         source/test_game_state.cpp
