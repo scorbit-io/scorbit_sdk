@@ -243,6 +243,13 @@ public:
     /** Delivers @p event to game code through the event callback. */
     virtual void publishEvent(EventPtr event) { (void)event; }
 
+    /**
+     * Whether the system clock agrees with the server's: a server reading has arrived, and the
+     * clock is within the drift the SDK tolerates. Local time judged on any other clock can't be
+     * trusted (§5.5.2).
+     */
+    virtual bool isClockSynchronised() const { return true; }
+
     /** @p callback is invoked from a network thread whenever player profiles change. */
     virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
 

@@ -247,6 +247,19 @@ TEST_CASE("Multiball Monarch: a MODE_SCORE trophy reports its best gain", "[achi
     CHECK(report[0].rules.at(0) == RuleProgress {20'000'000, true});
 }
 
+TEST_CASE("A record with nothing judged is not reported", "[achievements]")
+{
+    // e.g. a CALENDAR achievement while the clock is unsynchronised
+    auto def = unlimited("game-weekend", {rule(RuleType::Calendar, GE, 1, "window=weekend")});
+    Session s({def});
+    s.timeline.at(1000).synchronised(false);
+    s.commit();
+
+    REQUIRE(s.tracker.record("game-weekend"));
+    CHECK(s.tracker.record("game-weekend")->rules.empty());
+    CHECK(s.tracker.collectReport().empty());
+}
+
 TEST_CASE("A same-title chain resolves in one pass", "[achievements]")
 {
     Session s({unlimited("game-tom-devotee",

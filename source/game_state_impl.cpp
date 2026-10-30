@@ -48,10 +48,15 @@ int64_t toEpochMs(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
 }
 
-/** The fact model's view of one committed row: exactly what the session history CSV records. */
-scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::GameData &data)
+/**
+ * The fact model's view of one committed row: what the session history CSV records, and whether
+ * the clock that timed it was @p clockSynchronised.
+ */
+scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::GameData &data,
+                                                         bool clockSynchronised)
 {
     scorbit::detail::achievements::TimelineRow row;
+    row.clockSynchronised = clockSynchronised;
     row.timeMs = toEpochMs(data.timestamp);
     row.player = data.activePlayer;
     row.ball = data.ball;
@@ -618,7 +623,7 @@ void GameStateImpl::emitRow(const GameData &data, SessionFlags flags)
 {
     // Every row of the session history also feeds achievements, so both see the same timeline
     m_net->submitGameData(data, flags);
-    m_achievements->onRow(toTimelineRow(data));
+    m_achievements->onRow(toTimelineRow(data, m_net->isClockSynchronised()));
 }
 
 bool GameStateImpl::isChanged() const
@@ -680,7 +685,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
             }
         });
     });
-    m_achievements->onSessionStarted(m_data.id, toTimelineRow(m_data));
+    m_achievements->onSessionStarted(m_data.id,
+                                     toTimelineRow(m_data, m_net->isClockSynchronised()));
 
     return true;
 }

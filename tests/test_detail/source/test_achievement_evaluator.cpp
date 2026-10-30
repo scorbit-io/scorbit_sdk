@@ -749,3 +749,24 @@ TEST_CASE("TIMER_MODE beside CALENDAR times qualifying activations only", "[achi
 
     CHECK(ev(def).rules.at(0) == RuleProgress {30'000, false});
 }
+
+TEST_CASE("CALENDAR is not judged on an unsynchronised clock", "[achievements]")
+{
+    const auto def = inSession("game-wiz-hump",
+                               {rule(RuleType::Mode, GE, 1, "wizard"), calendar("weekday=WED")});
+    const auto plain = inSession("game-wiz", {rule(RuleType::Mode, GE, 1, "wizard")});
+    auto ev = inChicago();
+
+    ev.timeline.at(cdt(WEDNESDAY, 10, 0)).synchronised(false).modes({"wizard"}).commit();
+    CHECK(ev(def).rules.empty()); // nothing judged, so nothing reported or claimed
+    CHECK(ev(plain).allSatisfied);
+
+    // Once synchronised it is judged again, but the earlier period never qualifies
+    ev.timeline.at(cdt(WEDNESDAY, 10, 5)).synchronised(true).modes({}).commit();
+    auto e = ev(def);
+    CHECK(e.rules.at(0) == RuleProgress {0, false});
+    CHECK(e.rules.at(1) == RuleProgress {0, false});
+
+    ev.timeline.at(cdt(WEDNESDAY, 10, 10)).modes({"wizard"}).commit();
+    CHECK(ev(def).allSatisfied);
+}

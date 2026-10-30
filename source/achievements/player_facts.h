@@ -223,6 +223,15 @@ public:
     /** The time of the latest row, or of the session's end once finished. */
     int64_t nowMs() const { return m_nowMs; }
 
+    /** Whether the latest row's clock was synchronised. */
+    bool clockSynchronised() const { return !m_prev || m_prev->clockSynchronised; }
+
+    /**
+     * The instants the session's clock vouched for: from each synchronised row to the next, the
+     * latest one lasting until just after it.
+     */
+    IntervalSet synchronisedPeriods() const;
+
     /** Whether the last applied row ended a ball, and for whom. */
     std::optional<PlayerNumber> lastRowEndedBallOf() const { return m_ballEndedFor; }
 
@@ -251,6 +260,7 @@ private:
     int64_t scoreOf(PlayerNumber player) const;
     void closeRun(const std::string &mode, int64_t timeMs);
     void closeTurn(PlayerNumber player, int64_t timeMs);
+    void vouchFor(const TimelineRow &row, int64_t untilMs);
     void closeBall(int64_t timeMs);
     void openBall(PlayerNumber player, BallNumber ball, int64_t timeMs);
     void closeActivation(const std::string &mode, int64_t timeMs);
@@ -268,6 +278,7 @@ private:
 
     std::optional<PlayerNumber> m_ballEndedFor;
     int64_t m_nowMs {0};
+    std::vector<TimeInterval> m_synchronisedPeriods;
     bool m_finished {false};
 };
 

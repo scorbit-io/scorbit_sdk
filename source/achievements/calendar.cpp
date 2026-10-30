@@ -123,9 +123,10 @@ IntervalSet matching(const CalendarCondition &condition, const CalendarData &dat
 // ---- CalendarMatcher ---------------------------------------------------------------------------
 
 CalendarMatcher::CalendarMatcher(std::vector<const CalendarCondition *> conditions,
-                                 const CalendarData &data)
+                                 const CalendarData &data, std::optional<IntervalSet> trusted)
     : m_conditions {std::move(conditions)}
     , m_data {data}
+    , m_trusted {std::move(trusted)}
 {
 }
 
@@ -136,7 +137,7 @@ CalendarAnchor CalendarMatcher::anchor() const
 
 bool CalendarMatcher::qualifies(const TimeInterval &span) const
 {
-    IntervalSet inside {{span}};
+    auto inside = m_trusted ? m_trusted->intersect(IntervalSet {{span}}) : IntervalSet {{span}};
     for (const auto *condition : m_conditions) {
         inside = inside.intersect(matching(*condition, m_data, span));
         if (inside.empty()) {

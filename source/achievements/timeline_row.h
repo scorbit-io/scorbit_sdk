@@ -47,6 +47,12 @@ struct TimelineRow {
 
     /** Edge: event operations (`name += value`) applied at this instant only, in order. */
     std::vector<std::pair<std::string, int64_t>> events;
+
+    /**
+     * Whether @ref timeMs came from a clock the server vouched for. Until then local time can't
+     * be trusted, so nothing in this row's period can be placed in a `CALENDAR` window (§5.5.2).
+     */
+    bool clockSynchronised {true};
 };
 
 } // namespace achievements

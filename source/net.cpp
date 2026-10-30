@@ -2846,6 +2846,14 @@ void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
     m_worker.startTimer(Worker::Timer::AchievementRetry, delay, std::move(fn));
 }
 
+bool Net::isClockSynchronised() const
+{
+    // ACQUIRE, paired with the release in noteRestSuccess(), as in the dependency provider
+    return m_haveClockDelta.load(std::memory_order_acquire)
+        && std::abs(m_clockDeltaSeconds.load(std::memory_order_relaxed))
+                   <= MAX_SYSTEM_TIME_DRIFT_SECONDS;
+}
+
 void Net::publishEvent(EventPtr event)
 {
     m_eventManager->push(std::move(event));

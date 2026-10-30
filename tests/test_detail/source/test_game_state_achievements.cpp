@@ -27,6 +27,8 @@
 #include <algorithm>
 #include <deque>
 #include <fstream>
+#include <limits>
+#include <set>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -90,6 +92,7 @@ public:
         definitionsEtag = std::move(etag);
         definitionsReply = std::move(cb);
     }
+    bool isClockSynchronised() const override { return clockSynchronised; }
     void fetchAchievementProgress(std::string userId, ApiReplyCallback cb) override
     {
         progressUserId = std::move(userId);
@@ -165,6 +168,7 @@ public:
     int definitionsFetches {0};
     ApiReplyCallback definitionsReply;
     std::string definitionsEtag;
+    bool clockSynchronised {true};
     std::string progressUserId;
     ApiReplyCallback progressReply;
     std::deque<Report> reports;
@@ -247,14 +251,14 @@ struct Fixture {
     FakeNet *net;
     std::unique_ptr<GameStateImpl> game;
 
-    explicit Fixture(json baseline = json::array())
+    explicit Fixture(json baseline = json::array(), std::string definitions = DEFINITIONS)
     {
         auto fake = std::make_unique<FakeNet>(dir.str());
         net = fake.get();
         game = std::make_unique<GameStateImpl>(std::move(fake));
 
         REQUIRE(net->definitionsReply);
-        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS});
+        net->definitionsReply(ApiReply {Error::Success, 200, std::move(definitions), {}});
         game->runPendingPosts();
 
         game->setGameStarted(GameStartOrigin::StartButton);
@@ -410,6 +414,52 @@ TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]
     CHECK(item["key"] == "game-cv-spins");
     CHECK(item["achieved"] == true);
     CHECK(item["rule_progress"][0]["value"] == 100); // 40 + 60
+}
+
+TEST_CASE("A CALENDAR achievement waits for a synchronised clock", "[achievements]")
+{
+    auto definitions = json::parse(DEFINITIONS);
+    definitions["calendar"] = {
+            {"window=always",
+             json::array({json::array({0, std::numeric_limits<int64_t>::max()})})}};
+    definitions["results"].push_back({{"key", "game-cv-spins-always"},
+                                      {"scope", "game"},
+                                      {"is_single_session", false},
+                                      {"frame", nullptr},
+                                      {"frame_version", 0},
+                                      {"rules", json::array({{{"type", "EVENT"},
+                                                              {"comparison", ">="},
+                                                              {"target", 100},
+                                                              {"reference", "spins"}},
+                                                             {{"type", "CALENDAR"},
+                                                              {"comparison", ">="},
+                                                              {"target", 1},
+                                                              {"reference", "window=always"}}})}});
+    Fixture f(json::array(), definitions.dump());
+    const auto reportedKeys = [&f] {
+        std::set<std::string> keys;
+        for (const auto &report : f.net->reports) {
+            for (const auto &item : report.body["achievements"]) {
+                keys.insert(item["key"].get<std::string>());
+            }
+        }
+        return keys;
+    };
+
+    f.net->clockSynchronised = false;
+    f.game->addEvent("spins", 5);
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    CHECK(reportedKeys() == std::set<std::string> {"game-cv-spins"});
+    f.net->reports.front().reply(ApiReply {Error::Success, 200, reply(json::array()), {}});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+
+    f.net->clockSynchronised = true;
+    f.game->addEvent("spins", 5);
+    f.game->setCurrentBall(3);
+    f.game->commit();
+    CHECK(reportedKeys().contains("game-cv-spins-always"));
 }
 
 TEST_CASE("A baseline already achieved is not claimed again", "[achievements]")

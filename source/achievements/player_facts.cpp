@@ -188,6 +188,27 @@ std::vector<ModeRun> SessionFacts::modeRuns(const std::string &mode, PlayerNumbe
     return rv;
 }
 
+void SessionFacts::vouchFor(const TimelineRow &row, int64_t untilMs)
+{
+    // At least the row's own instant, even when the next row shares its millisecond
+    const TimeInterval period {row.timeMs, std::max(untilMs, row.timeMs + 1)};
+    if (!m_synchronisedPeriods.empty() && period.startMs <= m_synchronisedPeriods.back().endMs) {
+        auto &last = m_synchronisedPeriods.back();
+        last.endMs = std::max(last.endMs, period.endMs);
+    } else {
+        m_synchronisedPeriods.push_back(period);
+    }
+}
+
+IntervalSet SessionFacts::synchronisedPeriods() const
+{
+    auto periods = m_synchronisedPeriods;
+    if (m_prev && m_prev->clockSynchronised && !m_finished) {
+        periods.push_back({m_prev->timeMs, m_nowMs + 1});
+    }
+    return IntervalSet {std::move(periods)};
+}
+
 int64_t SessionFacts::scoreOf(PlayerNumber player) const
 {
     return this->player(player).latestScore().value_or(0);
@@ -269,6 +290,9 @@ void SessionFacts::apply(const TimelineRow &row)
     }
 
     m_ballEndedFor.reset();
+    if (m_prev && m_prev->clockSynchronised) {
+        vouchFor(*m_prev, row.timeMs);
+    }
 
     const bool isFirstRow = !m_prev;
     const bool playerChanged = !isFirstRow && row.player != m_prev->player;
@@ -379,6 +403,9 @@ void SessionFacts::finish(int64_t timeMs)
     }
 
     m_nowMs = std::max(m_nowMs, timeMs);
+    if (m_prev->clockSynchronised) {
+        vouchFor(*m_prev, timeMs);
+    }
     for (auto &[number, f] : m_players) {
         f.m_nowMs = std::max(f.m_nowMs, timeMs);
     }

@@ -68,6 +68,11 @@ public:
         m_row.events.emplace_back(std::move(name), value);
         return *this;
     }
+    Timeline &synchronised(bool synchronised)
+    {
+        m_row.clockSynchronised = synchronised;
+        return *this;
+    }
     Timeline &commit()
     {
         facts.apply(m_row);
@@ -81,7 +86,7 @@ public:
     SessionFacts facts;
 
 private:
-    TimelineRow m_row {0, 1, 1, {{1, 0}}, {}, {}, {}};
+    TimelineRow m_row {0, 1, 1, {{1, 0}}, {}, {}, {}, true};
 };
 
 inline Rule rule(RuleType type, Comparison comparison, int64_t target, std::string reference = {})

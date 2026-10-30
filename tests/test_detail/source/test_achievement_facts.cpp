@@ -346,3 +346,22 @@ TEST_CASE("The session's end closes a running mode", "[achievements]")
     CHECK(runs[0].endMs == 4000);
     CHECK(runs[0].gain == 2500);
 }
+
+TEST_CASE("Synchronised periods are those the clock vouched for", "[achievements]")
+{
+    Timeline t;
+    t.at(1000).commit();
+    t.at(2000).commit();
+    t.at(3000).synchronised(false).commit();
+    t.at(4000).synchronised(true).commit();
+    t.at(4000).commit(); // the same millisecond still vouches for its instant
+
+    CHECK(t.facts.clockSynchronised());
+    CHECK(t.facts.synchronisedPeriods().intervals()
+          == std::vector<TimeInterval> {{1000, 3000}, {4000, 4001}});
+
+    t.at(5000).synchronised(false).commit();
+    CHECK_FALSE(t.facts.clockSynchronised());
+    CHECK(t.facts.synchronisedPeriods().intervals()
+          == std::vector<TimeInterval> {{1000, 3000}, {4000, 5000}});
+}

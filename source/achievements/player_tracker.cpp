@@ -164,7 +164,8 @@ std::vector<ReportItem> PlayerTracker::collectReport()
 {
     std::vector<ReportItem> items;
     for (const auto &[key, record] : m_records) {
-        if (record.evaluation != EvaluationClass::Unlimited
+        // A record with no judged rule has nothing to say, e.g. while its clock is unsynchronised
+        if (record.evaluation != EvaluationClass::Unlimited || record.rules.empty()
             || record.rules == record.acknowledged) {
             continue;
         }

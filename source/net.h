@@ -462,6 +462,7 @@ public:
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
     void publishEvent(EventPtr event) override;
+    bool isClockSynchronised() const override;
 
 private:
     task_t createAuthenticateTask();

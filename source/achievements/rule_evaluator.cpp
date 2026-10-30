@@ -84,19 +84,26 @@ RuleProgress resolveAccumulator(int64_t value, const Rule &rule)
     return RuleProgress {value, satisfies(value, rule.comparison, rule.target)};
 }
 
-/** The `CALENDAR` conditions of @p definition. */
-std::vector<const CalendarCondition *> calendarConditions(const Definition &definition)
+const CalendarData NO_CALENDAR {};
+
+/**
+ * The `CALENDAR` rules of @p definition, judged with the session's calendar and only at instants
+ * its clock vouched for.
+ */
+CalendarMatcher calendarOf(const Definition &definition, const PlayerSession &session)
 {
-    std::vector<const CalendarCondition *> rv;
+    std::vector<const CalendarCondition *> conditions;
     for (const auto &rule : definition.rules) {
         if (rule.type == RuleType::Calendar && rule.calendar) {
-            rv.push_back(&*rule.calendar);
+            conditions.push_back(&*rule.calendar);
         }
     }
-    return rv;
+    if (conditions.empty()) {
+        return {{}, NO_CALENDAR};
+    }
+    return {std::move(conditions), session.calendar ? *session.calendar : NO_CALENDAR,
+            session.facts.synchronisedPeriods()};
 }
-
-const CalendarData NO_CALENDAR {};
 
 /** Evaluates the rules of one achievement; holds what is shared between its rules. */
 class AchievementEvaluator
@@ -108,8 +115,7 @@ public:
         , m_session {context.session}
         , m_facts {context.session.own()}
         , m_unlimited {definition.evaluation == EvaluationClass::Unlimited}
-        , m_calendar {calendarConditions(definition),
-                      context.session.calendar ? *context.session.calendar : NO_CALENDAR}
+        , m_calendar {calendarOf(definition, context.session)}
     {
         for (const auto &rule : definition.rules) {
             if (rule.type == RuleType::Ball) {
@@ -121,6 +127,13 @@ public:
     Evaluation evaluate() const
     {
         Evaluation evaluation;
+
+        // Local time can't be trusted on a clock the server has not vouched for: judge none of
+        // the achievement's rules, so it is neither reported nor claimed meanwhile (§5.5.2)
+        if (!m_calendar.empty() && !m_session.facts.clockSynchronised()) {
+            return evaluation;
+        }
+
         for (size_t i = 0; i < m_definition.rules.size(); ++i) {
             if (auto progress = evaluateRule(i)) {
                 evaluation.rules.emplace(i, *progress);
