@@ -91,7 +91,7 @@ void PlayerTracker::startTracking(const Definition &definition)
     m_records.emplace(definition.key, std::move(record));
 }
 
-bool PlayerTracker::evaluateAll(const PlayerFacts &facts, const DefinitionSet &definitions)
+bool PlayerTracker::evaluateAll(const PlayerSession &session, const DefinitionSet &definitions)
 {
     bool unlockedAny = false;
 
@@ -117,7 +117,7 @@ bool PlayerTracker::evaluateAll(const PlayerFacts &facts, const DefinitionSet &d
 
         const auto baselineIt = m_baselines.find(key);
         const EvaluationContext context {
-                facts, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second, m_held,
+                session, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second, m_held,
                 definitions};
         const auto evaluation = evaluate(definition, context);
 
@@ -142,10 +142,10 @@ bool PlayerTracker::evaluateAll(const PlayerFacts &facts, const DefinitionSet &d
     return unlockedAny;
 }
 
-void PlayerTracker::reevaluate(const PlayerFacts &facts, const DefinitionSet &definitions)
+void PlayerTracker::reevaluate(const PlayerSession &session, const DefinitionSet &definitions)
 {
     // Each pass can only add to the held set, so this terminates within one pass per record
-    while (evaluateAll(facts, definitions)) { }
+    while (evaluateAll(session, definitions)) { }
 }
 
 std::vector<ReportItem> PlayerTracker::takeClaims()
@@ -194,7 +194,8 @@ void PlayerTracker::retract(const std::string &key, Record &record)
     m_updates.push_back({key, AchievementStatus::Retracted, record.rules});
 }
 
-void PlayerTracker::withdrawUnsupported(const PlayerFacts &facts, const DefinitionSet &definitions)
+void PlayerTracker::withdrawUnsupported(const PlayerSession &session,
+                                        const DefinitionSet &definitions)
 {
     // A retraction can pull the ground from under local unlocks that depended on it
     for (bool changed = true; changed;) {
@@ -209,8 +210,8 @@ void PlayerTracker::withdrawUnsupported(const PlayerFacts &facts, const Definiti
             }
             const auto baselineIt = m_baselines.find(key);
             const EvaluationContext context {
-                    facts, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second, m_held,
-                    definitions};
+                    session, baselineIt == m_baselines.end() ? nullptr : &baselineIt->second,
+                    m_held, definitions};
             if (!evaluate(*definition, context).allSatisfied) {
                 retract(key, record);
                 changed = true;
@@ -220,7 +221,7 @@ void PlayerTracker::withdrawUnsupported(const PlayerFacts &facts, const Definiti
 }
 
 void PlayerTracker::applyOutcome(const ReportItem &sent, const ReportOutcome &outcome,
-                                 const PlayerFacts &facts, const DefinitionSet &definitions)
+                                 const PlayerSession &session, const DefinitionSet &definitions)
 {
     const auto it = m_records.find(sent.key);
     if (it == m_records.end()) {
@@ -234,7 +235,7 @@ void PlayerTracker::applyOutcome(const ReportItem &sent, const ReportOutcome &ou
         record.confirmed = true;
         m_held.insert(sent.key);
         m_updates.push_back({sent.key, AchievementStatus::Confirmed, record.rules});
-        reevaluate(facts, definitions); // Dependents may now resolve
+        reevaluate(session, definitions); // Dependents may now resolve
         break;
 
     case ReportStatus::AlreadyHeld:
@@ -249,14 +250,14 @@ void PlayerTracker::applyOutcome(const ReportItem &sent, const ReportOutcome &ou
         // A claim answered "in progress" was not granted
         if (sent.achieved == true && record.unlockedLocally && !record.confirmed) {
             retract(sent.key, record);
-            withdrawUnsupported(facts, definitions);
+            withdrawUnsupported(session, definitions);
         }
         break;
 
     case ReportStatus::Rejected:
         if (record.unlockedLocally && !record.confirmed) {
             retract(sent.key, record);
-            withdrawUnsupported(facts, definitions);
+            withdrawUnsupported(session, definitions);
         }
         break;
     }

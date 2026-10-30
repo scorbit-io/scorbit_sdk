@@ -41,8 +41,9 @@ struct Evaluator {
     Evaluation operator()(const Definition &def) const
     {
         const auto it = baselines.find(def.key);
-        const EvaluationContext context {timeline.facts.player(1),
-                                         it == baselines.end() ? nullptr : &it->second, held,
+        const EvaluationContext context {{timeline.facts, 1},
+                                         it == baselines.end() ? nullptr : &it->second,
+                                         held,
                                          definitions};
         return evaluate(def, context);
     }
