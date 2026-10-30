@@ -148,6 +148,14 @@ public:
         }
     }
 
+    /** Every slot is unclaimed. */
+    void unclaim()
+    {
+        if (auto profiles = m_players.setProfiles(json::array(), "machine")) {
+            playersChanged(*profiles);
+        }
+    }
+
     struct Report {
         json body;
         ApiReplyCallback reply;
@@ -571,6 +579,74 @@ TEST_CASE("A player claiming mid-game gets the facts of the whole session", "[ac
     CHECK(hasUpdate(*net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
     REQUIRE(net->reports.size() == 1);
     CHECK(net->reports.front().body["user_id"] == "3f1c");
+}
+
+TEST_CASE("An empty result is delivered, and acknowledges nothing", "[achievements]")
+{
+    // The API discards a report for a slot unclaimed this session (§7.3)
+    Fixture f;
+    f.game->addMode("balloon");
+    f.game->addEvent("spins", 40);
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1); // the in_session claim
+
+    f.net->reports.front().reply(ApiReply {Error::Success, 200, reply(json::array()), {}});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+    CHECK(f.net->reports.empty()); // not retried
+    CHECK_FALSE(f.net->retry);
+    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_RETRACTED));
+    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_CONFIRMED));
+
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(ApiReply {Error::Success, 200, reply(json::array()), {}});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+
+    // Still unacknowledged, so the unchanged record rides the next ball's report
+    f.game->setCurrentBall(3);
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+    CHECK(f.net->reports.front().body["achievements"][0]["key"] == "game-cv-spins");
+}
+
+TEST_CASE("A vacated slot's report is delivered under its player", "[achievements]")
+{
+    Fixture f;
+    f.game->addMode("balloon");
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1); // in flight
+
+    f.game->addEvent("spins", 7);
+    f.game->commit();
+    f.net->unclaim();
+    f.game->runPendingPosts();
+    f.game->setGameFinished(); // the slot is empty when the game ends
+
+    // The queued report waits for the one in flight, then goes out for the departed player
+    f.net->reports.front().reply(ApiReply {Error::Success, 200, reply(json::array()), {}});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+    REQUIRE(f.net->reports.size() == 1);
+    const auto &body = f.net->reports.front().body;
+    CHECK(body["user_id"] == "3f1c");
+    CHECK(body["achievements"][0]["key"] == "game-cv-spins");
+    CHECK(body["achievements"][0]["rule_progress"][0]["value"] == 7);
+}
+
+TEST_CASE("A slot nobody claimed reports nothing", "[achievements]")
+{
+    Fixture f;
+    f.game->setActivePlayer(2);
+    f.game->addEvent("spins", 500);
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    f.game->setGameFinished();
+
+    // Player 1 is claimed but did nothing; player 2's play has no one to be reported for
+    CHECK(f.net->reports.empty());
 }
 
 TEST_CASE("A session uuid arriving after the game ended still releases its reports",
