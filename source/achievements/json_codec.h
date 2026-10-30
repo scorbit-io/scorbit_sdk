@@ -36,8 +36,8 @@ namespace detail {
 namespace achievements {
 
 /**
- * Parses the device definitions response, `GET achievements/scorbitron/`: a bare array of
- * achievements, each with its `rules`.
+ * Parses the device definitions response, `GET achievements/scorbitron/`: an object whose
+ * `results` are the achievements, each with its `rules` (§10.3).
  *
  * A definition that is malformed, or that the machine cannot evaluate, is skipped with a warning
  * and the rest are kept — one bad definition must not cost the device its whole cache (§6.7).
@@ -45,7 +45,7 @@ namespace achievements {
  *
  * @return std::nullopt when the document itself is not a definitions response.
  */
-std::optional<DefinitionSet> parseDefinitionsResponse(const nlohmann::json &json);
+std::optional<DefinitionFeed> parseDefinitionFeed(const nlohmann::json &json);
 
 /** Parses one achievement object; std::nullopt, with @p error set, if malformed. */
 std::optional<Definition> parseDefinition(const nlohmann::json &json, std::string &error);

@@ -234,19 +234,20 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
     }
 }
 
-std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
+std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
 {
-    if (!document.is_array()) {
-        ERR("Achievements: definitions response is not an array but {}: {}", document.type_name(),
+    const auto results = document.is_object() ? document.find(KEY_RESULTS) : document.end();
+    if (!document.is_object() || results == document.end() || !results->is_array()) {
+        ERR("Achievements: definitions response is not an object with 'results': {}",
             document.dump());
         return std::nullopt;
     }
 
     std::vector<Definition> definitions;
-    definitions.reserve(document.size());
-    for (size_t i = 0; i < document.size(); ++i) {
+    definitions.reserve(results->size());
+    for (size_t i = 0; i < results->size(); ++i) {
         std::string error;
-        auto definition = parseDefinition(document[i], error);
+        auto definition = parseDefinition((*results)[i], error);
         if (!definition) {
             WRN("Achievements: skipping malformed definition #{}: {}", i, error);
             continue;
@@ -263,7 +264,7 @@ std::optional<DefinitionSet> parseDefinitionsResponse(const json &document)
         WRN("Achievements: skipping '{}', its ACHIEVEMENT rules form a cycle", key);
     }
 
-    return DefinitionSet {std::move(definitions)};
+    return DefinitionFeed {DefinitionSet {std::move(definitions)}};
 }
 
 std::optional<Baselines> parseProgressResponse(const json &document)

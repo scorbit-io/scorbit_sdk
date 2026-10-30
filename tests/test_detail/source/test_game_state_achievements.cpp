@@ -84,9 +84,10 @@ public:
     {
     }
 
-    void fetchAchievementDefinitions(ApiReplyCallback cb) override
+    void fetchAchievementDefinitions(std::string etag, ApiReplyCallback cb) override
     {
         ++definitionsFetches;
+        definitionsEtag = std::move(etag);
         definitionsReply = std::move(cb);
     }
     void fetchAchievementProgress(std::string userId, ApiReplyCallback cb) override
@@ -163,6 +164,7 @@ public:
     SessionCreatedCallback sessionCreated;
     int definitionsFetches {0};
     ApiReplyCallback definitionsReply;
+    std::string definitionsEtag;
     std::string progressUserId;
     ApiReplyCallback progressReply;
     std::deque<Report> reports;
@@ -194,7 +196,10 @@ private:
     boost::filesystem::path m_path;
 };
 
-const char *DEFINITIONS = R"([
+const char *DEFINITIONS = R"({
+  "game": "cactus-canyon", "frames_version": 0,
+  "timezone": null, "utc_offsets": null, "calendar": {},
+  "results": [
     {"key": "game-cv-boom", "scope": "game", "is_single_session": true,
      "frame": null, "frame_version": 0,
      "rules": [{"type": "MODE", "comparison": ">=", "target": 1, "reference": "balloon",
@@ -203,7 +208,15 @@ const char *DEFINITIONS = R"([
      "frame": null, "frame_version": 0,
      "rules": [{"type": "EVENT", "comparison": ">=", "target": 100, "reference": "spins",
                 "subachievement": null}]}
-  ])";
+  ]})";
+
+/** A definitions response delivering @p results (§10.3). */
+std::string feed(json results)
+{
+    auto document = json::parse(DEFINITIONS);
+    document["results"] = std::move(results);
+    return document.dump();
+}
 
 /** A progress entry as the API renders it. */
 json progressEntry(const std::string &key, bool achieved, double currentValue)
@@ -277,9 +290,78 @@ TEST_CASE("Definitions are cached and refetched at boot", "[achievements]")
     CHECK(net->definitionsFetches == 1);
     CHECK(game.achievements().view()->definitions->size() == 2);
 
-    net->definitionsReply(ApiReply {Error::Success, 200, "[]"});
+    net->definitionsReply(ApiReply {Error::Success, 200, feed(json::array())});
     game.runPendingPosts();
     CHECK(game.achievements().view()->definitions->empty());
+}
+
+TEST_CASE("Definitions are revalidated with their ETag", "[achievements]")
+{
+    TempDir dir;
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto *net = fake.get();
+        GameStateImpl game(std::move(fake));
+        CHECK(net->definitionsEtag.empty());
+        net->definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, "\"v1\""});
+        game.runPendingPosts();
+    }
+
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    CHECK(net->definitionsEtag == "\"v1\"");
+
+    SECTION("304 keeps the cached definitions")
+    {
+        net->definitionsReply(ApiReply {Error::Success, 304, {}});
+        game.runPendingPosts();
+        CHECK(game.achievements().view()->definitions->size() == 2);
+
+        net->tokenRefreshed();
+        game.runPendingPosts();
+        CHECK(net->definitionsEtag == "\"v1\"");
+    }
+
+    SECTION("A changed response replaces them and its ETag")
+    {
+        net->definitionsReply(ApiReply {Error::Success, 200, feed(json::array()), "\"v2\""});
+        game.runPendingPosts();
+        CHECK(game.achievements().view()->definitions->empty());
+
+        net->tokenRefreshed();
+        game.runPendingPosts();
+        CHECK(net->definitionsEtag == "\"v2\"");
+    }
+
+    SECTION("A response that doesn't parse keeps them")
+    {
+        net->definitionsReply(ApiReply {Error::Success, 200, "[]", "\"v3\""});
+        game.runPendingPosts();
+        CHECK(game.achievements().view()->definitions->size() == 2);
+
+        net->tokenRefreshed();
+        game.runPendingPosts();
+        CHECK(net->definitionsEtag == "\"v1\"");
+    }
+}
+
+TEST_CASE("A cache that no longer parses is discarded with its ETag", "[achievements]")
+{
+    // An older build cached the bare array the API used to serve
+    TempDir dir;
+    const auto root = boost::filesystem::path(dir.str()) / "achievements";
+    boost::filesystem::create_directories(root);
+    std::ofstream((root / "definitions.json").string()) << "[]";
+    std::ofstream((root / "definitions.etag").string()) << "\"old\"";
+
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    CHECK(net->definitionsEtag.empty()); // a 304 could only confirm the unusable cache
+    CHECK(game.achievements().view()->definitions->empty());
+    CHECK_FALSE(boost::filesystem::exists(root / "definitions.json"));
+    CHECK_FALSE(boost::filesystem::exists(root / "definitions.etag"));
 }
 
 TEST_CASE("An in_session unlock is decided on commit and reported at once", "[achievements]")
@@ -487,7 +569,7 @@ TEST_CASE("DMD frames are downloaded per achievement when their version changes"
                                                    {"comparison", ">="},
                                                    {"target", 1},
                                                    {"reference", "plain"}}})}});
-        return results.dump();
+        return feed(results);
     };
     const auto frameOf = [](const GameStateImpl &game, const std::string &key) {
         const auto frame = game.achievements().frame(key);
@@ -602,15 +684,15 @@ TEST_CASE("Definitions fetched during a game apply from the next game", "[achiev
     Fixture f;
 
     auto refreshed = json::parse(DEFINITIONS);
-    refreshed.push_back({{"key", "game-cv-blast"},
-                         {"scope", "game"},
-                         {"is_single_session", true},
-                         {"frame", nullptr},
-                         {"frame_version", 0},
-                         {"rules", json::array({{{"type", "MODE"},
-                                                 {"comparison", ">="},
-                                                 {"target", 1},
-                                                 {"reference", "blast"}}})}});
+    refreshed["results"].push_back({{"key", "game-cv-blast"},
+                                    {"scope", "game"},
+                                    {"is_single_session", true},
+                                    {"frame", nullptr},
+                                    {"frame_version", 0},
+                                    {"rules", json::array({{{"type", "MODE"},
+                                                            {"comparison", ">="},
+                                                            {"target", 1},
+                                                            {"reference", "blast"}}})}});
     f.net->tokenRefreshed();
     f.game->runPendingPosts();
     REQUIRE(f.net->definitionsReply);

@@ -202,14 +202,33 @@ TEST_CASE("Report response parsing", "[achievements]")
     CHECK_FALSE(parseReportResponse(json::parse(R"({"detail":"x"})")));
 }
 
-TEST_CASE("Definitions persist", "[achievements]")
+TEST_CASE("Definitions persist with their ETag", "[achievements]")
 {
     TempDir dir;
     AchievementStorage storage {dir.path().string()};
     CHECK_FALSE(storage.loadDefinitions());
 
-    REQUIRE(storage.saveDefinitions("[]"));
-    CHECK(AchievementStorage {dir.path().string()}.loadDefinitions() == "[]");
+    REQUIRE(storage.saveDefinitions({"{\"results\":[]}", "\"v1\""}));
+    auto loaded = AchievementStorage {dir.path().string()}.loadDefinitions();
+    REQUIRE(loaded);
+    CHECK(loaded->body == "{\"results\":[]}");
+    CHECK(loaded->etag == "\"v1\"");
+
+    SECTION("A response without an ETag leaves none behind")
+    {
+        REQUIRE(storage.saveDefinitions({"{}", ""}));
+        loaded = storage.loadDefinitions();
+        REQUIRE(loaded);
+        CHECK(loaded->body == "{}");
+        CHECK(loaded->etag.empty());
+    }
+
+    SECTION("Discarding forgets the body and its ETag")
+    {
+        storage.discardDefinitions();
+        CHECK_FALSE(storage.loadDefinitions());
+        CHECK_FALSE(boost::filesystem::exists(dir.path() / "achievements/definitions.etag"));
+    }
 }
 
 TEST_CASE("Frames install per key and track their version", "[achievements]")
@@ -261,26 +280,6 @@ TEST_CASE("Frames install per key and track their version", "[achievements]")
         std::ofstream(path, std::ios::binary) << "X";
         CHECK_FALSE(storage.installFrame("../escape", path, ".png", 1));
     }
-}
-
-TEST_CASE("An older SDK's cache is cleaned up", "[achievements]")
-{
-    TempDir dir;
-    const auto root = dir.path() / "achievements";
-    boost::filesystem::create_directories(root / "frames/128x32");
-    std::ofstream((root / "definitions.etag").string()) << "\"v1\"";
-    std::ofstream((root / "frames.version").string()) << "7";
-    std::ofstream((root / "frames.zip").string()) << "zip";
-    std::ofstream((root / "frames/128x32/game-cv-boom.png").string()) << "old";
-    std::ofstream((root / "definitions.json").string()) << "[]";
-
-    AchievementStorage storage {dir.path().string()};
-    CHECK_FALSE(boost::filesystem::exists(root / "definitions.etag"));
-    CHECK_FALSE(boost::filesystem::exists(root / "frames.version"));
-    CHECK_FALSE(boost::filesystem::exists(root / "frames.zip"));
-    CHECK_FALSE(boost::filesystem::exists(root / "frames"));
-    CHECK_FALSE(storage.frame("game-cv-boom"));
-    CHECK(storage.loadDefinitions() == "[]");
 }
 
 TEST_CASE("Frame extension comes from the URL path", "[achievements]")

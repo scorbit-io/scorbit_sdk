@@ -50,11 +50,19 @@ json achievement(const char *key, std::vector<json> rules, bool singleSession = 
             {"rules", json(std::move(rules))}};
 }
 
+/** The device definitions envelope around @p results (§10.3). */
+json feed(std::vector<json> results)
+{
+    return {{"game", "cactus-canyon"},    {"frames_version", 0},
+            {"timezone", nullptr},        {"utc_offsets", nullptr},
+            {"calendar", json::object()}, {"results", json(std::move(results))}};
+}
+
 DefinitionSet parse(std::vector<json> results)
 {
-    auto set = parseDefinitionsResponse(json(std::move(results)));
-    REQUIRE(set);
-    return *set;
+    auto parsed = parseDefinitionFeed(feed(std::move(results)));
+    REQUIRE(parsed);
+    return parsed->definitions;
 }
 
 } // namespace
@@ -72,10 +80,10 @@ TEST_CASE("Predicates are inclusive", "[achievements]")
 
 TEST_CASE("Parse a full definitions response", "[achievements]")
 {
-    // As the API's ScorbitronAchievementSerializer renders it
+    // As the API's ScorbitronAchievementFeedSerializer renders it
     json prerequisite = rule("ACHIEVEMENT", ">=", 1, "game-cv-boom-balloon");
     prerequisite["subachievement"] = 1207;
-    const json document = json::array({
+    const json document = feed({
             {{"id", "0b7c4f0e-5c1e-4f55-9a43-0f6d2b8f6a11"},
              {"key", "game-cv-boom-balloon"},
              {"name", "Boom Balloon"},
@@ -107,8 +115,9 @@ TEST_CASE("Parse a full definitions response", "[achievements]")
              {"rules", json::array({prerequisite})}},
     });
 
-    const auto set = parseDefinitionsResponse(document);
-    REQUIRE(set);
+    const auto parsed = parseDefinitionFeed(document);
+    REQUIRE(parsed);
+    const auto *set = &parsed->definitions;
     REQUIRE(set->size() == 2);
 
     const auto *def = set->find("game-cv-boom-balloon");
@@ -276,12 +285,15 @@ TEST_CASE("Achievements depending on an ACHIEVEMENT cycle are skipped", "[achiev
 
 TEST_CASE("Non-definitions documents are rejected", "[achievements]")
 {
-    CHECK_FALSE(parseDefinitionsResponse(json {{"results", json::array()}}));
-    CHECK_FALSE(parseDefinitionsResponse(json("nope")));
+    CHECK_FALSE(parseDefinitionFeed(json("nope")));
+    CHECK_FALSE(parseDefinitionFeed(json {{"results", "nope"}}));
 
-    const auto none = parseDefinitionsResponse(json::array());
+    // The bare array an older API served, e.g. still in a machine's cache
+    CHECK_FALSE(parseDefinitionFeed(json::array()));
+
+    const auto none = parseDefinitionFeed(feed({}));
     REQUIRE(none);
-    CHECK(none->empty());
+    CHECK(none->definitions.empty());
 }
 
 TEST_CASE("Parse a sparse progress response", "[achievements]")

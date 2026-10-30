@@ -120,6 +120,11 @@ private:
     std::unordered_map<std::string, size_t> m_index;
 };
 
+/** The device definitions response (§10.3): what this machine evaluates. */
+struct DefinitionFeed {
+    DefinitionSet definitions;
+};
+
 /** Applies @p comparison to @p value against @p target (§6.1; all predicates inclusive). */
 bool satisfies(int64_t value, Comparison comparison, int64_t target);
 
