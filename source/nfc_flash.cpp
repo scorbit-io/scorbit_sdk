@@ -20,6 +20,7 @@
 #include "nfc_flash.h"
 
 #include "identifiers.h"
+#include "net_util.h"
 
 #include <logger/logger.h>
 #include <nfc/Uf2.h>
@@ -33,6 +34,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <string_view>
 #include <system_error>
 
 #if defined(_WIN32)
@@ -241,6 +243,29 @@ bool syncFile(const fs::path &file)
 #endif
 }
 
+// Removes @p file only while it is the version written at @p written. Another process keeping a
+// fresh result for the run replaces the file by rename meanwhile, and that one must survive.
+void removeIfUnchanged(const fs::path &file, fs::file_time_type written)
+{
+    std::error_code ec;
+    auto claimed = file;
+    claimed += ".gone" + uniqueSuffix();
+    fs::rename(file, claimed, ec);
+    if (ec) {
+        return; // gone already, or held open elsewhere
+    }
+    const auto claimedWritten = fs::last_write_time(claimed, ec);
+    if (!ec && claimedWritten == written) {
+        fs::remove(claimed, ec);
+        return;
+    }
+    // A fresh result was claimed: put it back, unless a newer one has arrived since.
+    if (!fs::exists(file, ec)) {
+        fs::rename(claimed, file, ec);
+    }
+    fs::remove(claimed, ec);
+}
+
 } // namespace
 
 RecordStore::RecordStore(std::vector<fs::path> dirs)
@@ -368,6 +393,110 @@ fs::path RecordStore::imagePath(const fs::path &dir)
 fs::path RecordStore::recordPath(const fs::path &dir)
 {
     return dir / "nfc-flash.json";
+}
+
+fs::path RecordStore::resultPath(const fs::path &dir, const std::string &runId)
+{
+    return dir / ("nfc-result-" + runId + ".json");
+}
+
+bool RecordStore::keepResult(const std::string &runId, const std::string &body) const
+{
+    if (!isUuid(runId)) {
+        return false; // it becomes a file name
+    }
+    const auto dir = pick();
+    if (!dir) {
+        return false;
+    }
+    auto staged = resultPath(*dir, runId);
+    staged += ".tmp" + uniqueSuffix();
+    std::error_code ec;
+    if (!writeDurably(staged, body)) {
+        fs::remove(staged, ec);
+        return false;
+    }
+    fs::rename(staged, resultPath(*dir, runId), ec);
+    if (ec) {
+        fs::remove(staged, ec);
+        return false;
+    }
+    return syncDirectory(*dir);
+}
+
+std::vector<PendingResult> RecordStore::pendingResults(std::chrono::seconds maxAge) const
+{
+    constexpr std::string_view PREFIX = "nfc-result-";
+    constexpr std::string_view SUFFIX = ".json";
+    // A unit without a clock chip can write a file before its clock is set, or after a jump: such
+    // a time says nothing of the file's age, so the age restarts from now instead.
+    constexpr auto CLOCK_FLOOR = std::chrono::sys_days {std::chrono::year {2026} / 1 / 1};
+    std::vector<PendingResult> results;
+    for (const auto &dir : m_dirs) {
+        std::error_code ec;
+        if (!fs::is_directory(dir, ec) || !isPrivateDirectory(dir)) {
+            continue;
+        }
+        // Never throws: an odd entry must not cost the caller the pad resume that follows.
+        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+            try {
+                const auto &file = it->path();
+                const auto name = file.filename().string();
+                if (name.size() <= PREFIX.size() + SUFFIX.size() || !name.starts_with(PREFIX)
+                    || !name.ends_with(SUFFIX)) {
+                    continue;
+                }
+                const auto runId =
+                        name.substr(PREFIX.size(), name.size() - PREFIX.size() - SUFFIX.size());
+                if (!isUuid(runId) || !isOwnFile(file)) {
+                    continue;
+                }
+                std::error_code fileEc;
+                const auto now = fs::file_time_type::clock::now();
+                const auto written = fs::last_write_time(file, fileEc);
+                if (fileEc) {
+                    continue;
+                }
+                auto age = now - written;
+                auto version = written;
+                if (age < -std::chrono::hours {1}
+                    || age > std::chrono::system_clock::now() - CLOCK_FLOOR) {
+                    fs::last_write_time(file, now, fileEc);
+                    version = fs::last_write_time(file, fileEc);
+                } else if (age > maxAge) {
+                    removeIfUnchanged(file, version); // the api gave the run up long ago
+                    continue;
+                }
+                std::string body;
+                {
+                    // Closed before any removal: Windows cannot remove an open file.
+                    std::ifstream in(file, std::ios::binary);
+                    body.assign(std::istreambuf_iterator<char>(in),
+                                std::istreambuf_iterator<char>());
+                }
+                if (!json::parse(body, nullptr, false).is_object()) {
+                    WRN("NFC flash: unreadable result {} removed", file.string());
+                    removeIfUnchanged(file, version);
+                    continue;
+                }
+                results.push_back({runId, std::move(body)});
+            } catch (const std::exception &e) {
+                WRN("NFC flash: a result in {} skipped: {}", dir.string(), e.what());
+            }
+        }
+    }
+    return results;
+}
+
+void RecordStore::dropResult(const std::string &runId) const
+{
+    if (!isUuid(runId)) {
+        return;
+    }
+    for (const auto &dir : m_dirs) {
+        std::error_code ec;
+        fs::remove(resultPath(dir, runId), ec);
+    }
 }
 
 std::string sha256File(const fs::path &file)

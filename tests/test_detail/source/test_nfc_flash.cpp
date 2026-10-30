@@ -825,6 +825,81 @@ TEST_CASE("nfc flash: the record store", "[nfc_flash]")
     CHECK_FALSE(RecordStore::defaultDirs().empty());
 }
 
+// SB-6130: a result outlives the record until the api settles it, so a restart resends it.
+TEST_CASE("nfc flash: undelivered results are kept until dropped", "[nfc_flash]")
+{
+    TempDir dir;
+    RecordStore store {{dir.path / "state"}};
+    const std::string run = "38ff3bd2-549b-419d-9a31-8e624c352ac7";
+    const std::string other = "4f6f766b-a81c-489a-b127-3d7a0dd2c888";
+    const auto body = resultJson({Status::Succeeded, Stage::Done}).dump();
+
+    REQUIRE(store.keepResult(run, body));
+    REQUIRE(store.keepResult(other, body));
+    auto kept = store.pendingResults();
+    REQUIRE(kept.size() == 2);
+    for (const auto &result : kept) {
+        CHECK((result.runId == run || result.runId == other));
+        CHECK(result.body == body);
+    }
+
+    // Kept beside a record, and untouched when the record goes.
+    REQUIRE(store.commit(dir.path / "state", Record {run, "1-1.3", NEW_BUILD, "ab"}));
+    store.clear(dir.path / "state");
+    CHECK(store.pendingResults().size() == 2);
+
+    store.dropResult(run);
+    kept = store.pendingResults();
+    REQUIRE(kept.size() == 1);
+    CHECK(kept.front().runId == other);
+
+    const auto file = RecordStore::resultPath(dir.path / "state", other);
+    SECTION("a run id that is no uuid never becomes a file name")
+    {
+        CHECK_FALSE(store.keepResult("../escape", body));
+        size_t files = 0;
+        for ([[maybe_unused]] const auto &entry : fs::recursive_directory_iterator(dir.path)) {
+            ++files;
+        }
+        CHECK(files == 2); // the state directory and the other run's result
+    }
+    SECTION("a fresh result for the run replaces the kept one")
+    {
+        const auto failed = resultJson({Status::Failed, Stage::Verify, Failure::OldBuild}).dump();
+        REQUIRE(store.keepResult(other, failed));
+        kept = store.pendingResults();
+        REQUIRE(kept.size() == 1);
+        CHECK(kept.front().body == failed);
+    }
+    SECTION("a result older than the cap is removed, not resent")
+    {
+        fs::last_write_time(file, fs::file_time_type::clock::now() - RESULT_MAX_AGE - 1h);
+        CHECK(store.pendingResults().empty());
+        CHECK_FALSE(fs::exists(file));
+    }
+    SECTION("a time from before the clock was set or after a jump is not taken as its age")
+    {
+        const auto now = fs::file_time_type::clock::now();
+        for (const auto when : {now - std::chrono::hours {24 * 365 * 30}, now + 48h}) {
+            fs::last_write_time(file, when);
+            CHECK(store.pendingResults().size() == 1);
+            // A bool, as file_clock's duration may be __int128, which Catch2 cannot print.
+            const bool restarted =
+                    fs::file_time_type::clock::now() - fs::last_write_time(file) < 1h;
+            CHECK(restarted);
+        }
+    }
+    SECTION("an unreadable result, or one that is no JSON object, is removed")
+    {
+        for (const auto *text : {"{not json", "[1, 2]"}) {
+            std::ofstream(file) << text;
+            CHECK(store.pendingResults().empty());
+            CHECK_FALSE(fs::exists(file));
+            REQUIRE(store.keepResult(other, body));
+        }
+    }
+}
+
 TEST_CASE("nfc flash: sha256 and the result body", "[nfc_flash]")
 {
     TempDir dir;
