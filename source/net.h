@@ -23,6 +23,7 @@
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "key_resolver.h"
+#include "hardware_key_marker.h"
 #include "game_data.h"
 #include "worker.h"
 #include "serial_task_queue.h"
@@ -299,7 +300,9 @@ class Net : public NetBase
     friend struct NetTestAccess;
 
 public:
-    Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers);
+    /// @p hardwareKeyMarker, if given, blocks soft-key re-provisioning while it holds a marker.
+    Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers,
+        std::shared_ptr<const HardwareKeyMarker> hardwareKeyMarker = {});
     ~Net() override;
 
     AuthStatus status() const override;
@@ -761,6 +764,9 @@ private:
     /// From the resolver that made m_signer: whether an empty signature meant "busy". May be empty.
     std::function<bool()> m_signerBusy;
     std::vector<std::unique_ptr<IKeyResolver>> m_keyResolvers;
+    std::shared_ptr<const HardwareKeyMarker> m_hardwareKeyMarker;
+    /// m_signer's key lives in the tap pad's TPM. Touched only by the authentication task.
+    bool m_keyIsHardware {false};
 
     /// A request waiting for the authentication status to allow it.
     struct AuthGateWaiter {

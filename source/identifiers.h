@@ -440,5 +440,9 @@ constexpr auto JKEY_CREDITS_CURRENT {"credits"};
 constexpr auto JKEY_CREDITS_MAX {"max_credits"};
 constexpr auto JKEY_CREDITS_PRICING {"pricing"};
 
+// Hardware-key marker file (local, SB-6133)
+constexpr auto JKEY_HWKEY_SERIAL {"serial"};
+constexpr auto JKEY_HWKEY_UUID {"uuid"};
+
 } // namespace detail
 } // namespace scorbit

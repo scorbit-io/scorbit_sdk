@@ -257,6 +257,8 @@ target_sources(
         source/provisioning_client.cpp
         source/soft_key_resolver.h
         source/soft_key_resolver.cpp
+        source/hardware_key_marker.h
+        source/hardware_key_marker.cpp
 )
 
 # Callback logger: full C bridge; spdlog: no-op stubs so public headers always link
