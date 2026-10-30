@@ -23,7 +23,7 @@
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "key_resolver.h"
-#include "hardware_key_marker.h"
+#include <tpm/hardware_key_marker.h>
 #include "game_data.h"
 #include "worker.h"
 #include "serial_task_queue.h"
@@ -300,7 +300,8 @@ class Net : public NetBase
     friend struct NetTestAccess;
 
 public:
-    /// @p hardwareKeyMarker, if given, blocks soft-key re-provisioning while it holds a marker.
+    /// @p hardwareKeyMarker, if given, records a hardware key the api accepted and blocks soft-key
+    /// re-provisioning while it holds a marker (SB-6133).
     Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers,
         std::shared_ptr<const HardwareKeyMarker> hardwareKeyMarker = {});
     ~Net() override;

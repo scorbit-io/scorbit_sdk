@@ -2959,6 +2959,11 @@ task_t Net::createAuthenticateTask()
 
                     if (normalAuthentication) {
                         clearKeyResolutionDeferral();
+                        // SB-6133: only an identity the api accepted; a stray tap pad is not one.
+                        if (m_keyIsHardware && m_hardwareKeyMarker) {
+                            m_hardwareKeyMarker->record(
+                                    {m_deviceInfo.serialNumber, m_deviceInfo.uuid});
+                        }
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
                         initializeConnectionState();

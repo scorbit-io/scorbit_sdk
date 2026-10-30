@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include "hardware_key_marker.h"
 #include "key_resolver.h"
 #include <tpm/tpm.h>
 #include <cstdint>
@@ -43,9 +42,6 @@ std::string scanUnderTappadLock(const std::function<std::string()> &scan, uint32
 /// The production TPM discovery: the CdcTpm scan under the tap pad lock, waiting up to 10 s.
 TpmLocation discoverTpmDeviceUnderLock();
 
-/// What a successful NFC TPM resolution does with @p marker (may be null): records info's identity.
-void noteHardwareKey(const HardwareKeyMarker *marker, const DeviceInfo &info);
-
 class NfcTpmKeyResolver : public IKeyResolver
 {
 public:
@@ -53,11 +49,8 @@ public:
     /// probe real hardware.
     using Discover = std::function<TpmLocation()>;
 
-    /// @p marker, if given, is updated with every identity this resolver resolves.
-    explicit NfcTpmKeyResolver(Discover discover = discoverTpmDeviceUnderLock,
-                               std::shared_ptr<const HardwareKeyMarker> marker = {})
+    explicit NfcTpmKeyResolver(Discover discover = discoverTpmDeviceUnderLock)
         : m_discover(std::move(discover))
-        , m_marker(std::move(marker))
     {
     }
 
@@ -72,7 +65,6 @@ public:
 
 private:
     Discover m_discover;
-    std::shared_ptr<const HardwareKeyMarker> m_marker;
     std::shared_ptr<HardwareTpm> m_tpm;
     bool m_retryLater {false};
 };

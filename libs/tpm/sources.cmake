@@ -5,6 +5,7 @@ set(headers
     include/tpm/tpm.h
     include/tpm/crypto_helpers.h
     include/tpm/tappad_lock.h
+    include/tpm/hardware_key_marker.h
 )
 
 set(sources
@@ -18,6 +19,7 @@ set(sources
     source/crypto_utils.h
     source/crypto_utils.cpp
     source/crypto_constants.h
+    source/hardware_key_marker.cpp
 )
 
 set(c_sources

@@ -75,13 +75,6 @@ std::string scanUnderTappadLock(const std::function<std::string()> &scan, uint32
     return scan();
 }
 
-void noteHardwareKey(const HardwareKeyMarker *marker, const DeviceInfo &info)
-{
-    if (marker && !info.uuid.empty()) {
-        marker->record({info.serialNumber, info.uuid});
-    }
-}
-
 bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
 {
     m_retryLater = false;
@@ -117,7 +110,6 @@ bool NfcTpmKeyResolver::tryResolve(DeviceInfo &info, const std::string &)
     m_tpm = std::move(tpm);
 
     INF("NFC TPM resolved: uuid={}, serial={}", info.uuid, info.serialNumber);
-    noteHardwareKey(m_marker.get(), info);
     return true;
 }
 

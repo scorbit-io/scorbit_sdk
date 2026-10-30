@@ -19,8 +19,8 @@
 
 #pragma once
 
-#include "hardware_key_marker.h"
 #include "key_resolver.h"
+#include <tpm/hardware_key_marker.h>
 #include <cstdint>
 #include <memory>
 #include <string>

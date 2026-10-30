@@ -527,8 +527,7 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
         resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
     } else {
         marker = std::make_shared<const HardwareKeyMarker>();
-        resolvers.push_back(
-                std::make_unique<NfcTpmKeyResolver>(discoverTpmDeviceUnderLock, marker));
+        resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
         resolvers.push_back(std::make_unique<SoftKeyResolver>(marker));
     }
 

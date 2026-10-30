@@ -21,15 +21,16 @@
 // authentication instead of loading or provisioning a soft key, which is a different identity.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include "device_info.h"
-#include "hardware_key_marker.h"
-#include "nfc_flash.h"
 #include "net.h"
+#include "net_util.h"
 #include "nfc_tpm_key_resolver.h"
 #include "soft_key_resolver.h"
 #include "utils/decrypt.h"
 
+#include <tpm/hardware_key_marker.h>
 #include <utils/bytearray.h>
 #include <nlohmann/json.hpp>
 
@@ -42,7 +43,11 @@
 #include <string>
 #include <vector>
 
+#if defined(__APPLE__)
+#    include <mach-o/dyld.h>
+#endif
 #if !defined(_WIN32)
+#    include <sys/stat.h>
 #    include <unistd.h>
 #endif
 
@@ -59,6 +64,7 @@ struct TempDir {
         std::random_device rd;
         path = fs::temp_directory_path() / ("scorbit-hwkey-" + std::to_string(rd()));
         fs::create_directories(path);
+        fs::permissions(path, fs::perms::owner_all, fs::perm_options::replace); // umask-proof
     }
     ~TempDir()
     {
@@ -137,6 +143,61 @@ TpmLocation noTapPad()
 {
     return {};
 }
+
+// A tap pad TPM key as resolveKeys() sees one: resolves to the given identity, or reports busy.
+struct FakeHardwareResolver : IKeyResolver {
+    FakeHardwareResolver(uint64_t serial, std::string uuid, bool busy = false)
+        : serial(serial)
+        , uuid(std::move(uuid))
+        , busy(busy)
+    {
+    }
+
+    bool tryResolve(DeviceInfo &info, const std::string &) override
+    {
+        if (busy) {
+            return false;
+        }
+        info.serialNumber = serial;
+        info.uuid = uuid;
+        return true;
+    }
+    bool shouldRetryLater() const override { return busy; }
+    bool isHardwareKey() const override { return true; }
+    SignerCallback createSigner() const override
+    {
+        return [](const Digest &) { return Signature {0x01}; };
+    }
+
+    uint64_t serial;
+    std::string uuid;
+    bool busy;
+};
+
+KeyResolution resolveWith(std::unique_ptr<IKeyResolver> resolver,
+                          const std::shared_ptr<const HardwareKeyMarker> &marker,
+                          DeviceInfo info = {})
+{
+    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+    resolvers.push_back(std::move(resolver));
+    resolvers.push_back(std::make_unique<SoftKeyResolver>(marker));
+    Net net {std::move(info), std::move(resolvers), marker};
+    return NetTestAccess::resolveKeys(net, TIMESTAMP);
+}
+
+#if !defined(_WIN32)
+fs::path executableDirectory()
+{
+#    if defined(__APPLE__)
+    char buf[4096];
+    uint32_t size = sizeof(buf);
+    REQUIRE(::_NSGetExecutablePath(buf, &size) == 0);
+    return fs::absolute(fs::path(buf)).parent_path();
+#    else
+    return fs::read_symlink("/proc/self/exe").parent_path();
+#    endif
+}
+#endif
 
 } // namespace
 
@@ -317,19 +378,86 @@ TEST_CASE("Hardware-key marker: a link planted at the staged name is not written
     const std::string body {std::istreambuf_iterator<char>(in), {}};
     CHECK(body == "untouched");
 }
+
+TEST_CASE("Hardware-key marker: a directory others can write to is not trusted",
+          "[HardwareKeyMarker]")
+{
+    TempDir loose;
+    const auto perms = GENERATE(fs::perms::group_write, fs::perms::others_write);
+    fs::permissions(loose.path, perms, fs::perm_options::add);
+
+    // A marker in it is ignored, and clear leaves it alone.
+    writeFile(loose.path / HardwareKeyMarker::FILE_NAME,
+              nlohmann::json {{"serial", PAD_A.serial}, {"uuid", PAD_A.uuid}}.dump());
+    const HardwareKeyMarker marker {Dirs {loose.path}};
+    CHECK_FALSE(marker.load());
+    marker.clear();
+    CHECK(fs::exists(loose.path / HardwareKeyMarker::FILE_NAME));
+
+    // A store, the directory being this user's, makes it private first and then uses it.
+    REQUIRE(marker.store(PAD_B));
+    CHECK((fs::status(loose.path).permissions() & fs::perms::all) == fs::perms::owner_all);
+    CHECK(marker.load() == PAD_B);
+}
+
+TEST_CASE("Hardware-key marker: links and oversized files are not read", "[HardwareKeyMarker]")
+{
+    TempDir dir;
+    TempDir elsewhere;
+    REQUIRE(HardwareKeyMarker {Dirs {elsewhere.path}}.store(PAD_A));
+
+    SECTION("a link in place of the marker")
+    {
+        fs::create_symlink(elsewhere.path / HardwareKeyMarker::FILE_NAME,
+                           dir.path / HardwareKeyMarker::FILE_NAME);
+        CHECK_FALSE(HardwareKeyMarker {Dirs {dir.path}}.load());
+    }
+    SECTION("a link in place of the directory")
+    {
+        const auto link = dir.path / "linked";
+        fs::create_directory_symlink(elsewhere.path, link);
+        const HardwareKeyMarker marker {Dirs {link}};
+        CHECK_FALSE(marker.load());
+        CHECK_FALSE(marker.store(PAD_B));
+        marker.clear();
+        CHECK(fs::exists(elsewhere.path / HardwareKeyMarker::FILE_NAME));
+    }
+    SECTION("larger than any marker")
+    {
+        const auto padded = nlohmann::json {{"serial", PAD_A.serial},
+                                            {"uuid", PAD_A.uuid},
+                                            {"pad", std::string(5000, 'x')}}
+                                    .dump();
+        writeFile(dir.path / HardwareKeyMarker::FILE_NAME, padded);
+        CHECK_FALSE(HardwareKeyMarker {Dirs {dir.path}}.load());
+    }
+}
 #endif
 
-TEST_CASE("Hardware-key marker: the default directories end with the user's state directories",
+TEST_CASE("Hardware-key marker: the default directories are the module's, then the user's state",
           "[HardwareKeyMarker]")
 {
     const auto dirs = HardwareKeyMarker::defaultDirs();
-    const auto state = nfc_flash::RecordStore::defaultDirs();
-    REQUIRE(dirs.size() >= state.size());
-    CHECK(std::equal(state.begin(), state.end(), dirs.end() - std::ptrdiff_t(state.size())));
+    Dirs expected;
 #if !defined(_WIN32)
-    // The first is where this code was loaded from (the test executable here).
-    CHECK(dirs.size() == state.size() + 1);
+    // Linked statically into the test executable, so the module is the executable.
+    REQUIRE_FALSE(dirs.empty());
+    CHECK(fs::equivalent(dirs.front(), executableDirectory()));
+    expected.push_back(dirs.front());
 #endif
+    if (const char *state = std::getenv("XDG_STATE_HOME");
+        state && *state && fs::path(state).is_absolute()) {
+        expected.push_back(fs::path(state) / "scorbit");
+    } else if (const char *home = std::getenv("HOME"); home && *home) {
+        expected.push_back(fs::path(home) / ".local" / "state" / "scorbit");
+    }
+#if defined(_WIN32)
+    if (const char *local = std::getenv("LOCALAPPDATA"); local && *local) {
+        expected.push_back(fs::path(local) / "scorbit");
+    }
+#endif
+    // Nothing else, and so never the temp directory, which does not survive a reboot.
+    CHECK(dirs == expected);
 }
 
 // ------------------------------------ the resolvers ------------------------------------
@@ -394,7 +522,7 @@ TEST_CASE("Tap pad absent with a marker: key resolution defers and no soft key i
     *setup.savedKey = savedKeyJson();
 
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
-    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>(noTapPad, marker));
+    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>(noTapPad));
     resolvers.push_back(std::make_unique<SoftKeyResolver>(marker));
     Net net {setup.info(), std::move(resolvers), marker};
 
@@ -413,7 +541,7 @@ TEST_CASE("Tap pad absent with no marker: the soft key is used as before", "[Har
     *setup.savedKey = savedKeyJson();
 
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
-    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>(noTapPad, marker));
+    resolvers.push_back(std::make_unique<NfcTpmKeyResolver>(noTapPad));
     resolvers.push_back(std::make_unique<SoftKeyResolver>(marker));
     Net net {setup.info(), std::move(resolvers), marker};
 
@@ -422,29 +550,41 @@ TEST_CASE("Tap pad absent with no marker: the soft key is used as before", "[Har
     CHECK_FALSE(marker->load()); // a soft key never writes the marker
 }
 
-TEST_CASE("A resolved tap pad key records its identity in the marker", "[HardwareKeyMarker]")
+TEST_CASE("Resolving a hardware key records no marker before the api accepts it",
+          "[HardwareKeyMarker]")
 {
     TempDir dir;
     const auto marker = std::make_shared<HardwareKeyMarker>(Dirs {dir.path});
-    DeviceInfo info;
-    info.serialNumber = PAD_A.serial;
-    info.uuid = PAD_A.uuid;
-
-    noteHardwareKey(marker.get(), info);
-    CHECK(marker->load() == PAD_A);
-
-    // A replaced tap pad overwrites it.
-    info.serialNumber = PAD_B.serial;
-    info.uuid = PAD_B.uuid;
-    noteHardwareKey(marker.get(), info);
-    CHECK(marker->load() == PAD_B);
-
-    // No uuid is no identity; no marker at all is fine.
-    info.uuid.clear();
-    noteHardwareKey(marker.get(), info);
-    CHECK(marker->load() == PAD_B);
-    noteHardwareKey(nullptr, info);
+    REQUIRE(resolveWith(std::make_unique<FakeHardwareResolver>(PAD_A.serial, TEST_UUID), marker)
+            == KeyResolution::Resolved);
+    CHECK_FALSE(marker->load()); // test_net_auth_retry.cpp covers the accepted case
 
     CHECK(NfcTpmKeyResolver {noTapPad}.isHardwareKey());
     CHECK_FALSE(SoftKeyResolver {}.isHardwareKey());
+}
+
+TEST_CASE("A hardware key with an invalid uuid records no marker", "[HardwareKeyMarker]")
+{
+    TempDir dir;
+    const auto marker = std::make_shared<HardwareKeyMarker>(Dirs {dir.path});
+    CHECK(resolveWith(std::make_unique<FakeHardwareResolver>(PAD_A.serial, "not-a-uuid"), marker)
+          != KeyResolution::Resolved);
+    CHECK_FALSE(marker->load());
+}
+
+TEST_CASE("A busy hardware key with a marker defers and leaves the soft key and marker alone",
+          "[HardwareKeyMarker]")
+{
+    TempDir dir;
+    const auto marker = std::make_shared<HardwareKeyMarker>(Dirs {dir.path});
+    REQUIRE(marker->store(PAD_A));
+    SoftKeySetup setup;
+    *setup.savedKey = savedKeyJson();
+
+    CHECK(resolveWith(std::make_unique<FakeHardwareResolver>(PAD_B.serial, PAD_B.uuid, true),
+                      marker, setup.info())
+          == KeyResolution::Deferred);
+    CHECK(*setup.loads == 0);
+    CHECK(*setup.saves == 0);
+    CHECK(marker->load() == PAD_A);
 }

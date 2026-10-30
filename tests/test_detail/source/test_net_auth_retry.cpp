@@ -878,6 +878,67 @@ TEST_CASE("SB-6133: a 404 never re-provisions a soft key over a hardware key")
     }
 }
 
+namespace {
+
+struct MarkerDir {
+    MarkerDir()
+    {
+        std::random_device rd;
+        path = std::filesystem::temp_directory_path()
+             / ("scorbit-hwkey-auth-" + std::to_string(rd()));
+        marker = std::make_shared<HardwareKeyMarker>(std::vector<std::filesystem::path> {path});
+    }
+    ~MarkerDir()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+    std::filesystem::path path;
+    std::shared_ptr<HardwareKeyMarker> marker;
+};
+
+} // namespace
+
+TEST_CASE("SB-6133: the marker records a hardware key only once the api accepts it")
+{
+    const auto uuid = std::make_shared<std::string>(TEST_UUID);
+    const auto calls = std::make_shared<int>(0);
+    MarkerDir dir;
+    DeviceInfo info;
+    info.serialNumber = 4321;
+
+    SECTION("accepted")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        CHECK(dir.marker->load() == HardwareKeyIdentity {4321, parseUuid(TEST_UUID)});
+    }
+    SECTION("rejected")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({response(401)});
+        h.run();
+        CHECK(h.status() != AuthStatus::AuthenticatedCheckingPairing);
+        CHECK_FALSE(dir.marker->load());
+    }
+    SECTION("a soft key, accepted, is never recorded")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<UuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        CHECK_FALSE(dir.marker->load());
+    }
+}
+
 TEST_CASE("A resolver's bad uuid commits no signer and keeps the resolvers for the re-check")
 {
     const auto uuid = std::make_shared<std::string>("not-a-uuid");
