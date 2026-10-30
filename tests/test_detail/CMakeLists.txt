@@ -207,6 +207,7 @@ target_sources(
         source/tappad_hw_present.cpp
         ../../libs/tpm/source/tpm_identity.h
         source/test_tpm_identity.cpp
+        source/test_softwaretpm.cpp
 )
 
 target_link_libraries(
