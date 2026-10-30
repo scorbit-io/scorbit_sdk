@@ -853,24 +853,50 @@ TEST_CASE("nfc flash: undelivered results are kept until dropped", "[nfc_flash]"
     REQUIRE(kept.size() == 1);
     CHECK(kept.front().runId == other);
 
+    const auto file = RecordStore::resultPath(dir.path / "state", other);
     SECTION("a run id that is no uuid never becomes a file name")
     {
         CHECK_FALSE(store.keepResult("../escape", body));
-        CHECK_FALSE(fs::exists(dir.path / "escape.json"));
+        size_t files = 0;
+        for ([[maybe_unused]] const auto &entry : fs::recursive_directory_iterator(dir.path)) {
+            ++files;
+        }
+        CHECK(files == 2); // the state directory and the other run's result
+    }
+    SECTION("a fresh result for the run replaces the kept one")
+    {
+        const auto failed = resultJson({Status::Failed, Stage::Verify, Failure::OldBuild}).dump();
+        REQUIRE(store.keepResult(other, failed));
+        kept = store.pendingResults();
+        REQUIRE(kept.size() == 1);
+        CHECK(kept.front().body == failed);
     }
     SECTION("a result older than the cap is removed, not resent")
     {
-        const auto file = RecordStore::resultPath(dir.path / "state", other);
         fs::last_write_time(file, fs::file_time_type::clock::now() - RESULT_MAX_AGE - 1h);
         CHECK(store.pendingResults().empty());
         CHECK_FALSE(fs::exists(file));
     }
-    SECTION("an unreadable result is removed")
+    SECTION("a time from before the clock was set or after a jump is not taken as its age")
     {
-        const auto file = RecordStore::resultPath(dir.path / "state", other);
-        std::ofstream(file) << "{not json";
-        CHECK(store.pendingResults().empty());
-        CHECK_FALSE(fs::exists(file));
+        const auto now = fs::file_time_type::clock::now();
+        for (const auto when : {now - std::chrono::hours {24 * 365 * 30}, now + 48h}) {
+            fs::last_write_time(file, when);
+            CHECK(store.pendingResults().size() == 1);
+            // A bool, as file_clock's duration may be __int128, which Catch2 cannot print.
+            const bool restarted =
+                    fs::file_time_type::clock::now() - fs::last_write_time(file) < 1h;
+            CHECK(restarted);
+        }
+    }
+    SECTION("an unreadable result, or one that is no JSON object, is removed")
+    {
+        for (const auto *text : {"{not json", "[1, 2]"}) {
+            std::ofstream(file) << text;
+            CHECK(store.pendingResults().empty());
+            CHECK_FALSE(fs::exists(file));
+            REQUIRE(store.keepResult(other, body));
+        }
     }
 }
 

@@ -405,37 +405,55 @@ std::vector<PendingResult> RecordStore::pendingResults(std::chrono::seconds maxA
 {
     constexpr std::string_view PREFIX = "nfc-result-";
     constexpr std::string_view SUFFIX = ".json";
+    // A unit without a clock chip can write a file before its clock is set, or after a jump: such
+    // a time says nothing of the file's age, so the age restarts from now instead.
+    constexpr auto CLOCK_FLOOR = std::chrono::sys_days {std::chrono::year {2026} / 1 / 1};
     std::vector<PendingResult> results;
     for (const auto &dir : m_dirs) {
         std::error_code ec;
         if (!fs::is_directory(dir, ec) || !isPrivateDirectory(dir)) {
             continue;
         }
-        for (const auto &entry : fs::directory_iterator(dir, ec)) {
-            const auto name = entry.path().filename().string();
-            if (name.size() <= PREFIX.size() + SUFFIX.size() || !name.starts_with(PREFIX)
-                || !name.ends_with(SUFFIX)) {
-                continue;
+        // Never throws: an odd entry must not cost the caller the pad resume that follows.
+        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+            try {
+                const auto &file = it->path();
+                const auto name = file.filename().string();
+                if (name.size() <= PREFIX.size() + SUFFIX.size() || !name.starts_with(PREFIX)
+                    || !name.ends_with(SUFFIX)) {
+                    continue;
+                }
+                const auto runId =
+                        name.substr(PREFIX.size(), name.size() - PREFIX.size() - SUFFIX.size());
+                if (!isUuid(runId) || !isOwnFile(file)) {
+                    continue;
+                }
+                std::error_code fileEc;
+                const auto now = fs::file_time_type::clock::now();
+                const auto written = fs::last_write_time(file, fileEc);
+                if (fileEc) {
+                    continue;
+                }
+                const auto age = now - written;
+                if (age < -std::chrono::hours {1}
+                    || age > std::chrono::system_clock::now() - CLOCK_FLOOR) {
+                    fs::last_write_time(file, now, fileEc);
+                } else if (age > maxAge) {
+                    fs::remove(file, fileEc); // the api gave the run up long ago
+                    continue;
+                }
+                std::ifstream in(file, std::ios::binary);
+                std::string body {std::istreambuf_iterator<char>(in),
+                                  std::istreambuf_iterator<char>()};
+                if (!json::parse(body, nullptr, false).is_object()) {
+                    WRN("NFC flash: unreadable result {} removed", file.string());
+                    fs::remove(file, fileEc);
+                    continue;
+                }
+                results.push_back({runId, std::move(body)});
+            } catch (const std::exception &e) {
+                WRN("NFC flash: a result in {} skipped: {}", dir.string(), e.what());
             }
-            const auto runId =
-                    name.substr(PREFIX.size(), name.size() - PREFIX.size() - SUFFIX.size());
-            if (!isUuid(runId) || !isOwnFile(entry.path())) {
-                continue;
-            }
-            std::error_code timeEc;
-            const auto written = fs::last_write_time(entry.path(), timeEc);
-            if (timeEc || fs::file_time_type::clock::now() - written > maxAge) {
-                fs::remove(entry.path(), timeEc); // the api gave the run up long ago
-                continue;
-            }
-            std::ifstream in(entry.path(), std::ios::binary);
-            std::string body {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-            if (json::parse(body, nullptr, false).is_discarded()) {
-                WRN("NFC flash: unreadable result {} removed", entry.path().string());
-                fs::remove(entry.path(), timeEc);
-                continue;
-            }
-            results.push_back({runId, std::move(body)});
         }
     }
     return results;

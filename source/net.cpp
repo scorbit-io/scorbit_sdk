@@ -2190,9 +2190,13 @@ void Net::runNfcFlash(const json &request)
 void Net::resumeNfcFlash()
 {
     const auto pending = nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.load();
-    // A run still in the record gets a fresh result from the resume below.
-    resendKeptNfcFlashResults(pending ? pending->second.runId : std::string {});
+    // After the resume, which a stuck pad needs first; the run still in the record is the
+    // resume's to report.
+    const auto resendKept = [&] {
+        resendKeptNfcFlashResults(pending ? pending->second.runId : std::string {});
+    };
     if (!pending || !m_probesManager) {
+        resendKept();
         return;
     }
     // The unit is busy with this run until it is finished, but only once the run is ours: a run
@@ -2220,6 +2224,7 @@ void Net::resumeNfcFlash()
     }
     m_nfcReattachLeft = NFC_REATTACH_ATTEMPTS;
     reattachNfc();
+    resendKept();
 }
 
 void Net::submitNfcFlashResult(const std::string &runId, const nlohmann::json &result)
@@ -2247,15 +2252,19 @@ void Net::sendKeptNfcFlashResult(const std::string &runId, const std::string &bo
 void Net::resendKeptNfcFlashResults(const std::string &skipRunId)
 {
     const auto skip = toLowerAscii(skipRunId);
-    // Not written again: the file's age, which bounds how long it is kept, is the run's.
-    for (const auto &kept :
-         nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.pendingResults()) {
-        if (kept.runId == skip) {
-            continue;
+    try {
+        // Not written again: the file's age, which bounds how long it is kept, is the run's.
+        for (const auto &kept :
+             nfc_flash::RecordStore {nfc_flash::RecordStore::defaultDirs()}.pendingResults()) {
+            if (kept.runId == skip) {
+                continue;
+            }
+            INF("NFC flash run_id={}: resending the result an earlier start did not deliver",
+                kept.runId);
+            sendKeptNfcFlashResult(kept.runId, kept.body);
         }
-        INF("NFC flash run_id={}: resending the result an earlier start did not deliver",
-            kept.runId);
-        sendKeptNfcFlashResult(kept.runId, kept.body);
+    } catch (const std::exception &e) {
+        ERR("NFC flash: kept results not resent: {}", e.what());
     }
 }
 
