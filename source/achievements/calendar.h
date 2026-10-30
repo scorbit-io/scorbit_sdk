@@ -59,7 +59,12 @@ IntervalSet matching(const CalendarCondition &condition, const CalendarData &dat
 class CalendarMatcher
 {
 public:
-    CalendarMatcher(std::vector<const CalendarCondition *> conditions, const CalendarData &data);
+    /**
+     * Judges @p conditions with @p data. When @p trusted is given, only those instants can be
+     * inside a window: the machine's clock vouched for nothing else (§5.5.2).
+     */
+    CalendarMatcher(std::vector<const CalendarCondition *> conditions, const CalendarData &data,
+                    std::optional<IntervalSet> trusted = std::nullopt);
 
     /** Whether the achievement has `CALENDAR` rules at all. */
     bool empty() const { return m_conditions.empty(); }
@@ -73,6 +78,7 @@ public:
 private:
     std::vector<const CalendarCondition *> m_conditions;
     const CalendarData &m_data;
+    std::optional<IntervalSet> m_trusted;
 };
 
 } // namespace achievements

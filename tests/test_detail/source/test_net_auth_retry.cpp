@@ -1407,3 +1407,20 @@ TEST_CASE("The first server Date from any REST reply corrects a wrong clock, onc
         CHECK(h.clockSets.empty());
     }
 }
+
+TEST_CASE("The clock is synchronised once a server reading agrees with it")
+{
+    const auto atServer = [](system_clock::time_point at) {
+        return cpr::Header {{"Date", httpDate(at)}};
+    };
+
+    AuthHarness h;
+    CHECK_FALSE(h.net.isClockSynchronised()); // no reading yet
+
+    // The harness doesn't really set the clock, so it stays two hours off
+    NetTestAccess::noteRestSuccess(h.net, atServer(system_clock::now() + 2h));
+    CHECK_FALSE(h.net.isClockSynchronised());
+
+    NetTestAccess::noteRestSuccess(h.net, atServer(system_clock::now()));
+    CHECK(h.net.isClockSynchronised());
+}
