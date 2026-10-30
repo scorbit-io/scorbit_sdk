@@ -99,6 +99,12 @@ private:
     std::vector<Change> m_changes;
 };
 
+/**
+ * The first local midnight after @p utcMs on the clock @p offsets describe, as a UTC instant; UTC
+ * midnight without offsets.
+ */
+int64_t nextLocalMidnight(const std::optional<UtcOffsetTable> &offsets, int64_t utcMs);
+
 } // namespace achievements
 } // namespace detail
 } // namespace scorbit

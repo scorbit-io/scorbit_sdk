@@ -128,6 +128,16 @@ std::vector<UtcOffsetTable::Segment> UtcOffsetTable::segments(const TimeInterval
     return rv;
 }
 
+int64_t nextLocalMidnight(const std::optional<UtcOffsetTable> &offsets, int64_t utcMs)
+{
+    const auto offsetAt = [&offsets](int64_t ms) { return offsets ? offsets->offsetMsAt(ms) : 0; };
+
+    const int64_t midnight = (dayOf(utcMs + offsetAt(utcMs)) + 1) * MS_PER_DAY;
+    // The offset in force at midnight decides, should it change before then
+    const int64_t guess = midnight - offsetAt(utcMs);
+    return midnight - offsetAt(guess);
+}
+
 } // namespace achievements
 } // namespace detail
 } // namespace scorbit

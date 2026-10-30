@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <set>
 #include <string>
 #include <vector>
@@ -38,6 +39,9 @@
 namespace scorbit {
 namespace detail {
 namespace achievements {
+
+/** The system clock, in UTC epoch milliseconds. */
+int64_t systemWallClock();
 
 /** An @ref AchievementUpdate for a particular player, as delivered to game code. */
 struct AchievementNotification {
@@ -75,8 +79,11 @@ public:
     /** Receives every notification for game code. */
     using NotificationSink = std::function<void(AchievementNotification)>;
 
+    /** The wall clock, in UTC epoch milliseconds. */
+    using WallClock = std::function<int64_t()>;
+
     AchievementService(NetBase &net, AchievementStorage storage, Poster poster,
-                       NotificationSink sink);
+                       NotificationSink sink, WallClock wallClock = systemWallClock);
     ~AchievementService();
 
     AchievementService(const AchievementService &) = delete;
@@ -85,8 +92,9 @@ public:
     /**
      * Revalidates the cached definitions with the API, with their `ETag`. Done at boot and after
      * every token refresh, so a machine paired after boot, or an achievement published since,
-     * needs no reboot. A game in progress keeps the definitions it started with; new ones apply
-     * from the next game.
+     * needs no reboot; and, as calendar data changes over time, at least daily and after every
+     * local midnight (§10.3). A game in progress keeps the definitions it started with; new ones
+     * apply from the next game.
      */
     void refreshDefinitions();
 
@@ -148,6 +156,11 @@ private:
 
     void onDefinitions(ApiReply reply);
 
+    /** The definitions in force were just confirmed: schedules the next revalidation. */
+    void scheduleRevalidation();
+    bool revalidationDue() const;
+    int64_t revalidationDueMs() const;
+
     /** Puts @p response in force if it parses, and caches it when @p persist. */
     bool applyDefinitions(const CachedDefinitions &response, bool persist);
     void downloadNextFrame();
@@ -186,6 +199,14 @@ private:
     uint64_t m_lastSessionId {0};
 
     bool m_fetchingDefinitions {false};
+
+    WallClock m_wallClock;
+
+    /** When the definitions in force were last confirmed with the API. */
+    std::optional<int64_t> m_validatedMs;
+
+    /** Spreads the machines of one time zone over the minutes after midnight. */
+    std::mt19937 m_random {std::random_device {}()};
     bool m_downloadingFrames {false};
 
     /** Frames that failed since the last @ref refreshFrames, so they aren't retried in a loop. */

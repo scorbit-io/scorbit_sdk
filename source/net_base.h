@@ -240,6 +240,17 @@ public:
         (void)fn;
     }
 
+    /**
+     * Runs @p fn on a worker thread after @p delay, replacing any pending one (definitions
+     * revalidation).
+     */
+    virtual void scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,
+                                                 std::function<void()> fn)
+    {
+        (void)delay;
+        (void)fn;
+    }
+
     /** Delivers @p event to game code through the event callback. */
     virtual void publishEvent(EventPtr event) { (void)event; }
 

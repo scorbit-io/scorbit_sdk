@@ -58,6 +58,7 @@ public:
         TableMappingsRefresh,
         SwitchDrain,
         AchievementRetry,
+        AchievementDefinitions,
 
         // IMPORTANT! This must be last entry!
         Count,

@@ -136,3 +136,21 @@ TEST_CASE("Interval sets merge and intersect", "[achievements]")
     CHECK(a.intersect(IntervalSet {}).empty());
     CHECK(IntervalSet {{{0, 10}}}.intersect(IntervalSet {{{10, 20}}}).empty());
 }
+
+TEST_CASE("The next local midnight", "[achievements]")
+{
+    const auto table = std::optional {chicago()};
+    const int64_t springForward = 1772956800000; // 2026-03-08 08:00Z
+
+    // 7 March 23:00 CST is 8 March 05:00Z; midnight is 06:00Z, still CST
+    CHECK(nextLocalMidnight(table, springForward - 3 * HOUR) == springForward - 2 * HOUR);
+    // 8 March 03:30 CDT: the next midnight is 9 March 00:00 CDT, 05:00Z
+    CHECK(nextLocalMidnight(table, springForward + 30 * 60'000)
+          == springForward - 2 * HOUR + MS_PER_DAY - HOUR);
+    // Exactly at midnight, the next one
+    CHECK(nextLocalMidnight(table, springForward - 2 * HOUR)
+          == springForward - 2 * HOUR + MS_PER_DAY - HOUR);
+
+    CHECK(nextLocalMidnight(std::nullopt, 5) == MS_PER_DAY);
+    CHECK(nextLocalMidnight(std::nullopt, MS_PER_DAY) == 2 * MS_PER_DAY);
+}

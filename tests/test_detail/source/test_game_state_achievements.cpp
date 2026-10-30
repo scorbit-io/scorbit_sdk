@@ -112,6 +112,12 @@ public:
     {
         retry = std::move(fn);
     }
+    void scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,
+                                         std::function<void()> fn) override
+    {
+        revalidationDelay = delay;
+        revalidate = std::move(fn);
+    }
     void setPlayersChangedCallback(PlayersChangedCallback cb) override
     {
         playersChanged = std::move(cb);
@@ -169,6 +175,8 @@ public:
     ApiReplyCallback definitionsReply;
     std::string definitionsEtag;
     bool clockSynchronised {true};
+    std::chrono::steady_clock::duration revalidationDelay {};
+    std::function<void()> revalidate;
     std::string progressUserId;
     ApiReplyCallback progressReply;
     std::deque<Report> reports;
@@ -700,6 +708,61 @@ TEST_CASE("DMD frames are downloaded per achievement when their version changes"
 
         game.achievements().refreshFrames();
         CHECK(net->frames.size() == 1);
+    }
+}
+
+TEST_CASE("Definitions are revalidated at least daily, and after local midnight", "[achievements]")
+{
+    using namespace std::chrono;
+    using namespace scorbit::detail::achievements;
+    constexpr int64_t HOUR = 3'600'000;
+    const int64_t noon = 1793448000000; // 2026-10-31 12:00 UTC
+
+    TempDir dir;
+    FakeNet net {dir.str()};
+    int64_t now = noon;
+    AchievementService service {net,
+                                AchievementStorage {dir.str()},
+                                [](std::function<void()> fn) { fn(); },
+                                {},
+                                [&now] { return now; }};
+
+    SECTION("Without a time zone, after UTC midnight, spread over a few minutes")
+    {
+        service.refreshDefinitions();
+        net.definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, {}});
+        CHECK(net.revalidationDelay >= milliseconds {12 * HOUR});
+        CHECK(net.revalidationDelay <= milliseconds {12 * HOUR} + 10min);
+
+        REQUIRE(net.revalidate);
+        net.revalidate();
+        CHECK(net.definitionsFetches == 2);
+
+        // A 304 confirms them just the same
+        now += 12 * HOUR;
+        net.definitionsReply(ApiReply {Error::Success, 304, {}, {}});
+        CHECK(net.revalidationDelay >= milliseconds {24 * HOUR} - 1ms);
+        CHECK(net.revalidationDelay <= milliseconds {24 * HOUR});
+    }
+
+    SECTION("After the venue's midnight")
+    {
+        auto definitions = json::parse(DEFINITIONS);
+        definitions["utc_offsets"] = json::array({json::array({1767225600000, -18000})}); // UTC-5
+        service.refreshDefinitions();
+        net.definitionsReply(ApiReply {Error::Success, 200, definitions.dump(), {}});
+        CHECK(net.revalidationDelay >= milliseconds {17 * HOUR});
+        CHECK(net.revalidationDelay <= milliseconds {17 * HOUR} + 10min);
+    }
+
+    SECTION("A revalidation missed while offline happens at the next game start")
+    {
+        service.refreshDefinitions();
+        net.definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, {}});
+
+        now += 13 * HOUR; // past midnight, and the timer never fired
+        service.onSessionStarted(1, TimelineRow {now, 1, 1, {}, {}, {}, {}, true});
+        CHECK(net.definitionsFetches == 2);
     }
 }
 
