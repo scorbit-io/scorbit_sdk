@@ -91,6 +91,7 @@ public:
     AchievementEvaluator(const Definition &definition, const EvaluationContext &context)
         : m_definition {definition}
         , m_context {context}
+        , m_session {context.session}
         , m_facts {context.session.own()}
         , m_unlimited {definition.evaluation == EvaluationClass::Unlimited}
     {
@@ -192,7 +193,7 @@ private:
             all = m_facts.completions(rule.reference);
             break;
         case RuleType::ModeStack:
-            all = m_facts.stacks(rule.stackModes);
+            all = m_session.facts.stacks(rule.stackModes, m_session.player);
             break;
         case RuleType::Event:
             all = m_facts.eventOps(rule.reference);
@@ -316,6 +317,7 @@ private:
 
     const Definition &m_definition;
     const EvaluationContext &m_context;
+    const PlayerSession &m_session;
     const PlayerFacts &m_facts;
     const bool m_unlimited;
     std::vector<const Rule *> m_ballRules;

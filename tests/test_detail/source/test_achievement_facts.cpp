@@ -155,11 +155,79 @@ TEST_CASE("Mode stacks form when the last of their modes activates", "[achieveme
     t.at(5000).modes({}).commit();
     t.at(6000).modes({"wizard", "multiball"}).commit(); // both at once: stack #3
 
-    const auto stacks = t.facts.player(1).stacks({"multiball", "wizard"});
+    const auto stacks = t.facts.stacks({"multiball", "wizard"}, 1);
     REQUIRE(stacks.size() == 3);
     CHECK(stacks[0].timeMs == 2000);
     CHECK(stacks[1].timeMs == 4000);
     CHECK(stacks[2].timeMs == 6000);
+}
+
+TEST_CASE("A stack counts once while it stays intact", "[achievements]")
+{
+    // The table of Stack Attack (§5.6)
+    Timeline t;
+    t.at(0).modes({"multiball"}).commit();
+    t.at(1000).modes({"multiball", "wizard"}).commit(); // both active: 1
+    t.at(2000).modes({"multiball", "wizard"}).commit(); // still stacked: no new occurrence
+    t.at(3000).modes({"multiball"}).commit();           // wizard ended
+    t.at(4000).modes({"multiball", "wizard"}).commit(); // the stack forms again: 2
+
+    const auto stacks = t.facts.stacks({"multiball", "wizard"}, 1);
+    REQUIRE(stacks.size() == 2);
+    CHECK(stacks[0].timeMs == 1000);
+    CHECK(stacks[1].timeMs == 4000);
+}
+
+TEST_CASE("A stack is judged on game_modes, not on how long a mode is timed", "[achievements]")
+{
+    SECTION("A stack intact across a drain is one occurrence")
+    {
+        Timeline t;
+        t.at(0).modes({"multiball", "wizard"}).commit();
+        t.at(1000).ball(2).commit(); // the ball ends, both modes carry over
+
+        CHECK(t.facts.stacks({"multiball", "wizard"}, 1).size() == 1);
+    }
+
+    SECTION("A stack formed around a mode carried over a drain")
+    {
+        Timeline t;
+        t.at(0).modes({"multiball"}).commit();
+        t.at(1000).ball(2).commit();
+        t.at(2000).modes({"multiball", "wizard"}).commit();
+
+        const auto stacks = t.facts.stacks({"multiball", "wizard"}, 1);
+        REQUIRE(stacks.size() == 1);
+        CHECK(stacks[0].timeMs == 2000);
+        CHECK(stacks[0].ball == 2);
+    }
+
+    SECTION("A stack formed around a completed mode still present")
+    {
+        Timeline t;
+        t.at(0).modes({"multiball"}).commit();
+        t.at(1000).completed({"multiball"}).commit();
+        t.at(2000).modes({"multiball", "wizard"}).commit();
+
+        CHECK(t.facts.stacks({"multiball", "wizard"}, 1).size() == 1);
+    }
+}
+
+TEST_CASE("A stack belongs to the player on the row it formed", "[achievements]")
+{
+    Timeline t;
+    t.at(0).modes({"multiball"}).commit();              // p1 starts multiball
+    t.at(1000).player(2).commit();                      // it carries over to p2
+    t.at(2000).modes({"multiball", "wizard"}).commit(); // p2 forms the stack
+
+    CHECK(t.facts.stacks({"multiball", "wizard"}, 1).empty());
+    const auto stacks = t.facts.stacks({"multiball", "wizard"}, 2);
+    REQUIRE(stacks.size() == 1);
+    CHECK(stacks[0].timeMs == 2000);
+
+    // The carried-over mode is not a new activation for the next player (§4.4)
+    CHECK(t.facts.player(1).activations("multiball").size() == 1);
+    CHECK(t.facts.player(2).activations("multiball").empty());
 }
 
 TEST_CASE("Scores track every value the column took", "[achievements]")

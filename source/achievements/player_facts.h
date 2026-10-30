@@ -71,9 +71,6 @@ public:
     /** Completions of @p mode (appearances in `completed_modes`), in order. */
     std::vector<Occurrence> completions(const std::string &mode) const;
 
-    /** Instants at which all of @p modes became simultaneously active. */
-    std::vector<Occurrence> stacks(const std::vector<std::string> &modes) const;
-
     /** Operations on event register @p name, in order; each carries its added amount. */
     std::vector<Occurrence> eventOps(const std::string &name) const;
 
@@ -125,11 +122,11 @@ private:
 };
 
 /**
- * Derives @ref PlayerFacts for every player from the session timeline, one row at a time, exactly
- * as the API derives them from the uploaded timeline (§4).
+ * Derives the facts of §4.4 for every player from the session timeline, live, one row at a time.
  *
  * Attribution and boundaries:
- * - an activation, completion or event operation belongs to the row's active player;
+ * - an activation, completion, event operation or stack forming belongs to the row's active
+ *   player;
  * - a ball ends when the `ball` column changes, the active player changes, or the session ends;
  *   every activation still open is closed there with its real elapsed duration, and a mode that is
  *   still present afterwards is not a new activation;
@@ -147,12 +144,33 @@ public:
     /** Facts for @p player; empty facts if the player has not appeared yet. */
     const PlayerFacts &player(PlayerNumber player) const;
 
+    /**
+     * Each time all of @p modes became present in `game_modes` together, for the stacks
+     * @p player formed: the player active on the row on which the last of them arrived. A stack
+     * that stays intact is one occurrence, across ball and player changes; one that breaks and
+     * re-forms is two.
+     */
+    std::vector<Occurrence> stacks(const std::vector<std::string> &modes,
+                                   PlayerNumber player) const;
+
     /** Whether the last applied row ended a ball, and for whom. */
     std::optional<PlayerNumber> lastRowEndedBallOf() const { return m_ballEndedFor; }
 
     bool finished() const { return m_finished; }
 
 private:
+    /** A mode's uninterrupted presence in `game_modes`, in rows: [startRow, endRow). */
+    struct PresenceRun {
+        size_t startRow {0};
+        std::optional<size_t> endRow {};
+        int64_t startMs {0};
+
+        /** Active player, ball and ball span on the row the mode arrived. */
+        PlayerNumber player {0};
+        BallNumber ball {0};
+        size_t span {0};
+    };
+
     PlayerFacts *facts(PlayerNumber player);
     void closeBall(int64_t timeMs);
     void openBall(PlayerNumber player, BallNumber ball, int64_t timeMs);
@@ -160,7 +178,11 @@ private:
 
     std::map<PlayerNumber, PlayerFacts> m_players;
     std::optional<TimelineRow> m_prev;
+    size_t m_rows {0};
     std::set<std::string> m_presentModes;
+
+    /** Every mode's presence runs, whoever activated it. */
+    std::unordered_map<std::string, std::vector<PresenceRun>> m_presence;
 
     /** Mode name → player whose activation of it is open. */
     std::map<std::string, PlayerNumber> m_openActivations;
