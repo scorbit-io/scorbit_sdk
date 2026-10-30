@@ -55,18 +55,18 @@ struct Session {
         , tracker {"3f1c", std::move(baselines)}
     {
         timeline.at(0).commit();
-        tracker.reevaluate(timeline.facts.player(1), definitions);
+        tracker.reevaluate({timeline.facts, 1}, definitions);
     }
 
     void commit()
     {
         timeline.commit();
-        tracker.reevaluate(timeline.facts.player(1), definitions);
+        tracker.reevaluate({timeline.facts, 1}, definitions);
     }
 
     void outcome(const ReportItem &item, ReportStatus status)
     {
-        tracker.applyOutcome(item, {item.key, status, {}}, timeline.facts.player(1), definitions);
+        tracker.applyOutcome(item, {item.key, status, {}}, {timeline.facts, 1}, definitions);
     }
 
     Timeline timeline;

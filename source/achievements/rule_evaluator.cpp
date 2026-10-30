@@ -91,7 +91,7 @@ public:
     AchievementEvaluator(const Definition &definition, const EvaluationContext &context)
         : m_definition {definition}
         , m_context {context}
-        , m_facts {context.facts}
+        , m_facts {context.session.own()}
         , m_unlimited {definition.evaluation == EvaluationClass::Unlimited}
     {
         for (const auto &rule : definition.rules) {

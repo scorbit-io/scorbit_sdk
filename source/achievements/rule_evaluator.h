@@ -31,10 +31,22 @@ namespace achievements {
 
 using HeldSet = std::unordered_set<std::string>;
 
+/**
+ * One player's seat in a session. Most facts are the player's own, but some are the session's: a
+ * mode stack can form around a mode another player activated (§4.4).
+ */
+struct PlayerSession {
+    const SessionFacts &facts;
+    PlayerNumber player {0};
+
+    /** The player's own facts. */
+    const PlayerFacts &own() const { return facts.player(player); }
+};
+
 /** Everything one achievement is evaluated against, for one player. */
 struct EvaluationContext {
-    /** This session's facts for the player. */
-    const PlayerFacts &facts;
+    /** This session's facts, from the player's seat. */
+    PlayerSession session;
 
     /** The player's claim-time state for this achievement; nullptr if never started. */
     const Baseline *baseline {nullptr};

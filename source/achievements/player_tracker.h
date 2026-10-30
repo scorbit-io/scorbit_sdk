@@ -76,7 +76,7 @@ public:
     const std::string &userId() const { return m_userId; }
 
     /** Re-evaluates every tracked record against this session's facts, to a fixed point. */
-    void reevaluate(const PlayerFacts &facts, const DefinitionSet &definitions);
+    void reevaluate(const PlayerSession &session, const DefinitionSet &definitions);
 
     /** `in_session` unlocks decided since the last call, each to be reported at once. */
     std::vector<ReportItem> takeClaims();
@@ -86,7 +86,7 @@ public:
 
     /** Applies the server's verdict on a reported item. */
     void applyOutcome(const ReportItem &sent, const ReportOutcome &outcome,
-                      const PlayerFacts &facts, const DefinitionSet &definitions);
+                      const PlayerSession &session, const DefinitionSet &definitions);
 
     /** Updates for game code since the last call, in order. */
     std::vector<AchievementUpdate> takeUpdates();
@@ -120,8 +120,8 @@ public:
 
 private:
     void startTracking(const Definition &definition);
-    bool evaluateAll(const PlayerFacts &facts, const DefinitionSet &definitions);
-    void withdrawUnsupported(const PlayerFacts &facts, const DefinitionSet &definitions);
+    bool evaluateAll(const PlayerSession &session, const DefinitionSet &definitions);
+    void withdrawUnsupported(const PlayerSession &session, const DefinitionSet &definitions);
     void retract(const std::string &key, Record &record);
     ReportItem reportItem(const std::string &key, const Record &record) const;
 
