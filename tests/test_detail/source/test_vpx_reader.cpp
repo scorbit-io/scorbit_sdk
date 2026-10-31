@@ -484,6 +484,36 @@ TEST_CASE("vpx reader caps sizes and counts", "[vpx_reader]")
     CHECK(vpx::signFile(paths("unmodified"), o).code == Code::cancelled);
 }
 
+TEST_CASE("inflated meshes count toward the total read cap", "[vpx_reader]")
+{
+    // The smallest maxTotalRead a table parses under.
+    auto smallest = [](const std::vector<uint8_t> &b) {
+        uint64_t lo = 0, hi = 1u << 20;
+        while (lo < hi) {
+            const uint64_t mid = (lo + hi) / 2;
+            vpx::Options o;
+            o.limits.maxTotalRead = mid;
+            if (vpx::parse(b.data(), b.size(), o).code == Code::ok) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        return lo;
+    };
+    auto model = vpx_fixtures::table();
+    const auto withMesh = vpx_fixtures::build(model).bytes;
+    for (auto &f : model.inputs.items[4].fields) {
+        if (f.tag == "U3DM") {
+            f.value = vpx_fixtures::i32(0); // same stream size, mesh not read
+        }
+    }
+    const auto noMesh = vpx_fixtures::build(model).bytes;
+    REQUIRE(withMesh.size() == noMesh.size());
+    // 24 vertices of 32 bytes and 36 16-bit indices.
+    CHECK(smallest(withMesh) - smallest(noMesh) == 24 * 32 + 36 * 2);
+}
+
 TEST_CASE("vpx reader survives the malformed corpus", "[vpx_reader]")
 {
     const auto cases = vpx_fixtures::corpus();

@@ -845,7 +845,7 @@ inline auto lastField(const std::vector<Field> &fields, const char *tag) -> cons
 
 /// A primitive's own mesh: x, y, z of each Vertex3D_NoTex2 (32 bytes) and its indices, 16-bit up
 /// to 65535 vertices. Compressed forms (M3CX/M3CI) are zlib streams.
-inline void readMesh(Item &item, const Limits &limits)
+inline void readMesh(Item &item, const Limits &limits, uint64_t &total)
 {
     const Field *u3dm = lastField(item.fields, "U3DM");
     if (u3dm == nullptr || u3dm->value.size() < 4 || le32(u3dm->value.data()) == 0) {
@@ -862,6 +862,8 @@ inline void readMesh(Item &item, const Limits &limits)
     if (vertexBytes > limits.maxMeshBytes || indexBytes > limits.maxMeshBytes) {
         fail(Code::signature_too_large);
     }
+    // Inflated meshes count toward maxTotalRead: a small zlib field can expand ~1000-fold.
+    charge(total, vertexBytes + indexBytes, limits);
     auto load = [&](const char *raw, const char *packed, uint64_t want) -> std::vector<uint8_t> {
         if (const Field *f = lastField(item.fields, packed)) {
             std::vector<uint8_t> out;
@@ -900,7 +902,8 @@ inline void readMesh(Item &item, const Limits &limits)
 /// One GameItemN stream: item type, then records to ENDB. Drag points are a flat state machine,
 /// not recursion: DPNT opens a point and the next ENDB closes it; a DPNT inside a point is just
 /// one of its fields, as VPX's drag point loader would skip it.
-inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits) -> Item
+inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits, uint64_t &total)
+        -> Item
 {
     if (bytes.size() < 4) {
         fail(Code::malformed);
@@ -939,7 +942,7 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits) ->
         fail(Code::malformed);
     }
     if (item.type == kPrimitive) {
-        readMesh(item, limits);
+        readMesh(item, limits, total);
     }
     return item;
 }
@@ -1073,7 +1076,7 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
     std::sort(collections.begin(), collections.end());
     for (const auto &it : items) {
         checkCancel(opt);
-        c.inputs.items.push_back(readItem(cfb.readStream(it.second), opt.limits));
+        c.inputs.items.push_back(readItem(cfb.readStream(it.second), opt.limits, total));
     }
     for (const auto &it : collections) {
         checkCancel(opt);
