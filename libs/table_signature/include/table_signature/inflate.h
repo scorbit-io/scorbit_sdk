@@ -336,13 +336,13 @@ private:
         if (lengths[256] == 0) {
             return Status::malformed;
         }
-        // An incomplete code is allowed only when it has a single symbol (RFC 1951, puff.c).
+        // An incomplete code is allowed only when it is a single code of length 1 (puff.c).
         int err = construct(lencode, lengths, nlen);
-        if (err < 0 || (err > 0 && nlen - lencode.count[0] != 1)) {
+        if (err != 0 && (err < 0 || nlen != lencode.count[0] + lencode.count[1])) {
             return Status::malformed;
         }
         err = construct(distcode, lengths + nlen, ndist);
-        if (err < 0 || (err > 0 && ndist - distcode.count[0] != 1)) {
+        if (err != 0 && (err < 0 || ndist != distcode.count[0] + distcode.count[1])) {
             return Status::malformed;
         }
         return codes(lencode, distcode);

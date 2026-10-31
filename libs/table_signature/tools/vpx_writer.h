@@ -790,6 +790,12 @@ inline auto corpus() -> std::vector<Case>
     mutate("stream chain out of range", fat + 4 * gameData, 0x7FFFFFF0, 4, kMalformed);
     mutate("stream chain ends early", fat + 4 * gameData, 0xFFFFFFFE, 4, kMalformed);
     mutate("stream chain into free", fat + 4 * gameData, 0xFFFFFFFF, 4, kMalformed);
+    {
+        // The last sector of GameData's chain pointing on (to itself) instead of ENDOFCHAIN.
+        const uint32_t last =
+                gameData + uint32_t((gameDataStream(t.inputs).size() + 511) / 512) - 1;
+        mutate("stream chain runs on past its size", fat + 4 * last, last, 4, kMalformed);
+    }
     const uint32_t container = get32(v, sectorOffset(valid.dirSector) + 116);
     mutate("mini container chain cycle", fat + 4 * container, container, 4, -1);
     for (uint32_t sid = 0; sid < 128 && sid < fileSectors; sid++) {
@@ -866,6 +872,11 @@ inline auto corpus() -> std::vector<Case>
         biff("CODE count negative", "GameData", cat(record("CODE", {}), i32(-1)), kMalformed);
         biff("CODE without its count", "GameData", record("CODE", {}), kMalformed);
         biff("version 30", "Version", i32(30), kMalformed);
+        biff("version of 2 bytes", "Version", Bytes(2, 0), kMalformed);
+        // An object that runs to the end of its stream without ENDB.
+        biff("item without ENDB", "GameItem0", cat(i32(kSurface), record("NAME", wide("W"))), kMalformed);
+        biff("collection without ENDB", "Collection0", record("NAME", wide("C")), kMalformed);
+        biff("GameData without ENDB", "GameData", cat(record("CODE", {}), str("x")), kMalformed);
     }
     {
         // A textbox's FONT descriptor cut short, its name running past the stream, or missing.
@@ -897,6 +908,14 @@ inline auto corpus() -> std::vector<Case>
         cut.resize(cut.size() / 2);
         withPrim("truncated compressed vertices", "M3CX", cut, kMalformed);
         withPrim("raw indices of the wrong size", "M3DI", Bytes(10, 0), -1);
+        {
+            // Vertex and index counts with no data for them.
+            Item bare = named(kPrimitive, "Bare");
+            bare.fields.push_back({"U3DM", i32(1)});
+            bare.fields.push_back({"M3VN", i32(24)});
+            bare.fields.push_back({"M3FN", i32(36)});
+            biff("mesh counts with no data", "GameItem4", itemStream(bare), kMalformed);
+        }
     }
     {
         // Streams either side of the mini stream cutoff, valid, then with sizes swapped across it.

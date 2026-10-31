@@ -393,9 +393,9 @@ constexpr char kLineIfSep = '\x1d';
 
 /// The script's tokens: comments and whitespace gone, continuations joined, statements separated by
 /// one kStatementSep, everything but string and date literals lower-cased.
-/// maxTokens: stop once more tokens than this are produced (the result then has a few more than
-/// maxTokens, never fewer), so a caller can refuse a script without holding all of its tokens.
-inline auto tokenize(std::string_view utf8, size_t maxTokens) -> std::vector<std::string>
+/// maxTokens: stop once more tokens than this are produced, so a caller can refuse a script without
+/// holding all of its tokens; capped then says the script was not tokenized to its end.
+inline auto tokenize(std::string_view utf8, size_t maxTokens, bool &capped) -> std::vector<std::string>
 {
     std::vector<std::string> out;
     bool lineIf = false;
@@ -558,6 +558,7 @@ inline auto tokenize(std::string_view utf8, size_t maxTokens) -> std::vector<std
             }
         }
     }
+    capped = i < n;
     while (!out.empty() && out.back() == std::string(1, kStatementSep)) {
         out.pop_back();
     }
@@ -566,7 +567,8 @@ inline auto tokenize(std::string_view utf8, size_t maxTokens) -> std::vector<std
 
 inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
 {
-    return tokenize(utf8, static_cast<size_t>(-1));
+    bool capped = false;
+    return tokenize(utf8, static_cast<size_t>(-1), capped);
 }
 
 inline auto canonicalScript(const std::vector<std::string> &tokens) -> std::string

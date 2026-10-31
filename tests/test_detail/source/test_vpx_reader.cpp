@@ -628,6 +628,99 @@ TEST_CASE("items and collections are read as VPX loads them", "[vpx_reader]")
     }
 }
 
+namespace {
+
+/// A zlib stream of one dynamic block holding only end-of-block. Literal/length codes: symbols 0
+/// and 256, length 1 each (complete). Distance codes: symbol 0 alone, of length distLen, an
+/// incomplete code that puff.c allows only at length 1.
+auto singleDistanceCode(int distLen) -> std::vector<uint8_t>
+{
+    vpx_fixtures::BitWriter w;
+    w.out = {0x78, 0x01};
+    w.put(1, 1);  // BFINAL
+    w.put(2, 2);  // dynamic
+    w.put(0, 5);  // HLIT: 257 literal/length codes
+    w.put(0, 5);  // HDIST: 1 distance code
+    w.put(14, 4); // HCLEN: 18 code-length code lengths
+    // Code-length code lengths in RFC 1951 order: 16 17 18 0 8 7 9 6 10 5 11 4 12 3 13 2 14 1.
+    // distLen 1 uses symbols {1: len 1, 18: len 1}; distLen 2 uses {18: 1, 1: 2, 2: 2}.
+    const int order[18] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1};
+    for (const int sym : order) {
+        int len = 0;
+        if (sym == 18) {
+            len = 1;
+        } else if (sym == 1) {
+            len = distLen == 1 ? 1 : 2;
+        } else if (sym == 2 && distLen == 2) {
+            len = 2;
+        }
+        w.put(uint32_t(len), 3);
+    }
+    // Canonical codes. distLen 1: 1 -> 0, 18 -> 1. distLen 2: 18 -> 0, 1 -> 10, 2 -> 11.
+    auto cl = [&](int sym) {
+        if (distLen == 1) {
+            w.huff(sym == 1 ? 0 : 1, 1);
+        } else if (sym == 18) {
+            w.huff(0, 1);
+        } else {
+            w.huff(sym == 1 ? 2 : 3, 2);
+        }
+    };
+    cl(1);                // length of literal 0: 1
+    cl(18), w.put(127, 7); // 138 zeros
+    cl(18), w.put(106, 7); // 117 zeros: literals 1..255
+    cl(1);                // length of end-of-block (256): 1
+    cl(distLen);          // length of distance 0
+    w.huff(1, 1);         // end-of-block: literal/length symbol 256 is code 1
+    w.flush();
+    for (const uint8_t b : {0, 0, 0, 1}) { // Adler-32 of nothing
+        w.out.push_back(b);
+    }
+    return w.out;
+}
+
+} // namespace
+
+TEST_CASE("an incomplete Huffman code is allowed only as a single code of length 1", "[vpx_reader]")
+{
+    std::vector<uint8_t> out;
+    const auto one = singleDistanceCode(1);
+    CHECK(inflate::zlib(one.data(), one.size(), 16, out) == inflate::Status::ok);
+    CHECK(out.empty());
+    const auto two = singleDistanceCode(2);
+    CHECK(inflate::zlib(two.data(), two.size(), 16, out) == inflate::Status::malformed);
+}
+
+TEST_CASE("a script stopped by its token budget is refused, trailing separators or not",
+          "[vpx_reader]")
+{
+    // 30 lines of "x": tokens x, separator, x, ... (59 once the trailing separator is dropped).
+    std::string script;
+    for (int i = 0; i < 30; i++) {
+        script += "x\n";
+    }
+    bool capped = false;
+    CHECK(tokenize(script, 59, capped).size() == 59);
+    CHECK_FALSE(capped);
+    // A budget of 57 stops on a separator; dropping it would leave 57 tokens, within the budget.
+    tokenize(script, 57, capped);
+    CHECK(capped);
+
+    auto model = vpx_fixtures::table();
+    model.inputs.script = script;
+    Tree t("token_budget");
+    const auto bytes = vpx_fixtures::build(model).bytes;
+    std::ofstream(t.table / "table.vpx", std::ios::binary | std::ios::trunc)
+            .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    vpx::Options o;
+    o.limits.maxScriptTokens = 57;
+    CHECK(vpx::signFile({(t.table / "table.vpx").string(), "", t.app.string(), t.pref.string()}, o).code
+          == Code::signature_too_large);
+    o.limits.maxScriptTokens = 59;
+    CHECK(vpx::signFile({(t.table / "table.vpx").string(), "", t.app.string(), t.pref.string()}, o).code
+          == Code::ok);
+}
+
 TEST_CASE("scripts are capped in bytes and tokens", "[vpx_reader]")
 {
     vpx::Options o;

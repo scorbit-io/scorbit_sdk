@@ -622,7 +622,7 @@ private:
         while (sid != kEndOfChain) {
             if (out.size() == want) {
                 if (exact) {
-                    break;
+                    fail(Code::malformed); // the chain runs on past its size: MS-CFB ends it here
                 }
                 const bool cycle = std::find(out.begin(), out.end(), sid) != out.end();
                 fail(cycle ? Code::malformed : Code::signature_too_large);
@@ -708,9 +708,6 @@ private:
             fail(Code::signature_too_large);
         }
         auto sectors = chain(true, m_firstMiniFat, m_numMiniFat, true);
-        if (!sectors.empty() && fatEntry(sectors.back()) != kEndOfChain) {
-            fail(Code::malformed); // the chain runs on past the count the header gives
-        }
         sectors.resize(static_cast<size_t>(needed));
         std::vector<uint8_t> s(m_sectorSize);
         for (const uint32_t sid : sectors) {
@@ -920,6 +917,9 @@ inline void readMesh(Item &item, const Limits &limits, uint64_t &total)
             }
             return f->value;
         }
+        if (want != 0) {
+            fail(Code::malformed); // counts with no data
+        }
         return {};
     };
     const auto v = load("M3DX", "M3CX", vertexBytes);
@@ -975,12 +975,13 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits, ui
         } else {
             if (r.tag == "NAME") {
                 item.name = wideString(r);
+                charge(total, item.name.size(), limits); // UTF-8 may be longer than the UTF-16
             }
             item.fields.push_back(field(r, total, limits));
         }
     }
-    if (inPoint) {
-        fail(Code::malformed);
+    if (inPoint || !ended) {
+        fail(Code::malformed); // a point or the item runs to the end of the stream without ENDB
     }
     if (item.type == kPrimitive) {
         readMesh(item, limits, total);
@@ -994,15 +995,23 @@ inline auto readCollection(const std::vector<uint8_t> &bytes, const Limits &limi
     Collection c;
     Biff biff(bytes, 0, limits.maxRecords);
     Record r;
-    while (biff.next(r) && r.tag != "ENDB") {
-        if (r.tag == "NAME") {
+    bool ended = false;
+    while (!ended && biff.next(r)) {
+        if (r.tag == "ENDB") {
+            ended = true;
+        } else if (r.tag == "NAME") {
             c.name = wideString(r);
+            charge(total, c.name.size(), limits);
         } else if (r.tag == "ITEM") {
-            charge(total, kParsedOverhead + r.size, limits);
-            c.members.push_back(wideString(r));
+            auto member = wideString(r);
+            charge(total, kParsedOverhead + r.size + member.size(), limits);
+            c.members.push_back(std::move(member));
         } else {
             c.fields.push_back(field(r, total, limits));
         }
+    }
+    if (!ended) {
+        fail(Code::malformed);
     }
     return c;
 }
@@ -1019,10 +1028,16 @@ inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const L
 {
     Biff biff(bytes, 0, limits.maxRecords, true);
     Record r;
-    while (biff.next(r) && r.tag != "ENDB") {
+    bool ended = false;
+    while (!ended && biff.next(r)) {
+        if (r.tag == "ENDB") {
+            ended = true;
+            continue;
+        }
         if (r.tag == "CODE") {
             // VPX keeps the script as a C string, so it ends at the first NUL.
             const auto *p = reinterpret_cast<const char *>(r.data);
+            charge(total, r.size, limits);
             c.inputs.script.assign(p, std::find(p, p + r.size, '\0'));
             continue;
         }
@@ -1047,6 +1062,9 @@ inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const L
             }
         }
         c.inputs.tableFields.push_back(field(r, total, limits));
+    }
+    if (!ended) {
+        fail(Code::malformed);
     }
 }
 
@@ -1086,7 +1104,7 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
     if (version != kNoStream) {
         checkCancel(opt);
         const auto v = cfb.readStream(version);
-        if (v.size() >= 4 && int32_t(le32(v.data())) <= 30) {
+        if (v.size() < 4 || int32_t(le32(v.data())) <= 30) {
             fail(Code::malformed);
         }
     }
@@ -1237,6 +1255,12 @@ private:
             }
             listing[lowerAscii(name)].push_back({name, it->path(), directory});
         }
+        // A folder that is not there is empty; one that cannot be listed is not.
+        if (ec && ec != std::errc::no_such_file_or_directory && ec != std::errc::not_a_directory) {
+            fail(ec == std::errc::permission_denied || ec == std::errc::operation_not_permitted
+                         ? Code::table_unreadable_permission
+                         : Code::table_unreadable);
+        }
         return m_listings.emplace(key, std::move(listing)).first->second;
     }
 
@@ -1335,15 +1359,25 @@ inline auto searchScript(Search &search, const std::filesystem::path &table,
     const Root roots[] = {{table, {"user", "scripts"}},
                           {app, {"user", "scripts", "tables"}},
                           {pref, {"user", "scripts"}}};
+    // A match in VPX's folders that lies under the table's folder (a table kept in tables/) was
+    // reached through a link the table's own search refused; it is not taken either.
+    std::error_code aec;
+    const auto tableAbs = std::filesystem::absolute(table, aec).lexically_normal();
+    auto underTable = [&](const std::filesystem::path &p) {
+        std::error_code pec;
+        const auto rel = std::filesystem::absolute(p, pec).lexically_normal().lexically_relative(tableAbs);
+        return !aec && !pec && !rel.empty() && *rel.begin() != "..";
+    };
     for (const Root &root : roots) {
         const bool inTable = &root.dir == &table;
-        if (auto p = findPath(search, root.dir, parts, !inTable); !p.empty()) {
+        auto accept = [&](const std::filesystem::path &p) { return !p.empty() && (inTable || !underTable(p)); };
+        if (auto p = findPath(search, root.dir, parts, !inTable); accept(p)) {
             return {p, inTable};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(search, root.dir, sp, !inTable); !p.empty()) {
+            if (auto p = findPath(search, root.dir, sp, !inTable); accept(p)) {
                 return {p, inTable};
             }
         }
@@ -1409,9 +1443,10 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         checkCancel(opt);
         const uint64_t budget =
                 opt.limits.maxScriptTokens - (std::min)(scriptTokens, opt.limits.maxScriptTokens);
+        bool capped = false;
         const auto tokens = tokenize(decodeScript(text),
-                                     static_cast<size_t>((std::min)(budget, uint64_t(SIZE_MAX))));
-        if (tokens.size() > budget) {
+                                     static_cast<size_t>((std::min)(budget, uint64_t(SIZE_MAX))), capped);
+        if (capped || tokens.size() > budget) {
             fail(Code::signature_too_large);
         }
         scriptTokens += tokens.size();
