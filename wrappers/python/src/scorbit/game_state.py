@@ -18,6 +18,7 @@ The object supports the context-manager protocol for automatic cleanup::
         gs.commit()
 """
 
+import json
 import traceback
 import warnings
 from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
@@ -537,6 +538,41 @@ class GameState(object):
             _encode(filename),
             array,
             count,
+            cb,
+            None,
+        )
+
+    def download_with_options(self, url, filename, options=None, headers=None, callback=None):
+        # type: (str, str, ..., ..., ...) -> None
+        """Internal use. :meth:`download` under limits.
+
+        Args:
+            url: Source URL.
+            filename: Local path to save to.
+            options: A dict (sent as JSON) or a JSON string; ``None`` or empty
+                means none, and the download is exactly :meth:`download`. Keys:
+                ``max_bytes`` (the most bytes the body may have), ``redirect``
+                (``"follow"``, ``"none"`` or ``"hosts"``) and ``redirect_hosts``
+                (host names, for ``"hosts"``). A broken limit ends the download
+                with ``Error.LimitExceeded``; an unknown key refuses it with
+                ``Error.Unknown`` before anything is sent.
+            headers: Extra request headers, as for :meth:`download`.
+            callback: ``(error: Error, result: str) -> None``; with options the
+                result also gives the final URL.
+        """
+        if callback is None:
+            raise TypeError("callback is required")
+        if isinstance(options, dict):
+            options = json.dumps(options) if options else None
+        array, count = _header_array(headers)
+        cb = self._make_string_cb(callback)
+        _lib.sb_download_with_options(
+            self._handle,
+            _encode(url),
+            _encode(filename),
+            array,
+            count,
+            _encode(options) if options else None,
             cb,
             None,
         )

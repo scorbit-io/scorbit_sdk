@@ -47,6 +47,12 @@ inline void cLogCallback(const char *message, sb_log_level_t level, const char *
 
 } // namespace detail
 
+/// @copydoc sb_logger_callbacks_supported
+inline bool loggerCallbacksSupported()
+{
+    return sb_logger_callbacks_supported();
+}
+
 /**
  * @brief Add a logger callback function to be invoked for log messages.
  *
