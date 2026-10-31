@@ -702,6 +702,9 @@ private:
             fail(Code::malformed);
         }
         auto sectors = chain(true, m_firstMiniFat, m_numMiniFat, true);
+        if (!sectors.empty() && fatEntry(sectors.back()) != kEndOfChain) {
+            fail(Code::malformed); // the chain runs on past the count the header gives
+        }
         sectors.resize(static_cast<size_t>(needed));
         std::vector<uint8_t> s(m_sectorSize);
         for (const uint32_t sid : sectors) {

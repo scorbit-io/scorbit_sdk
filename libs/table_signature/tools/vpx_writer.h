@@ -779,7 +779,7 @@ inline auto corpus() -> std::vector<Case>
     // FAT
     const size_t fat = sectorOffset(valid.fatSector);
     mutate("directory chain cycle", fat + 4 * valid.dirSector, valid.dirSector, 4, kMalformed);
-    mutate("mini FAT chain cycle", fat + 4 * valid.miniFatSector, valid.miniFatSector, 4, -1);
+    mutate("mini FAT chain cycle", fat + 4 * valid.miniFatSector, valid.miniFatSector, 4, kMalformed);
     const uint32_t gameData = valid.start.at("GameData");
     mutate("stream chain cycle", fat + 4 * gameData, gameData, 4, kMalformed);
     mutate("stream chain past the file", fat + 4 * gameData, fileSectors + 10, 4, kMalformed);
