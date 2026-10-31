@@ -113,10 +113,11 @@ VPX-shipped helper such as `core.vbs` is `missing_helper` when neither is search
 3. VPX's preferences folder, its `user/` and `scripts/`.
 
 Each part of a name is matched ignoring ASCII case. Only files and folders match, never a FIFO or
-device. Under the table's folder, whose scripts are read and hashed, the search also never follows
-a symbolic link or junction (unlike VPX), so a link shipped with a table cannot make the reader hash
-a file outside it; scripts found there are opened refusing a link. VPX's install and preferences
-folders are followed through links, since installs often link `scripts/` or `user/`. A middle
+device, and never a file that is itself a link; every script found is opened refusing a link.
+Under the table's folder, whose scripts are read and hashed, a linked folder or junction never
+matches either (unlike VPX), so a link shipped with a table cannot make the reader hash a file
+outside it. In VPX's install and preferences folders a linked folder is followed, since installs
+often link `scripts/` or `user/`. A middle
 folder swapped for a link between listing it and opening a file inside is not detected; only the
 file itself is opened refusing a link. At most `maxListedEntries` folder entries are listed. A sidecar `<table>.vbs`, found by that search or
 else as `<folder>.vbs` in the table's folder, replaces the `CODE` record. Otherwise a `CODE` record
