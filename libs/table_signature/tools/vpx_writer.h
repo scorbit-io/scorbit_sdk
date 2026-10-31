@@ -761,8 +761,12 @@ inline auto corpus() -> std::vector<Case>
         mutate("first mini FAT sector " + std::to_string(sid), 0x3C, sid, 4, -1);
     }
     // The mini FAT sector count: fewer than the mini stream needs, or more than the chain holds.
-    for (const uint32_t n : {0u, 2u, 1000u, 0x7FFFFFFFu, 0xFFFFFFFFu}) {
+    for (const uint32_t n : {0u, 2u, 1000u}) {
         mutate("mini FAT sector count " + std::to_string(n), 0x40, n, 4, kMalformed);
+    }
+    // More than a mini stream of maxStreamSize could need (8192 sectors of 512 bytes).
+    for (const uint32_t n : {8193u, 0x7FFFFFFFu, 0xFFFFFFFFu}) {
+        mutate("mini FAT sector count " + std::to_string(n), 0x40, n, 4, kTooLarge);
     }
     for (const uint32_t sid : {0xFFFFFFFFu, 0x7FFFFFFFu, fileSectors + 1}) {
         mutate("DIFAT[0] " + std::to_string(sid), 0x4C, sid, 4, kMalformed);

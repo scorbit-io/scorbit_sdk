@@ -604,12 +604,15 @@ TEST_CASE("items and collections are read as VPX loads them", "[vpx_reader]")
         REQUIRE(r.code == Code::ok);
         CHECK(hex(compute(r.inputs).top) == expected);
     }
-    SECTION("a missing item stream is malformed; a missing collection is skipped")
+    SECTION("a missing item or collection stream is skipped, as VPX skips it")
     {
         auto st = streams;
         st.erase(std::remove_if(st.begin(), st.end(), [](const auto &s) { return s.name == "GameItem5"; }),
                  st.end());
-        CHECK(parseStreams(st).code == Code::malformed);
+        const auto items = parseStreams(st);
+        REQUIRE(items.code == Code::ok);
+        REQUIRE(items.inputs.items.size() == 13);
+        CHECK(items.inputs.items[5].name == model.inputs.items[6].name);
         st = streams;
         st.erase(std::remove_if(st.begin(), st.end(), [](const auto &s) { return s.name == "Collection0"; }),
                  st.end());
@@ -666,7 +669,7 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
         CHECK(r.inputs.helperScripts.empty());
     }
-    SECTION("a folder that is a symbolic link")
+    SECTION("a folder under the table's that is a symbolic link")
     {
         Tree t("link_dir");
         t.put(t.root / "elsewhere" / "Helper.vbs", vpx_fixtures::kHelper);
@@ -675,6 +678,20 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         const auto r = t.sign();
         CHECK(r.code == Code::missing_helper);
         CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
+    }
+    SECTION("VPX's own folders are followed through links")
+    {
+        for (const char *where : {"app/scripts", "pref/user"}) {
+            INFO(where);
+            Tree t("link_vpx");
+            t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+            t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+            t.put(t.root / "shared" / "core.vbs", "'");
+            fs::create_directory_symlink(t.root / "shared", t.root / where);
+            const auto r = t.sign();
+            REQUIRE(r.code == Code::ok);
+            CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+        }
     }
     SECTION("a sidecar that is a FIFO")
     {

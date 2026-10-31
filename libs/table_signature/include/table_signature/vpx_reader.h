@@ -113,6 +113,7 @@ struct Limits {
     /// The script, sidecar and helpers together: they are tokenized, at most one token per byte.
     uint64_t maxScriptBytes = uint64_t(2) << 20;
     uint64_t maxScriptTokens = uint64_t(1) << 20; ///< tokens over all scripts scanned
+    uint64_t maxListedEntries = uint64_t(1) << 17; ///< folder entries listed by the script search
 };
 
 struct Options {
@@ -701,6 +702,11 @@ private:
         if (uint64_t(m_numMiniFat) < needed) {
             fail(Code::malformed);
         }
+        // More than a mini stream of maxStreamSize could need is not a table this reader takes.
+        if (uint64_t(m_numMiniFat)
+            > count(count(m_opt.limits.maxStreamSize, kMiniSectorSize) * 4, m_sectorSize)) {
+            fail(Code::signature_too_large);
+        }
         auto sectors = chain(true, m_firstMiniFat, m_numMiniFat, true);
         if (!sectors.empty() && fatEntry(sectors.back()) != kEndOfChain) {
             fail(Code::malformed); // the chain runs on past the count the header gives
@@ -1086,8 +1092,8 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
     }
     checkCancel(opt);
     readGameData(cfb.readStream(gameData), c, opt.limits, total);
-    // As VPX loads them: GameItem0 to SEDT-1, each required, and Collection0 to SCOL-1, a missing
-    // one skipped. Other streams are not read.
+    // As VPX loads them: GameItem0 to SEDT-1 and Collection0 to SCOL-1, a missing one skipped
+    // (pintable.cpp:1550-1600, 1663-1675). Other streams are not read.
     const int64_t itemCount = (std::max)(int64_t(0), int32Value(lastField(c.inputs.tableFields, "SEDT")));
     const int64_t collectionCount =
             (std::max)(int64_t(0), int32Value(lastField(c.inputs.tableFields, "SCOL")));
@@ -1096,11 +1102,9 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
     }
     for (int64_t i = 0; i < itemCount; i++) {
         checkCancel(opt);
-        const uint32_t e = stream("GameItem" + std::to_string(i));
-        if (e == kNoStream) {
-            fail(Code::malformed);
+        if (const uint32_t e = stream("GameItem" + std::to_string(i)); e != kNoStream) {
+            c.inputs.items.push_back(readItem(cfb.readStream(e), opt.limits, total));
         }
-        c.inputs.items.push_back(readItem(cfb.readStream(e), opt.limits, total));
     }
     for (int64_t i = 0; i < collectionCount; i++) {
         checkCancel(opt);
@@ -1140,9 +1144,10 @@ inline auto fileName(const std::filesystem::path &p) -> std::string
     return std::string(s.begin(), s.end());
 }
 
-/// Directory lookups for the script search. Each folder is listed once; only real files and
-/// folders match, never a symbolic link, junction, FIFO or device, so the search cannot be led
-/// outside the folders it was given.
+/// Directory lookups for the script search. Each folder is listed once, and only files and folders
+/// match, never a FIFO or device. Under the table's folder, whose files are read and hashed, links
+/// and junctions never match either, so a table cannot lead the reader outside it. VPX's own
+/// folders are listed following links, as VPX installs often link them.
 class Search
 {
 public:
@@ -1153,10 +1158,10 @@ public:
 
     /// The entry of dir named name ignoring ASCII case; an exact match wins, then the
     /// bytewise-smallest name, so the choice does not depend on directory order.
-    auto find(const std::filesystem::path &dir, const std::string &name, bool wantDirectory)
-            -> std::filesystem::path
+    auto find(const std::filesystem::path &dir, const std::string &name, bool wantDirectory,
+              bool followLinks) -> std::filesystem::path
     {
-        const Listing &listing = list(dir);
+        const Listing &listing = list(dir, followLinks);
         const auto it = listing.find(lowerAscii(name));
         if (it == listing.end()) {
             return {};
@@ -1180,11 +1185,10 @@ private:
     };
     using Listing = std::map<std::string, std::vector<Entry>>;
 
-    static constexpr uint64_t kMaxListed = uint64_t(1) << 17; ///< entries over all folders listed
-
-    auto list(const std::filesystem::path &dir) -> const Listing &
+    auto list(const std::filesystem::path &dir, bool followLinks) -> const Listing &
     {
-        const auto cached = m_listings.find(dir);
+        const auto key = std::make_pair(dir, followLinks);
+        const auto cached = m_listings.find(key);
         if (cached != m_listings.end()) {
             return cached->second;
         }
@@ -1192,18 +1196,28 @@ private:
         std::error_code ec;
         std::filesystem::directory_iterator it(dir, ec), end;
         for (; !ec && it != end; it.increment(ec)) {
-            if (++m_listed > kMaxListed) {
+            if (++m_listed > m_opt.limits.maxListedEntries) {
                 fail(Code::signature_too_large);
             }
             if ((m_listed & 1023) == 0) {
                 checkCancel(m_opt);
             }
             std::error_code sec;
-            const auto st = it->symlink_status(sec);
+            const auto st = followLinks ? it->status(sec) : it->symlink_status(sec);
             const bool directory = std::filesystem::is_directory(st);
             if (sec || (!directory && !std::filesystem::is_regular_file(st))) {
                 continue;
             }
+#ifdef _WIN32
+            // Some standard libraries (MinGW's) report a junction as a plain folder.
+            if (!followLinks) {
+                const DWORD attributes = GetFileAttributesW(it->path().c_str());
+                if (attributes == INVALID_FILE_ATTRIBUTES
+                    || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                    continue;
+                }
+            }
+#endif
             std::string name;
             try {
                 name = fileName(it->path());
@@ -1212,24 +1226,24 @@ private:
             }
             listing[lowerAscii(name)].push_back({name, it->path(), directory});
         }
-        return m_listings.emplace(dir, std::move(listing)).first->second;
+        return m_listings.emplace(key, std::move(listing)).first->second;
     }
 
     const Options &m_opt;
-    std::map<std::filesystem::path, Listing> m_listings;
+    std::map<std::pair<std::filesystem::path, bool>, Listing> m_listings;
     uint64_t m_listed = 0;
 };
 
-/// Reads a script the search found, refusing a link as the file itself.
-inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const Limits &limits)
-        -> std::string
+/// Reads a script the search found; noFollow refuses a link as the file itself.
+inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const Limits &limits,
+                          bool noFollow) -> std::string
 {
     FileSource f;
 #ifdef _WIN32
     const auto u8 = p.u8string();
-    const Code c = f.open(std::string(u8.begin(), u8.end()), true);
+    const Code c = f.open(std::string(u8.begin(), u8.end()), noFollow);
 #else
-    const Code c = f.open(p.string(), true);
+    const Code c = f.open(p.string(), noFollow);
 #endif
     if (c != Code::ok) {
         fail(c);
@@ -1281,14 +1295,14 @@ inline auto scriptParts(const std::string &name) -> std::vector<std::string>
 
 /// base/parts..., each part matched ignoring ASCII case; empty if any part is missing.
 inline auto findPath(Search &search, const std::filesystem::path &base,
-                     const std::vector<std::string> &parts) -> std::filesystem::path
+                     const std::vector<std::string> &parts, bool followLinks) -> std::filesystem::path
 {
     if (base.empty() || parts.empty()) {
         return {};
     }
     std::filesystem::path p = base;
     for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
-        p = search.find(p, parts[i], i + 1 < parts.size());
+        p = search.find(p, parts[i], i + 1 < parts.size(), followLinks);
     }
     return p;
 }
@@ -1311,14 +1325,15 @@ inline auto searchScript(Search &search, const std::filesystem::path &table,
                           {app, {"user", "scripts", "tables"}},
                           {pref, {"user", "scripts"}}};
     for (const Root &root : roots) {
-        if (auto p = findPath(search, root.dir, parts); !p.empty()) {
-            return {p, &root.dir == &table};
+        const bool inTable = &root.dir == &table;
+        if (auto p = findPath(search, root.dir, parts, !inTable); !p.empty()) {
+            return {p, inTable};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(search, root.dir, sp); !p.empty()) {
-                return {p, &root.dir == &table};
+            if (auto p = findPath(search, root.dir, sp, !inTable); !p.empty()) {
+                return {p, inTable};
             }
         }
     }
@@ -1353,19 +1368,22 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         stem.resize(dot);
     }
     checkCancel(opt);
-    std::filesystem::path sidecar = searchScript(search, dir, app, pref, {stem + ".vbs"}).path;
+    const Found sidecarFound = searchScript(search, dir, app, pref, {stem + ".vbs"});
+    std::filesystem::path sidecar = sidecarFound.path;
+    bool sidecarInTable = sidecarFound.inTable;
     if (sidecar.empty()) {
+        sidecarInTable = true;
         std::error_code ec;
         std::filesystem::path abs = std::filesystem::absolute(dir, ec).lexically_normal();
         if (!ec && abs.filename().empty()) {
             abs = abs.parent_path();
         }
         if (const std::string folder = ec ? std::string() : fileName(abs); !folder.empty()) {
-            sidecar = search.find(dir, folder + ".vbs", false);
+            sidecar = search.find(dir, folder + ".vbs", false, false);
         }
     }
     if (!sidecar.empty()) {
-        res.inputs.script = readWholeFile(sidecar, total, opt.limits);
+        res.inputs.script = readWholeFile(sidecar, total, opt.limits, sidecarInTable);
         res.sidecar = true;
     } else if (contents.scriptProtected) {
         fail(Code::legacy_protected);
@@ -1381,8 +1399,11 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         }
         scriptBytes += text.size();
         checkCancel(opt);
-        const auto tokens = tokenize(decodeScript(text));
-        if (tokens.size() > opt.limits.maxScriptTokens - (std::min)(scriptTokens, opt.limits.maxScriptTokens)) {
+        const uint64_t budget =
+                opt.limits.maxScriptTokens - (std::min)(scriptTokens, opt.limits.maxScriptTokens);
+        const auto tokens = tokenize(decodeScript(text),
+                                     static_cast<size_t>((std::min)(budget, uint64_t(SIZE_MAX))));
+        if (tokens.size() > budget) {
             fail(Code::signature_too_large);
         }
         scriptTokens += tokens.size();
@@ -1412,7 +1433,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         if (found.path.empty()) {
             res.missingHelpers.push_back(name);
         } else if (found.inTable) {
-            HelperScript h {name, readWholeFile(found.path, total, opt.limits)};
+            HelperScript h {name, readWholeFile(found.path, total, opt.limits, true)};
             for (auto &n : references(h.content)) {
                 queue.push_back(std::move(n));
             }
@@ -1421,6 +1442,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
             res.inputs.vpxScripts.push_back(name);
         }
     }
+    checkCancel(opt);
     res.signature = compute(res.inputs);
     if (!res.signature.unavailable.empty()) {
         res.code = Code::unnamed_helper;

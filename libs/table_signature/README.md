@@ -112,9 +112,13 @@ VPX-shipped helper such as `core.vbs` is `missing_helper` when neither is search
 2. VPX's install folder, its `user/`, `scripts/` and `tables/`;
 3. VPX's preferences folder, its `user/` and `scripts/`.
 
-Each part of a name is matched ignoring ASCII case. Only real files and folders match: the search
-never follows a symbolic link or junction and never opens a FIFO or device, unlike VPX, so a link
-placed in a table's folder cannot make the reader hash a file outside the folders it was given. A sidecar `<table>.vbs`, found by that search or
+Each part of a name is matched ignoring ASCII case. Only files and folders match, never a FIFO or
+device. Under the table's folder, whose scripts are read and hashed, the search also never follows
+a symbolic link or junction (unlike VPX), so a link shipped with a table cannot make the reader hash
+a file outside it; scripts found there are opened refusing a link. VPX's install and preferences
+folders are followed through links, since installs often link `scripts/` or `user/`. A middle
+folder swapped for a link between listing it and opening a file inside is not detected; only the
+file itself is opened refusing a link. At most `maxListedEntries` folder entries are listed. A sidecar `<table>.vbs`, found by that search or
 else as `<folder>.vbs` in the table's folder, replaces the `CODE` record. Otherwise a `CODE` record
 under legacy protection (`SECB` with script editing disabled) is `legacy_protected`. The `CODE`
 script ends at its first NUL, as VPX reads it.
@@ -128,7 +132,7 @@ names in `missingHelpers`. A name that is not followed counts as missing.
 
 How the reader takes the file apart:
 - Items are the streams `GameStg/GameItem0` to `GameItem<SEDT-1>`, as VPX loads them, with `SEDT`
-  from `GameData`; each must exist, and other streams are not read. Each is a 4-byte item type, then
+  from `GameData`; a missing one is skipped, as VPX skips it, and other streams are not read. Each is a 4-byte item type, then
   records to `ENDB`.
   A textbox's or decal's `FONT` record has a length that covers only its tag; the font descriptor
   after it (11 bytes, then the name) is that field's value.

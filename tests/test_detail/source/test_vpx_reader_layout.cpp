@@ -22,20 +22,42 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+
 using namespace table_signature;
 using vpx::Code;
 
 namespace {
 
 // An unused stream of blobBytes pads the file: the reader bounds the FAT size by the file size, so
-// a DIFAT (more than 109 FAT sectors) needs a file of about 7 MB at 512-byte sectors.
+// a DIFAT (more than 109 FAT sectors) needs a file of about 7 MB at 512-byte sectors. The last item
+// is then written after the blob, padded past the mini stream cutoff, so its sectors' FAT entries
+// sit in FAT sectors only the DIFAT lists, and reading it depends on the DIFAT.
+constexpr const char *kLateStream = "GameItem7";
+
 auto build(vpx_fixtures::CfbOptions opts, size_t blobBytes = 0) -> vpx_fixtures::Built
 {
     auto streams = vpx_fixtures::streams(vpx_fixtures::table());
     if (blobBytes) {
+        const auto late = std::find_if(streams.begin(), streams.end(),
+                                       [](const auto &st) { return st.name == kLateStream; });
+        REQUIRE(late != streams.end());
+        vpx_fixtures::Stream item = *late;
+        streams.erase(late);
+        // An unknown record, which no allow-list hashes, before the final ENDB.
+        const auto filler = vpx_fixtures::record("ZZZZ", vpx_fixtures::Bytes(8192, 0x20));
+        item.data.insert(item.data.end() - 8, filler.begin(), filler.end());
         streams.push_back({"Blob", vpx_fixtures::Bytes(blobBytes, 0x5A)});
+        streams.push_back(item);
     }
     return vpx_fixtures::writeCfb(streams, opts);
+}
+
+/// FAT entries that only DIFAT-listed FAT sectors hold: past the header's 109 FAT sectors.
+auto inDifatFat(const vpx_fixtures::Built &b, const std::string &stream) -> bool
+{
+    const uint64_t perFatSector = b.sectorSize / 4;
+    return b.start.at(stream) >= 109 * perFatSector;
 }
 
 auto topOf(const vpx_fixtures::Bytes &b) -> std::string
@@ -73,9 +95,11 @@ TEST_CASE("vpx reader follows a DIFAT chain", "[vpx_reader]")
     const auto expected = topOf(build({}).bytes);
     const auto b = build({false, 120}, kDifatBlob);
     CHECK(rd32(b.bytes, 0x48) == 1);
+    CHECK(inDifatFat(b, kLateStream));
     CHECK(topOf(b.bytes) == expected);
     const auto two = build({}, kTwoDifatBlob);
     CHECK(rd32(two.bytes, 0x48) == 2);
+    CHECK(inDifatFat(two, kLateStream));
     CHECK(topOf(two.bytes) == expected);
 }
 
@@ -99,21 +123,20 @@ TEST_CASE("vpx reader rejects a corrupt DIFAT chain", "[vpx_reader]")
     const size_t next = vpx_fixtures::sectorOffset(first) + 508;
     REQUIRE(rd32(b.bytes, next) == first + 1);
 
-    auto loop = b.bytes;
-    wr32(loop, next, first);
-    CHECK(code(loop) == Code::malformed);
-
-    auto past = b.bytes;
-    wr32(past, next, 0x00FFFFF0);
-    CHECK(code(past) == Code::malformed);
-
-    auto count = b.bytes;
-    wr32(count, 0x48, 1); // the chain needs both sectors
-    CHECK(code(count) == Code::malformed);
-
-    auto short_ = b.bytes;
-    wr32(short_, next, 0xFFFFFFFE); // ends early
-    CHECK(code(short_) == Code::malformed);
+    // One working copy, each corruption undone after its check, to keep the test's memory small.
+    auto bytes = b.bytes;
+    auto corrupted = [&](size_t at, uint32_t value) {
+        const uint32_t saved = rd32(bytes, at);
+        wr32(bytes, at, value);
+        const Code c = code(bytes);
+        wr32(bytes, at, saved);
+        return c;
+    };
+    CHECK(corrupted(next, first) == Code::malformed);      // loops onto itself
+    CHECK(corrupted(next, 0x00FFFFF0) == Code::malformed); // past the file
+    CHECK(corrupted(0x48, 1) == Code::malformed);          // the chain needs both sectors
+    CHECK(corrupted(next, 0xFFFFFFFE) == Code::malformed); // ends early
+    CHECK(code(bytes) == Code::ok);
 }
 
 TEST_CASE("vpx reader rejects a version 4 file cut mid-sector", "[vpx_reader]")

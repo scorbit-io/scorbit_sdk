@@ -21,7 +21,7 @@
  * Altered from puff.c: the Huffman table construction and decoding, the code-length order and the
  * incomplete-code rule follow it. This is not the original software. Its notice:
  *
- *   puff.c / puff.h
+ *   puff.h
  *   Copyright (C) 2002-2013 Mark Adler, all rights reserved
  *   version 2.3, 21 Jan 2013
  *

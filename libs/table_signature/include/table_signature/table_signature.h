@@ -393,7 +393,9 @@ constexpr char kLineIfSep = '\x1d';
 
 /// The script's tokens: comments and whitespace gone, continuations joined, statements separated by
 /// one kStatementSep, everything but string and date literals lower-cased.
-inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
+/// maxTokens: stop once more tokens than this are produced (the result then has a few more than
+/// maxTokens, never fewer), so a caller can refuse a script without holding all of its tokens.
+inline auto tokenize(std::string_view utf8, size_t maxTokens) -> std::vector<std::string>
 {
     std::vector<std::string> out;
     bool lineIf = false;
@@ -429,7 +431,7 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
             i++;
         }
     };
-    while (i < n) {
+    while (i < n && out.size() <= maxTokens) {
         const char c = utf8[i];
         if (isEol(c)) {
             separator();
@@ -560,6 +562,11 @@ inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
         out.pop_back();
     }
     return out;
+}
+
+inline auto tokenize(std::string_view utf8) -> std::vector<std::string>
+{
+    return tokenize(utf8, static_cast<size_t>(-1));
 }
 
 inline auto canonicalScript(const std::vector<std::string> &tokens) -> std::string
@@ -871,18 +878,25 @@ inline auto scriptDigest(const std::vector<std::string> &tokens, std::vector<Hel
 
 /// Items sorted by (type, name), then collections sorted by name, each with its members in file
 /// order. Names are lower-cased, as VPX matches collection members ignoring case.
-inline auto itemsDigest(std::vector<Item> items, std::vector<Collection> collections = {}) -> Digest
+inline auto itemsDigest(const std::vector<Item> &items, const std::vector<Collection> &collections = {})
+        -> Digest
 {
-    for (auto &item : items) {
-        item.name = detail::lower(item.name);
+    // Sorted through indices, so a large table is never copied; stable, so items whose type and
+    // name tie keep file order on every standard library.
+    std::vector<std::string> names(items.size());
+    std::vector<size_t> order(items.size());
+    for (size_t i = 0; i < items.size(); i++) {
+        names[i] = detail::lower(items[i].name);
+        order[i] = i;
     }
-    std::sort(items.begin(), items.end(), [](const Item &a, const Item &b) {
-        return a.type != b.type ? a.type < b.type : a.name < b.name;
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return items[a].type != items[b].type ? items[a].type < items[b].type : names[a] < names[b];
     });
     Sha256 h;
-    for (const auto &item : items) {
+    for (const size_t k : order) {
+        const Item &item = items[k];
         detail::putU32(h, item.type);
-        detail::putBytes(h, item.name);
+        detail::putBytes(h, names[k]);
         detail::putFields(h, item.fields, commonAllowList());
         detail::putFields(h, item.fields, itemAllowList(item.type));
         const auto pointAllow = dragPointAllowList(item.type);
@@ -903,14 +917,17 @@ inline auto itemsDigest(std::vector<Item> items, std::vector<Collection> collect
             }
         }
     }
-    for (auto &c : collections) {
-        c.name = detail::lower(c.name);
+    std::vector<std::string> cnames(collections.size());
+    std::vector<size_t> corder(collections.size());
+    for (size_t i = 0; i < collections.size(); i++) {
+        cnames[i] = detail::lower(collections[i].name);
+        corder[i] = i;
     }
-    std::sort(collections.begin(), collections.end(),
-              [](const Collection &a, const Collection &b) { return a.name < b.name; });
+    std::stable_sort(corder.begin(), corder.end(), [&](size_t a, size_t b) { return cnames[a] < cnames[b]; });
     detail::putU32(h, static_cast<uint32_t>(collections.size()));
-    for (const auto &c : collections) {
-        detail::putBytes(h, c.name);
+    for (const size_t k : corder) {
+        const Collection &c = collections[k];
+        detail::putBytes(h, cnames[k]);
         detail::putU32(h, static_cast<uint32_t>(c.members.size()));
         for (const auto &member : c.members) {
             detail::putBytes(h, detail::lower(member));
