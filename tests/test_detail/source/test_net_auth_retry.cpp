@@ -32,9 +32,11 @@
 #include <chrono>
 #include <ctime>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -106,8 +108,9 @@ cpr::Response tokenReply(const std::string &token)
 
 /// Records the authentication requests a retry makes instead of posting them to the worker.
 struct CountingNet : Net {
-    CountingNet(std::vector<std::unique_ptr<IKeyResolver>> resolvers, DeviceInfo info)
-        : Net(std::move(info), std::move(resolvers))
+    CountingNet(std::vector<std::unique_ptr<IKeyResolver>> resolvers, DeviceInfo info,
+                std::shared_ptr<const HardwareKeyMarker> marker = {})
+        : Net(std::move(info), std::move(resolvers), std::move(marker))
     {
     }
 
@@ -124,8 +127,9 @@ struct Retry {
 
 struct AuthHarness {
     explicit AuthHarness(std::vector<std::unique_ptr<IKeyResolver>> resolvers = {},
-                         bool withSigner = true, DeviceInfo info = {})
-        : net(std::move(resolvers), std::move(info))
+                         bool withSigner = true, DeviceInfo info = {},
+                         std::shared_ptr<const HardwareKeyMarker> marker = {})
+        : net(std::move(resolvers), std::move(info), std::move(marker))
     {
         NetTestAccess::setAuthTransport(
                 net,
@@ -816,6 +820,151 @@ TEST_CASE("A failed re-provision after a 404 leaves a resolver for the next atte
 
     CHECK(h.status() == AuthStatus::AuthenticatedCheckingPairing);
     CHECK(requestUuid(h.lastTokenBody) == parseUuid(TEST_UUID));
+}
+
+namespace {
+
+struct HardwareUuidResolver : UuidResolver {
+    using UuidResolver::UuidResolver;
+    bool isHardwareKey() const override { return true; }
+};
+
+/// A 404 on the token endpoint with soft-key provisioning configured; returns the saved-key writes.
+int savesAfter404(std::unique_ptr<IKeyResolver> resolver,
+                  std::shared_ptr<const HardwareKeyMarker> marker = {})
+{
+    auto info = softKeyDeviceInfo(std::make_shared<std::string>(savedKeyJson(TEST_UUID)));
+    const auto saves = std::make_shared<int>(0);
+    info.saveKeyCallback = [saves](const std::string &) { ++*saves; };
+    // With no resolver, the device already holds a signer from elsewhere.
+    const bool withSigner = !resolver;
+    std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+    if (resolver) {
+        resolvers.push_back(std::move(resolver));
+    }
+    AuthHarness h {std::move(resolvers), withSigner, std::move(info), std::move(marker)};
+    h.replies({response(404)});
+    h.run();
+    CHECK(h.takeRetry().kind == AuthRetryKind::Transient);
+    return *saves;
+}
+
+} // namespace
+
+TEST_CASE("SB-6133: a 404 never re-provisions a soft key over a hardware key")
+{
+    const auto uuid = std::make_shared<std::string>(TEST_UUID);
+    const auto calls = std::make_shared<int>(0);
+
+    SECTION("control: a soft key is re-provisioned, clearing the saved key")
+    {
+        CHECK(savesAfter404(std::make_unique<UuidResolver>(uuid, calls)) > 0);
+    }
+    SECTION("the active key came from the tap pad's TPM")
+    {
+        CHECK(savesAfter404(std::make_unique<HardwareUuidResolver>(uuid, calls)) == 0);
+    }
+    SECTION("a hardware-key marker exists")
+    {
+        std::random_device rd;
+        const auto dir = std::filesystem::temp_directory_path()
+                       / ("scorbit-hwkey-404-" + std::to_string(rd()));
+        const auto marker =
+                std::make_shared<HardwareKeyMarker>(std::vector<std::filesystem::path> {dir});
+        REQUIRE(marker->store({1, "0123456789abcdef0123456789abcdef"}));
+        CHECK(savesAfter404(nullptr, marker) == 0);
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+}
+
+namespace {
+
+struct MarkerDir {
+    MarkerDir()
+    {
+        std::random_device rd;
+        path = std::filesystem::temp_directory_path()
+             / ("scorbit-hwkey-auth-" + std::to_string(rd()));
+        marker = std::make_shared<HardwareKeyMarker>(std::vector<std::filesystem::path> {path});
+    }
+    ~MarkerDir()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+    std::filesystem::path path;
+    std::shared_ptr<HardwareKeyMarker> marker;
+};
+
+} // namespace
+
+TEST_CASE("SB-6133: the marker records a hardware key only once the api accepts it")
+{
+    const auto uuid = std::make_shared<std::string>(TEST_UUID);
+    const auto calls = std::make_shared<int>(0);
+    MarkerDir dir;
+    DeviceInfo info;
+    info.serialNumber = 4321;
+
+    SECTION("accepted")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        CHECK(dir.marker->load() == HardwareKeyIdentity {4321, parseUuid(TEST_UUID)});
+    }
+    SECTION("rejected")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({response(401)});
+        h.run();
+        CHECK(h.status() != AuthStatus::AuthenticatedCheckingPairing);
+        CHECK_FALSE(dir.marker->load());
+    }
+#if !defined(_WIN32) // relies on POSIX permissions
+    SECTION("a marker that could not be stored is stored at the next token refresh")
+    {
+        // The marker's parent is writable by others at first, so no store is trusted.
+        const auto parent = dir.path;
+        const auto markerDir = parent / "scorbit";
+        std::filesystem::create_directories(markerDir);
+        std::filesystem::permissions(parent, std::filesystem::perms::others_write,
+                                     std::filesystem::perm_options::add);
+        const auto marker =
+                std::make_shared<HardwareKeyMarker>(std::vector<std::filesystem::path> {markerDir});
+
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        REQUIRE_FALSE(marker->load());
+
+        std::filesystem::permissions(parent, std::filesystem::perms::others_write,
+                                     std::filesystem::perm_options::remove);
+        NetTestAccess::startTokenRefresh(h.net, AuthStatus::AuthenticatedPaired, jwt(5min));
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        CHECK(marker->load() == HardwareKeyIdentity {4321, parseUuid(TEST_UUID)});
+    }
+#endif
+    SECTION("a soft key, accepted, is never recorded")
+    {
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<UuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, dir.marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        CHECK_FALSE(dir.marker->load());
+    }
 }
 
 TEST_CASE("A resolver's bad uuid commits no signer and keeps the resolvers for the re-check")
