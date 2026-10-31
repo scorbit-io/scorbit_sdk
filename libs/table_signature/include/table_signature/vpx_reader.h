@@ -901,8 +901,16 @@ inline void readMesh(Item &item, const Limits &limits, uint64_t &total)
     // Inflated meshes count toward maxTotalRead (a small zlib field can expand ~1000-fold), and so
     // do the positions and 32-bit indices kept from them.
     charge(total, vertexBytes + indexBytes + uint64_t(vertices) * 12 + uint64_t(indices) * 4, limits);
+    // VPX applies mesh records in stream order, each replacing the mesh, so the last of the raw
+    // and compressed forms wins (primitive.cpp).
     auto load = [&](const char *raw, const char *packed, uint64_t want) -> std::vector<uint8_t> {
-        if (const Field *f = lastField(item.fields, packed)) {
+        const Field *last = nullptr;
+        for (const auto &f : item.fields) {
+            if (f.tag == raw || f.tag == packed) {
+                last = &f;
+            }
+        }
+        if (const Field *f = last != nullptr && last->tag == packed ? last : nullptr) {
             std::vector<uint8_t> out;
             const auto s =
                     inflate::zlib(f->value.data(), f->value.size(), static_cast<size_t>(want), out);
@@ -911,7 +919,7 @@ inline void readMesh(Item &item, const Limits &limits, uint64_t &total)
             }
             return out;
         }
-        if (const Field *f = lastField(item.fields, raw)) {
+        if (const Field *f = last != nullptr && last->tag == raw ? last : nullptr) {
             if (f->value.size() != want) {
                 fail(Code::malformed);
             }
@@ -1329,15 +1337,31 @@ inline auto scriptParts(const std::string &name) -> std::vector<std::string>
 }
 
 /// base/parts..., each part matched ignoring ASCII case; empty if any part is missing.
+/// Whether dir is the table's folder itself, by identity rather than spelling, so a linked or
+/// differently cased path to it counts; an error counts as yes, to fail closed.
+inline auto isTableFolder(const std::filesystem::path &dir, const std::filesystem::path &table) -> bool
+{
+    std::error_code ec;
+    const bool same = std::filesystem::equivalent(dir, table, ec);
+    return same || ec;
+}
+
+/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing. followLinks
+/// (VPX's folders) stops at the table's folder: below it, links are refused as in its own search.
 inline auto findPath(Search &search, const std::filesystem::path &base,
-                     const std::vector<std::string> &parts, bool followLinks) -> std::filesystem::path
+                     const std::vector<std::string> &parts, bool followLinks,
+                     const std::filesystem::path &table) -> std::filesystem::path
 {
     if (base.empty() || parts.empty()) {
         return {};
     }
     std::filesystem::path p = base;
+    bool follow = followLinks && !isTableFolder(p, table);
     for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
-        p = search.find(p, parts[i], i + 1 < parts.size(), followLinks);
+        p = search.find(p, parts[i], i + 1 < parts.size(), follow);
+        if (follow && !p.empty() && i + 1 < parts.size() && isTableFolder(p, table)) {
+            follow = false;
+        }
     }
     return p;
 }
@@ -1359,25 +1383,15 @@ inline auto searchScript(Search &search, const std::filesystem::path &table,
     const Root roots[] = {{table, {"user", "scripts"}},
                           {app, {"user", "scripts", "tables"}},
                           {pref, {"user", "scripts"}}};
-    // A match in VPX's folders that lies under the table's folder (a table kept in tables/) was
-    // reached through a link the table's own search refused; it is not taken either.
-    std::error_code aec;
-    const auto tableAbs = std::filesystem::absolute(table, aec).lexically_normal();
-    auto underTable = [&](const std::filesystem::path &p) {
-        std::error_code pec;
-        const auto rel = std::filesystem::absolute(p, pec).lexically_normal().lexically_relative(tableAbs);
-        return !aec && !pec && !rel.empty() && *rel.begin() != "..";
-    };
     for (const Root &root : roots) {
         const bool inTable = &root.dir == &table;
-        auto accept = [&](const std::filesystem::path &p) { return !p.empty() && (inTable || !underTable(p)); };
-        if (auto p = findPath(search, root.dir, parts, !inTable); accept(p)) {
+        if (auto p = findPath(search, root.dir, parts, !inTable, table); !p.empty()) {
             return {p, inTable};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(search, root.dir, sp, !inTable); accept(p)) {
+            if (auto p = findPath(search, root.dir, sp, !inTable, table); !p.empty()) {
                 return {p, inTable};
             }
         }

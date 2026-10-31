@@ -544,6 +544,26 @@ TEST_CASE("inflated meshes count toward the total read cap", "[vpx_reader]")
     CHECK(smallest(withMesh) - smallest(noMesh) == 24 * 32 + 36 * 2 + 24 * 12 + 36 * 4);
 }
 
+TEST_CASE("the last mesh record wins, raw or compressed, as VPX applies them", "[vpx_reader]")
+{
+    auto model = vpx_fixtures::table();
+    auto &prim = model.inputs.items[4];
+    // After the compressed box, a raw record of the same 24 vertices, all at (7, 8, 9).
+    vpx_fixtures::Bytes raw;
+    std::vector<float> positions;
+    for (int v = 0; v < 24; v++) {
+        for (const float f : {7.f, 8.f, 9.f, 0.f, 0.f, 1.f, 0.f, 0.f}) {
+            raw = vpx_fixtures::cat(raw, vpx_fixtures::f32(f));
+        }
+        positions.insert(positions.end(), {7.f, 8.f, 9.f});
+    }
+    prim.fields.push_back({"M3DX", raw});
+    const auto bytes = vpx_fixtures::build(model).bytes;
+    const auto c = vpx::parse(bytes.data(), bytes.size());
+    REQUIRE(c.code == Code::ok);
+    CHECK(c.inputs.items[4].mesh.positions == positions);
+}
+
 TEST_CASE("parsed records count toward the total read cap", "[vpx_reader]")
 {
     auto smallest = [](const std::vector<uint8_t> &b) {
@@ -786,6 +806,36 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         REQUIRE(r.code == Code::ok);
         CHECK_FALSE(r.sidecar);
         CHECK(r.inputs.script.find("Secret") == std::string::npos);
+    }
+    SECTION("a table reached through a link is still its own folder to VPX's search")
+    {
+        // The table lives in VPX's tables/ but is opened through another spelling, a link to it;
+        // its lib/ is a link, which neither search may follow.
+        Tree t("link_table_path", "app/tables");
+        t.put(t.root / "elsewhere" / "x.vbs", "Sub X() : End Sub\r\n");
+        fs::create_directory_symlink(t.root / "elsewhere", t.table / "lib");
+        fs::create_directory_symlink(t.table, t.root / "linked");
+        auto model = vpx_fixtures::table();
+        model.inputs.script = "ExecuteGlobal GetTextFile(\"lib/x.vbs\")\r\n";
+        const auto bytes = vpx_fixtures::build(model).bytes;
+        std::ofstream(t.table / "table.vpx", std::ios::binary | std::ios::trunc)
+                .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+        const auto r = vpx::signFile(
+                {(t.root / "linked" / "table.vpx").string(), "", t.app.string(), t.pref.string()});
+        CHECK(r.code == Code::missing_helper);
+        CHECK(r.missingHelpers == std::vector<std::string> {"lib/x.vbs"});
+        CHECK(r.inputs.vpxScripts.empty());
+    }
+    SECTION("VPX's folder inside the table's folder is still searched")
+    {
+        Tree t("vpx_in_table");
+        t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.table / "VPX" / "scripts" / "core.vbs", "'");
+        const auto r = vpx::signFile(
+                {(t.table / "table.vpx").string(), "", (t.table / "VPX").string(), t.pref.string()});
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
     }
     SECTION("VPX's own folders are followed through links")
     {
