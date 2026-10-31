@@ -507,6 +507,7 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
     }
 
     std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+    std::shared_ptr<const HardwareKeyMarker> marker; // only the tap pad TPM path uses one
 
     if (config->hasAuthenticationCallback()) {
         auto signer = config->signerCallback;
@@ -525,11 +526,12 @@ sb_game_handle_t sb_create_game_state(sb_config_t config)
 
         resolvers.push_back(std::make_unique<SignerKeyResolver>(std::move(cb)));
     } else {
+        marker = std::make_shared<const HardwareKeyMarker>();
         resolvers.push_back(std::make_unique<NfcTpmKeyResolver>());
-        resolvers.push_back(std::make_unique<SoftKeyResolver>());
+        resolvers.push_back(std::make_unique<SoftKeyResolver>(marker));
     }
 
-    auto net = std::make_unique<Net>(*config, std::move(resolvers));
+    auto net = std::make_unique<Net>(*config, std::move(resolvers), marker);
     return new sb_game_state_struct {std::move(net)};
 }
 

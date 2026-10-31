@@ -60,6 +60,9 @@ public:
      */
     virtual bool shouldRetryLater() const { return false; }
 
+    /// After tryResolve() returned true: whether the key lives in the tap pad's TPM (SB-6133).
+    virtual bool isHardwareKey() const { return false; }
+
     /**
      * Create a signer callback from the resolved key material.
      * Must only be called after tryResolve() returns true.

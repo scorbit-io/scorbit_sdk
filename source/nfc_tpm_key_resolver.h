@@ -58,6 +58,7 @@ public:
     /// True when the last tryResolve() failed only because the tap pad was held by another
     /// process, so falling through to a soft key would be wrong.
     bool shouldRetryLater() const override { return m_retryLater; }
+    bool isHardwareKey() const override { return true; }
     SignerCallback createSigner() const override;
     /// Whether the TPM's last attempt gave up because the tap pad was held by another process.
     std::function<bool()> createBusyCheck() const override;

@@ -196,6 +196,7 @@ target_sources(
         source/test_soft_key_resolver.cpp
         source/test_provider_class.cpp
         source/test_nfc_tpm_key_resolver.cpp
+        source/test_hardware_key_marker.cpp
         source/test_list_usb_devices.cpp
         source/test_nfc_usb_namespace.cpp
         source/test_picoboot.cpp
