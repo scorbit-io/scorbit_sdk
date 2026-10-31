@@ -306,6 +306,23 @@ TEST_CASE("scripts are searched in VPX's folder order", "[vpx_reader]")
         CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
         CHECK(hex(r.signature.top) == hex(reference.signature.top));
     }
+    SECTION("folders given with a trailing separator")
+    {
+        const std::string sep(1, char(fs::path::preferred_separator));
+        for (const char *where : {"app/scripts", "pref/user"}) {
+            INFO(where);
+            Tree t("trailing_separator");
+            t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+            t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+            t.put(t.root / where / "core.vbs", "'");
+            const auto r = vpx::signFile({(t.table / "table.vpx").string(), t.table.string() + sep,
+                                          t.app.string() + sep, t.pref.string() + sep});
+            REQUIRE(r.code == Code::ok);
+            CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+            CHECK(helperNames(r) == std::vector<std::string> {"helper.vbs", "extra.vbs"});
+            CHECK(hex(r.signature.top) == hex(reference.signature.top));
+        }
+    }
     SECTION("nothing found anywhere is missing")
     {
         Tree t("nothing");
