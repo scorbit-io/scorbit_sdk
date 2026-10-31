@@ -43,9 +43,6 @@
 #include <string>
 #include <vector>
 
-#if defined(__APPLE__)
-#    include <mach-o/dyld.h>
-#endif
 #if !defined(_WIN32)
 #    include <sys/stat.h>
 #    include <unistd.h>
@@ -184,20 +181,6 @@ KeyResolution resolveWith(std::unique_ptr<IKeyResolver> resolver,
     Net net {std::move(info), std::move(resolvers), marker};
     return NetTestAccess::resolveKeys(net, TIMESTAMP);
 }
-
-#if !defined(_WIN32)
-fs::path executableDirectory()
-{
-#    if defined(__APPLE__)
-    char buf[4096];
-    uint32_t size = sizeof(buf);
-    REQUIRE(::_NSGetExecutablePath(buf, &size) == 0);
-    return fs::absolute(fs::path(buf)).parent_path();
-#    else
-    return fs::read_symlink("/proc/self/exe").parent_path();
-#    endif
-}
-#endif
 
 } // namespace
 
@@ -400,6 +383,55 @@ TEST_CASE("Hardware-key marker: a directory others can write to is not trusted",
     CHECK(marker.load() == PAD_B);
 }
 
+TEST_CASE("Hardware-key marker: a directory under one others can write to is not trusted",
+          "[HardwareKeyMarker]")
+{
+    TempDir root;
+    const auto parent = root.path / "parent";
+    const auto dir = parent / "scorbit";
+    fs::create_directories(dir);
+    fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace);
+    writeFile(dir / HardwareKeyMarker::FILE_NAME,
+              nlohmann::json {{"serial", PAD_A.serial}, {"uuid", PAD_A.uuid}}.dump());
+    const HardwareKeyMarker marker {Dirs {dir}};
+    REQUIRE(marker.load() == PAD_A);
+
+    // Others could rename the marker's directory away.
+    fs::permissions(parent, fs::perms::group_write | fs::perms::others_write,
+                    fs::perm_options::add);
+    CHECK_FALSE(marker.load());
+    CHECK_FALSE(marker.store(PAD_B));
+
+    // Unless the parent is sticky, as /tmp is.
+    fs::permissions(parent, fs::perms::sticky_bit, fs::perm_options::add);
+    CHECK(marker.load() == PAD_A);
+}
+
+TEST_CASE("Hardware-key marker: a FIFO in place of the marker is ignored without blocking",
+          "[HardwareKeyMarker]")
+{
+    TempDir dir;
+    REQUIRE(::mkfifo((dir.path / HardwareKeyMarker::FILE_NAME).c_str(), 0600) == 0);
+    CHECK_FALSE(HardwareKeyMarker {Dirs {dir.path}}.load());
+}
+
+TEST_CASE("Hardware-key marker: record fails while an older marker it cannot replace wins",
+          "[HardwareKeyMarker]")
+{
+    if (::geteuid() == 0) {
+        SKIP("root writes into a read-only directory");
+    }
+    TempDir first;
+    TempDir second;
+    REQUIRE(HardwareKeyMarker {Dirs {first.path}}.store(PAD_A));
+    fs::permissions(first.path, fs::perms::owner_read | fs::perms::owner_exec,
+                    fs::perm_options::replace);
+    const HardwareKeyMarker marker {Dirs {first.path, second.path}};
+
+    CHECK_FALSE(marker.record(PAD_B));
+    CHECK(marker.load() == PAD_A); // still a marker, so still no soft key
+}
+
 TEST_CASE("Hardware-key marker: links and oversized files are not read", "[HardwareKeyMarker]")
 {
     TempDir dir;
@@ -434,17 +466,11 @@ TEST_CASE("Hardware-key marker: links and oversized files are not read", "[Hardw
 }
 #endif
 
-TEST_CASE("Hardware-key marker: the default directories are the module's, then the user's state",
+TEST_CASE("Hardware-key marker: the default directory is the user's state directory",
           "[HardwareKeyMarker]")
 {
     const auto dirs = HardwareKeyMarker::defaultDirs();
     Dirs expected;
-#if !defined(_WIN32)
-    // Linked statically into the test executable, so the module is the executable.
-    REQUIRE_FALSE(dirs.empty());
-    CHECK(fs::equivalent(dirs.front(), executableDirectory()));
-    expected.push_back(dirs.front());
-#endif
     if (const char *state = std::getenv("XDG_STATE_HOME");
         state && *state && fs::path(state).is_absolute()) {
         expected.push_back(fs::path(state) / "scorbit");
@@ -456,7 +482,7 @@ TEST_CASE("Hardware-key marker: the default directories are the module's, then t
         expected.push_back(fs::path(local) / "scorbit");
     }
 #endif
-    // Nothing else, and so never the temp directory, which does not survive a reboot.
+    // Nothing else: the same for every process of this user, and never the temp directory.
     CHECK(dirs == expected);
 }
 

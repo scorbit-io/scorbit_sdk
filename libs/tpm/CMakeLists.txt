@@ -51,10 +51,6 @@ target_link_libraries(
     PUBLIC utils cryptoauth
     PRIVATE logger::logger nlohmann_json::nlohmann_json OpenSSL::SSL OpenSSL::Crypto
 )
-# dladdr() in hardware_key_marker.cpp
-if(UNIX)
-    target_link_libraries(${PROJECT_NAME} PRIVATE ${CMAKE_DL_LIBS})
-endif()
 
 if(TPM_USE_HW)
     target_compile_definitions(${PROJECT_NAME} PRIVATE TPM_USE_HW)

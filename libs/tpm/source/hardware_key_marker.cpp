@@ -34,7 +34,6 @@
 #    include <process.h>
 #else
 #    include <cerrno>
-#    include <dlfcn.h>
 #    include <fcntl.h>
 #    include <pwd.h>
 #    include <sys/stat.h>
@@ -70,6 +69,30 @@ bool trustedOwner(uid_t uid)
 }
 #endif
 
+#if !defined(_WIN32)
+// Every directory above @p dir, links resolved: one others could write to (unless sticky) would
+// let them rename @p dir, marker and all, out of the way.
+bool hasTrustedAncestors(const fs::path &dir)
+{
+    std::error_code ec;
+    const auto parent = fs::canonical(fs::absolute(dir, ec).parent_path(), ec);
+    if (ec) {
+        return false;
+    }
+    for (auto p = parent;; p = p.parent_path()) {
+        struct stat st {
+        };
+        if (::lstat(p.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || !trustedOwner(st.st_uid)
+            || ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0 && (st.st_mode & S_ISVTX) == 0)) {
+            return false;
+        }
+        if (p == p.root_path()) {
+            return true;
+        }
+    }
+}
+#endif
+
 // Only a directory nobody but its owner (this user or root) can change may hold the marker: in a
 // world-writable one, such as a 777 library directory, anyone could plant or delete it.
 bool isTrustedDirectory([[maybe_unused]] const fs::path &dir)
@@ -81,7 +104,7 @@ bool isTrustedDirectory([[maybe_unused]] const fs::path &dir)
     struct stat st {
     };
     return ::lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && trustedOwner(st.st_uid)
-        && (st.st_mode & (S_IWGRP | S_IWOTH)) == 0;
+        && (st.st_mode & (S_IWGRP | S_IWOTH)) == 0 && hasTrustedAncestors(dir);
 #endif
 }
 
@@ -135,25 +158,6 @@ bool syncDirectory([[maybe_unused]] const fs::path &dir)
 #endif
 }
 
-std::optional<fs::path> moduleDirectory()
-{
-#if defined(_WIN32)
-    return std::nullopt;
-#else
-    static const char anchor = 0; // any address inside the module this code is linked into
-    Dl_info info {};
-    if (::dladdr(&anchor, &info) == 0 || !info.dli_fname || !*info.dli_fname) {
-        return std::nullopt;
-    }
-    // For an executable this is argv[0], which may be relative to a cwd that changes between runs.
-    const fs::path module {info.dli_fname};
-    if (!module.is_absolute() || module.parent_path().empty()) {
-        return std::nullopt;
-    }
-    return module.parent_path();
-#endif
-}
-
 std::optional<fs::path> homeDirectory()
 {
     if (const char *home = std::getenv("HOME"); home && *home) {
@@ -186,7 +190,8 @@ std::optional<std::string> readTrustedFile(const fs::path &file)
 #else
     int fd = -1;
     do {
-        fd = ::open(file.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+        // O_NONBLOCK: a FIFO planted under the name must not block until a writer turns up.
+        fd = ::open(file.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
         return std::nullopt;
@@ -271,9 +276,6 @@ std::vector<fs::path> HardwareKeyMarker::defaultDirs()
 {
     std::vector<fs::path> dirs;
     try {
-        if (auto module = moduleDirectory()) {
-            dirs.push_back(std::move(*module));
-        }
         if (const char *state = std::getenv("XDG_STATE_HOME");
             state && *state && fs::path(state).is_absolute()) {
             dirs.push_back(fs::path(state) / "scorbit");
@@ -300,10 +302,7 @@ bool HardwareKeyMarker::store(const HardwareKeyIdentity &identity) const
             if (fs::create_directories(dir, ec)) {
                 fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
             }
-            // Never the module's own directory: other users may need to load from or write it.
-            if (dir != moduleDirectory()) {
-                tightenOwnDirectory(dir);
-            }
+            tightenOwnDirectory(dir);
             if (!isTrustedDirectory(dir)) {
                 continue;
             }
@@ -319,8 +318,11 @@ bool HardwareKeyMarker::store(const HardwareKeyIdentity &identity) const
                 fs::remove(staged, ec);
                 continue;
             }
+            // Until the directory is synced the rename may not survive a power loss.
             if (!syncDirectory(dir)) {
-                WRN("Hardware-key marker: could not sync {}", dir.string());
+                WRN("Hardware-key marker: could not sync {}, trying the next directory",
+                    dir.string());
+                continue;
             }
             return true;
         }
@@ -368,5 +370,13 @@ bool HardwareKeyMarker::record(const HardwareKeyIdentity &identity) const
         INF("Hardware key changed (serial {} -> {}); updating the hardware-key marker",
             existing->serial, identity.serial);
     }
-    return store(identity);
+    if (!store(identity)) {
+        return false;
+    }
+    // An older marker earlier in the list that this process could not replace still wins.
+    if (load() != identity) {
+        ERR("Hardware-key marker: an older marker this process cannot replace takes precedence");
+        return false;
+    }
+    return true;
 }

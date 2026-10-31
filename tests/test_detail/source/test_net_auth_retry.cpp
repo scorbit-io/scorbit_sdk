@@ -927,6 +927,34 @@ TEST_CASE("SB-6133: the marker records a hardware key only once the api accepts 
         CHECK(h.status() != AuthStatus::AuthenticatedCheckingPairing);
         CHECK_FALSE(dir.marker->load());
     }
+#if !defined(_WIN32) // relies on POSIX permissions
+    SECTION("a marker that could not be stored is stored at the next token refresh")
+    {
+        // The marker's parent is writable by others at first, so no store is trusted.
+        const auto parent = dir.path;
+        const auto markerDir = parent / "scorbit";
+        std::filesystem::create_directories(markerDir);
+        std::filesystem::permissions(parent, std::filesystem::perms::others_write,
+                                     std::filesystem::perm_options::add);
+        const auto marker =
+                std::make_shared<HardwareKeyMarker>(std::vector<std::filesystem::path> {markerDir});
+
+        std::vector<std::unique_ptr<IKeyResolver>> resolvers;
+        resolvers.push_back(std::make_unique<HardwareUuidResolver>(uuid, calls));
+        AuthHarness h {std::move(resolvers), false, info, marker};
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+        REQUIRE_FALSE(marker->load());
+
+        std::filesystem::permissions(parent, std::filesystem::perms::others_write,
+                                     std::filesystem::perm_options::remove);
+        NetTestAccess::startTokenRefresh(h.net, AuthStatus::AuthenticatedPaired, jwt(5min));
+        h.replies({tokenReply(jwt(1h))});
+        h.run();
+        CHECK(marker->load() == HardwareKeyIdentity {4321, parseUuid(TEST_UUID)});
+    }
+#endif
     SECTION("a soft key, accepted, is never recorded")
     {
         std::vector<std::unique_ptr<IKeyResolver>> resolvers;
