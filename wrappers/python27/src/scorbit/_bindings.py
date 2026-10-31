@@ -405,6 +405,15 @@ _lib.sb_download.argtypes = [
     sb_string_callback_t, c_void_p
 ]
 
+# void sb_download_with_options(sb_game_handle_t, const char*, const char*,
+#                               const sb_http_header_t*, size_t, const char*,
+#                               sb_string_callback_t, void*)
+_lib.sb_download_with_options.restype = None
+_lib.sb_download_with_options.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, POINTER(sb_http_header_t), c_size_t, c_char_p,
+    sb_string_callback_t, c_void_p
+]
+
 # void sb_download_buffer(sb_game_handle_t, const char*, size_t,
 #                         const sb_http_header_t*, size_t, sb_buffer_callback_t, void*)
 _lib.sb_download_buffer.restype = None
