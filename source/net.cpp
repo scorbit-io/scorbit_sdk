@@ -394,17 +394,19 @@ static std::optional<seconds> retryAfterDelay(const cpr::Header &header)
 
 // --------------------------------------------------------------------------------
 
-Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers)
+Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resolvers,
+         std::shared_ptr<const HardwareKeyMarker> hardwareKeyMarker)
     : m_keyResolvers(std::move(resolvers))
+    , m_hardwareKeyMarker(std::move(hardwareKeyMarker))
     , m_authRetryBackoff(seconds {AUTH_RETRY_INITIAL_BACKOFF}.count())
     , m_scorbitronRetryBackoff(SCORBITRON_RETRY_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice, m_deviceInfo.workerThreadCount)
-    , m_heartbeat(m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost,
-                  m_deviceInfo.heartbeatPort, [this] { onHeartbeatWake(); },
-                  defaultHeartbeatHost(m_deviceInfo.hostname))
+    , m_heartbeat(
+              m_worker.heartbeatStrand(), m_deviceInfo.heartbeatHost, m_deviceInfo.heartbeatPort,
+              [this] { onHeartbeatWake(); }, defaultHeartbeatHost(m_deviceInfo.hostname))
     , m_eventManager(std::make_shared<EventManager>(m_worker.eventsStrand(),
                                                     std::move(m_deviceInfo.m_eventCallback)))
 {
@@ -459,6 +461,7 @@ KeyResolution Net::resolveKeys(const std::string &serverTimestamp)
 
             m_signer = resolver->createSigner();
             m_signerBusy = resolver->createBusyCheck();
+            m_keyIsHardware = resolver->isHardwareKey();
             m_keyResolvers.clear();
 
             clearKeyResolutionDeferral();
@@ -470,8 +473,10 @@ KeyResolution Net::resolveKeys(const std::string &serverTimestamp)
         // authentication for as long as it stays busy and NEVER falls through to a weaker key, e.g.
         // provisioning a soft key, which would change the device's identity for good. A long
         // deferral is escalated once instead (deferAuthentication()). README-tappad-lock.md.
+        // Likewise a hardware key that is absent while its marker says the device uses one
+        // (SB-6133).
         if (resolver->shouldRetryLater()) {
-            WRN("Key resolution deferred: a key resolver's hardware is busy, will retry");
+            WRN("Key resolution deferred: a hardware key is busy or absent, will retry");
             return KeyResolution::Deferred;
         }
     }
@@ -535,6 +540,12 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
     if (!m_deviceInfo.hasSoftKeyProvisioning()) {
         return false;
     }
+    // SB-6133: a soft key would replace the hardware identity for good.
+    if (m_keyIsHardware || (m_hardwareKeyMarker && m_hardwareKeyMarker->load())) {
+        ERR("Scorbitron not found in API, but its key is a hardware key; not re-provisioning a "
+            "soft key");
+        return false;
+    }
 
     INF("Scorbitron not found in API, clearing stale key and re-provisioning...");
 
@@ -548,7 +559,8 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
         {
             if (!committed) {
                 net.m_keyResolvers.clear();
-                net.m_keyResolvers.push_back(std::make_unique<SoftKeyResolver>());
+                net.m_keyResolvers.push_back(
+                        std::make_unique<SoftKeyResolver>(net.m_hardwareKeyMarker));
             }
         }
     } guard {*this};
@@ -560,7 +572,7 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
     m_deviceInfo.hostname = m_hostname;
 
-    SoftKeyResolver resolver;
+    SoftKeyResolver resolver {m_hardwareKeyMarker};
     if (!resolver.tryResolve(m_deviceInfo, serverTimestamp)) {
         ERR("Re-provisioning failed");
         return false;
@@ -575,6 +587,7 @@ bool Net::reprovisionSoftKey(const std::string &serverTimestamp)
 
     m_signer = resolver.createSigner();
     m_signerBusy = {};
+    m_keyIsHardware = false;
     guard.committed = true;
 
     INF("Re-provisioning succeeded, new uuid={}", m_deviceInfo.uuid);
@@ -2943,6 +2956,13 @@ task_t Net::createAuthenticateTask()
                     fetchCentrifugoTokenNow();
 
                     notifyAuthStatusChanged();
+
+                    // SB-6133: only an identity the api accepted; a stray tap pad is not one.
+                    // Every refresh too, so a store that failed is retried; an unchanged marker
+                    // is not rewritten.
+                    if (m_keyIsHardware && m_hardwareKeyMarker) {
+                        m_hardwareKeyMarker->record({m_deviceInfo.serialNumber, m_deviceInfo.uuid});
+                    }
 
                     if (normalAuthentication) {
                         clearKeyResolutionDeferral();

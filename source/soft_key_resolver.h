@@ -20,7 +20,9 @@
 #pragma once
 
 #include "key_resolver.h"
+#include <tpm/hardware_key_marker.h>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,7 +32,15 @@ namespace detail {
 class SoftKeyResolver : public IKeyResolver
 {
 public:
+    /// While @p marker holds a hardware key, no soft key is loaded or provisioned (SB-6133).
+    explicit SoftKeyResolver(std::shared_ptr<const HardwareKeyMarker> marker = {})
+        : m_marker(std::move(marker))
+    {
+    }
+
     bool tryResolve(DeviceInfo &info, const std::string &serverTimestamp) override;
+    /// True when the last tryResolve() refused because the device's key is a hardware key.
+    bool shouldRetryLater() const override { return m_retryLater; }
     SignerCallback createSigner() const override;
 
 private:
@@ -38,6 +48,9 @@ private:
     bool provisionNewKey(DeviceInfo &info, const std::vector<uint8_t> &providerKey,
                          const std::string &serverTimestamp);
 
+    std::shared_ptr<const HardwareKeyMarker> m_marker;
+    bool m_retryLater {false};
+    bool m_markerWarned {false};
     std::string m_encryptedDeviceKey;
     std::string m_deviceKeyPassword;
 };

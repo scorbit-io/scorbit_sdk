@@ -51,9 +51,23 @@ std::string buildHmacMessage(const std::string &provider, const std::string &uui
 
 bool SoftKeyResolver::tryResolve(DeviceInfo &info, const std::string &serverTimestamp)
 {
+    m_retryLater = false;
     if (!info.hasSoftKeyProvisioning()) {
         return false;
     }
+
+    // A soft key here would be a different identity from the hardware key the device has used.
+    if (const auto marker = m_marker ? m_marker->load() : std::nullopt) {
+        m_retryLater = true;
+        if (!m_markerWarned) {
+            m_markerWarned = true;
+            WRN("SoftKeyResolver: hardware key expected (marker, serial {}) but the tap pad is "
+                "absent; not falling back to a soft key",
+                marker->serial);
+        }
+        return false;
+    }
+    m_markerWarned = false;
 
     auto providerKey =
             decryptSecret(info.encryptedKey,
