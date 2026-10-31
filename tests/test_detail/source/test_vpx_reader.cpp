@@ -826,6 +826,24 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         CHECK(r.missingHelpers == std::vector<std::string> {"lib/x.vbs"});
         CHECK(r.inputs.vpxScripts.empty());
     }
+    SECTION("a helper VPX's search reaches inside the table's folder is hashed by content")
+    {
+        // The table is in VPX's tables/; "tables/evil.vbs" misses in the table's own search but
+        // is reached from VPX's folder. It is the table's own file, so its content is hashed.
+        Tree t("tables_evil", "app/tables");
+        t.put(t.table / "evil.vbs", "Sub Evil() : End Sub\r\n");
+        auto model = vpx_fixtures::table();
+        model.inputs.script = "ExecuteGlobal GetTextFile(\"tables/evil.vbs\")\r\n";
+        const auto bytes = vpx_fixtures::build(model).bytes;
+        std::ofstream(t.table / "table.vpx", std::ios::binary | std::ios::trunc)
+                .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.vpxScripts.empty());
+        REQUIRE(r.inputs.helperScripts.size() == 1);
+        CHECK(r.inputs.helperScripts[0].name == "tables/evil.vbs");
+        CHECK(r.inputs.helperScripts[0].content == "Sub Evil() : End Sub\r\n");
+    }
     SECTION("VPX's folder inside the table's folder is still searched")
     {
         Tree t("vpx_in_table");

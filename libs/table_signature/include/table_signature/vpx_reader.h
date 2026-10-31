@@ -1346,21 +1346,26 @@ inline auto isTableFolder(const std::filesystem::path &dir, const std::filesyste
     return same || ec;
 }
 
-/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing. followLinks
-/// (VPX's folders) stops at the table's folder: below it, links are refused as in its own search.
+/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing. A walk from
+/// one of VPX's folders (followLinks) that reaches the table's own folder sets reachedTable: from
+/// there on it refuses links, and what it finds is the table's own, hashed by content.
 inline auto findPath(Search &search, const std::filesystem::path &base,
                      const std::vector<std::string> &parts, bool followLinks,
-                     const std::filesystem::path &table) -> std::filesystem::path
+                     const std::filesystem::path &table, bool &reachedTable) -> std::filesystem::path
 {
+    reachedTable = false;
     if (base.empty() || parts.empty()) {
         return {};
     }
     std::filesystem::path p = base;
-    bool follow = followLinks && !isTableFolder(p, table);
+    if (followLinks && isTableFolder(p, table)) {
+        reachedTable = true;
+    }
     for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
-        p = search.find(p, parts[i], i + 1 < parts.size(), follow);
-        if (follow && !p.empty() && i + 1 < parts.size() && isTableFolder(p, table)) {
-            follow = false;
+        p = search.find(p, parts[i], i + 1 < parts.size(), followLinks && !reachedTable);
+        if (followLinks && !reachedTable && !p.empty() && i + 1 < parts.size()
+            && isTableFolder(p, table)) {
+            reachedTable = true;
         }
     }
     return p;
@@ -1385,14 +1390,15 @@ inline auto searchScript(Search &search, const std::filesystem::path &table,
                           {pref, {"user", "scripts"}}};
     for (const Root &root : roots) {
         const bool inTable = &root.dir == &table;
-        if (auto p = findPath(search, root.dir, parts, !inTable, table); !p.empty()) {
-            return {p, inTable};
+        bool reached = false;
+        if (auto p = findPath(search, root.dir, parts, !inTable, table, reached); !p.empty()) {
+            return {p, inTable || reached};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(search, root.dir, sp, !inTable, table); !p.empty()) {
-                return {p, inTable};
+            if (auto p = findPath(search, root.dir, sp, !inTable, table, reached); !p.empty()) {
+                return {p, inTable || reached};
             }
         }
     }
