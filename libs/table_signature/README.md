@@ -82,6 +82,39 @@ single-line `If`, a bumper's position, a wall's outline and a collection's membe
 `tools/make_vectors.cpp` regenerates it; a change to the output is a change to the algorithm and
 needs a new version.
 
+## Reading a `.vpx`
+
+`include/table_signature/vpx_reader.h` (header-only C++17, standard library and the OS file API
+only, same MIT license) reads a table into `Inputs` and calls `compute`. `inflate.h` beside it is
+the zlib decoder it uses for primitive meshes. `parse` takes the file's bytes and does no I/O;
+`signFile` takes a UTF-8 path, opens it read-only without locking it (`FILE_SHARE_READ |
+FILE_SHARE_WRITE` on Windows), and reads only the compound file's header, FAT, directory and the
+streams hashed here, never images or sounds. Both are `noexcept` and return a `Code`: `ok`,
+`table_unreadable_permission`, `table_unreadable`, `legacy_protected`, `unnamed_helper`,
+`signature_too_large`, `malformed` or `cancelled`. Every size and count has a cap (`Limits`), and a
+cancel flag is checked between streams. Nothing is logged, and the result depends on nothing but the
+files read.
+
+Scripts are resolved as VPX does, from folders passed in, never the working directory: a sidecar
+`<table>.vbs` in the table directory (name matched ignoring ASCII case) replaces the `CODE` record;
+otherwise a `CODE` record under legacy protection (`SECB` with script editing disabled) is
+`legacy_protected`. Each literal helper name, breadth-first and once, is looked up in the table
+directory (its content hashed and its own loads followed), then in VPX's `scripts` folder and VPX's
+folder (its name hashed). A name found in none is reported in `missingHelpers` and not hashed; a
+name with a path in it is not followed.
+
+How the reader takes the file apart: items are the `GameStg/GameItemN` streams in N order (a 4-byte
+item type, then records to `ENDB`); collections are `GameStg/CollectionN` (`NAME` and repeated `ITEM`,
+both UTF-16 strings); names are converted to UTF-8. Physics materials come from the `PHMA` record of
+`GameStg/GameData`, an array of 48-byte entries (32-byte name, then elasticity, elasticity falloff,
+friction, scatter angle). A table whose `GameStg/Version` is 30 or below writes records without
+lengths and is `malformed`.
+
+`tools/make_vpx_fixtures.cpp` writes synthetic tables under `fixtures/vpx/` and their expected
+signatures to `vpx_fixtures.json`, computed from the model each file was written from.
+`tools/vpx_writer.h` holds that model, a minimal compound-file writer, and the malformed corpus the
+tests run the reader against.
+
 ## Versioning
 
 Any change to the canonical form, a section's inputs or an allow-list is a new version. A client
