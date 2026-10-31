@@ -239,6 +239,17 @@ TEST_CASE("Hardware-key marker: record stores only a changed identity", "[Hardwa
     // A replaced tap pad: overwritten.
     REQUIRE(marker.record(PAD_B));
     CHECK(marker.load() == PAD_B);
+
+    // Another instance, e.g. after a restart, cannot know the marker it finds was synced, so it
+    // stores it once more, then no more.
+    const HardwareKeyMarker restarted {Dirs {dir.path}};
+    fs::last_write_time(file, written - std::chrono::hours(2));
+    REQUIRE(restarted.record(PAD_B));
+    const auto rewritten = fs::last_write_time(file);
+    CHECK((rewritten != written - std::chrono::hours(2)));
+    fs::last_write_time(file, rewritten - std::chrono::hours(1));
+    REQUIRE(restarted.record(PAD_B));
+    CHECK((fs::last_write_time(file) == rewritten - std::chrono::hours(1)));
 }
 
 TEST_CASE("Hardware-key marker: unreadable or malformed files count as absent",
@@ -405,6 +416,22 @@ TEST_CASE("Hardware-key marker: a directory under one others can write to is not
     // Unless the parent is sticky, as /tmp is.
     fs::permissions(parent, fs::perms::sticky_bit, fs::perm_options::add);
     CHECK(marker.load() == PAD_A);
+}
+
+TEST_CASE("Hardware-key marker: directories a store creates are private whatever the umask",
+          "[HardwareKeyMarker]")
+{
+    TempDir root;
+    const auto dir = root.path / "local" / "state" / "scorbit";
+    const auto old = ::umask(0);
+    const bool stored = HardwareKeyMarker {Dirs {dir}}.store(PAD_A);
+    ::umask(old);
+
+    REQUIRE(stored);
+    for (const auto &p : {root.path / "local", root.path / "local" / "state", dir}) {
+        CHECK((fs::status(p).permissions() & fs::perms::all) == fs::perms::owner_all);
+    }
+    CHECK(HardwareKeyMarker {Dirs {dir}}.load() == PAD_A);
 }
 
 TEST_CASE("Hardware-key marker: a FIFO in place of the marker is ignored without blocking",

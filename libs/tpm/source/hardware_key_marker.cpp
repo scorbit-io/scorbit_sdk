@@ -70,24 +70,24 @@ bool trustedOwner(uid_t uid)
 #endif
 
 #if !defined(_WIN32)
-// Every directory above @p dir, links resolved: one others could write to (unless sticky) would
-// let them rename @p dir, marker and all, out of the way.
-bool hasTrustedAncestors(const fs::path &dir)
+// The first directory above @p dir, links resolved, that others could write to (unless sticky),
+// letting them rename @p dir, marker and all, out of the way; empty if there is none.
+std::optional<fs::path> untrustedAncestor(const fs::path &dir)
 {
     std::error_code ec;
     const auto parent = fs::canonical(fs::absolute(dir, ec).parent_path(), ec);
     if (ec) {
-        return false;
+        return dir.parent_path();
     }
     for (auto p = parent;; p = p.parent_path()) {
         struct stat st {
         };
         if (::lstat(p.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || !trustedOwner(st.st_uid)
             || ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0 && (st.st_mode & S_ISVTX) == 0)) {
-            return false;
+            return p;
         }
         if (p == p.root_path()) {
-            return true;
+            return std::nullopt;
         }
     }
 }
@@ -104,7 +104,7 @@ bool isTrustedDirectory([[maybe_unused]] const fs::path &dir)
     struct stat st {
     };
     return ::lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && trustedOwner(st.st_uid)
-        && (st.st_mode & (S_IWGRP | S_IWOTH)) == 0 && hasTrustedAncestors(dir);
+        && (st.st_mode & (S_IWGRP | S_IWOTH)) == 0 && !untrustedAncestor(dir);
 #endif
 }
 
@@ -156,6 +156,25 @@ bool syncDirectory([[maybe_unused]] const fs::path &dir)
     const bool ok = ::fsync(fd) == 0;
     return ::close(fd) == 0 && ok;
 #endif
+}
+
+// Creates @p dir and makes every directory this creates private, whatever the umask, so its own
+// ancestors pass the trust check. Directories that already existed are left as they are.
+void createPrivately(const fs::path &dir)
+{
+    std::vector<fs::path> missing;
+    std::error_code ec;
+    for (auto p = fs::absolute(dir, ec); !ec && !p.empty(); p = p.parent_path()) {
+        std::error_code absent; // a missing path reports ENOENT here
+        if (fs::exists(fs::symlink_status(p, absent)) || p == p.root_path()) {
+            break;
+        }
+        missing.push_back(p);
+    }
+    fs::create_directories(dir, ec);
+    for (const auto &p : missing) {
+        fs::permissions(p, fs::perms::owner_all, fs::perm_options::replace, ec);
+    }
 }
 
 std::optional<fs::path> homeDirectory()
@@ -299,11 +318,15 @@ bool HardwareKeyMarker::store(const HardwareKeyIdentity &identity) const
         const auto body = json {{KEY_SERIAL, identity.serial}, {KEY_UUID, identity.uuid}}.dump();
         for (const auto &dir : m_dirs) {
             std::error_code ec;
-            if (fs::create_directories(dir, ec)) {
-                fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
-            }
+            createPrivately(dir);
             tightenOwnDirectory(dir);
             if (!isTrustedDirectory(dir)) {
+#if !defined(_WIN32)
+                if (const auto loose = untrustedAncestor(dir)) {
+                    WRN("Hardware-key marker: not using {}: {} can be changed by other users",
+                        dir.string(), loose->string());
+                }
+#endif
                 continue;
             }
             const auto target = dir / FILE_NAME;
@@ -324,6 +347,7 @@ bool HardwareKeyMarker::store(const HardwareKeyIdentity &identity) const
                     dir.string());
                 continue;
             }
+            m_durable = true;
             return true;
         }
     } catch (const std::exception &e) {
@@ -363,10 +387,12 @@ void HardwareKeyMarker::clear() const
 bool HardwareKeyMarker::record(const HardwareKeyIdentity &identity) const
 {
     const auto existing = load();
-    if (existing == identity) {
+    // Unless this instance has seen it stored durably, it is stored again: it may have been left
+    // behind by a store whose directory sync failed.
+    if (existing == identity && m_durable) {
         return true;
     }
-    if (existing) {
+    if (existing && existing != identity) {
         INF("Hardware key changed (serial {} -> {}); updating the hardware-key marker",
             existing->serial, identity.serial);
     }

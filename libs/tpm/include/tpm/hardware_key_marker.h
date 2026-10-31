@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -73,8 +74,9 @@ public:
     /// Removes the marker from every usable directory.
     void clear() const;
     /**
-     * Stores @p identity unless the marker already holds it; a different one is replaced. False
-     * if it could not be stored, or an older marker this process cannot replace still wins.
+     * Stores @p identity unless the marker already holds it and this instance has stored it
+     * durably; a different one is replaced. False if it could not be stored, or an older marker
+     * this process cannot replace still wins.
      */
     bool record(const HardwareKeyIdentity &identity) const;
 
@@ -82,4 +84,6 @@ public:
 
 private:
     std::vector<std::filesystem::path> m_dirs;
+    /// A store by this instance completed, directory sync included.
+    mutable std::atomic<bool> m_durable {false};
 };
