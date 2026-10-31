@@ -65,6 +65,8 @@ enum class Code {
     table_unreadable,            ///< any other open or read failure
     legacy_protected,    ///< the embedded script is encrypted by VPX's legacy table protection
     unnamed_helper,      ///< compute() refused: the script loads a helper by a non-literal name
+    missing_helper,      ///< a helper named by a literal is found nowhere (or is not followed);
+                         ///< VPX would fail to load it at run time. Names in missingHelpers.
     signature_too_large, ///< a size or count cap was reached
     malformed,           ///< not a well-formed compound file or BIFF data
     cancelled,
@@ -83,6 +85,8 @@ inline auto codeName(Code c) noexcept -> const char *
         return "legacy_protected";
     case Code::unnamed_helper:
         return "unnamed_helper";
+    case Code::missing_helper:
+        return "missing_helper";
     case Code::signature_too_large:
         return "signature_too_large";
     case Code::malformed:
@@ -120,20 +124,24 @@ struct Contents {
     bool scriptProtected = false;
 };
 
+/// The folders VPX searches for scripts, in its order: the table's, VPX's install folder, then
+/// VPX's preferences folder; in each the folder itself, then user/, scripts/ (and tables/ in the
+/// install folder). Empty folders are skipped.
 struct Paths {
     std::string table;          ///< the .vpx, UTF-8
-    std::string tableDirectory; ///< where the sidecar and table-local helpers live; empty: the
-                                ///< table's own folder
-    std::string
-            vpxDirectory; ///< VPX's install folder, searched for VPX-shipped scripts; empty: none
+    std::string tableDirectory; ///< the table's folder; empty: the folder the table is in
+    std::string vpxDirectory;   ///< VPX's install folder (its app path); empty: not searched
+    std::string prefDirectory;  ///< VPX's preferences folder (its pref path); empty: not searched
 };
 
 struct Result {
     Code code = Code::malformed;
     Signature signature;                     ///< valid only when code is ok
     Inputs inputs;                           ///< what was hashed (as far as it was read)
-    std::vector<std::string> missingHelpers; ///< literal helper names found nowhere (not hashed)
-    bool sidecar = false;                    ///< the script came from <table>.vbs
+    /// Literal helper names found nowhere, or with a path that is not followed; any makes the
+    /// code missing_helper.
+    std::vector<std::string> missingHelpers;
+    bool sidecar = false; ///< the script came from a .vbs file, not the CODE record
 };
 
 namespace detail {
@@ -144,6 +152,9 @@ constexpr uint32_t kNoStream = 0xFFFFFFFF;
 constexpr uint32_t kDirEntrySize = 128;
 constexpr uint32_t kMiniSectorSize = 64;
 constexpr uint32_t kMiniCutoff = 4096;
+// The item types that write a FONT record (ItemTypeEnum, vpinball src/core/iselect.h).
+constexpr uint32_t kTextbox = 4;
+constexpr uint32_t kDecal = 9;
 
 /// Thrown internally only; the noexcept entry points turn it into a Code.
 struct Failure {
@@ -724,18 +735,21 @@ struct Record {
     size_t size;
 };
 
-/// Walks BIFF records: int32 length (tag + data), 4-byte tag, data. CODE in GameData is the one
-/// record whose length covers only its tag; an int32 byte count and the script follow it.
+/// Walks BIFF records: int32 length (tag + data), 4-byte tag, data. Two records have a length that
+/// covers only their tag, with untagged data after it: CODE in GameData (an int32 byte count, then
+/// the script) and FONT in a textbox or decal (version 1, charset 2, attributes 1, weight 2, size 4,
+/// name length 1, then the name; VPX's WriteFontDescriptor).
 class Biff
 {
 public:
     Biff(const std::vector<uint8_t> &bytes, size_t start, uint32_t maxRecords,
-         bool codeRecord = false)
+         bool codeRecord = false, bool fontRecord = false)
         : m_p(bytes.data())
         , m_size(bytes.size())
         , m_pos(std::min(start, bytes.size()))
         , m_max(maxRecords)
         , m_code(codeRecord)
+        , m_font(fontRecord)
     {
     }
 
@@ -770,6 +784,18 @@ public:
             r.data = m_p + m_pos + 4;
             r.size = n;
             m_pos += 4 + n;
+        } else if (m_font && r.tag == "FONT" && r.size == 0) {
+            constexpr size_t kFixed = 11; // the descriptor up to and including the name length
+            if (m_size - m_pos < kFixed) {
+                fail(Code::malformed);
+            }
+            const size_t n = kFixed + m_p[m_pos + kFixed - 1];
+            if (n > m_size - m_pos) {
+                fail(Code::malformed);
+            }
+            r.data = m_p + m_pos;
+            r.size = n;
+            m_pos += n;
         }
         return true;
     }
@@ -781,6 +807,7 @@ private:
     uint32_t m_max;
     uint32_t m_count = 0;
     bool m_code;
+    bool m_font;
 };
 
 inline auto field(const Record &r) -> Field
@@ -880,7 +907,7 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits) ->
     }
     Item item;
     item.type = le32(bytes.data());
-    Biff biff(bytes, 4, limits.maxRecords);
+    Biff biff(bytes, 4, limits.maxRecords, false, item.type == kTextbox || item.type == kDecal);
     Record r;
     bool inPoint = false;
     DragPoint point;
@@ -947,7 +974,9 @@ inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const L
     Record r;
     while (biff.next(r) && r.tag != "ENDB") {
         if (r.tag == "CODE") {
-            c.inputs.script.assign(reinterpret_cast<const char *>(r.data), r.size);
+            // VPX keeps the script as a C string, so it ends at the first NUL.
+            const auto *p = reinterpret_cast<const char *>(r.data);
+            c.inputs.script.assign(p, std::find(p, p + r.size, '\0'));
             continue;
         }
         if (r.tag == "SECB" && r.size >= 36) {
@@ -1123,12 +1152,79 @@ inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const
     return out;
 }
 
-/// A helper name VPX would look up as a plain file name; anything with a path in it is not
-/// followed.
-inline auto plainName(const std::string &n) -> bool
+/// A script name as GetTextFile takes it ('/' or '\' between folders), split into its parts.
+/// Empty when it names nothing or could leave the searched folders (a root, a drive, a "..");
+/// VPX would follow those, the reader deliberately does not.
+inline auto scriptParts(const std::string &name) -> std::vector<std::string>
 {
-    return !n.empty() && n != "." && n != ".." && n.find_first_of("/\\:") == std::string::npos
-        && n.find('\0') == std::string::npos;
+    const auto sep = [](char ch) { return ch == '/' || ch == '\\'; };
+    if (name.empty() || sep(name.front()) || sep(name.back())
+        || name.find_first_of(std::string(":\0", 2)) != std::string::npos) {
+        return {};
+    }
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start < name.size()) {
+        size_t end = start;
+        while (end < name.size() && !sep(name[end])) {
+            end++;
+        }
+        std::string part = name.substr(start, end - start);
+        if (part == "..") {
+            return {};
+        }
+        if (!part.empty() && part != ".") {
+            parts.push_back(std::move(part));
+        }
+        start = end + 1;
+    }
+    return parts;
+}
+
+/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing.
+inline auto findPath(const std::filesystem::path &base, const std::vector<std::string> &parts)
+        -> std::filesystem::path
+{
+    if (base.empty() || parts.empty()) {
+        return {};
+    }
+    std::filesystem::path p = base;
+    for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
+        p = findFile(p, parts[i], i + 1 < parts.size());
+    }
+    return p;
+}
+
+struct Found {
+    std::filesystem::path path; ///< empty: not found
+    bool inTable = false;       ///< found under the table's folder
+};
+
+/// VPX's FileLocator::SearchScript: the first match in its folder order.
+inline auto searchScript(const std::filesystem::path &table, const std::filesystem::path &app,
+                         const std::filesystem::path &pref, const std::vector<std::string> &parts)
+        -> Found
+{
+    struct Root {
+        const std::filesystem::path &dir;
+        std::vector<const char *> subs;
+    };
+    const Root roots[] = {{table, {"user", "scripts"}},
+                          {app, {"user", "scripts", "tables"}},
+                          {pref, {"user", "scripts"}}};
+    for (const Root &root : roots) {
+        if (auto p = findPath(root.dir, parts); !p.empty()) {
+            return {p, &root.dir == &table};
+        }
+        for (const char *sub : root.subs) {
+            std::vector<std::string> sp {sub};
+            sp.insert(sp.end(), parts.begin(), parts.end());
+            if (auto p = findPath(root.dir, sp); !p.empty()) {
+                return {p, &root.dir == &table};
+            }
+        }
+    }
+    return {};
 }
 
 inline auto signFile(const Paths &paths, const Options &opt) -> Result
@@ -1143,15 +1239,34 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
     res.inputs = std::move(contents.inputs);
 
     const std::filesystem::path table = toPath(paths.table);
-    const std::filesystem::path dir =
+    std::filesystem::path dir =
             paths.tableDirectory.empty() ? table.parent_path() : toPath(paths.tableDirectory);
-    // Script search, as VPX: the sidecar <table>.vbs, else the embedded CODE record.
+    if (dir.empty()) {
+        dir = ".";
+    }
+    const std::filesystem::path app =
+            paths.vpxDirectory.empty() ? std::filesystem::path() : toPath(paths.vpxDirectory);
+    const std::filesystem::path pref =
+            paths.prefDirectory.empty() ? std::filesystem::path() : toPath(paths.prefDirectory);
+
+    // The script, as VPX: <table>.vbs found by the script search, else <folder>.vbs in the table's
+    // folder (pintable.cpp), else the embedded CODE record.
     std::string stem = fileName(table);
     if (const size_t dot = stem.rfind('.'); dot != std::string::npos && dot > 0) {
         stem.resize(dot);
     }
     checkCancel(opt);
-    const auto sidecar = findFile(dir, stem + ".vbs");
+    std::filesystem::path sidecar = searchScript(dir, app, pref, {stem + ".vbs"}).path;
+    if (sidecar.empty()) {
+        std::error_code ec;
+        std::filesystem::path abs = std::filesystem::absolute(dir, ec).lexically_normal();
+        if (!ec && abs.filename().empty()) {
+            abs = abs.parent_path();
+        }
+        if (const std::string folder = ec ? std::string() : fileName(abs); !folder.empty()) {
+            sidecar = findFile(dir, folder + ".vbs");
+        }
+    }
     if (!sidecar.empty()) {
         res.inputs.script = readWholeFile(sidecar, total, opt.limits);
         res.sidecar = true;
@@ -1159,18 +1274,18 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         fail(Code::legacy_protected);
     }
 
-    // Helpers by literal name, breadth-first, each once: the table's folder first (content
-    // hashed, and its own loads followed), then VPX's scripts folder and VPX's folder (name only).
-    std::filesystem::path vpxScripts, vpxDir;
-    if (!paths.vpxDirectory.empty()) {
-        vpxDir = toPath(paths.vpxDirectory);
-        vpxScripts = findFile(vpxDir, "scripts", true);
-    }
+    // Helpers by literal name, breadth-first, each once, through the same search: under the
+    // table's folder, content hashed and its own loads followed; in VPX's folders, name only.
     std::vector<std::string> queue =
             scriptReferences(tokenize(decodeScript(res.inputs.script))).names;
     std::vector<std::string> seen;
     for (size_t q = 0; q < queue.size(); q++) {
-        const std::string name = lowerAscii(queue[q]);
+        const std::vector<std::string> parts = scriptParts(queue[q]);
+        std::string name;
+        for (const auto &part : parts) {
+            name += (name.empty() ? "" : "/") + part;
+        }
+        name = lowerAscii(parts.empty() ? queue[q] : name);
         if (std::find(seen.begin(), seen.end(), name) != seen.end()) {
             continue;
         }
@@ -1179,24 +1294,29 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         }
         seen.push_back(name);
         checkCancel(opt);
-        std::filesystem::path local =
-                plainName(name) ? findFile(dir, name) : std::filesystem::path();
-        if (!local.empty()) {
-            HelperScript h {name, readWholeFile(local, total, opt.limits)};
+        const Found found = parts.empty() ? Found {} : searchScript(dir, app, pref, parts);
+        if (found.path.empty()) {
+            res.missingHelpers.push_back(name);
+        } else if (found.inTable) {
+            HelperScript h {name, readWholeFile(found.path, total, opt.limits)};
             for (auto &n : scriptReferences(tokenize(decodeScript(h.content))).names) {
                 queue.push_back(std::move(n));
             }
             res.inputs.helperScripts.push_back(std::move(h));
-        } else if (plainName(name)
-                   && ((!vpxScripts.empty() && !findFile(vpxScripts, name).empty())
-                       || (!vpxDir.empty() && !findFile(vpxDir, name).empty()))) {
-            res.inputs.vpxScripts.push_back(name);
         } else {
-            res.missingHelpers.push_back(name);
+            res.inputs.vpxScripts.push_back(name);
         }
     }
     res.signature = compute(res.inputs);
-    res.code = res.signature.unavailable.empty() ? Code::ok : Code::unnamed_helper;
+    if (!res.signature.unavailable.empty()) {
+        res.code = Code::unnamed_helper;
+    } else if (!res.missingHelpers.empty()) {
+        // GetTextFile fails on a file VPX cannot find, a run-time error: no signature.
+        res.code = Code::missing_helper;
+        res.signature = Signature {};
+    } else {
+        res.code = Code::ok;
+    }
     return res;
 }
 

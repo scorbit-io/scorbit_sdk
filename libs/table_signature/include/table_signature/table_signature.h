@@ -230,7 +230,7 @@ struct Inputs
 
 // ---------------------------------------------------------------- allow-lists (vts1)
 
-// ItemTypeEnum values, vpinball src/core/ieditable.h.
+// ItemTypeEnum values, vpinball src/core/iselect.h.
 enum : uint32_t {
     kSurface = 0, kFlipper = 1, kPlunger = 3, kBumper = 5, kTrigger = 6, kLight = 7, kKicker = 8,
     kGate = 10, kSpinner = 11, kRamp = 12, kPrimitive = 19, kRubber = 21, kHitTarget = 22, kBall = 23,

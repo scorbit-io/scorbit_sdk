@@ -218,6 +218,206 @@ TEST_CASE("the sidecar script replaces the embedded one and protection", "[vpx_r
     CHECK_FALSE(parseFile(kFixtures / "unmodified" / "table.vpx").scriptProtected);
 }
 
+namespace {
+
+/// A scratch tree: <root>/<table folder>/table.vpx plus VPX's app and pref folders.
+struct Tree {
+    fs::path root, table, app, pref;
+
+    explicit Tree(const std::string &name, const std::string &folder = "Table")
+        : root(fs::temp_directory_path() / ("vpx_reader_" + name))
+    {
+        fs::remove_all(root);
+        table = root / folder;
+        app = root / "app";
+        pref = root / "pref";
+        for (const auto &d : {table, app, pref}) {
+            fs::create_directories(d);
+        }
+        fs::copy_file(kFixtures / "unmodified" / "table.vpx", table / "table.vpx");
+    }
+    ~Tree() { fs::remove_all(root); }
+
+    void put(const fs::path &p, const std::string &text) const
+    {
+        fs::create_directories(p.parent_path());
+        std::ofstream(p, std::ios::binary) << text;
+    }
+    auto sign() const -> vpx::Result
+    {
+        return vpx::signFile({(table / "table.vpx").string(), "", app.string(), pref.string()});
+    }
+};
+
+auto helperNames(const vpx::Result &r) -> std::vector<std::string>
+{
+    std::vector<std::string> out;
+    for (const auto &h : r.inputs.helperScripts) {
+        out.push_back(h.name);
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("scripts are searched in VPX's folder order", "[vpx_reader]")
+{
+    const auto reference = vpx::signFile(paths("unmodified"));
+    REQUIRE(reference.code == Code::ok);
+
+    SECTION("helpers in the table's user/ and scripts/ are hashed like ones beside it")
+    {
+        Tree t("table_subfolders");
+        t.put(t.table / "User" / "helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "scripts" / "EXTRA.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "Scripts" / "core.vbs", "'");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.missingHelpers.empty());
+        CHECK(hex(r.signature.top) == hex(reference.signature.top));
+    }
+    SECTION("each VPX folder is searched, name only")
+    {
+        for (const char *where : {"app", "app/user", "app/scripts", "app/tables", "pref",
+                                  "pref/user", "pref/scripts"}) {
+            INFO(where);
+            Tree t("vpx_folders");
+            t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+            t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+            t.put(t.root / where / "core.vbs", "' any content");
+            const auto r = t.sign();
+            REQUIRE(r.code == Code::ok);
+            CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+            CHECK(hex(r.signature.top) == hex(reference.signature.top));
+        }
+    }
+    SECTION("the table's folder wins over VPX's, and the folder itself over its user/")
+    {
+        Tree t("precedence");
+        t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "user" / "Helper.vbs", "Sub Other() : End Sub\r\n");
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "extra.vbs", "'");
+        t.put(t.pref / "core.vbs", "'");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        REQUIRE(r.inputs.helperScripts.size() == 2);
+        CHECK(r.inputs.helperScripts[0].content == vpx_fixtures::kHelper);
+        CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+        CHECK(hex(r.signature.top) == hex(reference.signature.top));
+    }
+    SECTION("nothing found anywhere is missing")
+    {
+        Tree t("nothing");
+        const auto r = t.sign();
+        CHECK(r.code == Code::missing_helper);
+        CHECK(r.missingHelpers == std::vector<std::string> {"core.vbs", "helper.vbs"});
+    }
+    SECTION("user/ comes before scripts/ within a folder")
+    {
+        Tree t("user_before_scripts");
+        t.put(t.table / "user" / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "scripts" / "Helper.vbs", "Sub Other() : End Sub\r\n");
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.helperScripts.at(0).content == vpx_fixtures::kHelper);
+    }
+    SECTION("the install folder comes before the preferences folder")
+    {
+        // The sidecar shows which copy was read: a name-only helper would not.
+        Tree t("app_before_pref");
+        t.put(t.app / "scripts" / "table.vbs", vpx_fixtures::kSidecar);
+        t.put(t.pref / "table.vbs", "Sub FromPref() : End Sub\r\n");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.script == vpx_fixtures::kSidecar);
+    }
+}
+
+TEST_CASE("the sidecar is found by the script search, then by the folder's name", "[vpx_reader]")
+{
+    SECTION("table.vbs in the table's scripts/")
+    {
+        Tree t("sidecar_scripts");
+        t.put(t.table / "scripts" / "Table.VBS", vpx_fixtures::kSidecar);
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.sidecar);
+        CHECK(r.inputs.script == vpx_fixtures::kSidecar);
+    }
+    SECTION("table.vbs in VPX's preferences folder")
+    {
+        Tree t("sidecar_pref");
+        t.put(t.pref / "user" / "table.vbs", vpx_fixtures::kSidecar);
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.sidecar);
+        CHECK(r.inputs.script == vpx_fixtures::kSidecar);
+    }
+    SECTION("<folder>.vbs in the table's folder, after the search")
+    {
+        Tree t("sidecar_folder", "MyTable");
+        t.put(t.table / "mytable.vbs", vpx_fixtures::kSidecar);
+        auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.sidecar);
+        CHECK(r.inputs.script == vpx_fixtures::kSidecar);
+
+        t.put(t.app / "table.vbs", "Sub FromApp() : End Sub\r\n");
+        r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.script == "Sub FromApp() : End Sub\r\n");
+    }
+}
+
+TEST_CASE("helper names with folders are followed; ones that leave the search are not",
+          "[vpx_reader]")
+{
+    auto model = vpx_fixtures::table();
+    model.inputs.script = "ExecuteGlobal GetTextFile(\"lib\\Shared.vbs\")\r\n"
+                          "ExecuteGlobal GetTextFile(\"..\\outside.vbs\")\r\n"
+                          "ExecuteGlobal GetTextFile(\"/abs.vbs\")\r\n"
+                          "ExecuteGlobal GetTextFile(\"C:\\drive.vbs\")\r\n";
+    Tree t("relative");
+    const auto bytes = vpx_fixtures::build(model).bytes;
+    std::ofstream(t.table / "table.vpx", std::ios::binary | std::ios::trunc)
+            .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    t.put(t.table / "Lib" / "shared.vbs", "Sub Shared() : End Sub\r\n");
+    t.put(t.root / "outside.vbs", "Sub Outside() : End Sub\r\n");
+    const auto r = t.sign();
+    CHECK(r.code == Code::missing_helper);
+    CHECK(r.signature.top == Digest {}); // no signature
+    CHECK(helperNames(r) == std::vector<std::string> {"lib/shared.vbs"});
+    CHECK(r.missingHelpers
+          == std::vector<std::string> {"..\\outside.vbs", "/abs.vbs", "c:\\drive.vbs"});
+}
+
+TEST_CASE("the embedded script ends at its first NUL", "[vpx_reader]")
+{
+    auto model = vpx_fixtures::table();
+    model.inputs.script = std::string("Sub Real() : End Sub\r\n") + '\0' + "Sub Hidden() : End Sub\r\n";
+    const auto bytes = vpx_fixtures::build(model).bytes;
+    const auto c = vpx::parse(bytes.data(), bytes.size());
+    REQUIRE(c.code == Code::ok);
+    CHECK(c.inputs.script == "Sub Real() : End Sub\r\n");
+}
+
+TEST_CASE("a textbox's and a decal's FONT descriptor is read as the field's value", "[vpx_reader]")
+{
+    const auto model = vpx_fixtures::table();
+    const auto c = parseFile(kFixtures / "unmodified" / "table.vpx");
+    REQUIRE(c.code == Code::ok);
+    REQUIRE(c.inputs.items.size() == 8);
+    for (const size_t i : {size_t(6), size_t(7)}) {
+        INFO(model.inputs.items[i].name);
+        CHECK(c.inputs.items[i].name == model.inputs.items[i].name);
+        requireSameFields(c.inputs.items[i].fields, model.inputs.items[i].fields);
+    }
+    CHECK(c.inputs.items[6].fields[2].value == vpx_fixtures::fontDescriptor("Arial", 120000));
+}
+
 TEST_CASE("vpx reader reports unreadable and malformed tables", "[vpx_reader]")
 {
     for (const char *name : {"truncated.vpx", "bad_header.vpx", "fat_cycle.vpx", "bad_biff.vpx"}) {

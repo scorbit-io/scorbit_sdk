@@ -474,6 +474,17 @@ inline void addMesh(Item &prim, float scale)
     prim.fields.push_back({"M3CI", ci});
 }
 
+/// A FONT descriptor as WriteFontDescriptor lays it out after the tag: version, charset,
+/// attributes, weight, size, name length, name.
+inline auto fontDescriptor(const std::string &name, uint32_t size) -> Bytes
+{
+    Bytes b = {1, 0, 0, 0, 0x90, 0x01};
+    b = cat(b, i32(size));
+    b.push_back(uint8_t(name.size()));
+    b.insert(b.end(), name.begin(), name.end());
+    return b;
+}
+
 inline auto script() -> std::string
 {
     return "Option Explicit\r\n"
@@ -557,7 +568,16 @@ inline auto table(bool cosmetic = false, float bumperY = 600.f) -> Table
     auto light = named(kLight, "Light1");
     light.fields.push_back({"STAT", i32(1)});
     light.fields.push_back({"COLR", i32(cosmetic ? 0x00FF00 : 0xFF0000)});
-    in.items = {wall1, wall2, flipper, bumper, prim, light};
+    // A textbox and a decal: their FONT record has untagged data after it, as in real tables.
+    auto textbox = named(vpx::detail::kTextbox, "Score1");
+    textbox.fields.push_back({"VER1", vec2(10.f, 10.f)});
+    textbox.fields.push_back({"FONT", fontDescriptor(cosmetic ? "Courier New" : "Arial", 120000)});
+    textbox.fields.push_back({"TEXT", str("0")});
+    auto decal = named(vpx::detail::kDecal, "Logo");
+    decal.fields.push_back({"VCEN", vec2(500.f, 1500.f)});
+    decal.fields.push_back({"FONT", fontDescriptor("Tahoma", 80000)});
+    decal.fields.push_back({"TYPE", i32(0)});
+    in.items = {wall1, wall2, flipper, bumper, prim, light, textbox, decal};
 
     Collection targets;
     targets.name = "Targets";
@@ -584,7 +604,8 @@ inline auto itemStream(const Item &it) -> Bytes
 {
     Bytes b = i32(it.type);
     for (const auto &f : it.fields) {
-        b = cat(b, record(f.tag, f.value));
+        // FONT: a tag-only record, then the descriptor untagged (WriteFontDescriptor).
+        b = f.tag == "FONT" ? cat(cat(b, record(f.tag, {})), f.value) : cat(b, record(f.tag, f.value));
     }
     for (const auto &p : it.dragPoints) {
         b = cat(b, record("DPNT", {}));
@@ -808,6 +829,18 @@ inline auto corpus() -> std::vector<Case>
         biff("CODE count negative", "GameData", cat(record("CODE", {}), i32(-1)), kMalformed);
         biff("CODE without its count", "GameData", record("CODE", {}), kMalformed);
         biff("version 30", "Version", i32(30), kMalformed);
+    }
+    {
+        // A textbox's FONT descriptor cut short, its name running past the stream, or missing.
+        const Bytes head = cat(i32(vpx::detail::kTextbox), record("FONT", {}));
+        biff("FONT descriptor cut short", "GameItem6", cat(head, Bytes(10, 0)), kMalformed);
+        Bytes longName = cat(head, fontDescriptor("Arial", 1));
+        longName[longName.size() - 6] = 0xFF; // the name length byte
+        biff("FONT name past the stream", "GameItem6", longName, kMalformed);
+        biff("FONT without its descriptor", "GameItem6", head, kMalformed);
+        // In an item type that never writes FONT, a tag-only FONT is an empty record.
+        biff("tag-only FONT in a wall", "GameItem0",
+             cat(cat(i32(kSurface), record("FONT", {})), record("ENDB", {})), int(Code::ok));
     }
     {
         // Primitive meshes: an inflate bomb, a vertex count past the cap, corrupt and truncated

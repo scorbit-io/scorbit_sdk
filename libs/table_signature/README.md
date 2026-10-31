@@ -91,24 +91,42 @@ the zlib decoder it uses for primitive meshes. `parse` takes the file's bytes an
 FILE_SHARE_WRITE` on Windows), and reads only the compound file's header, FAT, directory and the
 streams hashed here, never images or sounds. Both are `noexcept` and return a `Code`: `ok`,
 `table_unreadable_permission`, `table_unreadable`, `legacy_protected`, `unnamed_helper`,
+`missing_helper`,
 `signature_too_large`, `malformed` or `cancelled`. Every size and count has a cap (`Limits`), and a
 cancel flag is checked between streams. Nothing is logged, and the result depends on nothing but the
 files read.
 
-Scripts are resolved as VPX does, from folders passed in, never the working directory: a sidecar
-`<table>.vbs` in the table directory (name matched ignoring ASCII case) replaces the `CODE` record;
-otherwise a `CODE` record under legacy protection (`SECB` with script editing disabled) is
-`legacy_protected`. Each literal helper name, breadth-first and once, is looked up in the table
-directory (its content hashed and its own loads followed), then in VPX's `scripts` folder and VPX's
-folder (its name hashed). A name found in none is reported in `missingHelpers` and not hashed; a
-name with a path in it is not followed.
+Scripts are resolved as VPX does, from folders passed in (`Paths`). A name is searched in VPX's
+`SearchScript` order, and the first match wins:
+1. the table's folder, its `user/` and `scripts/`;
+2. VPX's install folder, its `user/`, `scripts/` and `tables/`;
+3. VPX's preferences folder, its `user/` and `scripts/`.
 
-How the reader takes the file apart: items are the `GameStg/GameItemN` streams in N order (a 4-byte
-item type, then records to `ENDB`); collections are `GameStg/CollectionN` (`NAME` and repeated `ITEM`,
-both UTF-16 strings); names are converted to UTF-8. Physics materials come from the `PHMA` record of
-`GameStg/GameData`, an array of 48-byte entries (32-byte name, then elasticity, elasticity falloff,
-friction, scatter angle). A table whose `GameStg/Version` is 30 or below writes records without
-lengths and is `malformed`.
+Each part of a name is matched ignoring ASCII case. A sidecar `<table>.vbs`, found by that search or
+else as `<folder>.vbs` in the table's folder, replaces the `CODE` record. Otherwise a `CODE` record
+under legacy protection (`SECB` with script editing disabled) is `legacy_protected`. The `CODE`
+script ends at its first NUL, as VPX reads it.
+
+Each literal helper name, breadth-first and once, goes through the same search. A match under the
+table's folder has its content hashed and its own loads followed; a match in VPX's folders has its
+name hashed. A relative name (`lib\x.vbs`) is followed and hashed as `lib/x.vbs`. Some names are not
+followed, unlike VPX: a name with a root, a drive or a `..` part. A name found nowhere makes
+`GetTextFile` fail in VPX, a run-time error, so the table has no signature: `missing_helper`, with the
+names in `missingHelpers`. A name that is not followed counts as missing.
+
+How the reader takes the file apart:
+- Items are the `GameStg/GameItemN` streams in N order: a 4-byte item type, then records to `ENDB`.
+  A textbox's or decal's `FONT` record has a length that covers only its tag; the font descriptor
+  after it (11 bytes, then the name) is that field's value.
+- Collections are `GameStg/CollectionN`: `NAME` and repeated `ITEM`, both UTF-16 strings. Names are
+  converted to UTF-8.
+- Physics materials come from the `PHMA` record of `GameStg/GameData`, an array of 48-byte entries:
+  a 32-byte name, then elasticity, elasticity falloff, friction and scatter angle. Tables saved by
+  VPX 10.8 or later (version 1080 and up) also write a `MATR` sub-object per material. When `MATR`
+  is present at that version it replaces the `PHMA` materials. VPX writes the same physics values
+  to both, so the reader uses `PHMA`. If the two ever differ, read `MATR` and make it a new version.
+- A table whose `GameStg/Version` is 30 or below writes records without lengths and is
+  `malformed`.
 
 `tools/make_vpx_fixtures.cpp` writes synthetic tables under `fixtures/vpx/` and their expected
 signatures to `vpx_fixtures.json`, computed from the model each file was written from.

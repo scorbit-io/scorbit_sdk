@@ -104,9 +104,10 @@ int main(int argc, char **argv)
     }
     {
         Fixture f = fixture("missing_helper",
-                            "Helper.vbs is not beside the table: not hashed, script digest changes",
+                            "Helper.vbs is found nowhere: VPX would fail to load it, no signature",
                             table());
         f.helpers = false;
+        f.code = vpx::Code::missing_helper;
         fixtures.push_back(f);
     }
     {
@@ -138,7 +139,7 @@ int main(int argc, char **argv)
             }
         }
         std::string top, script, items, physics;
-        if (f.code != vpx::Code::legacy_protected) {
+        if (f.code != vpx::Code::legacy_protected && f.code != vpx::Code::missing_helper) {
             const Signature s = compute(expected);
             if (s.unavailable.empty() != (f.code == vpx::Code::ok)) {
                 std::fprintf(stderr, "%s: compute disagrees with the expected code\n",
