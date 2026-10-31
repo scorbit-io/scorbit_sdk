@@ -17,10 +17,37 @@
  * SOFTWARE.
  */
 
-// A small zlib (RFC 1950) / DEFLATE (RFC 1951) decoder for untrusted input, written for this
-// library in the canonical-Huffman style of Mark Adler's puff.c. Header-only, C++17, no
-// dependencies. Every read is bounds-checked, the output never exceeds the caller's cap, and
-// nothing recurses or throws except std::bad_alloc from the output vector.
+/*
+ * Altered from puff.c: the Huffman table construction and decoding, the code-length order and the
+ * incomplete-code rule follow it. This is not the original software. Its notice:
+ *
+ *   puff.c / puff.h
+ *   Copyright (C) 2002-2013 Mark Adler, all rights reserved
+ *   version 2.3, 21 Jan 2013
+ *
+ *   This software is provided 'as-is', without any express or implied
+ *   warranty.  In no event will the author be held liable for any damages
+ *   arising from the use of this software.
+ *
+ *   Permission is granted to anyone to use this software for any purpose,
+ *   including commercial applications, and to alter it and redistribute it
+ *   freely, subject to the following restrictions:
+ *
+ *   1. The origin of this software must not be misrepresented; you must not
+ *      claim that you wrote the original software. If you use this software
+ *      in a product, an acknowledgment in the product documentation would be
+ *      appreciated but is not required.
+ *   2. Altered source versions must be plainly marked as such, and must not be
+ *      misrepresented as being the original software.
+ *   3. This notice may not be removed or altered from any source distribution.
+ *
+ *   Mark Adler    madler@alumni.caltech.edu
+ */
+
+// A small zlib (RFC 1950) / DEFLATE (RFC 1951) decoder for untrusted input, altered from puff.c
+// (above) as a C++17 class with an output cap. Header-only, no dependencies. Every read is
+// bounds-checked, the output never exceeds the caller's cap, and nothing recurses or throws
+// except std::bad_alloc from the output vector.
 
 #pragma once
 
@@ -126,8 +153,8 @@ private:
         if (m_size - m_pos < 4) {
             return Status::malformed;
         }
-        const unsigned len = m_in[m_pos] | (m_in[m_pos + 1] << 8);
-        const unsigned nlen = m_in[m_pos + 2] | (m_in[m_pos + 3] << 8);
+        const unsigned len = unsigned(m_in[m_pos]) | (unsigned(m_in[m_pos + 1]) << 8);
+        const unsigned nlen = unsigned(m_in[m_pos + 2]) | (unsigned(m_in[m_pos + 3]) << 8);
         m_pos += 4;
         if (len != (~nlen & 0xffffu) || m_size - m_pos < len) {
             return Status::malformed;

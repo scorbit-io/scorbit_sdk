@@ -31,6 +31,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 namespace table_signature {
@@ -587,7 +588,8 @@ constexpr int kMaxStringDepth = 3;
 inline auto scriptReferences(const std::vector<std::string> &tokens, int depth = 0) -> ScriptReferences
 {
     ScriptReferences out;
-    std::vector<size_t> arguments; // literal arguments, which are file names, not code
+    std::unordered_set<std::string> seen;   // out.names, for constant-time de-duplication
+    std::unordered_set<size_t> arguments;   // literal arguments, which are file names, not code
     for (size_t i = 0; i < tokens.size(); i++) {
         if (tokens[i] != "gettextfile" && tokens[i] != "loadscript") {
             continue;
@@ -610,7 +612,7 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
             out.dynamic++;
             continue;
         }
-        arguments.push_back(j);
+        arguments.insert(j);
         std::string name;
         const auto &t = tokens[j];
         for (size_t k = 1; k + 1 < t.size(); k++) {
@@ -619,7 +621,7 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
                 k++; // "" is one quote
             }
         }
-        if (std::find(out.names.begin(), out.names.end(), name) == out.names.end()) {
+        if (seen.insert(name).second) {
             out.names.push_back(name);
         }
     }
@@ -627,7 +629,7 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
     // nested too deep to follow. A string that merely mentions one costs a signature, never a match.
     for (size_t i = 0; i < tokens.size(); i++) {
         const auto &t = tokens[i];
-        if (t.empty() || t.front() != '"' || std::find(arguments.begin(), arguments.end(), i) != arguments.end()) {
+        if (t.empty() || t.front() != '"' || arguments.count(i) != 0) {
             continue;
         }
         std::string inner;
@@ -655,7 +657,7 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
         const auto nested = scriptReferences(tokenize(inner), depth + 1);
         out.dynamic += nested.dynamic;
         for (const auto &name : nested.names) {
-            if (std::find(out.names.begin(), out.names.end(), name) == out.names.end()) {
+            if (seen.insert(name).second) {
                 out.names.push_back(name);
             }
         }

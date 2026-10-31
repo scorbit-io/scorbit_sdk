@@ -224,18 +224,29 @@ struct Built {
             entry; // stream name -> directory index; "Root Entry", "GameStg"
     std::map<std::string, uint32_t> start; // stream name -> first (mini)sector
     uint32_t entries = 0;
+    uint32_t sectorSize = 512;
 };
 
-inline auto sectorOffset(uint32_t sid) -> size_t
+struct CfbOptions {
+    bool version4 = false;        // 4096-byte sectors instead of 512
+    uint32_t minFatSectors = 0;   // pad the FAT with unused sectors; above 109 this forces a DIFAT
+};
+
+inline auto sectorOffset(uint32_t sid, uint32_t sectorSize = 512) -> size_t
 {
-    return (size_t(sid) + 1) * 512;
+    return (size_t(sid) + 1) * sectorSize;
 }
 
-/// Version 3 (512-byte sectors), streams under 4096 bytes in the mini stream, no timestamps.
-inline auto writeCfb(const std::vector<Stream> &streams) -> Built
+/// Streams under 4096 bytes in the mini stream, no timestamps. Version 3 (512-byte sectors) unless
+/// opts.version4.
+inline auto writeCfb(const std::vector<Stream> &streams, CfbOptions opts = {}) -> Built
 {
+    const uint32_t S = opts.version4 ? 4096 : 512;
+    const uint32_t perSec = S / 4; // 32-bit entries per sector
+    const uint32_t dirPerSec = S / 128;
     constexpr uint32_t kFree = 0xFFFFFFFF, kEnd = 0xFFFFFFFE, kFatSect = 0xFFFFFFFD;
     Built b;
+    b.sectorSize = S;
     Bytes mini;
     std::vector<uint32_t> miniFat;
     std::vector<uint32_t> startSector(streams.size(), kEnd);
@@ -259,24 +270,24 @@ inline auto writeCfb(const std::vector<Stream> &streams) -> Built
         }
     }
     const uint32_t entries = uint32_t(2 + streams.size());
-    const uint32_t nDir = (entries + 3) / 4;
-    const uint32_t nMiniFat = uint32_t((miniFat.size() + 127) / 128);
-    const uint32_t nContainer = uint32_t((mini.size() + 511) / 512);
+    const uint32_t nDir = (entries + dirPerSec - 1) / dirPerSec;
+    const uint32_t nMiniFat = uint32_t((miniFat.size() + perSec - 1) / perSec);
+    const uint32_t nContainer = uint32_t((mini.size() + S - 1) / S);
     uint32_t nRegular = 0;
     for (const size_t i : regular) {
-        nRegular += uint32_t((streams[i].data.size() + 511) / 512);
+        nRegular += uint32_t((streams[i].data.size() + S - 1) / S);
     }
-    // The header lists 109 FAT sectors; DIFAT sectors list 127 more each.
-    uint32_t nFat = 1, nDifat = 0;
+    // The header lists 109 FAT sectors; DIFAT sectors list perSec - 1 more each.
+    uint32_t nFat = std::max<uint32_t>(1, opts.minFatSectors), nDifat = 0;
     for (;;) {
-        nDifat = nFat > 109 ? (nFat - 109 + 126) / 127 : 0;
-        if (nFat * 128 >= nFat + nDifat + nDir + nMiniFat + nContainer + nRegular) {
+        nDifat = nFat > 109 ? (nFat - 109 + perSec - 2) / (perSec - 1) : 0;
+        if (nFat * perSec >= nFat + nDifat + nDir + nMiniFat + nContainer + nRegular) {
             break;
         }
         nFat++;
     }
     const uint32_t total = nFat + nDifat + nDir + nMiniFat + nContainer + nRegular;
-    std::vector<uint32_t> fat(size_t(nFat) * 128, kFree);
+    std::vector<uint32_t> fat(size_t(nFat) * perSec, kFree);
     uint32_t next = 0;
     auto run = [&](uint32_t n) -> uint32_t {
         const uint32_t first = next;
@@ -298,17 +309,20 @@ inline auto writeCfb(const std::vector<Stream> &streams) -> Built
     b.miniFatSector = run(nMiniFat);
     const uint32_t container = run(nContainer);
     for (const size_t i : regular) {
-        startSector[i] = run(uint32_t((streams[i].data.size() + 511) / 512));
+        startSector[i] = run(uint32_t((streams[i].data.size() + S - 1) / S));
     }
-    b.bytes.assign(sectorOffset(total), 0);
+    b.bytes.assign(sectorOffset(total, S), 0);
     // Header
     static const uint8_t sig[8] = {0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1};
     std::memcpy(&b.bytes[0], sig, 8);
     set16(b.bytes, 0x18, 0x3E);
-    set16(b.bytes, 0x1A, 3);
+    set16(b.bytes, 0x1A, opts.version4 ? 4 : 3);
     set16(b.bytes, 0x1C, 0xFFFE);
-    set16(b.bytes, 0x1E, 9);
+    set16(b.bytes, 0x1E, opts.version4 ? 12 : 9);
     set16(b.bytes, 0x20, 6);
+    if (opts.version4) {
+        set32(b.bytes, 0x28, nDir);
+    }
     set32(b.bytes, 0x2C, nFat);
     set32(b.bytes, 0x30, b.dirSector);
     set32(b.bytes, 0x38, 4096);
@@ -320,25 +334,25 @@ inline auto writeCfb(const std::vector<Stream> &streams) -> Built
         set32(b.bytes, 0x4C + 4 * k, k < nFat ? k : kFree);
     }
     for (uint32_t d = 0; d < nDifat; d++) {
-        const size_t p = sectorOffset(firstDifat + d);
-        for (uint32_t k = 0; k < 127; k++) {
-            const uint32_t sid = 109 + d * 127 + k;
+        const size_t p = sectorOffset(firstDifat + d, S);
+        for (uint32_t k = 0; k < perSec - 1; k++) {
+            const uint32_t sid = 109 + d * (perSec - 1) + k;
             set32(b.bytes, p + 4 * k, sid < nFat ? sid : kFree);
         }
-        set32(b.bytes, p + 4 * 127, d + 1 < nDifat ? firstDifat + d + 1 : kEnd);
+        set32(b.bytes, p + 4 * (perSec - 1), d + 1 < nDifat ? firstDifat + d + 1 : kEnd);
     }
     for (size_t k = 0; k < fat.size(); k++) {
-        set32(b.bytes, sectorOffset(0) + 4 * k, fat[k]);
+        set32(b.bytes, sectorOffset(0, S) + 4 * k, fat[k]);
     }
-    for (size_t k = 0; k < size_t(nMiniFat) * 128; k++) {
-        set32(b.bytes, sectorOffset(b.miniFatSector) + 4 * k,
+    for (size_t k = 0; k < size_t(nMiniFat) * perSec; k++) {
+        set32(b.bytes, sectorOffset(b.miniFatSector, S) + 4 * k,
               k < miniFat.size() ? miniFat[k] : kFree);
     }
     if (!mini.empty()) {
-        std::memcpy(&b.bytes[sectorOffset(container)], mini.data(), mini.size());
+        std::memcpy(&b.bytes[sectorOffset(container, S)], mini.data(), mini.size());
     }
     for (const size_t i : regular) {
-        std::memcpy(&b.bytes[sectorOffset(startSector[i])], streams[i].data.data(),
+        std::memcpy(&b.bytes[sectorOffset(startSector[i], S)], streams[i].data.data(),
                     streams[i].data.size());
     }
     // Directory: a balanced sibling tree in CFB order (name length, then upper-case name).
@@ -373,7 +387,7 @@ inline auto writeCfb(const std::vector<Stream> &streams) -> Built
     const uint32_t treeRoot = build(build, 0, order.size());
     auto writeEntry = [&](uint32_t index, const std::string &name, uint8_t type, uint32_t child,
                           uint32_t start, uint64_t size) {
-        const size_t p = sectorOffset(b.dirSector) + size_t(index) * 128;
+        const size_t p = sectorOffset(b.dirSector, S) + size_t(index) * 128;
         for (size_t k = 0; k < name.size(); k++) {
             set16(b.bytes, p + 2 * k, uint8_t(name[k]));
         }
@@ -393,8 +407,8 @@ inline auto writeCfb(const std::vector<Stream> &streams) -> Built
     for (uint32_t i = 0; i < streams.size(); i++) {
         writeEntry(2 + i, streams[i].name, 2, kFree, startSector[i], streams[i].data.size());
     }
-    for (uint32_t i = entries; i < nDir * 4; i++) {
-        const size_t p = sectorOffset(b.dirSector) + size_t(i) * 128;
+    for (uint32_t i = entries; i < nDir * dirPerSec; i++) {
+        const size_t p = sectorOffset(b.dirSector, S) + size_t(i) * 128;
         set32(b.bytes, p + 68, kFree);
         set32(b.bytes, p + 72, kFree);
         set32(b.bytes, p + 76, kFree);
@@ -587,6 +601,9 @@ inline auto table(bool cosmetic = false, float bumperY = 600.f) -> Table
 
     in.materials = {{"Rubber", 0.8f, 0.3f, 0.6f, 5.f}, {"Metal", 0.2f, 0.f, 0.15f, 0.f}};
     in.tableFields = {{"NAME", wide(cosmetic ? "Renamed" : "Table")},
+                      // VPX loads GameItem0..SEDT-1 and Collection0..SCOL-1.
+                      {"SEDT", i32(int64_t(in.items.size()))},
+                      {"SCOL", i32(int64_t(in.collections.size()))},
                       {"SLOP", f32(6.f)},
                       {"SLPX", f32(6.f)},
                       {"GAVT", f32(1.762985f)},
@@ -598,6 +615,18 @@ inline auto table(bool cosmetic = false, float bumperY = 600.f) -> Table
                       {"ZZZZ", Bytes(5000, cosmetic ? 0x5A : 0xA5)}};
     t.extra.push_back({"Image0", Bytes(6000, 0x11)});
     return t;
+}
+
+/// Sets SEDT and SCOL to the model's item and collection counts, after a change to either.
+inline void setCounts(Inputs &in)
+{
+    for (auto &f : in.tableFields) {
+        if (f.tag == "SEDT") {
+            f.value = i32(int64_t(in.items.size()));
+        } else if (f.tag == "SCOL") {
+            f.value = i32(int64_t(in.collections.size()));
+        }
+    }
 }
 
 inline auto itemStream(const Item &it) -> Bytes
@@ -730,6 +759,10 @@ inline auto corpus() -> std::vector<Case>
     }
     for (const uint32_t sid : {0xFFFFFFFEu, 0x7FFFFFFFu, fileSectors + 1, valid.dirSector}) {
         mutate("first mini FAT sector " + std::to_string(sid), 0x3C, sid, 4, -1);
+    }
+    // The mini FAT sector count: fewer than the mini stream needs, or more than the chain holds.
+    for (const uint32_t n : {0u, 2u, 1000u, 0x7FFFFFFFu, 0xFFFFFFFFu}) {
+        mutate("mini FAT sector count " + std::to_string(n), 0x40, n, 4, kMalformed);
     }
     for (const uint32_t sid : {0xFFFFFFFFu, 0x7FFFFFFFu, fileSectors + 1}) {
         mutate("DIFAT[0] " + std::to_string(sid), 0x4C, sid, 4, kMalformed);

@@ -24,9 +24,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <random>
+#ifndef _WIN32
+#    include <sys/stat.h>
+#endif
 
 using namespace table_signature;
 using vpx::Code;
@@ -36,6 +41,13 @@ namespace {
 
 const fs::path kRoot = TABLE_SIGNATURE_VPX_FIXTURES;
 const fs::path kFixtures = kRoot / "fixtures" / "vpx";
+
+/// A scratch folder name unique to this run, so test runs from two build trees do not collide.
+auto scratch(const std::string &name) -> fs::path
+{
+    static const std::string run = std::to_string(std::random_device {}());
+    return fs::temp_directory_path() / ("vpx_reader_" + run + "_" + name);
+}
 
 auto readBytes(const fs::path &p) -> std::vector<uint8_t>
 {
@@ -225,7 +237,7 @@ struct Tree {
     fs::path root, table, app, pref;
 
     explicit Tree(const std::string &name, const std::string &folder = "Table")
-        : root(fs::temp_directory_path() / ("vpx_reader_" + name))
+        : root(scratch(name))
     {
         fs::remove_all(root);
         table = root / folder;
@@ -448,7 +460,7 @@ TEST_CASE("vpx reader reports unreadable and malformed tables", "[vpx_reader]")
     CHECK(vpx::parse(nullptr, 0).code == Code::malformed);
 
 #ifndef _WIN32
-    const fs::path dir = fs::temp_directory_path() / "vpx_reader_permission_test";
+    const fs::path dir = scratch("permission");
     fs::remove_all(dir);
     fs::create_directories(dir);
     const fs::path locked = dir / "table.vpx";
@@ -527,8 +539,168 @@ TEST_CASE("inflated meshes count toward the total read cap", "[vpx_reader]")
     }
     const auto noMesh = vpx_fixtures::build(model).bytes;
     REQUIRE(withMesh.size() == noMesh.size());
-    // 24 vertices of 32 bytes and 36 16-bit indices.
-    CHECK(smallest(withMesh) - smallest(noMesh) == 24 * 32 + 36 * 2);
+    // 24 inflated vertices of 32 bytes and 36 16-bit indices, then the 24 x, y, z kept and the 36
+    // indices kept as 32-bit.
+    CHECK(smallest(withMesh) - smallest(noMesh) == 24 * 32 + 36 * 2 + 24 * 12 + 36 * 4);
+}
+
+TEST_CASE("parsed records count toward the total read cap", "[vpx_reader]")
+{
+    auto smallest = [](const std::vector<uint8_t> &b) {
+        uint64_t lo = 0, hi = 1u << 24;
+        while (lo < hi) {
+            const uint64_t mid = (lo + hi) / 2;
+            vpx::Options o;
+            o.limits.maxTotalRead = mid;
+            if (vpx::parse(b.data(), b.size(), o).code == Code::ok) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        return lo;
+    };
+    auto model = vpx_fixtures::table();
+    const auto plain = vpx_fixtures::build(model).bytes;
+    for (int i = 0; i < 1000; i++) {
+        model.inputs.items[0].fields.push_back({"ZZZZ", {}}); // 8 bytes in the file each
+    }
+    const auto many = vpx_fixtures::build(model).bytes;
+    // Each tiny record costs its object as well as its 8 bytes, so 1000 of them cost far more
+    // than the 8000 bytes they add to the file.
+    CHECK(smallest(many) - smallest(plain) >= 1000 * (8 + vpx::detail::kParsedOverhead));
+}
+
+TEST_CASE("items and collections are read as VPX loads them", "[vpx_reader]")
+{
+    auto model = vpx_fixtures::table();
+    for (int i = 0; i < 6; i++) { // 14 items, so GameItem10 sorts after GameItem9, not GameItem1
+        auto wall = vpx_fixtures::named(kSurface, "Extra" + std::to_string(i));
+        wall.fields.push_back({"HTTP", vpx_fixtures::f32(float(10 + i))});
+        model.inputs.items.push_back(wall);
+    }
+    vpx_fixtures::setCounts(model.inputs);
+    const auto streams = vpx_fixtures::streams(model);
+    auto parseStreams = [](const std::vector<vpx_fixtures::Stream> &st) {
+        const auto b = vpx_fixtures::writeCfb(st).bytes;
+        return vpx::parse(b.data(), b.size());
+    };
+
+    const auto c = parseStreams(streams);
+    REQUIRE(c.code == Code::ok);
+    REQUIRE(c.inputs.items.size() == 14);
+    for (size_t i = 0; i < 14; i++) {
+        CHECK(c.inputs.items[i].name == model.inputs.items[i].name);
+    }
+    const auto expected = hex(compute(c.inputs).top);
+
+    SECTION("streams past SEDT, or not named GameItemN exactly, are not read")
+    {
+        auto st = streams;
+        st.push_back({"GameItem14", vpx_fixtures::itemStream(model.inputs.items[0])});
+        st.push_back({"GameItem01", vpx_fixtures::itemStream(model.inputs.items[0])});
+        st.push_back({"Collection1", vpx_fixtures::collectionStream(model.inputs.collections[0])});
+        const auto r = parseStreams(st);
+        REQUIRE(r.code == Code::ok);
+        CHECK(hex(compute(r.inputs).top) == expected);
+    }
+    SECTION("a missing item stream is malformed; a missing collection is skipped")
+    {
+        auto st = streams;
+        st.erase(std::remove_if(st.begin(), st.end(), [](const auto &s) { return s.name == "GameItem5"; }),
+                 st.end());
+        CHECK(parseStreams(st).code == Code::malformed);
+        st = streams;
+        st.erase(std::remove_if(st.begin(), st.end(), [](const auto &s) { return s.name == "Collection0"; }),
+                 st.end());
+        const auto r = parseStreams(st);
+        REQUIRE(r.code == Code::ok);
+        CHECK(r.inputs.collections.empty());
+    }
+    SECTION("two streams whose names differ only in case are malformed")
+    {
+        auto st = streams;
+        st.push_back({"gameitem3", vpx_fixtures::itemStream(model.inputs.items[0])});
+        CHECK(parseStreams(st).code == Code::malformed);
+    }
+}
+
+TEST_CASE("scripts are capped in bytes and tokens", "[vpx_reader]")
+{
+    vpx::Options o;
+    o.limits.maxScriptBytes = 100;
+    CHECK(vpx::signFile(paths("unmodified"), o).code == Code::signature_too_large);
+    o = {};
+    o.limits.maxScriptTokens = 20;
+    CHECK(vpx::signFile(paths("unmodified"), o).code == Code::signature_too_large);
+    CHECK(vpx::signFile(paths("unmodified")).code == Code::ok);
+}
+
+TEST_CASE("helper names with more than eight parts are not followed", "[vpx_reader]")
+{
+    auto model = vpx_fixtures::table();
+    model.inputs.script = "ExecuteGlobal GetTextFile(\"a/b/c/d/e/f/g/eight.vbs\")\r\n"
+                          "ExecuteGlobal GetTextFile(\"a/b/c/d/e/f/g/h/nine.vbs\")\r\n";
+    Tree t("parts");
+    const auto bytes = vpx_fixtures::build(model).bytes;
+    std::ofstream(t.table / "table.vpx", std::ios::binary | std::ios::trunc)
+            .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
+    t.put(t.table / "a/b/c/d/e/f/g/eight.vbs", "'");
+    t.put(t.table / "a/b/c/d/e/f/g/h/nine.vbs", "'");
+    const auto r = t.sign();
+    CHECK(helperNames(r) == std::vector<std::string> {"a/b/c/d/e/f/g/eight.vbs"});
+    CHECK(r.missingHelpers == std::vector<std::string> {"a/b/c/d/e/f/g/h/nine.vbs"});
+}
+
+#ifndef _WIN32
+TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader]")
+{
+    SECTION("a helper that is a symbolic link")
+    {
+        Tree t("link_file");
+        t.put(t.root / "elsewhere" / "secret.txt", "Sub Secret() : End Sub\r\n");
+        fs::create_symlink(t.root / "elsewhere" / "secret.txt", t.table / "Helper.vbs");
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign();
+        CHECK(r.code == Code::missing_helper);
+        CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
+        CHECK(r.inputs.helperScripts.empty());
+    }
+    SECTION("a folder that is a symbolic link")
+    {
+        Tree t("link_dir");
+        t.put(t.root / "elsewhere" / "Helper.vbs", vpx_fixtures::kHelper);
+        fs::create_directory_symlink(t.root / "elsewhere", t.table / "user");
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign();
+        CHECK(r.code == Code::missing_helper);
+        CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
+    }
+    SECTION("a sidecar that is a FIFO")
+    {
+        Tree t("fifo");
+        REQUIRE(::mkfifo((t.table / "table.vbs").c_str(), 0600) == 0);
+        t.put(t.table / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign(); // returns: the FIFO is never opened
+        REQUIRE(r.code == Code::ok);
+        CHECK_FALSE(r.sidecar);
+    }
+}
+#endif
+
+TEST_CASE("result codes keep their values", "[vpx_reader]")
+{
+    CHECK(int(Code::ok) == 0);
+    CHECK(int(Code::table_unreadable_permission) == 1);
+    CHECK(int(Code::table_unreadable) == 2);
+    CHECK(int(Code::legacy_protected) == 3);
+    CHECK(int(Code::unnamed_helper) == 4);
+    CHECK(int(Code::missing_helper) == 5);
+    CHECK(int(Code::signature_too_large) == 6);
+    CHECK(int(Code::malformed) == 7);
+    CHECK(int(Code::cancelled) == 8);
 }
 
 TEST_CASE("vpx reader survives the malformed corpus", "[vpx_reader]")

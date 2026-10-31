@@ -38,6 +38,7 @@
 #include <new>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -58,18 +59,19 @@
 
 namespace table_signature::vpx {
 
-enum class Code {
-    ok,
-    table_unreadable_permission, ///< the table or a script it needs could not be opened:
-                                 ///< EACCES/EPERM
-    table_unreadable,            ///< any other open or read failure
-    legacy_protected,    ///< the embedded script is encrypted by VPX's legacy table protection
-    unnamed_helper,      ///< compute() refused: the script loads a helper by a non-literal name
-    missing_helper,      ///< a helper named by a literal is found nowhere (or is not followed);
-                         ///< VPX would fail to load it at run time. Names in missingHelpers.
-    signature_too_large, ///< a size or count cap was reached
-    malformed,           ///< not a well-formed compound file or BIFF data
-    cancelled,
+/// Values are fixed and only ever appended to, since hosts may store them.
+enum class Code : int {
+    ok = 0,
+    table_unreadable_permission = 1, ///< the table or a script it needs could not be opened:
+                                     ///< EACCES/EPERM
+    table_unreadable = 2,            ///< any other open or read failure
+    legacy_protected = 3,    ///< the embedded script is encrypted by VPX's legacy table protection
+    unnamed_helper = 4,      ///< compute() refused: the script loads a helper by a non-literal name
+    missing_helper = 5,      ///< a helper named by a literal is found nowhere (or is not followed);
+                             ///< VPX would fail to load it at run time. Names in missingHelpers.
+    signature_too_large = 6, ///< a size or count cap was reached
+    malformed = 7,           ///< not a well-formed compound file or BIFF data
+    cancelled = 8,
 };
 
 inline auto codeName(Code c) noexcept -> const char *
@@ -108,6 +110,9 @@ struct Limits {
     uint32_t maxRecords = 1u << 20;    ///< BIFF records in one stream
     uint32_t maxDragPoints = 1u << 16; ///< per item
     uint32_t maxHelperScripts = 256;
+    /// The script, sidecar and helpers together: they are tokenized, at most one token per byte.
+    uint64_t maxScriptBytes = uint64_t(2) << 20;
+    uint64_t maxScriptTokens = uint64_t(1) << 20; ///< tokens over all scripts scanned
 };
 
 struct Options {
@@ -137,7 +142,7 @@ struct Paths {
 struct Result {
     Code code = Code::malformed;
     Signature signature;                     ///< valid only when code is ok
-    Inputs inputs;                           ///< what was hashed (as far as it was read)
+    Inputs inputs; ///< what was hashed: filled for ok, unnamed_helper and missing_helper, else empty
     /// Literal helper names found nowhere, or with a path that is not followed; any makes the
     /// code missing_helper.
     std::vector<std::string> missingHelpers;
@@ -265,29 +270,41 @@ class FileSource : public Source
 public:
     ~FileSource() override { close(); }
 
-    auto open(const std::string &utf8Path) -> Code
+    /// noFollow: refuse a symbolic link or other reparse point as the file itself.
+    auto open(const std::string &utf8Path, bool noFollow = false) -> Code
     {
 #ifdef _WIN32
         const std::wstring wide = widen(utf8Path);
         if (wide.empty() && !utf8Path.empty()) {
             return Code::table_unreadable;
         }
-        m_handle = CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        m_handle = CreateFileW(wide.c_str(), GENERIC_READ,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                               OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL | (noFollow ? FILE_FLAG_OPEN_REPARSE_POINT : 0),
+                               nullptr);
         if (m_handle == INVALID_HANDLE_VALUE) {
-            return GetLastError() == ERROR_ACCESS_DENIED ? Code::table_unreadable_permission
-                                                         : Code::table_unreadable;
+            if (GetLastError() != ERROR_ACCESS_DENIED) {
+                return Code::table_unreadable;
+            }
+            // Opening a folder is refused as access denied too; that is not a permission problem.
+            const DWORD attributes = GetFileAttributesW(wide.c_str());
+            return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+                           ? Code::table_unreadable
+                           : Code::table_unreadable_permission;
         }
         LARGE_INTEGER size;
         BY_HANDLE_FILE_INFORMATION info;
-        if (!GetFileInformationByHandle(m_handle, &info)
+        if (GetFileType(m_handle) != FILE_TYPE_DISK || !GetFileInformationByHandle(m_handle, &info)
             || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+            || (noFollow && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
             || !GetFileSizeEx(m_handle, &size) || size.QuadPart < 0) {
             return Code::table_unreadable;
         }
         m_size = static_cast<uint64_t>(size.QuadPart);
 #else
-        int flags = O_RDONLY;
+        // O_NONBLOCK: a FIFO put in the file's place must not block the open; S_ISREG refuses it.
+        int flags = O_RDONLY | O_NONBLOCK | (noFollow ? O_NOFOLLOW : 0);
 #    ifdef O_CLOEXEC
         flags |= O_CLOEXEC;
 #    endif
@@ -397,7 +414,7 @@ struct DirEntry {
 /// Counts bytes read against Limits::maxTotalRead, before they are allocated.
 inline void charge(uint64_t &total, uint64_t bytes, const Limits &limits)
 {
-    if (bytes > limits.maxTotalRead - std::min(total, limits.maxTotalRead)) {
+    if (bytes > limits.maxTotalRead - (std::min)(total, limits.maxTotalRead)) {
         fail(Code::signature_too_large);
     }
     total += bytes;
@@ -448,6 +465,7 @@ public:
         }
         m_firstDir = le32(h + 0x30);
         m_firstMiniFat = le32(h + 0x3C);
+        m_numMiniFat = le32(h + 0x40);
         const uint32_t numDifat = le32(h + 0x48);
 
         // DIFAT: 109 entries in the header, then a chain of DIFAT sectors.
@@ -675,10 +693,16 @@ private:
             fail(Code::signature_too_large);
         }
         m_miniContainer = chain(true, root.start, count(root.size, m_sectorSize), true);
+        // The header says how many sectors the mini FAT has; a writer may over-allocate it. Walk
+        // that chain exactly (chain() refuses more than the file holds), then load only the
+        // sectors the mini stream needs, so a huge count costs no memory.
         const uint64_t miniSectors = count(root.size, kMiniSectorSize);
-        const auto sectors = chain(
-                true, m_firstMiniFat,
-                std::min<uint64_t>(count(miniSectors * 4, m_sectorSize), m_fatEntries), false);
+        const uint64_t needed = count(miniSectors * 4, m_sectorSize);
+        if (uint64_t(m_numMiniFat) < needed) {
+            fail(Code::malformed);
+        }
+        auto sectors = chain(true, m_firstMiniFat, m_numMiniFat, true);
+        sectors.resize(static_cast<size_t>(needed));
         std::vector<uint8_t> s(m_sectorSize);
         for (const uint32_t sid : sectors) {
             readSector(sid, s.data());
@@ -717,6 +741,7 @@ private:
     uint64_t m_fileSectors = 0;
     uint32_t m_firstDir = kEndOfChain;
     uint32_t m_firstMiniFat = kEndOfChain;
+    uint32_t m_numMiniFat = 0;
     std::vector<uint32_t> m_fatSectors;
     uint64_t m_fatEntries = 0;
     std::map<uint32_t, std::vector<uint32_t>> m_fatPages;
@@ -810,8 +835,13 @@ private:
     bool m_font;
 };
 
-inline auto field(const Record &r) -> Field
+// What one parsed record or string is charged to maxTotalRead on top of its bytes: the object and
+// its heap blocks, so many tiny records cannot add up to far more memory than the cap.
+constexpr uint64_t kParsedOverhead = sizeof(Field) + 64;
+
+inline auto field(const Record &r, uint64_t &total, const Limits &limits) -> Field
 {
+    charge(total, kParsedOverhead + r.size, limits);
     return {r.tag, std::vector<uint8_t>(r.data, r.data + r.size)};
 }
 
@@ -862,8 +892,9 @@ inline void readMesh(Item &item, const Limits &limits, uint64_t &total)
     if (vertexBytes > limits.maxMeshBytes || indexBytes > limits.maxMeshBytes) {
         fail(Code::signature_too_large);
     }
-    // Inflated meshes count toward maxTotalRead: a small zlib field can expand ~1000-fold.
-    charge(total, vertexBytes + indexBytes, limits);
+    // Inflated meshes count toward maxTotalRead (a small zlib field can expand ~1000-fold), and so
+    // do the positions and 32-bit indices kept from them.
+    charge(total, vertexBytes + indexBytes + uint64_t(vertices) * 12 + uint64_t(indices) * 4, limits);
     auto load = [&](const char *raw, const char *packed, uint64_t want) -> std::vector<uint8_t> {
         if (const Field *f = lastField(item.fields, packed)) {
             std::vector<uint8_t> out;
@@ -922,7 +953,7 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits, ui
                 point.clear();
                 inPoint = false;
             } else {
-                point.push_back(field(r));
+                point.push_back(field(r, total, limits));
             }
         } else if (r.tag == "ENDB") {
             ended = true;
@@ -930,12 +961,13 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits, ui
             if (item.dragPoints.size() >= limits.maxDragPoints) {
                 fail(Code::signature_too_large);
             }
+            charge(total, kParsedOverhead, limits);
             inPoint = true;
         } else {
             if (r.tag == "NAME") {
                 item.name = wideString(r);
             }
-            item.fields.push_back(field(r));
+            item.fields.push_back(field(r, total, limits));
         }
     }
     if (inPoint) {
@@ -947,7 +979,8 @@ inline auto readItem(const std::vector<uint8_t> &bytes, const Limits &limits, ui
     return item;
 }
 
-inline auto readCollection(const std::vector<uint8_t> &bytes, const Limits &limits) -> Collection
+inline auto readCollection(const std::vector<uint8_t> &bytes, const Limits &limits, uint64_t &total)
+        -> Collection
 {
     Collection c;
     Biff biff(bytes, 0, limits.maxRecords);
@@ -956,9 +989,10 @@ inline auto readCollection(const std::vector<uint8_t> &bytes, const Limits &limi
         if (r.tag == "NAME") {
             c.name = wideString(r);
         } else if (r.tag == "ITEM") {
+            charge(total, kParsedOverhead + r.size, limits);
             c.members.push_back(wideString(r));
         } else {
-            c.fields.push_back(field(r));
+            c.fields.push_back(field(r, total, limits));
         }
     }
     return c;
@@ -971,7 +1005,8 @@ constexpr uint32_t kDisableScriptEditing = 0x00000002;
 constexpr uint32_t kDisableEverything = 0x80000000;
 constexpr size_t kSavePhysicsMaterialSize = 48; // char name[32], 4 floats
 
-inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const Limits &limits)
+inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const Limits &limits,
+                         uint64_t &total)
 {
     Biff biff(bytes, 0, limits.maxRecords, true);
     Record r;
@@ -998,10 +1033,11 @@ inline void readGameData(const std::vector<uint8_t> &bytes, Contents &c, const L
                     const uint32_t bits = le32(p + 32 + 4 * k);
                     std::memcpy(dst[k], &bits, 4);
                 }
+                charge(total, sizeof(PhysicsMaterial) + 32, limits);
                 c.inputs.materials.push_back(std::move(m));
             }
         }
-        c.inputs.tableFields.push_back(field(r));
+        c.inputs.tableFields.push_back(field(r, total, limits));
     }
 }
 
@@ -1010,24 +1046,6 @@ inline void checkCancel(const Options &opt)
     if (opt.cancel != nullptr && opt.cancel->load()) {
         fail(Code::cancelled);
     }
-}
-
-/// "GameItem12" -> 12, else -1.
-inline auto streamIndex(const std::string &name, const char *prefix) -> int64_t
-{
-    const size_t n = std::strlen(prefix);
-    if (name.size() <= n || name.size() > n + 9
-        || lowerAscii(name.substr(0, n)) != lowerAscii(prefix)) {
-        return -1;
-    }
-    int64_t v = 0;
-    for (size_t i = n; i < name.size(); i++) {
-        if (name[i] < '0' || name[i] > '9') {
-            return -1;
-        }
-        v = v * 10 + (name[i] - '0');
-    }
-    return v;
 }
 
 inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Contents
@@ -1039,28 +1057,21 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
     if (game == kNoStream || cfb.entries()[game].type != 1) {
         fail(Code::malformed);
     }
-    std::vector<std::pair<int64_t, uint32_t>> items, collections;
-    uint32_t gameData = kNoStream, version = kNoStream;
+    // GameStg's streams by name, ignoring ASCII case as compound files name them; two that differ
+    // only in case are malformed.
+    std::map<std::string, uint32_t> byName;
     for (const uint32_t i : cfb.children(game)) {
-        const DirEntry &e = cfb.entries()[i];
-        if (e.type != 2) {
-            continue;
-        }
-        if (lowerAscii(e.name) == "gamedata") {
-            gameData = i;
-        } else if (lowerAscii(e.name) == "version") {
-            version = i;
-        } else if (const int64_t n = streamIndex(e.name, "GameItem"); n >= 0) {
-            items.emplace_back(n, i);
-        } else if (const int64_t k = streamIndex(e.name, "Collection"); k >= 0) {
-            collections.emplace_back(k, i);
+        if (!byName.emplace(lowerAscii(cfb.entries()[i].name), i).second) {
+            fail(Code::malformed);
         }
     }
+    auto stream = [&](const std::string &name) -> uint32_t {
+        const auto it = byName.find(lowerAscii(name));
+        return it == byName.end() || cfb.entries()[it->second].type != 2 ? kNoStream : it->second;
+    };
+    const uint32_t gameData = stream("GameData"), version = stream("Version");
     if (gameData == kNoStream) {
         fail(Code::malformed);
-    }
-    if (items.size() + collections.size() > opt.limits.maxStreams) {
-        fail(Code::signature_too_large);
     }
     // Files before version 31 write BIFF records without lengths; they cannot be walked safely.
     if (version != kNoStream) {
@@ -1071,16 +1082,28 @@ inline auto readContents(Source &src, const Options &opt, uint64_t &total) -> Co
         }
     }
     checkCancel(opt);
-    readGameData(cfb.readStream(gameData), c, opt.limits);
-    std::sort(items.begin(), items.end());
-    std::sort(collections.begin(), collections.end());
-    for (const auto &it : items) {
-        checkCancel(opt);
-        c.inputs.items.push_back(readItem(cfb.readStream(it.second), opt.limits, total));
+    readGameData(cfb.readStream(gameData), c, opt.limits, total);
+    // As VPX loads them: GameItem0 to SEDT-1, each required, and Collection0 to SCOL-1, a missing
+    // one skipped. Other streams are not read.
+    const int64_t itemCount = (std::max)(int64_t(0), int32Value(lastField(c.inputs.tableFields, "SEDT")));
+    const int64_t collectionCount =
+            (std::max)(int64_t(0), int32Value(lastField(c.inputs.tableFields, "SCOL")));
+    if (uint64_t(itemCount) + uint64_t(collectionCount) > opt.limits.maxStreams) {
+        fail(Code::signature_too_large);
     }
-    for (const auto &it : collections) {
+    for (int64_t i = 0; i < itemCount; i++) {
         checkCancel(opt);
-        c.inputs.collections.push_back(readCollection(cfb.readStream(it.second), opt.limits));
+        const uint32_t e = stream("GameItem" + std::to_string(i));
+        if (e == kNoStream) {
+            fail(Code::malformed);
+        }
+        c.inputs.items.push_back(readItem(cfb.readStream(e), opt.limits, total));
+    }
+    for (int64_t i = 0; i < collectionCount; i++) {
+        checkCancel(opt);
+        if (const uint32_t e = stream("Collection" + std::to_string(i)); e != kNoStream) {
+            c.inputs.collections.push_back(readCollection(cfb.readStream(e), opt.limits, total));
+        }
     }
     c.code = Code::ok;
     return c;
@@ -1097,49 +1120,113 @@ inline auto toPath(const std::string &utf8) -> std::filesystem::path
 #endif
 }
 
+/// A path from a caller's UTF-8 string; one that does not convert is unreadable rather than empty,
+/// which would mean the working directory.
+inline auto checkedPath(const std::string &utf8) -> std::filesystem::path
+{
+    std::filesystem::path p = toPath(utf8);
+    if (p.empty() && !utf8.empty()) {
+        fail(Code::table_unreadable);
+    }
+    return p;
+}
+
 inline auto fileName(const std::filesystem::path &p) -> std::string
 {
     const auto s = p.filename().u8string(); // std::string in C++17, std::u8string in C++20
     return std::string(s.begin(), s.end());
 }
 
-/// The regular file in dir whose name matches ASCII-case-insensitively; an exact match wins, then
-/// the bytewise-smallest name, so the choice does not depend on directory order.
-inline auto findFile(const std::filesystem::path &dir, const std::string &name,
-                     bool wantDirectory = false) -> std::filesystem::path
+/// Directory lookups for the script search. Each folder is listed once; only real files and
+/// folders match, never a symbolic link, junction, FIFO or device, so the search cannot be led
+/// outside the folders it was given.
+class Search
 {
-    std::error_code ec;
-    std::filesystem::directory_iterator it(dir, ec), end;
-    std::filesystem::path best;
-    std::string bestName;
-    const std::string want = lowerAscii(name);
-    for (; !ec && it != end; it.increment(ec)) {
-        const std::string n = fileName(it->path());
-        if (lowerAscii(n) != want) {
-            continue;
-        }
-        std::error_code tec;
-        const bool ok = wantDirectory ? it->is_directory(tec) : it->is_regular_file(tec);
-        if (!ok || tec) {
-            continue;
-        }
-        if (best.empty() || n == name || (bestName != name && n < bestName)) {
-            best = it->path();
-            bestName = n;
-        }
+public:
+    explicit Search(const Options &opt)
+        : m_opt(opt)
+    {
     }
-    return best;
-}
 
+    /// The entry of dir named name ignoring ASCII case; an exact match wins, then the
+    /// bytewise-smallest name, so the choice does not depend on directory order.
+    auto find(const std::filesystem::path &dir, const std::string &name, bool wantDirectory)
+            -> std::filesystem::path
+    {
+        const Listing &listing = list(dir);
+        const auto it = listing.find(lowerAscii(name));
+        if (it == listing.end()) {
+            return {};
+        }
+        const Entry *best = nullptr;
+        for (const Entry &e : it->second) {
+            if (e.directory != wantDirectory
+                || (best != nullptr && (best->name == name || (e.name != name && e.name > best->name)))) {
+                continue;
+            }
+            best = &e;
+        }
+        return best == nullptr ? std::filesystem::path() : best->path;
+    }
+
+private:
+    struct Entry {
+        std::string name;
+        std::filesystem::path path;
+        bool directory;
+    };
+    using Listing = std::map<std::string, std::vector<Entry>>;
+
+    static constexpr uint64_t kMaxListed = uint64_t(1) << 20; ///< entries over all folders listed
+
+    auto list(const std::filesystem::path &dir) -> const Listing &
+    {
+        const auto cached = m_listings.find(dir);
+        if (cached != m_listings.end()) {
+            return cached->second;
+        }
+        Listing listing;
+        std::error_code ec;
+        std::filesystem::directory_iterator it(dir, ec), end;
+        for (; !ec && it != end; it.increment(ec)) {
+            if (++m_listed > kMaxListed) {
+                fail(Code::signature_too_large);
+            }
+            if ((m_listed & 1023) == 0) {
+                checkCancel(m_opt);
+            }
+            std::error_code sec;
+            const auto st = it->symlink_status(sec);
+            const bool directory = std::filesystem::is_directory(st);
+            if (sec || (!directory && !std::filesystem::is_regular_file(st))) {
+                continue;
+            }
+            std::string name;
+            try {
+                name = fileName(it->path());
+            } catch (const std::exception &) {
+                continue; // a name with no UTF-8 form cannot be what a script names
+            }
+            listing[lowerAscii(name)].push_back({name, it->path(), directory});
+        }
+        return m_listings.emplace(dir, std::move(listing)).first->second;
+    }
+
+    const Options &m_opt;
+    std::map<std::filesystem::path, Listing> m_listings;
+    uint64_t m_listed = 0;
+};
+
+/// Reads a script the search found, refusing a link as the file itself.
 inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const Limits &limits)
         -> std::string
 {
     FileSource f;
 #ifdef _WIN32
     const auto u8 = p.u8string();
-    const Code c = f.open(std::string(u8.begin(), u8.end()));
+    const Code c = f.open(std::string(u8.begin(), u8.end()), true);
 #else
-    const Code c = f.open(p.string());
+    const Code c = f.open(p.string(), true);
 #endif
     if (c != Code::ok) {
         fail(c);
@@ -1155,9 +1242,11 @@ inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const
     return out;
 }
 
+constexpr size_t kMaxScriptParts = 8; ///< folders and file name in one helper name
+
 /// A script name as GetTextFile takes it ('/' or '\' between folders), split into its parts.
-/// Empty when it names nothing or could leave the searched folders (a root, a drive, a "..");
-/// VPX would follow those, the reader deliberately does not.
+/// Empty when it names nothing, has more than kMaxScriptParts parts, or could leave the searched
+/// folders (a root, a drive, a ".."); VPX would follow those, the reader deliberately does not.
 inline auto scriptParts(const std::string &name) -> std::vector<std::string>
 {
     const auto sep = [](char ch) { return ch == '/' || ch == '\\'; };
@@ -1177,6 +1266,9 @@ inline auto scriptParts(const std::string &name) -> std::vector<std::string>
             return {};
         }
         if (!part.empty() && part != ".") {
+            if (parts.size() == kMaxScriptParts) {
+                return {};
+            }
             parts.push_back(std::move(part));
         }
         start = end + 1;
@@ -1185,15 +1277,15 @@ inline auto scriptParts(const std::string &name) -> std::vector<std::string>
 }
 
 /// base/parts..., each part matched ignoring ASCII case; empty if any part is missing.
-inline auto findPath(const std::filesystem::path &base, const std::vector<std::string> &parts)
-        -> std::filesystem::path
+inline auto findPath(Search &search, const std::filesystem::path &base,
+                     const std::vector<std::string> &parts) -> std::filesystem::path
 {
     if (base.empty() || parts.empty()) {
         return {};
     }
     std::filesystem::path p = base;
     for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
-        p = findFile(p, parts[i], i + 1 < parts.size());
+        p = search.find(p, parts[i], i + 1 < parts.size());
     }
     return p;
 }
@@ -1204,9 +1296,9 @@ struct Found {
 };
 
 /// VPX's FileLocator::SearchScript: the first match in its folder order.
-inline auto searchScript(const std::filesystem::path &table, const std::filesystem::path &app,
-                         const std::filesystem::path &pref, const std::vector<std::string> &parts)
-        -> Found
+inline auto searchScript(Search &search, const std::filesystem::path &table,
+                         const std::filesystem::path &app, const std::filesystem::path &pref,
+                         const std::vector<std::string> &parts) -> Found
 {
     struct Root {
         const std::filesystem::path &dir;
@@ -1216,13 +1308,13 @@ inline auto searchScript(const std::filesystem::path &table, const std::filesyst
                           {app, {"user", "scripts", "tables"}},
                           {pref, {"user", "scripts"}}};
     for (const Root &root : roots) {
-        if (auto p = findPath(root.dir, parts); !p.empty()) {
+        if (auto p = findPath(search, root.dir, parts); !p.empty()) {
             return {p, &root.dir == &table};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(root.dir, sp); !p.empty()) {
+            if (auto p = findPath(search, root.dir, sp); !p.empty()) {
                 return {p, &root.dir == &table};
             }
         }
@@ -1241,16 +1333,15 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
     Contents contents = readContents(src, opt, total);
     res.inputs = std::move(contents.inputs);
 
-    const std::filesystem::path table = toPath(paths.table);
+    const std::filesystem::path table = checkedPath(paths.table);
     std::filesystem::path dir =
-            paths.tableDirectory.empty() ? table.parent_path() : toPath(paths.tableDirectory);
+            paths.tableDirectory.empty() ? table.parent_path() : checkedPath(paths.tableDirectory);
     if (dir.empty()) {
-        dir = ".";
+        dir = "."; // a bare file name: the table is in the working directory
     }
-    const std::filesystem::path app =
-            paths.vpxDirectory.empty() ? std::filesystem::path() : toPath(paths.vpxDirectory);
-    const std::filesystem::path pref =
-            paths.prefDirectory.empty() ? std::filesystem::path() : toPath(paths.prefDirectory);
+    const std::filesystem::path app = checkedPath(paths.vpxDirectory);
+    const std::filesystem::path pref = checkedPath(paths.prefDirectory);
+    Search search(opt);
 
     // The script, as VPX: <table>.vbs found by the script search, else <folder>.vbs in the table's
     // folder (pintable.cpp), else the embedded CODE record.
@@ -1259,7 +1350,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         stem.resize(dot);
     }
     checkCancel(opt);
-    std::filesystem::path sidecar = searchScript(dir, app, pref, {stem + ".vbs"}).path;
+    std::filesystem::path sidecar = searchScript(search, dir, app, pref, {stem + ".vbs"}).path;
     if (sidecar.empty()) {
         std::error_code ec;
         std::filesystem::path abs = std::filesystem::absolute(dir, ec).lexically_normal();
@@ -1267,7 +1358,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
             abs = abs.parent_path();
         }
         if (const std::string folder = ec ? std::string() : fileName(abs); !folder.empty()) {
-            sidecar = findFile(dir, folder + ".vbs");
+            sidecar = search.find(dir, folder + ".vbs", false);
         }
     }
     if (!sidecar.empty()) {
@@ -1279,9 +1370,26 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
 
     // Helpers by literal name, breadth-first, each once, through the same search: under the
     // table's folder, content hashed and its own loads followed; in VPX's folders, name only.
-    std::vector<std::string> queue =
-            scriptReferences(tokenize(decodeScript(res.inputs.script))).names;
-    std::vector<std::string> seen;
+    // Every script is tokenized here and again by compute(), so its size and tokens are capped.
+    uint64_t scriptBytes = 0, scriptTokens = 0;
+    auto references = [&](const std::string &text) {
+        if (text.size() > opt.limits.maxScriptBytes - (std::min)(scriptBytes, opt.limits.maxScriptBytes)) {
+            fail(Code::signature_too_large);
+        }
+        scriptBytes += text.size();
+        checkCancel(opt);
+        const auto tokens = tokenize(decodeScript(text));
+        if (tokens.size() > opt.limits.maxScriptTokens - (std::min)(scriptTokens, opt.limits.maxScriptTokens)) {
+            fail(Code::signature_too_large);
+        }
+        scriptTokens += tokens.size();
+        checkCancel(opt);
+        auto names = scriptReferences(tokens).names;
+        checkCancel(opt);
+        return names;
+    };
+    std::vector<std::string> queue = references(res.inputs.script);
+    std::unordered_set<std::string> seen;
     for (size_t q = 0; q < queue.size(); q++) {
         const std::vector<std::string> parts = scriptParts(queue[q]);
         std::string name;
@@ -1289,20 +1397,20 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
             name += (name.empty() ? "" : "/") + part;
         }
         name = lowerAscii(parts.empty() ? queue[q] : name);
-        if (std::find(seen.begin(), seen.end(), name) != seen.end()) {
+        if (seen.count(name) != 0) {
             continue;
         }
         if (seen.size() >= opt.limits.maxHelperScripts) {
             fail(Code::signature_too_large);
         }
-        seen.push_back(name);
+        seen.insert(name);
         checkCancel(opt);
-        const Found found = parts.empty() ? Found {} : searchScript(dir, app, pref, parts);
+        const Found found = parts.empty() ? Found {} : searchScript(search, dir, app, pref, parts);
         if (found.path.empty()) {
             res.missingHelpers.push_back(name);
         } else if (found.inTable) {
             HelperScript h {name, readWholeFile(found.path, total, opt.limits)};
-            for (auto &n : scriptReferences(tokenize(decodeScript(h.content))).names) {
+            for (auto &n : references(h.content)) {
                 queue.push_back(std::move(n));
             }
             res.inputs.helperScripts.push_back(std::move(h));
@@ -1325,6 +1433,22 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
 
 } // namespace detail
 
+namespace detail {
+
+/// A caller may raise a cap past what size_t holds on a 32-bit build; sizes are cast to size_t.
+inline auto clamped(const Options &o) -> Options
+{
+    Options c = o;
+    constexpr uint64_t kMax = std::numeric_limits<size_t>::max();
+    for (uint64_t *v : {&c.limits.maxFileSize, &c.limits.maxStreamSize, &c.limits.maxTotalRead,
+                        &c.limits.maxMeshBytes, &c.limits.maxScriptBytes}) {
+        *v = (std::min)(*v, kMax);
+    }
+    return c;
+}
+
+} // namespace detail
+
 /// Parses a .vpx held in memory. No I/O: the sidecar and helper scripts are the caller's to add.
 inline auto parse(const uint8_t *data, size_t size, const Options &options = {}) noexcept
         -> Contents
@@ -1335,7 +1459,7 @@ inline auto parse(const uint8_t *data, size_t size, const Options &options = {})
         }
         detail::MemorySource src(data, size);
         uint64_t total = 0;
-        return detail::readContents(src, options, total);
+        return detail::readContents(src, detail::clamped(options), total);
     } catch (const detail::Failure &f) {
         Contents c;
         c.code = f.code;
@@ -1354,7 +1478,7 @@ inline auto parse(const uint8_t *data, size_t size, const Options &options = {})
 inline auto signFile(const Paths &paths, const Options &options = {}) noexcept -> Result
 {
     try {
-        return detail::signFile(paths, options);
+        return detail::signFile(paths, detail::clamped(options));
     } catch (const detail::Failure &f) {
         Result r;
         r.code = f.code;
@@ -1364,7 +1488,9 @@ inline auto signFile(const Paths &paths, const Options &options = {}) noexcept -
         r.code = Code::signature_too_large;
         return r;
     } catch (...) {
-        return Result {};
+        Result r; // e.g. a file system error outside the table's own bytes
+        r.code = Code::table_unreadable;
+        return r;
     }
 }
 
