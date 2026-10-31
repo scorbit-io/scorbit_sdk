@@ -55,8 +55,13 @@ if(Python3_Interpreter_FOUND)
     )
 
     # The wrapper itself, imported from source against the SDK built here. Not -I: it needs
-    # PYTHONPATH. test_scrobit.py is left out: it targets the pre-Config wrapper and cannot import.
-    if(TARGET scorbit_sdk AND NOT WIN32)
+    # PYTHONPATH. Only against a shared build: ctypes cannot load a static archive, and the loader
+    # would fall back to whatever SDK is installed. test_scrobit.py is left out: it targets the
+    # pre-Config wrapper and cannot import.
+    if(TARGET scorbit_sdk)
+        get_target_property(_scorbit_sdk_type scorbit_sdk TYPE)
+    endif()
+    if(_scorbit_sdk_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
         foreach(_module test_leaderboard_types test_wrapper_parity)
             add_test(
                 NAME python_${_module}
