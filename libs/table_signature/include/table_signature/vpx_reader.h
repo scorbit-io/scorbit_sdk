@@ -1336,7 +1336,7 @@ inline auto scriptParts(const std::string &name) -> std::vector<std::string>
     return parts;
 }
 
-/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing.
+// Walking a search root: whether a folder is the table's own, then the walk itself.
 /// Whether dir is the table's folder itself, by identity rather than spelling, so a linked or
 /// differently cased path to it counts; an error counts as yes, to fail closed.
 inline auto isTableFolder(const std::filesystem::path &dir, const std::filesystem::path &table) -> bool
