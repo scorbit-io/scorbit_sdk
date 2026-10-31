@@ -1145,9 +1145,9 @@ inline auto fileName(const std::filesystem::path &p) -> std::string
 }
 
 /// Directory lookups for the script search. Each folder is listed once, and only files and folders
-/// match, never a FIFO or device. Under the table's folder, whose files are read and hashed, links
-/// and junctions never match either, so a table cannot lead the reader outside it. VPX's own
-/// folders are listed following links, as VPX installs often link them.
+/// match, never a FIFO or device, and never a file that is itself a link. Under the table's folder
+/// a linked folder or junction never matches either, so a table cannot lead the reader outside it.
+/// In VPX's own folders a linked folder is followed, as VPX installs often link them.
 class Search
 {
 public:
@@ -1203,9 +1203,20 @@ private:
                 checkCancel(m_opt);
             }
             std::error_code sec;
-            const auto st = followLinks ? it->status(sec) : it->symlink_status(sec);
-            const bool directory = std::filesystem::is_directory(st);
-            if (sec || (!directory && !std::filesystem::is_regular_file(st))) {
+            const auto own = it->symlink_status(sec);
+            if (sec) {
+                continue;
+            }
+            // A linked folder counts only where links are followed; a linked file never does.
+            bool directory = std::filesystem::is_directory(own);
+            if (followLinks && std::filesystem::is_symlink(own)) {
+                std::error_code tec;
+                directory = std::filesystem::is_directory(it->status(tec)) && !tec;
+                if (!directory) {
+                    continue;
+                }
+            }
+            if (!directory && !std::filesystem::is_regular_file(own)) {
                 continue;
             }
 #ifdef _WIN32
@@ -1234,16 +1245,16 @@ private:
     uint64_t m_listed = 0;
 };
 
-/// Reads a script the search found; noFollow refuses a link as the file itself.
-inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const Limits &limits,
-                          bool noFollow) -> std::string
+/// Reads a script the search found, refusing a link as the file itself.
+inline auto readWholeFile(const std::filesystem::path &p, uint64_t &total, const Limits &limits)
+        -> std::string
 {
     FileSource f;
 #ifdef _WIN32
     const auto u8 = p.u8string();
-    const Code c = f.open(std::string(u8.begin(), u8.end()), noFollow);
+    const Code c = f.open(std::string(u8.begin(), u8.end()), true);
 #else
-    const Code c = f.open(p.string(), noFollow);
+    const Code c = f.open(p.string(), true);
 #endif
     if (c != Code::ok) {
         fail(c);
@@ -1368,11 +1379,8 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         stem.resize(dot);
     }
     checkCancel(opt);
-    const Found sidecarFound = searchScript(search, dir, app, pref, {stem + ".vbs"});
-    std::filesystem::path sidecar = sidecarFound.path;
-    bool sidecarInTable = sidecarFound.inTable;
+    std::filesystem::path sidecar = searchScript(search, dir, app, pref, {stem + ".vbs"}).path;
     if (sidecar.empty()) {
-        sidecarInTable = true;
         std::error_code ec;
         std::filesystem::path abs = std::filesystem::absolute(dir, ec).lexically_normal();
         if (!ec && abs.filename().empty()) {
@@ -1383,7 +1391,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         }
     }
     if (!sidecar.empty()) {
-        res.inputs.script = readWholeFile(sidecar, total, opt.limits, sidecarInTable);
+        res.inputs.script = readWholeFile(sidecar, total, opt.limits);
         res.sidecar = true;
     } else if (contents.scriptProtected) {
         fail(Code::legacy_protected);
@@ -1433,7 +1441,7 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         if (found.path.empty()) {
             res.missingHelpers.push_back(name);
         } else if (found.inTable) {
-            HelperScript h {name, readWholeFile(found.path, total, opt.limits, true)};
+            HelperScript h {name, readWholeFile(found.path, total, opt.limits)};
             for (auto &n : references(h.content)) {
                 queue.push_back(std::move(n));
             }
