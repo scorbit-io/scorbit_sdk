@@ -44,6 +44,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#    include <pwd.h>
 #    include <sys/stat.h>
 #    include <unistd.h>
 #endif
@@ -434,6 +435,24 @@ TEST_CASE("Hardware-key marker: directories a store creates are private whatever
     CHECK(HardwareKeyMarker {Dirs {dir}}.load() == PAD_A);
 }
 
+TEST_CASE("Hardware-key marker: a link in a directory others can write to is not trusted",
+          "[HardwareKeyMarker]")
+{
+    TempDir root;
+    const auto loose = root.path / "loose";
+    const auto real = root.path / "private" / "state";
+    fs::create_directories(loose);
+    fs::create_directories(real / "scorbit");
+    fs::create_directory_symlink(real, loose / "state");
+    const auto dir = loose / "state" / "scorbit";
+    REQUIRE(HardwareKeyMarker {Dirs {dir}}.store(PAD_A));
+
+    // The target stays private, but anyone could now delete the link and the marker with it.
+    fs::permissions(loose, fs::perms::others_write, fs::perm_options::add);
+    CHECK_FALSE(HardwareKeyMarker {Dirs {dir}}.load());
+    CHECK(HardwareKeyMarker {Dirs {real / "scorbit"}}.load() == PAD_A);
+}
+
 TEST_CASE("Hardware-key marker: a FIFO in place of the marker is ignored without blocking",
           "[HardwareKeyMarker]")
 {
@@ -504,6 +523,11 @@ TEST_CASE("Hardware-key marker: the default directory is the user's state direct
     } else if (const char *home = std::getenv("HOME"); home && *home) {
         expected.push_back(fs::path(home) / ".local" / "state" / "scorbit");
     }
+#if !defined(_WIN32)
+    else if (const passwd *pw = ::getpwuid(::geteuid()); pw && pw->pw_dir && *pw->pw_dir) {
+        expected.push_back(fs::path(pw->pw_dir) / ".local" / "state" / "scorbit");
+    }
+#endif
 #if defined(_WIN32)
     if (const char *local = std::getenv("LOCALAPPDATA"); local && *local) {
         expected.push_back(fs::path(local) / "scorbit");

@@ -74,16 +74,33 @@ bool trustedOwner(uid_t uid)
 // letting them rename @p dir, marker and all, out of the way; empty if there is none.
 std::optional<fs::path> untrustedAncestor(const fs::path &dir)
 {
+    const auto unsafe = [](const struct stat &st) {
+        return !S_ISDIR(st.st_mode) || !trustedOwner(st.st_uid)
+            || ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0 && (st.st_mode & S_ISVTX) == 0);
+    };
     std::error_code ec;
-    const auto parent = fs::canonical(fs::absolute(dir, ec).parent_path(), ec);
+    const auto written = fs::absolute(dir, ec).parent_path();
+    const auto resolved = fs::canonical(written, ec);
     if (ec) {
         return dir.parent_path();
     }
-    for (auto p = parent;; p = p.parent_path()) {
+    // As written, links followed: the directory holding each name, including a link's, so a link
+    // in a directory others can write to is caught even when its target is private.
+    for (auto p = written;; p = p.parent_path()) {
         struct stat st {
         };
-        if (::lstat(p.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || !trustedOwner(st.st_uid)
-            || ((st.st_mode & (S_IWGRP | S_IWOTH)) != 0 && (st.st_mode & S_ISVTX) == 0)) {
+        if (::stat(p.c_str(), &st) != 0 || unsafe(st)) {
+            return p;
+        }
+        if (p == p.root_path() || p.parent_path() == p) {
+            break;
+        }
+    }
+    // And the real chain the links lead to.
+    for (auto p = resolved;; p = p.parent_path()) {
+        struct stat st {
+        };
+        if (::lstat(p.c_str(), &st) != 0 || unsafe(st)) {
             return p;
         }
         if (p == p.root_path()) {
@@ -174,6 +191,10 @@ void createPrivately(const fs::path &dir)
     fs::create_directories(dir, ec);
     for (const auto &p : missing) {
         fs::permissions(p, fs::perms::owner_all, fs::perm_options::replace, ec);
+    }
+    // Each new entry is only durable once the directory holding it is synced.
+    for (const auto &p : missing) {
+        syncDirectory(p.parent_path());
     }
 }
 
@@ -314,6 +335,7 @@ std::vector<fs::path> HardwareKeyMarker::defaultDirs()
 
 bool HardwareKeyMarker::store(const HardwareKeyIdentity &identity) const
 {
+    m_durable = false; // until this store is confirmed, whatever an earlier one achieved
     try {
         const auto body = json {{KEY_SERIAL, identity.serial}, {KEY_UUID, identity.uuid}}.dump();
         for (const auto &dir : m_dirs) {
