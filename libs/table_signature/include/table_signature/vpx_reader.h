@@ -1177,7 +1177,7 @@ private:
     };
     using Listing = std::map<std::string, std::vector<Entry>>;
 
-    static constexpr uint64_t kMaxListed = uint64_t(1) << 20; ///< entries over all folders listed
+    static constexpr uint64_t kMaxListed = uint64_t(1) << 17; ///< entries over all folders listed
 
     auto list(const std::filesystem::path &dir) -> const Listing &
     {
