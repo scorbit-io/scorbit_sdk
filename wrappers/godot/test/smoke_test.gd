@@ -14,6 +14,8 @@ var _failures := 0
 var _logs := 0
 var _skipped: PackedStringArray  # the SDK's "file does not exist, skipping" log lines
 var _upload_starts := 0  # one upload, so a single logger registration delivers this line once
+var _listener  # a second native logging node, which must get every line too
+var _listener_starts := 0
 
 
 func _initialize() -> void:
@@ -31,7 +33,8 @@ func _process(_delta: float) -> bool:
 		_scorbit.set_score(1, 2500)
 		_scorbit.set_game_finished()
 		_scorbit.commit()
-	if _frame < FRAMES or (_expect_logs and not _reported("missing.log") and _frame < MAX_FRAMES):
+	var waiting := _expect_logs and (not _reported("missing.log") or _listener_starts == 0)
+	if _frame < FRAMES or (waiting and _frame < MAX_FRAMES):
 		return false
 
 	# The SDK logs as it starts, so a working log bridge has delivered lines by now.
@@ -41,6 +44,9 @@ func _process(_delta: float) -> bool:
 		_check(_reported("missing.log"), "upload_diagnostics() checked the log paths")
 		_check(not _reported("diag.log"), "upload_diagnostics() found a user:// log file")
 		_check(_upload_starts == 1, "log lines delivered once after nodes came and went")
+		_check(_listener_starts == 1, "a second logging node got the same line")
+	if _listener:
+		_listener.free()
 	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
@@ -82,8 +88,13 @@ func _begin() -> void:
 			var gd_value = _scorbit.get_script().get_script_constant_map().get(name)
 			_check(gd_value == ClassDB.class_get_integer_constant("ScorbitGameState", name),
 					name + " matches")
-	_scorbit.request_top_scores(_scorbit.LEADERBOARD_SCOPE_MACHINE, _scorbit.LEADERBOARD_PERIOD_30D)
-	_scorbit.request_pair_code()
+	var top_id: int = _scorbit.request_top_scores(_scorbit.LEADERBOARD_SCOPE_MACHINE,
+			_scorbit.LEADERBOARD_PERIOD_30D)
+	var pair_id: int = _scorbit.request_pair_code()
+	if _expect_native:
+		_check(top_id > 0 and pair_id > 0 and top_id != pair_id, "requests return distinct ids")
+	else:
+		_check(top_id == 0 and pair_id == 0, "requests without the native library return 0")
 	# Native builds may use either logger backend; only the callback one delivers log lines.
 	_expect_logs = _expect_native and _scorbit.logger_callbacks_supported()
 	if not _expect_native:
@@ -97,6 +108,15 @@ func _begin() -> void:
 			extra.free()
 		_check(_has_arg("download_finished", "path"), "download_finished reports the saved path")
 		_check(_has_arg("device_state_reported", "type"), "device_state_reported names the type")
+		for name in ["top_scores_received", "pair_code_received", "unpair_finished",
+				"pair_machine_finished", "download_finished", "download_buffer_finished",
+				"device_state_reported", "diagnostics_uploaded"]:
+			var args: Array = ClassDB.class_get_signal("ScorbitGameState", name).get("args", [])
+			_check(not args.is_empty() and args[0].name == "request_id", name + " leads with request_id")
+		_listener = ClassDB.instantiate("ScorbitGameState")
+		root.add_child(_listener)
+		_listener.log_message.connect(_on_listener_log)
+		_listener.enable_log_messages(512)
 	_scorbit.report_device_state("smoke", "1.0.0")
 	DirAccess.make_dir_recursive_absolute("user://smoke")
 	FileAccess.open("user://smoke/diag.log", FileAccess.WRITE).store_string("smoke log\n")
@@ -121,6 +141,11 @@ func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp
 		_skipped.append(message)
 	elif "diagnostics upload: starting" in message:
 		_upload_starts += 1
+
+
+func _on_listener_log(message: String, _level: int, _file: String, _line: int, _time: int) -> void:
+	if "diagnostics upload: starting" in message:
+		_listener_starts += 1
 
 
 func _reported(file_name: String) -> bool:

@@ -27,11 +27,25 @@
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#include <algorithm>
 #include <cstring>
 
 using namespace godot;
 
 namespace scorbit_godot {
+
+struct LogLine {
+    std::string message;
+    int level;
+    std::string file;
+    int line;
+    int64_t timestamp;
+};
+
+struct LogSink {
+    std::mutex mutex;
+    std::deque<LogLine> lines;
+};
 
 namespace {
 
@@ -327,19 +341,46 @@ Dictionary stringResult(const char *name, sb_error_t error, const char *reply)
     return result;
 }
 
+// A callback carries only its user data, so each request's context holds what its signal
+// reports, starting with the request id.
+struct RequestContext {
+    std::shared_ptr<Bridge> bridge;
+    int64_t id;
+    String url;  // downloads
+    String path; // download(), as the caller gave it
+    String type; // report_device_state()
+};
+
+void *newContext(const std::shared_ptr<Bridge> &bridge, int64_t id, String url = String(),
+                 String path = String(), String type = String())
+{
+    return new RequestContext {bridge, id, std::move(url), std::move(path), std::move(type)};
+}
+
+std::unique_ptr<RequestContext> takeContext(void *userData)
+{
+    return std::unique_ptr<RequestContext>(static_cast<RequestContext *>(userData));
+}
+
+void queueReply(const RequestContext &context, Dictionary result)
+{
+    result["request_id"] = context.id;
+    queue(*context.bridge, std::move(result));
+}
+
 void onPairCode(sb_error_t error, const char *reply, void *userData)
 {
-    queue(*static_cast<Bridge *>(userData), stringResult("pair_code", error, reply));
+    queueReply(*takeContext(userData), stringResult("pair_code", error, reply));
 }
 
 void onUnpair(sb_error_t error, const char *reply, void *userData)
 {
-    queue(*static_cast<Bridge *>(userData), stringResult("unpair", error, reply));
+    queueReply(*takeContext(userData), stringResult("unpair", error, reply));
 }
 
 void onPairMachine(sb_error_t error, const char *reply, void *userData)
 {
-    queue(*static_cast<Bridge *>(userData), stringResult("pair_machine", error, reply));
+    queueReply(*takeContext(userData), stringResult("pair_machine", error, reply));
 }
 
 void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData)
@@ -348,34 +389,22 @@ void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData
     result["_result"] = "top_scores";
     result["error"] = static_cast<int>(error);
     result["entries"] = leaderboard ? readLeaderboard(leaderboard) : Array();
-    queue(*static_cast<Bridge *>(userData), std::move(result));
+    queueReply(*takeContext(userData), std::move(result));
 }
-
-// A callback carries only its user data, so each request gets what its signal reports.
-struct DownloadContext {
-    std::shared_ptr<Bridge> bridge;
-    String url;
-    String path; // as the caller gave it; download() only
-};
-
-struct DeviceStateContext {
-    std::shared_ptr<Bridge> bridge;
-    String type;
-};
 
 void onDownload(sb_error_t error, const char *reply, void *userData)
 {
-    std::unique_ptr<DownloadContext> context(static_cast<DownloadContext *>(userData));
+    const auto context = takeContext(userData);
     Dictionary result = stringResult("download", error, reply);
     result["url"] = context->url;
     // On success the SDK has moved the file to exactly the requested path; reply is only a status.
     result["path"] = error == SB_EC_SUCCESS ? context->path : String();
-    queue(*context->bridge, std::move(result));
+    queueReply(*context, std::move(result));
 }
 
 void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *userData)
 {
-    std::unique_ptr<DownloadContext> context(static_cast<DownloadContext *>(userData));
+    const auto context = takeContext(userData);
     Dictionary result;
     result["url"] = context->url;
     result["_result"] = "download_buffer";
@@ -386,49 +415,47 @@ void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *
         std::memcpy(bytes.ptrw(), data, size);
     }
     result["data"] = bytes;
-    queue(*context->bridge, std::move(result));
+    queueReply(*context, std::move(result));
 }
 
 void onDeviceState(sb_error_t error, int httpStatus, const char *reply, void *userData)
 {
-    std::unique_ptr<DeviceStateContext> context(static_cast<DeviceStateContext *>(userData));
+    const auto context = takeContext(userData);
     Dictionary result = stringResult("device_state", error, reply);
     result["type"] = context->type;
     result["http_status"] = httpStatus;
-    queue(*context->bridge, std::move(result));
+    queueReply(*context, std::move(result));
 }
 
-// The SDK's logger is process-wide, so its messages wait here for whichever node drains them.
-// Capped, so a burst of debug logging can't grow it without bound while nothing drains it.
+// The SDK's logger is process-wide: one registration copies each line to every node that enabled
+// log_message. Capped per node, so a burst of debug logging can't grow without bound.
 constexpr size_t MAX_QUEUED_LOGS = 1000;
-int g_logNodes = 0; // nodes with log_message on; main thread only, like the calls that change it
 
-struct LogQueue {
+struct LogRouter {
     std::mutex mutex;
-    std::vector<Dictionary> messages;
+    std::vector<std::shared_ptr<LogSink>> sinks;
 };
 
-LogQueue &logQueue()
+LogRouter &logRouter()
 {
-    static auto *instance = new LogQueue; // never freed: the SDK may log during shutdown
+    static auto *instance = new LogRouter; // never freed: the SDK may log during shutdown
     return *instance;
 }
 
 void onLog(const char *message, sb_log_level_t level, const char *file, int line, int64_t timestamp,
            void * /*userData*/)
 {
-    Dictionary entry;
-    entry["message"] = toString(message);
-    entry["level"] = static_cast<int>(level);
-    entry["file"] = toString(file);
-    entry["line"] = line;
-    entry["timestamp"] = timestamp;
-    auto &q = logQueue();
-    std::scoped_lock lock(q.mutex);
-    if (q.messages.size() >= MAX_QUEUED_LOGS) {
-        q.messages.erase(q.messages.begin());
+    const LogLine entry {message ? message : "", static_cast<int>(level), file ? file : "", line,
+                         timestamp};
+    auto &router = logRouter();
+    std::scoped_lock routerLock(router.mutex);
+    for (const auto &sink : router.sinks) {
+        std::scoped_lock lock(sink->mutex);
+        if (sink->lines.size() >= MAX_QUEUED_LOGS) {
+            sink->lines.pop_front();
+        }
+        sink->lines.push_back(entry);
     }
-    q.messages.push_back(std::move(entry));
 }
 
 // The SDK opens files with the C++ standard library, which knows nothing of user:// or res://.
@@ -615,7 +642,7 @@ bool ScorbitGameState::start(const Dictionary &config)
                 "Scorbit: could not create the game state (is encrypted_key set?)");
         return false;
     }
-    set_process(true);
+    updateProcessing();
     return true;
 }
 
@@ -627,10 +654,17 @@ void ScorbitGameState::stop()
     // Stops the SDK's threads, so no callback reaches the bridge afterwards.
     sb_destroy_game_state(m_handle);
     m_handle = nullptr;
-    set_process(false);
+    updateProcessing();
+    m_uploads.clear(); // their answers died with the SDK's threads
     // Events this game state raised but never delivered must not reach the next one.
     std::scoped_lock lock(m_bridge->mutex);
     m_bridge->events.clear();
+}
+
+// A node also processes while it only delivers log lines.
+void ScorbitGameState::updateProcessing()
+{
+    set_process(m_handle != nullptr || m_logs != nullptr);
 }
 
 bool ScorbitGameState::is_started() const
@@ -648,16 +682,15 @@ void ScorbitGameState::_process(double /*delta*/)
     for (const auto &event : events) {
         emitEvent(event);
     }
-    if (m_logSignal) {
-        std::vector<Dictionary> logs;
+    if (m_logs) {
+        std::deque<LogLine> lines;
         {
-            auto &q = logQueue();
-            std::scoped_lock lock(q.mutex);
-            logs.swap(q.messages);
+            std::scoped_lock lock(m_logs->mutex);
+            lines.swap(m_logs->lines);
         }
-        for (const auto &log : logs) {
-            emit_signal("log_message", log["message"], log["level"], log["file"], log["line"],
-                        log["timestamp"]);
+        for (const auto &l : lines) {
+            emit_signal("log_message", toString(l.message.c_str()), l.level,
+                        toString(l.file.c_str()), l.line, l.timestamp);
         }
     }
 }
@@ -667,20 +700,22 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
     if (event.has("_result")) {
         const String name = event["_result"];
         const int error = event["error"];
+        const int64_t id = event["request_id"];
         if (name == "top_scores") {
-            emit_signal("top_scores_received", error, event["entries"]);
+            emit_signal("top_scores_received", id, error, event["entries"]);
         } else if (name == "pair_code") {
-            emit_signal("pair_code_received", error, event["reply"]);
+            emit_signal("pair_code_received", id, error, event["reply"]);
         } else if (name == "unpair") {
-            emit_signal("unpair_finished", error, event["reply"]);
+            emit_signal("unpair_finished", id, error, event["reply"]);
         } else if (name == "pair_machine") {
-            emit_signal("pair_machine_finished", error, event["reply"]);
+            emit_signal("pair_machine_finished", id, error, event["reply"]);
         } else if (name == "download") {
-            emit_signal("download_finished", error, event["url"], event["path"], event["reply"]);
+            emit_signal("download_finished", id, error, event["url"], event["path"],
+                        event["reply"]);
         } else if (name == "download_buffer") {
-            emit_signal("download_buffer_finished", error, event["url"], event["data"]);
+            emit_signal("download_buffer_finished", id, error, event["url"], event["data"]);
         } else if (name == "device_state") {
-            emit_signal("device_state_reported", error, event["type"], event["http_status"],
+            emit_signal("device_state_reported", id, error, event["type"], event["http_status"],
                         event["reply"]);
         }
         return;
@@ -709,9 +744,18 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
     case SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED:
         emit_signal("diagnostics_upload_requested", event.get("include_recordings", false));
         break;
-    case SB_EVT_DIAGNOSTICS_UPLOADED:
-        emit_signal("diagnostics_uploaded", event.get("success", false));
+    case SB_EVT_DIAGNOSTICS_UPLOADED: {
+        int64_t id = 0; // an upload this node did not request
+        if (!m_uploads.empty()) {
+            id = m_uploads.front().id;
+            m_uploads.pop_front();
+        }
+        emit_signal("diagnostics_uploaded", id, event.get("success", false));
+        if (!m_uploads.empty()) {
+            sendUpload(m_uploads.front());
+        }
         break;
+    }
     case SB_EVT_PLAYER_PICTURE_READY:
         emit_signal("player_picture_ready", event.get("player", 0),
                     event.get("picture", PackedByteArray()));
@@ -813,92 +857,125 @@ void ScorbitGameState::set_credits_status(bool freePlay, int credits, int maxCre
     }
 }
 
-void ScorbitGameState::request_pair_code()
+int64_t ScorbitGameState::request_pair_code()
 {
-    if (m_handle) {
-        sb_request_pair_code(m_handle, &onPairCode, m_bridge.get());
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    sb_request_pair_code(m_handle, &onPairCode, newContext(m_bridge, id));
+    return id;
 }
 
-void ScorbitGameState::request_unpair()
+int64_t ScorbitGameState::request_unpair()
 {
-    if (m_handle) {
-        sb_request_unpair(m_handle, &onUnpair, m_bridge.get());
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    sb_request_unpair(m_handle, &onUnpair, newContext(m_bridge, id));
+    return id;
 }
 
-void ScorbitGameState::request_pair_machine(const String &machineUuid, const String &ownerUuid)
+int64_t ScorbitGameState::request_pair_machine(const String &machineUuid, const String &ownerUuid)
 {
-    if (m_handle) {
-        sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
-                                     ownerUuid.utf8().get_data(), &onPairMachine, m_bridge.get());
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
+                                 ownerUuid.utf8().get_data(), &onPairMachine,
+                                 newContext(m_bridge, id));
+    return id;
 }
 
-void ScorbitGameState::request_top_scores(int scope, int period, const String &since,
-                                          int vpinFilter)
+int64_t ScorbitGameState::request_top_scores(int scope, int period, const String &since,
+                                             int vpinFilter)
 {
-    if (m_handle) {
-        const auto sinceUtf8 = since.utf8();
-        sb_request_top_scores(m_handle, static_cast<sb_leaderboard_scope_t>(scope),
-                              static_cast<sb_leaderboard_period_t>(period),
-                              since.is_empty() ? nullptr : sinceUtf8.get_data(),
-                              static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
-                              m_bridge.get());
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    const auto sinceUtf8 = since.utf8();
+    sb_request_top_scores(m_handle, static_cast<sb_leaderboard_scope_t>(scope),
+                          static_cast<sb_leaderboard_period_t>(period),
+                          since.is_empty() ? nullptr : sinceUtf8.get_data(),
+                          static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
+                          newContext(m_bridge, id));
+    return id;
 }
 
-void ScorbitGameState::download(const String &url, const String &filename,
-                                const Dictionary &headers)
+int64_t ScorbitGameState::download(const String &url, const String &filename,
+                                   const Dictionary &headers)
 {
-    if (m_handle) {
-        const auto h = toHeaders(headers);
-        sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
-                    h.array.size(), &onDownload, new DownloadContext {m_bridge, url, filename});
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    const auto h = toHeaders(headers);
+    sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
+                h.array.size(), &onDownload, newContext(m_bridge, id, url, filename));
+    return id;
 }
 
-void ScorbitGameState::download_buffer(const String &url, int reserveSize,
-                                       const Dictionary &headers)
+int64_t ScorbitGameState::download_buffer(const String &url, int reserveSize,
+                                          const Dictionary &headers)
 {
     if (reserveSize < 0) {
         UtilityFunctions::push_error(
                 "Scorbit: download_buffer() reserve_size must not be negative");
-        return;
+        return 0;
     }
-    if (m_handle) {
-        const auto h = toHeaders(headers);
-        sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
-                           h.array.data(), h.array.size(), &onDownloadBuffer,
-                           new DownloadContext {m_bridge, url});
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    const auto h = toHeaders(headers);
+    sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
+                       h.array.data(), h.array.size(), &onDownloadBuffer,
+                       newContext(m_bridge, id, url));
+    return id;
 }
 
-void ScorbitGameState::upload_diagnostics(const PackedStringArray &logPaths,
-                                          const PackedStringArray &recordingPaths,
-                                          const String &logString, int64_t requestGeneration)
+int64_t ScorbitGameState::upload_diagnostics(const PackedStringArray &logPaths,
+                                             const PackedStringArray &recordingPaths,
+                                             const String &logString, int64_t requestGeneration)
 {
-    if (m_handle) {
-        const auto logs = toFsPaths(logPaths);
-        const auto recordings = toFsPaths(recordingPaths);
-        auto logPtrs = toPointers(logs);
-        auto recordingPtrs = toPointers(recordings);
-        const uint64_t generation = static_cast<uint64_t>(requestGeneration);
-        sb_upload_diagnostics_ex(
-                m_handle, logPtrs.empty() ? nullptr : logPtrs.data(), logPtrs.size(),
-                recordingPtrs.empty() ? nullptr : recordingPtrs.data(), recordingPtrs.size(),
-                logString.utf8().get_data(), requestGeneration < 0 ? nullptr : &generation);
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    m_uploads.push_back(Upload {id, logPaths, recordingPaths, logString, requestGeneration});
+    if (m_uploads.size() == 1) {
+        sendUpload(m_uploads.front());
+    }
+    return id;
 }
 
-void ScorbitGameState::report_device_state(const String &type, const String &version,
-                                           bool installed, const String &log)
+void ScorbitGameState::sendUpload(const Upload &upload)
 {
-    if (m_handle) {
-        sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(),
-                               installed, log.is_empty() ? nullptr : log.utf8().get_data(),
-                               &onDeviceState, new DeviceStateContext {m_bridge, type});
+    const auto logs = toFsPaths(upload.logPaths);
+    const auto recordings = toFsPaths(upload.recordingPaths);
+    auto logPtrs = toPointers(logs);
+    auto recordingPtrs = toPointers(recordings);
+    const uint64_t generation = static_cast<uint64_t>(upload.requestGeneration);
+    sb_upload_diagnostics_ex(m_handle, logPtrs.empty() ? nullptr : logPtrs.data(), logPtrs.size(),
+                             recordingPtrs.empty() ? nullptr : recordingPtrs.data(),
+                             recordingPtrs.size(), upload.logString.utf8().get_data(),
+                             upload.requestGeneration < 0 ? nullptr : &generation);
+}
+
+int64_t ScorbitGameState::report_device_state(const String &type, const String &version,
+                                              bool installed, const String &log)
+{
+    if (!m_handle) {
+        return 0;
     }
+    const int64_t id = ++m_lastRequest;
+    sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(), installed,
+                           log.is_empty() ? nullptr : log.utf8().get_data(), &onDeviceState,
+                           newContext(m_bridge, id, String(), String(), type));
+    return id;
 }
 
 bool ScorbitGameState::logger_callbacks_supported() const
@@ -912,24 +989,42 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         UtilityFunctions::push_error("Scorbit: enable_log_messages() max_length must be positive");
         return;
     }
-    if (!m_logSignal) {
-        // The SDK's logger is process-wide: one registration serves every node, so a recreated
-        // node can't add a second and duplicate every line.
-        if (g_logNodes++ == 0) {
-            sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
-        }
-        m_logSignal = true;
+    if (m_logs) {
+        return;
     }
+    m_logs = std::make_shared<LogSink>();
+    bool first = false;
+    {
+        auto &router = logRouter();
+        std::scoped_lock lock(router.mutex);
+        first = router.sinks.empty();
+        router.sinks.push_back(m_logs);
+    }
+    if (first) { // one SDK registration serves every node; the first node's limit applies
+        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
+    }
+    updateProcessing();
 }
 
 void ScorbitGameState::disable_log_messages()
 {
-    if (m_logSignal) {
-        m_logSignal = false;
-        if (--g_logNodes == 0) {
-            sb_reset_logger();
-        }
+    if (!m_logs) {
+        return;
     }
+    bool last = false;
+    {
+        auto &router = logRouter();
+        std::scoped_lock lock(router.mutex);
+        router.sinks.erase(std::remove(router.sinks.begin(), router.sinks.end(), m_logs),
+                           router.sinks.end());
+        last = router.sinks.empty();
+    }
+    m_logs.reset();
+    // Outside the router's lock: the reset waits for a running onLog, which takes that lock.
+    if (last) {
+        sb_reset_logger();
+    }
+    updateProcessing();
 }
 
 int64_t ScorbitGameState::get_machine_serial() const
@@ -1024,31 +1119,36 @@ void ScorbitGameState::_bind_methods()
     ADD_SIGNAL(MethodInfo("credits_add_requested", PropertyInfo(Variant::INT, "credits"),
                           PropertyInfo(Variant::STRING, "transaction")));
     ADD_SIGNAL(MethodInfo("credits_status_requested"));
-    ADD_SIGNAL(MethodInfo("top_scores_received", PropertyInfo(Variant::INT, "error"),
+    ADD_SIGNAL(MethodInfo("top_scores_received", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::ARRAY, "entries")));
-    ADD_SIGNAL(MethodInfo("download_finished", PropertyInfo(Variant::INT, "error"),
-                          PropertyInfo(Variant::STRING, "url"),
+    ADD_SIGNAL(MethodInfo("download_finished", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"), PropertyInfo(Variant::STRING, "url"),
                           PropertyInfo(Variant::STRING, "path"),
                           PropertyInfo(Variant::STRING, "reply")));
-    ADD_SIGNAL(MethodInfo("download_buffer_finished", PropertyInfo(Variant::INT, "error"),
-                          PropertyInfo(Variant::STRING, "url"),
+    ADD_SIGNAL(MethodInfo("download_buffer_finished", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"), PropertyInfo(Variant::STRING, "url"),
                           PropertyInfo(Variant::PACKED_BYTE_ARRAY, "data")));
-    ADD_SIGNAL(MethodInfo("device_state_reported", PropertyInfo(Variant::INT, "error"),
-                          PropertyInfo(Variant::STRING, "type"),
-                          PropertyInfo(Variant::INT, "http_status"),
-                          PropertyInfo(Variant::STRING, "reply")));
+    ADD_SIGNAL(MethodInfo(
+            "device_state_reported", PropertyInfo(Variant::INT, "request_id"),
+            PropertyInfo(Variant::INT, "error"), PropertyInfo(Variant::STRING, "type"),
+            PropertyInfo(Variant::INT, "http_status"), PropertyInfo(Variant::STRING, "reply")));
     ADD_SIGNAL(MethodInfo("diagnostics_upload_requested",
                           PropertyInfo(Variant::BOOL, "include_recordings")));
-    ADD_SIGNAL(MethodInfo("diagnostics_uploaded", PropertyInfo(Variant::BOOL, "success")));
+    ADD_SIGNAL(MethodInfo("diagnostics_uploaded", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::BOOL, "success")));
     ADD_SIGNAL(MethodInfo("log_message", PropertyInfo(Variant::STRING, "message"),
                           PropertyInfo(Variant::INT, "level"),
                           PropertyInfo(Variant::STRING, "file"), PropertyInfo(Variant::INT, "line"),
                           PropertyInfo(Variant::INT, "timestamp")));
-    ADD_SIGNAL(MethodInfo("pair_code_received", PropertyInfo(Variant::INT, "error"),
+    ADD_SIGNAL(MethodInfo("pair_code_received", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "code")));
-    ADD_SIGNAL(MethodInfo("unpair_finished", PropertyInfo(Variant::INT, "error"),
+    ADD_SIGNAL(MethodInfo("unpair_finished", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "reply")));
-    ADD_SIGNAL(MethodInfo("pair_machine_finished", PropertyInfo(Variant::INT, "error"),
+    ADD_SIGNAL(MethodInfo("pair_machine_finished", PropertyInfo(Variant::INT, "request_id"),
+                          PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "reply")));
     ADD_SIGNAL(MethodInfo("pricing_received", PropertyInfo(Variant::DICTIONARY, "pricing")));
     ADD_SIGNAL(MethodInfo("player_picture_ready", PropertyInfo(Variant::INT, "player"),

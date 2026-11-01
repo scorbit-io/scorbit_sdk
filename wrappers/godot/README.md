@@ -78,8 +78,10 @@ Everything a game uses from the SDK. `scorbit.gd` documents each call:
 - **Diagnostics and logging:** `diagnostics_upload_requested` with `upload_diagnostics`,
   `report_device_state`, and SDK log lines as `log_message` after `enable_log_messages`.
 
-Requests answer through signals, with an error code that is 0 on success. All signals are emitted
-on the main thread.
+Requests answer through signals, with an error code that is 0 on success. Each request returns an
+id, and its answering signal carries that id first, so concurrent requests can be told apart; 0
+means nothing was sent. Diagnostics uploads run one at a time, in the order requested. All signals
+are emitted on the main thread, and every node that enabled `log_message` gets every log line.
 
 ## Notes
 

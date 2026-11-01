@@ -3,6 +3,10 @@
 # Every call forwards to the native ScorbitGameState. Without the native library (an unsupported
 # platform, or the add-on's bin/ folder missing) is_available() is false and every call does
 # nothing, so the game still runs.
+#
+# Requests (request_*, download*, upload_diagnostics, report_device_state) return an id; the
+# signal answering one carries it first, as requests may finish in any order. 0 means nothing was
+# sent (no native library, or not started), so no answer will come.
 extends Node
 
 signal sdk_event(type: int, data: Dictionary)
@@ -19,26 +23,28 @@ signal credits_status_requested()
 signal pricing_received(pricing: Dictionary)
 ## Answers request_top_scores(): error 0 on success, and one Dictionary per entry (rank, high_score,
 ## player_display_name, player_initials, player_avatar, is_verified, created, ...).
-signal top_scores_received(error: int, entries: Array)
+signal top_scores_received(request_id: int, error: int, entries: Array)
 ## Answers download(): path is the saved file's path as given to download(), or "" on failure;
 ## reply is the SDK's status text.
-signal download_finished(error: int, url: String, path: String, reply: String)
+signal download_finished(request_id: int, error: int, url: String, path: String, reply: String)
 ## Answers download_buffer() with the downloaded bytes.
-signal download_buffer_finished(error: int, url: String, data: PackedByteArray)
-## Answers report_device_state(); type names the report, as reports may finish in any order.
-signal device_state_reported(error: int, type: String, http_status: int, reply: String)
+signal download_buffer_finished(request_id: int, error: int, url: String, data: PackedByteArray)
+## Answers report_device_state(); type names the report.
+signal device_state_reported(request_id: int, error: int, type: String, http_status: int,
+		reply: String)
 ## Scorbit support asked for diagnostics. Answer with upload_diagnostics().
 signal diagnostics_upload_requested(include_recordings: bool)
-## The diagnostics upload finished.
-signal diagnostics_uploaded(success: bool)
-## An SDK log line, after enable_log_messages(). level is 0 debug, 1 info, 2 warning, 3 error.
+## Answers upload_diagnostics(). Uploads run one at a time, in the order requested.
+signal diagnostics_uploaded(request_id: int, success: bool)
+## An SDK log line, after enable_log_messages(); every node that enabled it gets every line.
+## level is 0 debug, 1 info, 2 warning, 3 error.
 signal log_message(message: String, level: int, file: String, line: int, timestamp: int)
 ## Answers request_pair_code(): the short code a player enters in the Scorbit app.
-signal pair_code_received(error: int, code: String)
+signal pair_code_received(request_id: int, error: int, code: String)
 ## Answers request_unpair().
-signal unpair_finished(error: int, reply: String)
+signal unpair_finished(request_id: int, error: int, reply: String)
 ## Answers request_pair_machine().
-signal pair_machine_finished(error: int, reply: String)
+signal pair_machine_finished(request_id: int, error: int, reply: String)
 
 const NATIVE_CLASS := "ScorbitGameState"
 
@@ -207,57 +213,51 @@ func set_credits_status(free_play: bool, credits: int, max_credits: int, pricing
 ## to count scores from, or "" for none.
 func request_top_scores(scope: int = LEADERBOARD_SCOPE_MACHINE,
 		period: int = LEADERBOARD_PERIOD_ALL_TIME, since: String = "",
-		vpin_filter: int = LEADERBOARD_VPIN_ANY) -> void:
-	if _native:
-		_native.request_top_scores(scope, period, since, vpin_filter)
+		vpin_filter: int = LEADERBOARD_VPIN_ANY) -> int:
+	return _native.request_top_scores(scope, period, since, vpin_filter) if _native else 0
 
 
 ## Requests a short pairing code; the answer arrives as pair_code_received.
-func request_pair_code() -> void:
-	if _native:
-		_native.request_pair_code()
+func request_pair_code() -> int:
+	return _native.request_pair_code() if _native else 0
 
 
 ## Unpairs the machine; the answer arrives as unpair_finished.
-func request_unpair() -> void:
-	if _native:
-		_native.request_unpair()
+func request_unpair() -> int:
+	return _native.request_unpair() if _native else 0
 
 
 ## Pairs this machine to a venue machine for an owner; the answer arrives as pair_machine_finished.
-func request_pair_machine(machine_uuid: String, owner_uuid: String) -> void:
-	if _native:
-		_native.request_pair_machine(machine_uuid, owner_uuid)
+func request_pair_machine(machine_uuid: String, owner_uuid: String) -> int:
+	return _native.request_pair_machine(machine_uuid, owner_uuid) if _native else 0
 
 
 ## Downloads url to filename; the answer arrives as download_finished. headers: {name: value}.
 ## Paths here and in upload_diagnostics may be user:// or absolute; res:// is read-only and, in
 ## an exported game, inside the pack, so the SDK cannot open it.
-func download(url: String, filename: String, headers: Dictionary = {}) -> void:
-	if _native:
-		_native.download(url, filename, headers)
+func download(url: String, filename: String, headers: Dictionary = {}) -> int:
+	return _native.download(url, filename, headers) if _native else 0
 
 
 ## Downloads url into memory; the answer arrives as download_buffer_finished.
-func download_buffer(url: String, reserve_size: int = 0, headers: Dictionary = {}) -> void:
-	if _native:
-		_native.download_buffer(url, reserve_size, headers)
+func download_buffer(url: String, reserve_size: int = 0, headers: Dictionary = {}) -> int:
+	return _native.download_buffer(url, reserve_size, headers) if _native else 0
 
 
 ## Uploads diagnostics, e.g. on diagnostics_upload_requested. request_generation echoes the
 ## request it answers; -1 for none.
 func upload_diagnostics(log_paths: PackedStringArray = PackedStringArray(),
 		recording_paths: PackedStringArray = PackedStringArray(), log_string: String = "",
-		request_generation: int = -1) -> void:
-	if _native:
-		_native.upload_diagnostics(log_paths, recording_paths, log_string, request_generation)
+		request_generation: int = -1) -> int:
+	if not _native:
+		return 0
+	return _native.upload_diagnostics(log_paths, recording_paths, log_string, request_generation)
 
 
 ## Reports a typed piece of the device's state; the answer arrives as device_state_reported.
 func report_device_state(type: String, version: String, installed: bool = true,
-		log: String = "") -> void:
-	if _native:
-		_native.report_device_state(type, version, installed, log)
+		log: String = "") -> int:
+	return _native.report_device_state(type, version, installed, log) if _native else 0
 
 
 ## Whether the native library can deliver its log lines (log_message).
