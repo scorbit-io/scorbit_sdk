@@ -43,7 +43,13 @@ CPMAddPackage(
 # has no ABI tag, so the SDK's updater refuses it.
 CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
-add_library(scorbit_godot SHARED src/register_types.cpp src/scorbit_game_state.cpp)
+add_library(
+    scorbit_godot
+    SHARED
+    src/register_types.cpp
+    src/scorbit_game_state.cpp
+    src/key_store.cpp
+)
 target_compile_features(scorbit_godot PRIVATE cxx_std_17)
 target_link_libraries(scorbit_godot PRIVATE godot-cpp scorbit_sdk::scorbit_sdk)
 
@@ -123,11 +129,16 @@ add_custom_target(
 )
 add_dependencies(scorbit_godot_addon scorbit_godot)
 
+# The device key store on its own, without Godot, so it runs in every build.
+enable_testing()
+add_executable(test_key_store test/test_key_store.cpp src/key_store.cpp)
+target_compile_features(test_key_store PRIVATE cxx_std_17)
+add_test(NAME key_store COMMAND test_key_store)
+
 # A headless run of the add-on, wherever a Godot 4 binary is found (GODOT_EXECUTABLE overrides).
 # Debug builds only: the editor and `godot -s` load the template_debug library.
 find_program(GODOT_EXECUTABLE NAMES godot godot4 Godot)
 if(GODOT_EXECUTABLE AND SCORBIT_GODOT_TARGET STREQUAL "template_debug")
-    enable_testing()
     # The same session with the native library, and without it: every call must then do nothing.
     foreach(_case native without_native)
         set(_without OFF)

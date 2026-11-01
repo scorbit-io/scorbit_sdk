@@ -19,15 +19,14 @@
 
 #include "scorbit_game_state.h"
 
+#include "key_store.h"
+
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 
 using namespace godot;
 
@@ -135,44 +134,27 @@ void onEvent(const sb_event_t *event, void *userData)
     bridge->events.push_back(std::move(data));
 }
 
-// keyPath is UTF-8; the narrow path constructors would read it in the local code page on Windows.
-std::filesystem::path keyFile(const Bridge &bridge)
-{
-    return std::filesystem::u8path(bridge.keyPath);
-}
-
 void onSaveKey(const char *key, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
-    if (!key || bridge->keyPath.empty()) {
-        return;
+    if (key) {
+        saveKey(bridge->keyPath, key);
     }
-    const auto path = keyFile(*bridge);
-    std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    out << key;
 }
 
 int onLoadKey(char *buffer, size_t bufferSize, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
-    if (bridge->keyPath.empty()) {
-        return 0;
-    }
-    std::ifstream in(keyFile(*bridge), std::ios::binary);
-    if (!in) {
+    const auto key = loadKey(bridge->keyPath);
+    if (!key) {
         return 0; // first run: no key yet
     }
-    std::stringstream contents;
-    contents << in.rdbuf();
-    const auto key = contents.str();
-    if (key.size() >= bufferSize) {
+    if (key->size() >= bufferSize) {
         return -1;
     }
-    std::memcpy(buffer, key.data(), key.size());
-    buffer[key.size()] = '\0';
-    return static_cast<int>(key.size());
+    std::memcpy(buffer, key->data(), key->size());
+    buffer[key->size()] = '\0';
+    return static_cast<int>(key->size());
 }
 
 } // namespace
