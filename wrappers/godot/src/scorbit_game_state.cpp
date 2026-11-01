@@ -43,6 +43,7 @@ struct LogLine {
 };
 
 struct LogSink {
+    int64_t maxLength; // this node's limit, applied as its lines are emitted
     std::mutex mutex;
     std::deque<LogLine> lines;
 };
@@ -341,46 +342,45 @@ Dictionary stringResult(const char *name, sb_error_t error, const char *reply)
     return result;
 }
 
-// A callback carries only its user data, so each request's context holds what its signal
-// reports, starting with the request id.
-struct RequestContext {
-    std::shared_ptr<Bridge> bridge;
-    int64_t id;
-    String url;  // downloads
-    String path; // download(), as the caller gave it
-    String type; // report_device_state()
-};
-
-void *newContext(const std::shared_ptr<Bridge> &bridge, int64_t id, String url = String(),
-                 String path = String(), String type = String())
+void *newContext(Bridge &bridge, int64_t id, String url = String(), String path = String(),
+                 String type = String())
 {
-    return new RequestContext {bridge, id, std::move(url), std::move(path), std::move(type)};
+    auto context = std::make_unique<RequestContext>(
+            RequestContext {&bridge, id, std::move(url), std::move(path), std::move(type)});
+    void *userData = context.get();
+    std::scoped_lock lock(bridge.mutex);
+    bridge.pending.emplace(id, std::move(context));
+    return userData;
 }
 
-std::unique_ptr<RequestContext> takeContext(void *userData)
+RequestContext &takeContext(void *userData)
 {
-    return std::unique_ptr<RequestContext>(static_cast<RequestContext *>(userData));
+    return *static_cast<RequestContext *>(userData);
 }
 
-void queueReply(const RequestContext &context, Dictionary result)
+// Queues the answer and frees the context, which must not be used afterwards.
+void queueReply(RequestContext &context, Dictionary result)
 {
+    Bridge &bridge = *context.bridge;
     result["request_id"] = context.id;
-    queue(*context.bridge, std::move(result));
+    std::scoped_lock lock(bridge.mutex);
+    bridge.events.push_back(std::move(result));
+    bridge.pending.erase(context.id);
 }
 
 void onPairCode(sb_error_t error, const char *reply, void *userData)
 {
-    queueReply(*takeContext(userData), stringResult("pair_code", error, reply));
+    queueReply(takeContext(userData), stringResult("pair_code", error, reply));
 }
 
 void onUnpair(sb_error_t error, const char *reply, void *userData)
 {
-    queueReply(*takeContext(userData), stringResult("unpair", error, reply));
+    queueReply(takeContext(userData), stringResult("unpair", error, reply));
 }
 
 void onPairMachine(sb_error_t error, const char *reply, void *userData)
 {
-    queueReply(*takeContext(userData), stringResult("pair_machine", error, reply));
+    queueReply(takeContext(userData), stringResult("pair_machine", error, reply));
 }
 
 void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData)
@@ -389,24 +389,24 @@ void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData
     result["_result"] = "top_scores";
     result["error"] = static_cast<int>(error);
     result["entries"] = leaderboard ? readLeaderboard(leaderboard) : Array();
-    queueReply(*takeContext(userData), std::move(result));
+    queueReply(takeContext(userData), std::move(result));
 }
 
 void onDownload(sb_error_t error, const char *reply, void *userData)
 {
-    const auto context = takeContext(userData);
+    auto &context = takeContext(userData);
     Dictionary result = stringResult("download", error, reply);
-    result["url"] = context->url;
+    result["url"] = context.url;
     // On success the SDK has moved the file to exactly the requested path; reply is only a status.
-    result["path"] = error == SB_EC_SUCCESS ? context->path : String();
-    queueReply(*context, std::move(result));
+    result["path"] = error == SB_EC_SUCCESS ? context.path : String();
+    queueReply(context, std::move(result));
 }
 
 void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *userData)
 {
-    const auto context = takeContext(userData);
+    auto &context = takeContext(userData);
     Dictionary result;
-    result["url"] = context->url;
+    result["url"] = context.url;
     result["_result"] = "download_buffer";
     result["error"] = static_cast<int>(error);
     PackedByteArray bytes;
@@ -415,21 +415,36 @@ void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *
         std::memcpy(bytes.ptrw(), data, size);
     }
     result["data"] = bytes;
-    queueReply(*context, std::move(result));
+    queueReply(context, std::move(result));
 }
 
 void onDeviceState(sb_error_t error, int httpStatus, const char *reply, void *userData)
 {
-    const auto context = takeContext(userData);
+    auto &context = takeContext(userData);
     Dictionary result = stringResult("device_state", error, reply);
-    result["type"] = context->type;
+    result["type"] = context.type;
     result["http_status"] = httpStatus;
-    queueReply(*context, std::move(result));
+    queueReply(context, std::move(result));
 }
 
 // The SDK's logger is process-wide: one registration copies each line to every node that enabled
 // log_message. Capped per node, so a burst of debug logging can't grow without bound.
 constexpr size_t MAX_QUEUED_LOGS = 1000;
+// The one SDK registration passes lines up to this long; each node then cuts to its own limit.
+constexpr int64_t MAX_LOG_LENGTH = 16384;
+
+String cutLogLine(const String &message, int64_t maxLength)
+{
+    if (message.length() <= maxLength) {
+        return message;
+    }
+    const String elide = " ... ";
+    if (maxLength <= elide.length()) {
+        return message.left(maxLength);
+    }
+    const int64_t half = (maxLength - elide.length()) / 2;
+    return message.left(half) + elide + message.right(half);
+}
 
 struct LogRouter {
     std::mutex mutex;
@@ -656,9 +671,11 @@ void ScorbitGameState::stop()
     m_handle = nullptr;
     updateProcessing();
     m_uploads.clear(); // their answers died with the SDK's threads
-    // Events this game state raised but never delivered must not reach the next one.
+    // Events this game state raised but never delivered must not reach the next one, and requests
+    // it never answered will not be.
     std::scoped_lock lock(m_bridge->mutex);
     m_bridge->events.clear();
+    m_bridge->pending.clear();
 }
 
 // A node also processes while it only delivers log lines.
@@ -689,8 +706,8 @@ void ScorbitGameState::_process(double /*delta*/)
             lines.swap(m_logs->lines);
         }
         for (const auto &l : lines) {
-            emit_signal("log_message", toString(l.message.c_str()), l.level,
-                        toString(l.file.c_str()), l.line, l.timestamp);
+            emit_signal("log_message", cutLogLine(toString(l.message.c_str()), m_logs->maxLength),
+                        l.level, toString(l.file.c_str()), l.line, l.timestamp);
         }
     }
 }
@@ -749,11 +766,12 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
         if (!m_uploads.empty()) {
             id = m_uploads.front().id;
             m_uploads.pop_front();
+            // Before the signal: a handler's own upload_diagnostics() must find the next one sent.
+            if (!m_uploads.empty()) {
+                sendUpload(m_uploads.front());
+            }
         }
         emit_signal("diagnostics_uploaded", id, event.get("success", false));
-        if (!m_uploads.empty()) {
-            sendUpload(m_uploads.front());
-        }
         break;
     }
     case SB_EVT_PLAYER_PICTURE_READY:
@@ -863,7 +881,7 @@ int64_t ScorbitGameState::request_pair_code()
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_request_pair_code(m_handle, &onPairCode, newContext(m_bridge, id));
+    sb_request_pair_code(m_handle, &onPairCode, newContext(*m_bridge, id));
     return id;
 }
 
@@ -873,7 +891,7 @@ int64_t ScorbitGameState::request_unpair()
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_request_unpair(m_handle, &onUnpair, newContext(m_bridge, id));
+    sb_request_unpair(m_handle, &onUnpair, newContext(*m_bridge, id));
     return id;
 }
 
@@ -885,7 +903,7 @@ int64_t ScorbitGameState::request_pair_machine(const String &machineUuid, const 
     const int64_t id = ++m_lastRequest;
     sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
                                  ownerUuid.utf8().get_data(), &onPairMachine,
-                                 newContext(m_bridge, id));
+                                 newContext(*m_bridge, id));
     return id;
 }
 
@@ -901,7 +919,7 @@ int64_t ScorbitGameState::request_top_scores(int scope, int period, const String
                           static_cast<sb_leaderboard_period_t>(period),
                           since.is_empty() ? nullptr : sinceUtf8.get_data(),
                           static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
-                          newContext(m_bridge, id));
+                          newContext(*m_bridge, id));
     return id;
 }
 
@@ -914,7 +932,7 @@ int64_t ScorbitGameState::download(const String &url, const String &filename,
     const int64_t id = ++m_lastRequest;
     const auto h = toHeaders(headers);
     sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
-                h.array.size(), &onDownload, newContext(m_bridge, id, url, filename));
+                h.array.size(), &onDownload, newContext(*m_bridge, id, url, filename));
     return id;
 }
 
@@ -933,7 +951,7 @@ int64_t ScorbitGameState::download_buffer(const String &url, int reserveSize,
     const auto h = toHeaders(headers);
     sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
                        h.array.data(), h.array.size(), &onDownloadBuffer,
-                       newContext(m_bridge, id, url));
+                       newContext(*m_bridge, id, url));
     return id;
 }
 
@@ -974,7 +992,7 @@ int64_t ScorbitGameState::report_device_state(const String &type, const String &
     const int64_t id = ++m_lastRequest;
     sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(), installed,
                            log.is_empty() ? nullptr : log.utf8().get_data(), &onDeviceState,
-                           newContext(m_bridge, id, String(), String(), type));
+                           newContext(*m_bridge, id, String(), String(), type));
     return id;
 }
 
@@ -993,6 +1011,7 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         return;
     }
     m_logs = std::make_shared<LogSink>();
+    m_logs->maxLength = std::min<int64_t>(maxLength, MAX_LOG_LENGTH);
     bool first = false;
     {
         auto &router = logRouter();
@@ -1000,8 +1019,8 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         first = router.sinks.empty();
         router.sinks.push_back(m_logs);
     }
-    if (first) { // one SDK registration serves every node; the first node's limit applies
-        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
+    if (first) { // one SDK registration serves every node
+        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(MAX_LOG_LENGTH));
     }
     updateProcessing();
 }
@@ -1025,6 +1044,12 @@ void ScorbitGameState::disable_log_messages()
         sb_reset_logger();
     }
     updateProcessing();
+}
+
+int64_t ScorbitGameState::_pending_request_count() const
+{
+    std::scoped_lock lock(m_bridge->mutex);
+    return static_cast<int64_t>(m_bridge->pending.size());
 }
 
 int64_t ScorbitGameState::get_machine_serial() const
@@ -1107,6 +1132,8 @@ void ScorbitGameState::_bind_methods()
                          &ScorbitGameState::enable_log_messages, DEFVAL(512));
     ClassDB::bind_method(D_METHOD("disable_log_messages"), &ScorbitGameState::disable_log_messages);
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
+    ClassDB::bind_method(D_METHOD("_pending_request_count"),
+                         &ScorbitGameState::_pending_request_count);
     ClassDB::bind_method(D_METHOD("get_status"), &ScorbitGameState::get_status);
     ClassDB::bind_method(D_METHOD("get_machine_uuid"), &ScorbitGameState::get_machine_uuid);
     ClassDB::bind_method(D_METHOD("get_pair_deeplink"), &ScorbitGameState::get_pair_deeplink);

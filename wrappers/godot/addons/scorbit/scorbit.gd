@@ -265,7 +265,8 @@ func logger_callbacks_supported() -> bool:
 	return _native.logger_callbacks_supported() if _native else false
 
 
-## Starts emitting SDK log lines as log_message; messages longer than max_length are cut.
+## Starts emitting SDK log lines as log_message; messages longer than max_length characters (at
+## most 16384) are cut in the middle.
 func enable_log_messages(max_length: int = 512) -> void:
 	if _native:
 		_native.enable_log_messages(max_length)

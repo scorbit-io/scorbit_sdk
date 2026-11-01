@@ -13,9 +13,11 @@ var _frame := 0
 var _failures := 0
 var _logs := 0
 var _skipped: PackedStringArray  # the SDK's "file does not exist, skipping" log lines
-var _upload_starts := 0  # one upload, so a single logger registration delivers this line once
-var _listener  # a second native logging node, which must get every line too
-var _listener_starts := 0
+var _upload_starts := 0  # three uploads, so a single logger registration delivers this line 3x
+var _listener  # a second native logging node, with its own, shorter line limit
+var _listener_lines: PackedStringArray
+var _uploads: Array[int] = []  # ids of the chained uploads, in request order
+var _answered: Array[int] = []  # diagnostics_uploaded ids, in arrival order
 
 
 func _initialize() -> void:
@@ -27,13 +29,18 @@ func _initialize() -> void:
 
 func _process(_delta: float) -> bool:
 	_frame += 1
+	if _frame > MAX_FRAMES + 60:  # a script error below would otherwise keep the test running forever
+		printerr("smoke_test FAILED: did not finish")
+		quit(1)
+		return true
 	if _frame == 1:
 		_begin()
 	elif _frame == FRAMES / 2:
 		_scorbit.set_score(1, 2500)
 		_scorbit.set_game_finished()
 		_scorbit.commit()
-	var waiting := _expect_logs and (not _reported("missing.log") or _listener_starts == 0)
+	var waiting := _expect_native and _answered.size() < 2
+	waiting = waiting or (_expect_logs and not _reported("missing.log"))
 	if _frame < FRAMES or (waiting and _frame < MAX_FRAMES):
 		return false
 
@@ -43,13 +50,25 @@ func _process(_delta: float) -> bool:
 		# A user:// path must reach the SDK as a real path: only the missing file is skipped.
 		_check(_reported("missing.log"), "upload_diagnostics() checked the log paths")
 		_check(not _reported("diag.log"), "upload_diagnostics() found a user:// log file")
-		_check(_upload_starts == 1, "log lines delivered once after nodes came and went")
-		_check(_listener_starts == 1, "a second logging node got the same line")
+		# Three uploads, each sent once, even though two were requested from the previous answer.
+		_check(_upload_starts == 3, "each upload sent once; log lines delivered once")
+		_check(not _listener_lines.is_empty(), "a second logging node got log lines too")
+		var cut := false
+		for line in _listener_lines:
+			_check(line.length() <= 20, "a node's own max_length applies: " + line)
+			cut = cut or " ... " in line
+		_check(cut, "long lines are cut for the node with the shorter limit")
+	if _expect_native:
+		_check(_answered.size() >= 2 and _answered.slice(0, 2) == _uploads.slice(0, 2),
+				"diagnostics_uploaded answers uploads in order")
+		_check(not _answered.has(0), "no diagnostics_uploaded without a request")
 	if _listener:
 		_listener.free()
 	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
+	if _expect_native:
+		_check(_scorbit._native._pending_request_count() == 0, "stop() frees unanswered requests")
 	print("smoke_test: %d failure(s)" % _failures)
 	quit(1 if _failures else 0)
 	return true
@@ -116,13 +135,14 @@ func _begin() -> void:
 		_listener = ClassDB.instantiate("ScorbitGameState")
 		root.add_child(_listener)
 		_listener.log_message.connect(_on_listener_log)
-		_listener.enable_log_messages(512)
+		_listener.enable_log_messages(20)
 	_scorbit.report_device_state("smoke", "1.0.0")
 	DirAccess.make_dir_recursive_absolute("user://smoke")
 	FileAccess.open("user://smoke/diag.log", FileAccess.WRITE).store_string("smoke log\n")
-	_scorbit.upload_diagnostics(
-			PackedStringArray(["user://smoke/diag.log", "user://smoke/missing.log"]),
-			PackedStringArray(), "smoke diagnostics")
+	# An upload with nothing in it is answered at once, with no network: chain three of them,
+	# each requested from the previous one's answer, ending with real user:// files.
+	_scorbit.diagnostics_uploaded.connect(_on_uploaded)
+	_uploads.append(_scorbit.upload_diagnostics())
 	_check(_scorbit.get_machine_serial() >= 0, "get_machine_serial()")
 
 	_scorbit.set_game_started()
@@ -144,8 +164,17 @@ func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp
 
 
 func _on_listener_log(message: String, _level: int, _file: String, _line: int, _time: int) -> void:
-	if "diagnostics upload: starting" in message:
-		_listener_starts += 1
+	_listener_lines.append(message)
+
+
+func _on_uploaded(request_id: int, _success: bool) -> void:
+	_answered.append(request_id)
+	if _answered.size() == 1:
+		_uploads.append(_scorbit.upload_diagnostics())
+	elif _answered.size() == 2:
+		_uploads.append(_scorbit.upload_diagnostics(
+				PackedStringArray(["user://smoke/diag.log", "user://smoke/missing.log"]),
+				PackedStringArray(), "smoke diagnostics"))
 
 
 func _reported(file_name: String) -> bool:

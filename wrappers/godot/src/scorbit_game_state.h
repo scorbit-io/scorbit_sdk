@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -35,12 +36,25 @@
 
 namespace scorbit_godot {
 
+struct Bridge;
+
+/// A request's callback user data: what its answering signal reports.
+struct RequestContext {
+    Bridge *bridge;
+    int64_t id;
+    godot::String url;  // downloads
+    godot::String path; // download(), as the caller gave it
+    godot::String type; // report_device_state()
+};
+
 /// What the SDK's threads reach through their callbacks' user data. It outlives the game state,
 /// which is destroyed before this is.
 struct Bridge {
     std::mutex mutex;
     std::vector<godot::Dictionary> events; // drained on the main thread
     std::string keyPath;                   // where the device key is kept between runs
+    // Owned here, not by the callback: the SDK may drop a request without answering it.
+    std::map<int64_t, std::unique_ptr<RequestContext>> pending;
 };
 
 struct LogSink;
@@ -82,6 +96,7 @@ public:
     int64_t request_pair_machine(const godot::String &machineUuid, const godot::String &ownerUuid);
     int64_t request_top_scores(int scope, int period, const godot::String &since, int vpinFilter);
     int64_t get_machine_serial() const;
+    int64_t _pending_request_count() const; // for tests
     int64_t download(const godot::String &url, const godot::String &filename,
                      const godot::Dictionary &headers);
     int64_t download_buffer(const godot::String &url, int reserveSize,
