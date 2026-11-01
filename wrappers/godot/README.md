@@ -54,6 +54,33 @@ Call `commit()` after each batch of changes. SDK events arrive as signals on the
 If the native library can't load, `Scorbit.is_available()` is `false` and every call does
 nothing, so the game still runs.
 
+## What the add-on covers
+
+Everything a game uses from the SDK. `scorbit.gd` documents each call:
+
+- **Game state:** `set_game_started`, `set_game_finished`, `set_current_ball`, `set_active_player`,
+  `set_score`, modes (`add_mode`, `add_mode_expiring`, `remove_mode`, `clear_modes`,
+  `set_mode_completed`), and `commit`.
+- **Auto-start and credits:** advertise them with
+  `set_capabilities(CAPABILITY_START_GAME | CAPABILITY_CREDIT_DROP)`. Then:
+  - `game_start_requested` asks the game to start; start it with
+    `set_game_started(STARTED_FROM_LOBBY)`.
+  - `credits_add_requested(credits, transaction)` asks to add credits; confirm with
+    `set_credits_dropped`.
+  - `credits_status_requested` is answered with `set_credits_status`.
+  - `pricing_received` carries the machine's pricing.
+- **Players:** `players_updated` and `player_picture_ready`.
+- **Leaderboards:** `request_top_scores(scope, period, since, vpin_filter)` answers with
+  `top_scores_received`.
+- **Pairing:** `get_pair_deeplink`, `request_pair_code`, `request_pair_machine`, `request_unpair`,
+  `pairing_status_changed`, `get_status`, `get_machine_uuid` and `get_machine_serial`.
+- **Downloads:** `download` and `download_buffer`.
+- **Diagnostics and logging:** `diagnostics_upload_requested` with `upload_diagnostics`,
+  `report_device_state`, and SDK log lines as `log_message` after `enable_log_messages`.
+
+Requests answer through signals, with an error code that is 0 on success. All signals are emitted
+on the main thread.
+
 ## Notes
 
 - The SDK library ships beside the extension (`bin/`), and exports copy it next to the game, or
