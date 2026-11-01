@@ -1255,7 +1255,7 @@ public:
         }
         const Entry *best = nullptr;
         for (const Entry &e : it->second) {
-            if ((!e.refused && e.directory != wantDirectory)
+            if (e.directory != wantDirectory
                 || (best != nullptr && (best->name == name || (e.name != name && e.name > best->name)))) {
                 continue;
             }
@@ -1268,6 +1268,8 @@ public:
     }
 
 private:
+    /// directory: what VPX would take the entry for (a link counts as what it points to).
+    /// refused: VPX would use it but the reader will not.
     struct Entry {
         std::string name;
         std::filesystem::path path;
@@ -1299,23 +1301,41 @@ private:
             } catch (const std::exception &) {
                 continue; // a name with no UTF-8 form cannot be what a script names
             }
+            // An entry whose status cannot be read, or a link pointing nowhere, is not there for
+            // VPX either: it is skipped, not refused.
+            namespace fs = std::filesystem;
             std::error_code sec;
             const auto own = it->symlink_status(sec);
-            bool directory = !sec && std::filesystem::is_directory(own);
-            bool refused = sec || (!directory && !std::filesystem::is_regular_file(own));
-            // A linked folder counts only where links are followed; a linked file never does.
-            if (!sec && followLinks && std::filesystem::is_symlink(own)) {
-                std::error_code tec;
-                directory = std::filesystem::is_directory(it->status(tec)) && !tec;
-                refused = !directory;
+            if (sec) {
+                continue;
             }
+            const auto special = [](const fs::file_status &st) {
+                return fs::is_fifo(st) || fs::is_block_file(st) || fs::is_character_file(st)
+                       || fs::is_socket(st);
+            };
+            bool directory = false;
+            bool refused = false;
+            if (fs::is_regular_file(own) || fs::is_directory(own)) {
+                directory = fs::is_directory(own);
 #ifdef _WIN32
-            // A link or junction, which some standard libraries (MinGW's) report as a plain entry;
-            // a cloud placeholder is not one.
-            if (!refused && !followLinks && isLinkEntry(it->path())) {
-                refused = true;
-            }
+                // A link or junction that this standard library (MinGW's) reports as a plain entry.
+                if (isLinkEntry(it->path())) {
+                    refused = !directory || !followLinks;
+                }
 #endif
+            } else if (special(own)) {
+                refused = true; // VPX would open it as a file; the reader will not
+            } else {
+                // A link or a junction (MSVC's file_type::junction): what it points to decides.
+                std::error_code tec;
+                const auto target = it->status(tec);
+                if (tec || (!fs::is_directory(target) && !fs::is_regular_file(target) && !special(target))) {
+                    continue;
+                }
+                directory = fs::is_directory(target);
+                // A linked folder is followed only in VPX's folders; a linked file is never read.
+                refused = !directory || !followLinks;
+            }
             listing[lowerAscii(name)].push_back({name, it->path(), directory, refused});
         }
         // A folder that is not there is empty; one that cannot be listed is not.

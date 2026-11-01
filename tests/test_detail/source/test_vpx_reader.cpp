@@ -883,6 +883,27 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
             CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
         }
     }
+    SECTION("a dangling link is not there, for VPX or the reader")
+    {
+        // VPX passes over links that point nowhere; so must the reader, or one leftover broken
+        // link in an install would make every table unreadable.
+        for (const char *dangling : {"app/user", "app/core.vbs", "table/Helper.vbs"}) {
+            INFO(dangling);
+            Tree t("dangling");
+            t.put(t.app / "scripts" / "core.vbs", "'");
+            t.put(t.table / "scripts" / "Helper.vbs", vpx_fixtures::kHelper);
+            t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+            const fs::path link = std::string(dangling).rfind("table/", 0) == 0
+                                          ? t.table / std::string(dangling).substr(6)
+                                          : t.root / dangling;
+            fs::create_symlink(t.root / "nowhere", link);
+            const auto r = t.sign();
+            REQUIRE(r.code == Code::ok);
+            CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+            REQUIRE_FALSE(r.inputs.helperScripts.empty());
+            CHECK(r.inputs.helperScripts[0].content == vpx_fixtures::kHelper);
+        }
+    }
     SECTION("a sidecar that is a FIFO")
     {
         Tree t("fifo");
