@@ -13,6 +13,7 @@ var _frame := 0
 var _failures := 0
 var _logs := 0
 var _skipped: PackedStringArray  # the SDK's "file does not exist, skipping" log lines
+var _upload_starts := 0  # one upload, so a single logger registration delivers this line once
 
 
 func _initialize() -> void:
@@ -39,6 +40,7 @@ func _process(_delta: float) -> bool:
 		# A user:// path must reach the SDK as a real path: only the missing file is skipped.
 		_check(_reported("missing.log"), "upload_diagnostics() checked the log paths")
 		_check(not _reported("diag.log"), "upload_diagnostics() found a user:// log file")
+		_check(_upload_starts == 1, "log lines delivered once after nodes came and went")
 	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
@@ -88,6 +90,13 @@ func _begin() -> void:
 		_check(not _scorbit.logger_callbacks_supported(), "logger_callbacks_supported()")
 	_scorbit.enable_log_messages()
 	_scorbit.log_message.connect(_on_log)
+	if _expect_native:
+		for i in 3:  # nodes that enable logging and go away must not leave a registration behind
+			var extra: Object = ClassDB.instantiate("ScorbitGameState")
+			extra.enable_log_messages(512)
+			extra.free()
+		_check(_has_arg("download_finished", "path"), "download_finished reports the saved path")
+		_check(_has_arg("device_state_reported", "type"), "device_state_reported names the type")
 	_scorbit.report_device_state("smoke", "1.0.0")
 	DirAccess.make_dir_recursive_absolute("user://smoke")
 	FileAccess.open("user://smoke/diag.log", FileAccess.WRITE).store_string("smoke log\n")
@@ -110,11 +119,20 @@ func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp
 	_logs += 1
 	if "does not exist" in message:
 		_skipped.append(message)
+	elif "diagnostics upload: starting" in message:
+		_upload_starts += 1
 
 
 func _reported(file_name: String) -> bool:
 	for line in _skipped:
 		if line.ends_with("/" + file_name) or line.ends_with("\\" + file_name):
+			return true
+	return false
+
+
+func _has_arg(signal_name: String, arg: String) -> bool:
+	for a in ClassDB.class_get_signal("ScorbitGameState", signal_name).get("args", []):
+		if a.name == arg:
 			return true
 	return false
 

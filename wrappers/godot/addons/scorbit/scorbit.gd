@@ -20,12 +20,13 @@ signal pricing_received(pricing: Dictionary)
 ## Answers request_top_scores(): error 0 on success, and one Dictionary per entry (rank, high_score,
 ## player_display_name, player_initials, player_avatar, is_verified, created, ...).
 signal top_scores_received(error: int, entries: Array)
-## Answers download(): result is the saved file's path on success.
-signal download_finished(error: int, url: String, result: String)
+## Answers download(): path is the saved file's path as given to download(), or "" on failure;
+## reply is the SDK's status text.
+signal download_finished(error: int, url: String, path: String, reply: String)
 ## Answers download_buffer() with the downloaded bytes.
 signal download_buffer_finished(error: int, url: String, data: PackedByteArray)
-## Answers report_device_state().
-signal device_state_reported(error: int, http_status: int, reply: String)
+## Answers report_device_state(); type names the report, as reports may finish in any order.
+signal device_state_reported(error: int, type: String, http_status: int, reply: String)
 ## Scorbit support asked for diagnostics. Answer with upload_diagnostics().
 signal diagnostics_upload_requested(include_recordings: bool)
 ## The diagnostics upload finished.
@@ -103,6 +104,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	disable_log_messages()
 	stop()
 
 

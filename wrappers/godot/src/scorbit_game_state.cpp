@@ -351,10 +351,16 @@ void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData
     queue(*static_cast<Bridge *>(userData), std::move(result));
 }
 
-// A download's callback carries only its user data, so each one gets the URL its signal reports.
+// A callback carries only its user data, so each request gets what its signal reports.
 struct DownloadContext {
     std::shared_ptr<Bridge> bridge;
     String url;
+    String path; // as the caller gave it; download() only
+};
+
+struct DeviceStateContext {
+    std::shared_ptr<Bridge> bridge;
+    String type;
 };
 
 void onDownload(sb_error_t error, const char *reply, void *userData)
@@ -362,6 +368,8 @@ void onDownload(sb_error_t error, const char *reply, void *userData)
     std::unique_ptr<DownloadContext> context(static_cast<DownloadContext *>(userData));
     Dictionary result = stringResult("download", error, reply);
     result["url"] = context->url;
+    // On success the SDK has moved the file to exactly the requested path; reply is only a status.
+    result["path"] = error == SB_EC_SUCCESS ? context->path : String();
     queue(*context->bridge, std::move(result));
 }
 
@@ -383,14 +391,17 @@ void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *
 
 void onDeviceState(sb_error_t error, int httpStatus, const char *reply, void *userData)
 {
+    std::unique_ptr<DeviceStateContext> context(static_cast<DeviceStateContext *>(userData));
     Dictionary result = stringResult("device_state", error, reply);
+    result["type"] = context->type;
     result["http_status"] = httpStatus;
-    queue(*static_cast<Bridge *>(userData), std::move(result));
+    queue(*context->bridge, std::move(result));
 }
 
 // The SDK's logger is process-wide, so its messages wait here for whichever node drains them.
 // Capped, so a burst of debug logging can't grow it without bound while nothing drains it.
 constexpr size_t MAX_QUEUED_LOGS = 1000;
+int g_logNodes = 0; // nodes with log_message on; main thread only, like the calls that change it
 
 struct LogQueue {
     std::mutex mutex;
@@ -518,6 +529,7 @@ ScorbitGameState::ScorbitGameState()
 
 ScorbitGameState::~ScorbitGameState()
 {
+    disable_log_messages();
     stop();
 }
 
@@ -664,11 +676,12 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
         } else if (name == "pair_machine") {
             emit_signal("pair_machine_finished", error, event["reply"]);
         } else if (name == "download") {
-            emit_signal("download_finished", error, event["url"], event["reply"]);
+            emit_signal("download_finished", error, event["url"], event["path"], event["reply"]);
         } else if (name == "download_buffer") {
             emit_signal("download_buffer_finished", error, event["url"], event["data"]);
         } else if (name == "device_state") {
-            emit_signal("device_state_reported", error, event["http_status"], event["reply"]);
+            emit_signal("device_state_reported", error, event["type"], event["http_status"],
+                        event["reply"]);
         }
         return;
     }
@@ -841,7 +854,7 @@ void ScorbitGameState::download(const String &url, const String &filename,
     if (m_handle) {
         const auto h = toHeaders(headers);
         sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
-                    h.array.size(), &onDownload, new DownloadContext {m_bridge, url});
+                    h.array.size(), &onDownload, new DownloadContext {m_bridge, url, filename});
     }
 }
 
@@ -884,7 +897,7 @@ void ScorbitGameState::report_device_state(const String &type, const String &ver
     if (m_handle) {
         sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(),
                                installed, log.is_empty() ? nullptr : log.utf8().get_data(),
-                               &onDeviceState, m_bridge.get());
+                               &onDeviceState, new DeviceStateContext {m_bridge, type});
     }
 }
 
@@ -900,7 +913,11 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         return;
     }
     if (!m_logSignal) {
-        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
+        // The SDK's logger is process-wide: one registration serves every node, so a recreated
+        // node can't add a second and duplicate every line.
+        if (g_logNodes++ == 0) {
+            sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
+        }
         m_logSignal = true;
     }
 }
@@ -908,8 +925,10 @@ void ScorbitGameState::enable_log_messages(int maxLength)
 void ScorbitGameState::disable_log_messages()
 {
     if (m_logSignal) {
-        sb_reset_logger();
         m_logSignal = false;
+        if (--g_logNodes == 0) {
+            sb_reset_logger();
+        }
     }
 }
 
@@ -1009,11 +1028,13 @@ void ScorbitGameState::_bind_methods()
                           PropertyInfo(Variant::ARRAY, "entries")));
     ADD_SIGNAL(MethodInfo("download_finished", PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "url"),
-                          PropertyInfo(Variant::STRING, "result")));
+                          PropertyInfo(Variant::STRING, "path"),
+                          PropertyInfo(Variant::STRING, "reply")));
     ADD_SIGNAL(MethodInfo("download_buffer_finished", PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "url"),
                           PropertyInfo(Variant::PACKED_BYTE_ARRAY, "data")));
     ADD_SIGNAL(MethodInfo("device_state_reported", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "type"),
                           PropertyInfo(Variant::INT, "http_status"),
                           PropertyInfo(Variant::STRING, "reply")));
     ADD_SIGNAL(MethodInfo("diagnostics_upload_requested",
