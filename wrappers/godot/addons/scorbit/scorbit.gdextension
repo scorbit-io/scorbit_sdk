@@ -1,0 +1,24 @@
+; Scorbit SDK for Godot 4. Built against the 4.3 API: loads in 4.3 and later 4.x.
+; The SDK library is a dependency, not linked in, so a released add-on can update it in place.
+
+[configuration]
+
+entry_symbol = "scorbit_godot_init"
+compatibility_minimum = "4.3"
+
+[libraries]
+
+macos.debug = "bin/libscorbit_godot.macos.template_debug.dylib"
+macos.release = "bin/libscorbit_godot.macos.template_release.dylib"
+windows.debug.x86_64 = "bin/scorbit_godot.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "bin/scorbit_godot.windows.template_release.x86_64.dll"
+linux.debug.x86_64 = "bin/libscorbit_godot.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "bin/libscorbit_godot.linux.template_release.x86_64.so"
+linux.debug.arm64 = "bin/libscorbit_godot.linux.template_debug.arm64.so"
+linux.release.arm64 = "bin/libscorbit_godot.linux.template_release.arm64.so"
+
+[dependencies]
+
+macos = { "bin/libscorbit_sdk.2.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "bin/scorbit_sdk.dll": "" }
+linux = { "bin/libscorbit_sdk.so.2": "" }
