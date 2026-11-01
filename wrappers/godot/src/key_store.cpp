@@ -23,6 +23,13 @@
 #include <fstream>
 #include <sstream>
 
+#ifdef _WIN32
+#    ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace scorbit_godot {
@@ -71,8 +78,15 @@ bool saveKey(const std::string &path, const std::string &key)
             return false;
         }
     }
+    // As the SDK's own updater: replace the old key outright, whichever standard library this is.
+#ifdef _WIN32
+    const bool moved = MoveFileExW(tmp.c_str(), file.c_str(),
+                                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
     fs::rename(tmp, file, ec);
-    if (ec) {
+    const bool moved = !ec;
+#endif
+    if (!moved) {
         std::error_code ignored;
         fs::remove(tmp, ignored);
         return false;

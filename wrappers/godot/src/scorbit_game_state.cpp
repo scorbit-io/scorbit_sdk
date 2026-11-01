@@ -137,8 +137,10 @@ void onEvent(const sb_event_t *event, void *userData)
 void onSaveKey(const char *key, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
-    if (key) {
-        saveKey(bridge->keyPath, key);
+    if (key && !saveKey(bridge->keyPath, key)) {
+        // Without it the machine is a new device on the next run, and has to be paired again.
+        UtilityFunctions::push_error(String("Scorbit: could not save the device key to ")
+                                     + String::utf8(bridge->keyPath.c_str()));
     }
 }
 
