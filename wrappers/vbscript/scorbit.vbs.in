@@ -1,0 +1,501 @@
+' Scorbit SDK for VBScript tables
+'
+' (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
+'
+' MIT License
+'
+' The above copyright notice and this permission notice shall be included in
+' all copies or substantial portions of the Software.
+'
+' THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+' IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+' FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+' AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+' LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+' OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+' SOFTWARE.
+'
+' The SDK's game API for Visual Pinball X table scripts, over the Scorbit plugin's
+' Scorbit.Table object. Load it from the table script:
+'
+'     On Error Resume Next
+'     ExecuteGlobal GetTextFile("scorbit-@SCORBIT_SDK_VERSION@.vbs")
+'     On Error Goto 0
+'     ScorbitInit "<machine uuid>"
+'
+' Every routine is guarded: none raises into the table, none leaves an error in Err,
+' and each is a no-op, or returns its "none" value, when the plugin is absent. Every
+' argument is required. The table must ship this file beside itself: without it, none of
+' these names exist. See README.md beside this file.
+
+Const SCORBIT_SDK_VERSION = "@SCORBIT_SDK_VERSION@"
+
+' Scorbit.Table's ApiLevel needed by each group of routines.
+Const SCORBIT_API_GAME = 1
+Const SCORBIT_API_READ_BACK = 2
+
+' GameStartOrigin
+Const SCORBIT_GAME_STARTED_BY_BUTTON = 0
+Const SCORBIT_GAME_STARTED_FROM_LOBBY = 1
+
+' AuthStatus (ScorbitGetStatus); -1 until it is known
+Const SCORBIT_STATUS_UNKNOWN = -1
+Const SCORBIT_STATUS_NOT_AUTHENTICATED = 0
+Const SCORBIT_STATUS_AUTHENTICATING = 1
+Const SCORBIT_STATUS_AUTHENTICATED_CHECKING_PAIRING = 2
+Const SCORBIT_STATUS_AUTHENTICATED_UNPAIRED = 3
+Const SCORBIT_STATUS_AUTHENTICATED_PAIRED = 4
+Const SCORBIT_STATUS_AUTHENTICATION_FAILED = 5
+
+' LeaderboardScope, LeaderboardPeriod, LeaderboardVpinFilter
+Const SCORBIT_LEADERBOARD_SCOPE_MACHINE = 0
+Const SCORBIT_LEADERBOARD_SCOPE_VARIANT = 1
+Const SCORBIT_LEADERBOARD_SCOPE_GAME = 2
+Const SCORBIT_LEADERBOARD_PERIOD_ALL_TIME = 0
+Const SCORBIT_LEADERBOARD_PERIOD_14D = 1
+Const SCORBIT_LEADERBOARD_PERIOD_30D = 2
+Const SCORBIT_LEADERBOARD_PERIOD_90D = 3
+Const SCORBIT_LEADERBOARD_PERIOD_180D = 4
+Const SCORBIT_LEADERBOARD_PERIOD_365D = 5
+Const SCORBIT_LEADERBOARD_VPIN_ANY = 0
+Const SCORBIT_LEADERBOARD_VPIN_ONLY = 1
+Const SCORBIT_LEADERBOARD_VPIN_REAL_ONLY = 2
+
+' ScorbitTopScoresResult
+Const SCORBIT_TOP_SCORES_PENDING = -1
+Const SCORBIT_TOP_SCORES_OK = 0
+Const SCORBIT_TOP_SCORES_NOT_PAIRED = 1
+Const SCORBIT_TOP_SCORES_API_ERROR = 2
+Const SCORBIT_TOP_SCORES_FAILED = 3
+Const SCORBIT_TOP_SCORES_SUPERSEDED = 4
+Const SCORBIT_TOP_SCORES_NO_TABLE = 5
+Const SCORBIT_TOP_SCORES_UNSUPPORTED = 6
+Const SCORBIT_TOP_SCORES_MALFORMED = 7
+Const SCORBIT_TOP_SCORES_DISCONNECTED = 8
+Const SCORBIT_TOP_SCORES_MAX = 20
+' Results the plugin keeps; a newer one evicts the oldest, whose id then reads as PENDING again.
+Const SCORBIT_TOP_SCORES_HELD = 8
+
+' ScorbitTopScoresFlags bits
+Const SCORBIT_SCORE_FLAG_VIRTUAL = 1
+Const SCORBIT_SCORE_FLAG_VERIFIED = 2
+Const SCORBIT_SCORE_FLAG_VERIFIED_NFC = 4
+
+' Game status indication (ScorbitGetSystemState, ScorbitGetSessionState); -1 before the first status
+Const SCORBIT_SYSTEM_UNKNOWN = -1
+Const SCORBIT_SYSTEM_OK = 0
+Const SCORBIT_SYSTEM_NOT_PAIRED = 1
+Const SCORBIT_SYSTEM_OFFLINE = 2
+Const SCORBIT_SYSTEM_DEGRADED = 3
+Const SCORBIT_SESSION_UNKNOWN = -1
+Const SCORBIT_SESSION_NO_GAME = 0
+Const SCORBIT_SESSION_TRACKING = 1
+Const SCORBIT_SESSION_NO_DATA = 2
+Const SCORBIT_SESSION_HIDDEN = 4
+
+Const SCORBIT_MAX_PLAYERS = 9
+
+' EventType, as returned by ScorbitPollEvent
+Const SCORBIT_EVENT_PLAYERS_UPDATED = 4
+Const SCORBIT_EVENT_PLAYER_PICTURE_READY = 5
+Const SCORBIT_EVENT_PAIRING_STATUS_CHANGED = 9
+Const SCORBIT_EVENT_NONE = 1000
+' Served only to public, coin-operated cabinets, which the plugin does not serve:
+' Const SCORBIT_EVENT_GAME_START_REQUESTED = 0
+' Const SCORBIT_EVENT_CREDITS_ADD_REQUESTED = 1
+' Const SCORBIT_EVENT_CREDITS_STATUS_REQUESTED = 2
+' Const SCORBIT_EVENT_PRICING_RECEIVED = 8
+
+Dim ScorbitImpl_Table, ScorbitImpl_Level
+Dim ScorbitImpl_Auth, ScorbitImpl_Players(9), ScorbitImpl_Pictures(9)
+Dim ScorbitImpl_Queue(31), ScorbitImpl_QueueSlot(31), ScorbitImpl_Head, ScorbitImpl_Count, ScorbitImpl_EventSlot
+Set ScorbitImpl_Table = Nothing
+ScorbitImpl_Level = 0
+ScorbitImpl_Auth = -1
+ScorbitImpl_Head = 0
+ScorbitImpl_Count = 0
+ScorbitImpl_EventSlot = 0
+
+' ---------------------------------------------------------------- setup
+
+' Connects to the plugin and names the table's Scorbit machine (a uuid, 8-4-4-4-12 hex).
+' Without the plugin every other routine stays a no-op.
+Sub ScorbitInit(machineUuid)
+    Dim t
+    On Error Resume Next
+    Set t = Nothing
+    Set t = CreateObject("Scorbit.Table")
+    If Err.Number <> 0 Then Set t = Nothing
+    Err.Clear
+    ScorbitInitWith t, machineUuid
+    Err.Clear
+End Sub
+
+' As ScorbitInit, with a given object in place of Scorbit.Table (Nothing for none).
+Sub ScorbitInitWith(table, machineUuid)
+    Dim lvl
+    On Error Resume Next
+    Set ScorbitImpl_Table = Nothing
+    ScorbitImpl_Level = 0
+    ScorbitImpl_ResetEvents
+    If Not IsObject(table) Then Err.Clear : Exit Sub
+    If table Is Nothing Then Err.Clear : Exit Sub
+    Set ScorbitImpl_Table = table
+    ' A plugin from before ApiLevel has no such member: level 1, the game calls only.
+    lvl = 1
+    Err.Clear
+    lvl = table.ApiLevel
+    If Err.Number <> 0 Then lvl = 1
+    Err.Clear
+    ScorbitImpl_Level = lvl
+    table.Declare machineUuid
+    Err.Clear
+End Sub
+
+' True when the plugin is present.
+Function ScorbitAvailable()
+    ScorbitAvailable = (ScorbitImpl_Level > 0)
+End Function
+
+' The plugin's ApiLevel: 0 without the plugin, 1 for one older than ApiLevel.
+Function ScorbitApiLevel()
+    ScorbitApiLevel = ScorbitImpl_Level
+End Function
+
+' ---------------------------------------------------------------- game state
+
+Sub ScorbitSetGameStarted(origin)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetGameStarted origin
+    Err.Clear
+End Sub
+
+' Ends the game; commits.
+Sub ScorbitSetGameFinished()
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetGameFinished
+    Err.Clear
+End Sub
+
+Sub ScorbitSetCurrentBall(ball)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetCurrentBall ball
+    Err.Clear
+End Sub
+
+Sub ScorbitSetActivePlayer(player)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetActivePlayer player
+    Err.Clear
+End Sub
+
+' feature: what scored, 0 when not set. Scores are exact up to 2^53.
+Sub ScorbitSetScore(player, score, feature)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetScore player, score, feature
+    Err.Clear
+End Sub
+
+Sub ScorbitAddMode(mode)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.AddMode mode
+    Err.Clear
+End Sub
+
+' durationSeconds: 0 means 3, the recommended value; over 10 is 10.
+Sub ScorbitAddModeExpiring(mode, durationSeconds)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.AddModeExpiring durationSeconds, mode
+    Err.Clear
+End Sub
+
+' A completed mode, matched against achievement conditions.
+Sub ScorbitSetModeCompleted(mode)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.SetModeCompleted mode
+    Err.Clear
+End Sub
+
+Sub ScorbitRemoveMode(mode)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.RemoveMode mode
+    Err.Clear
+End Sub
+
+Sub ScorbitClearModes()
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.ClearModes
+    Err.Clear
+End Sub
+
+' Sends every call since the last commit.
+Sub ScorbitCommit()
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_GAME Then ScorbitImpl_Table.Commit
+    Err.Clear
+End Sub
+
+' ---------------------------------------------------------------- status
+
+' AuthStatus, SCORBIT_STATUS_UNKNOWN until it is known.
+Function ScorbitGetStatus()
+    ScorbitGetStatus = SCORBIT_STATUS_UNKNOWN
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitGetStatus = CLng(ScorbitImpl_Table.AuthStatus)
+    If Err.Number <> 0 Then ScorbitGetStatus = SCORBIT_STATUS_UNKNOWN
+    Err.Clear
+End Function
+
+' The uuid the table declared, "" before that.
+Function ScorbitGetMachineUuid()
+    ScorbitGetMachineUuid = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitGetMachineUuid = CStr(ScorbitImpl_Table.MachineUuid)
+    If Err.Number <> 0 Then ScorbitGetMachineUuid = ""
+    Err.Clear
+End Function
+
+' SCORBIT_SYSTEM_*, SCORBIT_SYSTEM_UNKNOWN before the first status.
+Function ScorbitGetSystemState()
+    ScorbitGetSystemState = SCORBIT_SYSTEM_UNKNOWN
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitGetSystemState = CLng(ScorbitImpl_Table.SystemState)
+    If Err.Number <> 0 Then ScorbitGetSystemState = SCORBIT_SYSTEM_UNKNOWN
+    Err.Clear
+End Function
+
+' SCORBIT_SESSION_*, SCORBIT_SESSION_UNKNOWN before the first status.
+Function ScorbitGetSessionState()
+    ScorbitGetSessionState = SCORBIT_SESSION_UNKNOWN
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitGetSessionState = CLng(ScorbitImpl_Table.SessionState)
+    If Err.Number <> 0 Then ScorbitGetSessionState = SCORBIT_SESSION_UNKNOWN
+    Err.Clear
+End Function
+
+' Support text for the state, often "".
+Function ScorbitGetStatusText()
+    ScorbitGetStatusText = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitGetStatusText = CStr(ScorbitImpl_Table.StatusText)
+    If Err.Number <> 0 Then ScorbitGetStatusText = ""
+    Err.Clear
+End Function
+
+' ---------------------------------------------------------------- leaderboards
+
+' Returns a request id, 0 when no answer can come. since: "" or a UTC ISO-8601 time,
+' which replaces period. The answer is polled with ScorbitTopScoresResult(id).
+Function ScorbitRequestTopScores(scope, period, since, vpinFilter)
+    ScorbitRequestTopScores = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then
+        ScorbitRequestTopScores = ScorbitImpl_Table.RequestTopScores(scope, period, vpinFilter, SCORBIT_TOP_SCORES_MAX, since)
+    End If
+    Err.Clear
+End Function
+
+Function ScorbitTopScoresResult(id)
+    ScorbitTopScoresResult = SCORBIT_TOP_SCORES_PENDING
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresResult = ScorbitImpl_Table.TopScoresResult(id)
+    Err.Clear
+End Function
+
+' Seconds since Scorbit was asked.
+Function ScorbitTopScoresAge(id)
+    ScorbitTopScoresAge = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresAge = ScorbitImpl_Table.TopScoresAge(id)
+    Err.Clear
+End Function
+
+Function ScorbitTopScoresCount(id)
+    ScorbitTopScoresCount = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresCount = ScorbitImpl_Table.TopScoresCount(id)
+    Err.Clear
+End Function
+
+' Entry i, from 0.
+Function ScorbitTopScoresRank(id, i)
+    ScorbitTopScoresRank = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresRank = ScorbitImpl_Table.TopScoresRank(id, i)
+    Err.Clear
+End Function
+
+Function ScorbitTopScoresScore(id, i)
+    ScorbitTopScoresScore = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresScore = ScorbitImpl_Table.TopScoresScore(id, i)
+    Err.Clear
+End Function
+
+Function ScorbitTopScoresName(id, i)
+    ScorbitTopScoresName = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresName = ScorbitImpl_Table.TopScoresName(id, i)
+    Err.Clear
+End Function
+
+Function ScorbitTopScoresInitials(id, i)
+    ScorbitTopScoresInitials = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresInitials = ScorbitImpl_Table.TopScoresInitials(id, i)
+    Err.Clear
+End Function
+
+' SCORBIT_SCORE_FLAG_* bits.
+Function ScorbitTopScoresFlags(id, i)
+    ScorbitTopScoresFlags = 0
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresFlags = ScorbitImpl_Table.TopScoresFlags(id, i)
+    Err.Clear
+End Function
+
+' When the score was made, as Scorbit gives it.
+Function ScorbitTopScoresCreated(id, i)
+    ScorbitTopScoresCreated = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresCreated = ScorbitImpl_Table.TopScoresCreated(id, i)
+    Err.Clear
+End Function
+
+Sub ScorbitReleaseTopScores(id)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitImpl_Table.ReleaseTopScores id
+    Err.Clear
+End Sub
+
+' ---------------------------------------------------------------- players (slots 1 to 9)
+
+Function ScorbitPlayerClaimed(slot)
+    ScorbitPlayerClaimed = False
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerClaimed = CBool(ScorbitImpl_Table.PlayerClaimed(slot))
+    Err.Clear
+End Function
+
+Function ScorbitPlayerId(slot)
+    ScorbitPlayerId = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerId = CStr(ScorbitImpl_Table.PlayerId(slot))
+    If Err.Number <> 0 Then ScorbitPlayerId = ""
+    Err.Clear
+End Function
+
+Function ScorbitPlayerName(slot)
+    ScorbitPlayerName = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerName = CStr(ScorbitImpl_Table.PlayerName(slot))
+    If Err.Number <> 0 Then ScorbitPlayerName = ""
+    Err.Clear
+End Function
+
+Function ScorbitPlayerInitials(slot)
+    ScorbitPlayerInitials = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerInitials = CStr(ScorbitImpl_Table.PlayerInitials(slot))
+    If Err.Number <> 0 Then ScorbitPlayerInitials = ""
+    Err.Clear
+End Function
+
+' While the slot is unclaimed: the link a player scans to claim it, e.g. shown as a QR code.
+Function ScorbitPlayerClaimLink(slot)
+    ScorbitPlayerClaimLink = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerClaimLink = CStr(ScorbitImpl_Table.PlayerClaimLink(slot))
+    If Err.Number <> 0 Then ScorbitPlayerClaimLink = ""
+    Err.Clear
+End Function
+
+' The full path of the claimed player's picture, a JPEG, or "". The file belongs to the
+' plugin and lasts until the slot's claim or picture changes, the table ends or the plugin
+' unloads: load it, or copy it, rather than keeping the path.
+Function ScorbitPlayerPicture(slot)
+    ScorbitPlayerPicture = ""
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitPlayerPicture = CStr(ScorbitImpl_Table.PlayerPicture(slot))
+    If Err.Number <> 0 Then ScorbitPlayerPicture = ""
+    Err.Clear
+End Function
+
+' ---------------------------------------------------------------- events
+
+' Call from a timer. Returns the next SCORBIT_EVENT_*, or SCORBIT_EVENT_NONE. Events
+' report changes since the previous poll, starting from nothing known.
+Function ScorbitPollEvent()
+    ScorbitPollEvent = SCORBIT_EVENT_NONE
+    On Error Resume Next
+    If ScorbitImpl_Count = 0 Then ScorbitImpl_Scan
+    If ScorbitImpl_Count = 0 Then Err.Clear : Exit Function
+    ScorbitPollEvent = ScorbitImpl_Queue(ScorbitImpl_Head)
+    ScorbitImpl_EventSlot = ScorbitImpl_QueueSlot(ScorbitImpl_Head)
+    ScorbitImpl_Head = (ScorbitImpl_Head + 1) Mod 32
+    ScorbitImpl_Count = ScorbitImpl_Count - 1
+    Err.Clear
+End Function
+
+' The player slot of the last SCORBIT_EVENT_PLAYER_PICTURE_READY, 0 otherwise.
+Function ScorbitEventSlot()
+    ScorbitEventSlot = ScorbitImpl_EventSlot
+End Function
+
+' ---------------------------------------------------------------- not served by the plugin
+' The SDK's credits, pricing and remote start apply to public, coin-operated cabinets.
+' Their names are reserved here, so nothing added later can clash with them.
+'
+' ' Reports credits added after SCORBIT_EVENT_CREDITS_ADD_REQUESTED.
+' Sub ScorbitSetCreditsDropped(credits, transaction, success)
+' End Sub
+'
+' ' Reports free play and the credits on the machine.
+' Sub ScorbitSetCreditsStatus(freePlay, credits, maxCredits, pricing)
+' End Sub
+
+' ---------------------------------------------------------------- internal
+
+Sub ScorbitImpl_ResetEvents()
+    Dim i
+    ScorbitImpl_Auth = -1
+    For i = 0 To 9
+        ScorbitImpl_Players(i) = ""
+        ScorbitImpl_Pictures(i) = ""
+    Next
+    ScorbitImpl_Head = 0
+    ScorbitImpl_Count = 0
+    ScorbitImpl_EventSlot = 0
+End Sub
+
+Sub ScorbitImpl_Push(evt, slot)
+    If ScorbitImpl_Count >= 32 Then Exit Sub
+    ScorbitImpl_Queue((ScorbitImpl_Head + ScorbitImpl_Count) Mod 32) = evt
+    ScorbitImpl_QueueSlot((ScorbitImpl_Head + ScorbitImpl_Count) Mod 32) = slot
+    ScorbitImpl_Count = ScorbitImpl_Count + 1
+End Sub
+
+Sub ScorbitImpl_Scan()
+    Dim auth, slot, player, picture, changed
+    If ScorbitImpl_Level < SCORBIT_API_READ_BACK Then Exit Sub
+    auth = ScorbitGetStatus()
+    If auth <> ScorbitImpl_Auth Then
+        ScorbitImpl_Auth = auth
+        ScorbitImpl_Push SCORBIT_EVENT_PAIRING_STATUS_CHANGED, 0
+    End If
+    changed = False
+    For slot = 1 To SCORBIT_MAX_PLAYERS
+        player = CInt(ScorbitPlayerClaimed(slot)) & "|" & ScorbitPlayerId(slot) & "|" & ScorbitPlayerName(slot) _
+            & "|" & ScorbitPlayerInitials(slot) & "|" & ScorbitPlayerClaimLink(slot)
+        If player <> ScorbitImpl_Players(slot) And Not (ScorbitImpl_Players(slot) = "" And player = "0||||") Then changed = True
+        ScorbitImpl_Players(slot) = player
+    Next
+    If changed Then ScorbitImpl_Push SCORBIT_EVENT_PLAYERS_UPDATED, 0
+    For slot = 1 To SCORBIT_MAX_PLAYERS
+        picture = ScorbitPlayerPicture(slot)
+        If picture <> ScorbitImpl_Pictures(slot) Then
+            ScorbitImpl_Pictures(slot) = picture
+            If picture <> "" Then ScorbitImpl_Push SCORBIT_EVENT_PLAYER_PICTURE_READY, slot
+        End If
+    Next
+End Sub
