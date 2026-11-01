@@ -420,6 +420,22 @@ void onLog(const char *message, sb_log_level_t level, const char *file, int line
     q.messages.push_back(std::move(entry));
 }
 
+// The SDK opens files with the C++ standard library, which knows nothing of user:// or res://.
+CharString toFsPath(const String &path)
+{
+    return ProjectSettings::get_singleton()->globalize_path(path).utf8();
+}
+
+std::vector<CharString> toFsPaths(const PackedStringArray &paths)
+{
+    std::vector<CharString> out;
+    out.reserve(static_cast<size_t>(paths.size()));
+    for (int64_t i = 0; i < paths.size(); ++i) {
+        out.push_back(toFsPath(paths[i]));
+    }
+    return out;
+}
+
 std::vector<CharString> toUtf8(const PackedStringArray &strings)
 {
     std::vector<CharString> out;
@@ -524,7 +540,7 @@ bool ScorbitGameState::start(const Dictionary &config)
     }
 
     const String keyPath = config.get("key_path", DEFAULT_KEY_PATH);
-    m_bridge->keyPath = ProjectSettings::get_singleton()->globalize_path(keyPath).utf8().get_data();
+    m_bridge->keyPath = toFsPath(keyPath).get_data();
 
     sb_config_t cfg = sb_config_create();
     sb_config_set_provider(cfg, String(config["provider"]).utf8().get_data());
@@ -824,7 +840,7 @@ void ScorbitGameState::download(const String &url, const String &filename,
 {
     if (m_handle) {
         const auto h = toHeaders(headers);
-        sb_download(m_handle, url.utf8().get_data(), filename.utf8().get_data(), h.array.data(),
+        sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
                     h.array.size(), &onDownload, new DownloadContext {m_bridge, url});
     }
 }
@@ -845,8 +861,8 @@ void ScorbitGameState::upload_diagnostics(const PackedStringArray &logPaths,
                                           const String &logString, int64_t requestGeneration)
 {
     if (m_handle) {
-        const auto logs = toUtf8(logPaths);
-        const auto recordings = toUtf8(recordingPaths);
+        const auto logs = toFsPaths(logPaths);
+        const auto recordings = toFsPaths(recordingPaths);
         auto logPtrs = toPointers(logs);
         auto recordingPtrs = toPointers(recordings);
         const uint64_t generation = static_cast<uint64_t>(requestGeneration);

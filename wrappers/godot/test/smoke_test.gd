@@ -4,12 +4,14 @@
 extends SceneTree
 
 const FRAMES := 30
+const MAX_FRAMES := 600  # log lines arrive asynchronously; give the SDK's worker time to report
 
 var _expect_native := false
 var _scorbit: Node
 var _frame := 0
 var _failures := 0
 var _logs := 0
+var _skipped: PackedStringArray  # the SDK's "file does not exist, skipping" log lines
 
 
 func _initialize() -> void:
@@ -27,11 +29,15 @@ func _process(_delta: float) -> bool:
 		_scorbit.set_score(1, 2500)
 		_scorbit.set_game_finished()
 		_scorbit.commit()
-	if _frame < FRAMES:
+	if _frame < FRAMES or (_expect_native and not _reported("missing.log") and _frame < MAX_FRAMES):
 		return false
 
 	# The SDK logs as it starts, so a working log bridge has delivered lines by now.
 	_check((_logs > 0) == _expect_native, "log_message delivered SDK log lines")
+	if _expect_native:
+		# A user:// path must reach the SDK as a real path: only the missing file is skipped.
+		_check(_reported("missing.log"), "upload_diagnostics() checked the log paths")
+		_check(not _reported("diag.log"), "upload_diagnostics() found a user:// log file")
 	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
@@ -77,9 +83,13 @@ func _begin() -> void:
 	_scorbit.request_pair_code()
 	_check(_scorbit.logger_callbacks_supported() == _expect_native, "logger_callbacks_supported()")
 	_scorbit.enable_log_messages()
-	_scorbit.log_message.connect(func(_m, _l, _f, _n, _t): _logs += 1)
+	_scorbit.log_message.connect(_on_log)
 	_scorbit.report_device_state("smoke", "1.0.0")
-	_scorbit.upload_diagnostics(PackedStringArray(), PackedStringArray(), "smoke diagnostics")
+	DirAccess.make_dir_recursive_absolute("user://smoke")
+	FileAccess.open("user://smoke/diag.log", FileAccess.WRITE).store_string("smoke log\n")
+	_scorbit.upload_diagnostics(
+			PackedStringArray(["user://smoke/diag.log", "user://smoke/missing.log"]),
+			PackedStringArray(), "smoke diagnostics")
 	_check(_scorbit.get_machine_serial() >= 0, "get_machine_serial()")
 
 	_scorbit.set_game_started()
@@ -90,6 +100,19 @@ func _begin() -> void:
 	_scorbit.set_mode_completed("MB:Multiball")
 	_scorbit.remove_mode("MB:Multiball")
 	_scorbit.commit()
+
+
+func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp: int) -> void:
+	_logs += 1
+	if "does not exist" in message:
+		_skipped.append(message)
+
+
+func _reported(file_name: String) -> bool:
+	for line in _skipped:
+		if line.ends_with("/" + file_name) or line.ends_with("\\" + file_name):
+			return true
+	return false
 
 
 func _check(ok: bool, what: String) -> void:

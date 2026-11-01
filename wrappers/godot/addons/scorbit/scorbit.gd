@@ -229,6 +229,8 @@ func request_pair_machine(machine_uuid: String, owner_uuid: String) -> void:
 
 
 ## Downloads url to filename; the answer arrives as download_finished. headers: {name: value}.
+## Paths here and in upload_diagnostics may be user:// or absolute; res:// is read-only and, in
+## an exported game, inside the pack, so the SDK cannot open it.
 func download(url: String, filename: String, headers: Dictionary = {}) -> void:
 	if _native:
 		_native.download(url, filename, headers)
