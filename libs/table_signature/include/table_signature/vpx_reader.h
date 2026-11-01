@@ -304,29 +304,32 @@ public:
                            : Code::table_unreadable_permission;
         }
         if (noFollow) {
-            FILE_ATTRIBUTE_TAG_INFO tag {};
-            if (!GetFileInformationByHandleEx(m_handle, FileAttributeTagInfo, &tag, sizeof tag)) {
+            BY_HANDLE_FILE_INFORMATION before;
+            if (!GetFileInformationByHandle(m_handle, &before)) {
                 return Code::table_unreadable;
             }
-            if ((tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-                if (isNameSurrogateTag(tag.ReparseTag)) {
-                    return Code::table_unreadable; // a link or junction
+            // Only a reparse point has a tag to read (FAT and exFAT have none, and may not answer).
+            if ((before.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                FILE_ATTRIBUTE_TAG_INFO tag {};
+                if (!GetFileInformationByHandleEx(m_handle, FileAttributeTagInfo, &tag, sizeof tag)
+                    || isNameSurrogateTag(tag.ReparseTag)) {
+                    return Code::table_unreadable; // a link or junction, or not known not to be
                 }
-                // A placeholder: open it normally so its contents are fetched, and check that it
-                // is still the same file, not something swapped in between.
-                BY_HANDLE_FILE_INFORMATION before;
-                if (!GetFileInformationByHandle(m_handle, &before)) {
-                    return Code::table_unreadable;
-                }
-                close();
+                // A placeholder: open it normally so its contents are fetched. The first handle
+                // stays open until the second is shown to be the same file, so its id cannot be
+                // reused by something swapped in between.
+                const HANDLE inspected = m_handle;
                 m_handle = CreateFileW(wide.c_str(), GENERIC_READ,
                                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
                 BY_HANDLE_FILE_INFORMATION after;
-                if (m_handle == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(m_handle, &after)
-                    || after.dwVolumeSerialNumber != before.dwVolumeSerialNumber
-                    || after.nFileIndexHigh != before.nFileIndexHigh
-                    || after.nFileIndexLow != before.nFileIndexLow) {
+                const bool same = m_handle != INVALID_HANDLE_VALUE
+                                  && GetFileInformationByHandle(m_handle, &after)
+                                  && after.dwVolumeSerialNumber == before.dwVolumeSerialNumber
+                                  && after.nFileIndexHigh == before.nFileIndexHigh
+                                  && after.nFileIndexLow == before.nFileIndexLow;
+                CloseHandle(inspected);
+                if (!same) {
                     return Code::table_unreadable;
                 }
             }
@@ -1224,10 +1227,10 @@ inline auto isLinkEntry(const std::filesystem::path &p) -> bool
 /// One lookup: the entry found, or refused (an entry VPX would use that the reader will not read:
 /// a link where links are refused, a FIFO, a device), or neither.
 struct Hit {
-    std::filesystem::path path;
+    std::filesystem::path path; ///< for a refused hit, the refused entry: never read from it
     bool refused = false;
 
-    auto found() const -> bool { return !path.empty() || refused; }
+    auto found() const -> bool { return !path.empty(); }
 };
 
 /// Directory lookups for the script search. Each folder is listed once. Files and folders match;
@@ -1264,7 +1267,7 @@ public:
         if (best == nullptr) {
             return {};
         }
-        return best->refused ? Hit {{}, true} : Hit {best->path, false};
+        return Hit {best->path, best->refused};
     }
 
 private:
@@ -1302,7 +1305,8 @@ private:
                 continue; // a name with no UTF-8 form cannot be what a script names
             }
             // An entry whose status cannot be read, or a link pointing nowhere, is not there for
-            // VPX either: it is skipped, not refused.
+            // VPX either (it checks with exists(), which says no on any error): it is skipped, so
+            // the reader signs the file VPX would load in its place.
             namespace fs = std::filesystem;
             std::error_code sec;
             const auto own = it->symlink_status(sec);
@@ -1439,6 +1443,18 @@ inline auto findPath(Search &search, const std::filesystem::path &base,
     }
     for (size_t i = 0; i < parts.size() && !hit.path.empty(); i++) {
         hit = search.find(hit.path, parts[i], i + 1 < parts.size(), followLinks && !reachedTable);
+        if (hit.refused && i + 1 < parts.size()) {
+            // A refused folder (a link under the table's): VPX would look inside it, so it is a
+            // refused match only if the rest of the name is there; otherwise VPX moves on.
+            Hit probe = hit;
+            for (size_t k = i + 1; k < parts.size() && probe.found(); k++) {
+                probe = search.find(probe.path, parts[k], k + 1 < parts.size(), true);
+            }
+            return probe.found() ? Hit {hit.path, true} : Hit {};
+        }
+        if (hit.refused) {
+            return hit;
+        }
         if (followLinks && !reachedTable && !hit.path.empty() && i + 1 < parts.size()
             && isTableFolder(hit.path, table)) {
             reachedTable = true;

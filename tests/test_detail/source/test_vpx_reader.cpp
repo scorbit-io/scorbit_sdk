@@ -883,6 +883,21 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
             CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
         }
     }
+    SECTION("a linked folder under the table's that holds nothing wanted is passed over")
+    {
+        // VPX looks in user/ (a link to an empty folder), finds nothing and moves on to scripts/;
+        // the reader refuses the link only when the name it wants is behind it.
+        Tree t("link_empty_user");
+        fs::create_directories(t.root / "empty");
+        fs::create_directory_symlink(t.root / "empty", t.table / "user");
+        t.put(t.table / "scripts" / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        REQUIRE_FALSE(r.inputs.helperScripts.empty());
+        CHECK(r.inputs.helperScripts[0].content == vpx_fixtures::kHelper);
+    }
     SECTION("a dangling link is not there, for VPX or the reader")
     {
         // VPX passes over links that point nowhere; so must the reader, or one leftover broken
