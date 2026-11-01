@@ -1,0 +1,17 @@
+; Scorbit SDK example for Godot 4. Copy the built add-on into addons/scorbit first (see README.md).
+
+config_version=5
+
+[application]
+
+config/name="Scorbit Godot Example"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3")
+
+[autoload]
+
+Scorbit="*res://addons/scorbit/scorbit.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/scorbit/plugin.cfg")
