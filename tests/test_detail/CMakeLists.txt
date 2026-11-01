@@ -135,6 +135,8 @@ target_sources(
         ../../source/identifiers.h
         source/test_identifiers.cpp
         source/test_table_signature.cpp
+        source/test_vpx_reader.cpp
+        source/test_vpx_reader_layout.cpp
         ../../source/worker.cpp
         ../../source/worker.h
         ../../source/serial_task_queue.h
@@ -235,7 +237,21 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE dl)
 endif()
 
+# The table_signature headers are vendored as C++17; compile them as C++17 on their own so no
+# later standard's features creep in. test_detail depends on it, so it builds with the tests.
+add_library(table_signature_cxx17 OBJECT source/table_signature_cxx17.cpp)
+set_target_properties(table_signature_cxx17 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+target_include_directories(table_signature_cxx17 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/include")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    target_compile_options(table_signature_cxx17 PRIVATE -Wall -Wpedantic -Wextra -Werror)
+endif()
+add_dependencies(${PROJECT_NAME} table_signature_cxx17)
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE TABLE_SIGNATURE_VECTORS="${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/vectors.json")
+target_compile_definitions(
+    ${PROJECT_NAME}
+    PRIVATE TABLE_SIGNATURE_VPX_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature"
+)
 
 target_include_directories(
     ${PROJECT_NAME}
@@ -243,6 +259,7 @@ target_include_directories(
         "${CMAKE_CURRENT_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../libs/table_signature/tools"
         "${scorbit_sdk_SOURCE_DIR}/source"
         "${scorbit_sdk_SOURCE_DIR}/libs/tpm/source"
         "${scorbit_sdk_SOURCE_DIR}/3rd/obfuscate"

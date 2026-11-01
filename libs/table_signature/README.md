@@ -82,6 +82,77 @@ single-line `If`, a bumper's position, a wall's outline and a collection's membe
 `tools/make_vectors.cpp` regenerates it; a change to the output is a change to the algorithm and
 needs a new version.
 
+## Reading a `.vpx`
+
+`include/table_signature/vpx_reader.h` (header-only C++17, standard library and the OS file API
+only, same MIT license) reads a table into `Inputs` and calls `compute`. `inflate.h` beside it is
+the zlib decoder it uses for primitive meshes, altered from Mark Adler's puff.c and carrying its
+zlib-style notice. `<filesystem>` needs `-lstdc++fs` on GCC 8 and `-lc++fs` on older libc++, and
+macOS 10.15 or later.
+
+`parse` takes the file's bytes and does no I/O. `signFile` takes a UTF-8 path and opens it read-only
+without locking it (`FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE` on Windows, so VPX can
+still save over it). It reads only the compound file's header, FAT, directory and the streams hashed
+here, never images or sounds. Both are `noexcept` and return a `Code`; its values are fixed and only
+appended to:
+`ok` 0, `table_unreadable_permission` 1, `table_unreadable` 2, `legacy_protected` 3,
+`unnamed_helper` 4, `missing_helper` 5, `signature_too_large` 6, `malformed` 7, `cancelled` 8.
+
+Every size and count has a cap (`Limits`). `maxTotalRead` covers what is read and what is kept
+from it: each parsed record, string and material, and each mesh both inflated and as kept. Scripts
+are capped in bytes and tokens (`maxScriptBytes`, `maxScriptTokens`), since each is tokenized
+twice. A cancel flag is checked between streams, between scripts and while folders are listed.
+Nothing is logged, and the result depends on nothing but the files read.
+
+Scripts are resolved as VPX does, from folders passed in (`Paths`). Pass VPX's install folder
+(`vpxDirectory`) and preferences folder (`prefDirectory`) when they are known: a script that loads a
+VPX-shipped helper such as `core.vbs` is `missing_helper` when neither is searched. A name is searched in VPX's
+`SearchScript` order, and the first match wins:
+1. the table's folder, its `user/` and `scripts/`;
+2. VPX's install folder, its `user/`, `scripts/` and `tables/`;
+3. VPX's preferences folder, its `user/` and `scripts/`.
+
+Each part of a name is matched ignoring ASCII case. Only files and folders match, never a FIFO or
+device, and never a file that is itself a link; every script found is opened refusing a link.
+Under the table's folder, whose scripts are read and hashed, a linked folder or junction never
+matches either (unlike VPX), so a link shipped with a table cannot make the reader hash a file
+outside it. In VPX's install and preferences folders a linked folder is followed, since installs
+often link `scripts/` or `user/`. A middle
+folder swapped for a link between listing it and opening a file inside is not detected; only the
+file itself is opened refusing a link. At most `maxListedEntries` folder entries are listed. A sidecar `<table>.vbs`, found by that search or
+else as `<folder>.vbs` in the table's folder, replaces the `CODE` record. Otherwise a `CODE` record
+under legacy protection (`SECB` with script editing disabled) is `legacy_protected`. The `CODE`
+script ends at its first NUL, as VPX reads it.
+
+Each literal helper name, breadth-first and once, goes through the same search. A match under the
+table's folder has its content hashed and its own loads followed; a match in VPX's folders has its
+name hashed. A relative name (`lib\x.vbs`) is followed and hashed as `lib/x.vbs`. Some names are not
+followed, unlike VPX: a name with a root, a drive or a `..` part, or more than eight parts. A name found nowhere makes
+`GetTextFile` fail in VPX, a run-time error, so the table has no signature: `missing_helper`, with the
+names in `missingHelpers`. A name that is not followed counts as missing.
+
+How the reader takes the file apart:
+- Items are the streams `GameStg/GameItem0` to `GameItem<SEDT-1>`, as VPX loads them, with `SEDT`
+  from `GameData`; a missing one is skipped, as VPX skips it, and other streams are not read. Each is a 4-byte item type, then
+  records to `ENDB`.
+  A textbox's or decal's `FONT` record has a length that covers only its tag; the font descriptor
+  after it (11 bytes, then the name) is that field's value.
+- Collections are `GameStg/Collection0` to `Collection<SCOL-1>`, a missing one skipped as VPX
+  does: `NAME` and repeated `ITEM`, both UTF-16 strings. Names are
+  converted to UTF-8.
+- Physics materials come from the `PHMA` record of `GameStg/GameData`, an array of 48-byte entries:
+  a 32-byte name, then elasticity, elasticity falloff, friction and scatter angle. Tables saved by
+  VPX 10.8 or later (version 1080 and up) also write a `MATR` sub-object per material. When `MATR`
+  is present at that version it replaces the `PHMA` materials. VPX writes the same physics values
+  to both, so the reader uses `PHMA`. If the two ever differ, read `MATR` and make it a new version.
+- A table whose `GameStg/Version` is 30 or below writes records without lengths and is
+  `malformed`.
+
+`tools/make_vpx_fixtures.cpp` writes synthetic tables under `fixtures/vpx/` and their expected
+signatures to `vpx_fixtures.json`, computed from the model each file was written from.
+`tools/vpx_writer.h` holds that model, a minimal compound-file writer, and the malformed corpus the
+tests run the reader against.
+
 ## Versioning
 
 Any change to the canonical form, a section's inputs or an allow-list is a new version. A client
