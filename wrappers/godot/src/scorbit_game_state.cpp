@@ -699,14 +699,19 @@ void ScorbitGameState::_process(double /*delta*/)
     for (const auto &event : events) {
         emitEvent(event);
     }
-    if (m_logs) {
+    // Held for the whole batch: a handler may call disable_log_messages(), which resets m_logs.
+    if (const auto sink = m_logs) {
         std::deque<LogLine> lines;
         {
-            std::scoped_lock lock(m_logs->mutex);
-            lines.swap(m_logs->lines);
+            std::scoped_lock lock(sink->mutex);
+            lines.swap(sink->lines);
         }
         for (const auto &l : lines) {
-            emit_signal("log_message", cutLogLine(toString(l.message.c_str()), m_logs->maxLength),
+            if (m_logs != sink) {
+                break; // disabled (or re-enabled) by a handler: the rest of this batch is not
+                       // wanted
+            }
+            emit_signal("log_message", cutLogLine(toString(l.message.c_str()), sink->maxLength),
                         l.level, toString(l.file.c_str()), l.line, l.timestamp);
         }
     }

@@ -18,6 +18,8 @@ var _listener  # a second native logging node, with its own, shorter line limit
 var _listener_lines: PackedStringArray
 var _uploads: Array[int] = []  # ids of the chained uploads, in request order
 var _answered: Array[int] = []  # diagnostics_uploaded ids, in arrival order
+var _quitter  # a logging node whose handler turns logging off on its first line
+var _quitter_lines := 0
 
 
 func _initialize() -> void:
@@ -58,12 +60,15 @@ func _process(_delta: float) -> bool:
 			_check(line.length() <= 20, "a node's own max_length applies: " + line)
 			cut = cut or " ... " in line
 		_check(cut, "long lines are cut for the node with the shorter limit")
+		_check(_quitter_lines == 1, "disable_log_messages() from a handler ends the batch")
 	if _expect_native:
 		_check(_answered.size() >= 2 and _answered.slice(0, 2) == _uploads.slice(0, 2),
 				"diagnostics_uploaded answers uploads in order")
 		_check(not _answered.has(0), "no diagnostics_uploaded without a request")
 	if _listener:
 		_listener.free()
+	if _quitter:
+		_quitter.free()
 	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
@@ -136,6 +141,11 @@ func _begin() -> void:
 		root.add_child(_listener)
 		_listener.log_message.connect(_on_listener_log)
 		_listener.enable_log_messages(20)
+		# Enabled now, so several lines are queued by its first frame.
+		_quitter = ClassDB.instantiate("ScorbitGameState")
+		root.add_child(_quitter)
+		_quitter.log_message.connect(_on_quitter_log)
+		_quitter.enable_log_messages(512)
 	_scorbit.report_device_state("smoke", "1.0.0")
 	DirAccess.make_dir_recursive_absolute("user://smoke")
 	FileAccess.open("user://smoke/diag.log", FileAccess.WRITE).store_string("smoke log\n")
@@ -165,6 +175,11 @@ func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp
 
 func _on_listener_log(message: String, _level: int, _file: String, _line: int, _time: int) -> void:
 	_listener_lines.append(message)
+
+
+func _on_quitter_log(_message: String, _level: int, _file: String, _line: int, _time: int) -> void:
+	_quitter_lines += 1
+	_quitter.disable_log_messages()
 
 
 func _on_uploaded(request_id: int, _success: bool) -> void:
