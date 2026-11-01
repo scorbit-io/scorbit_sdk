@@ -38,8 +38,9 @@ CPMAddPackage(
         "GODOTCPP_TARGET ${SCORBIT_GODOT_TARGET}"
 )
 
-# The SDK stays its own shared library beside the extension, so it can update itself in place as
-# on every other host (SB-6222).
+# The SDK stays its own shared library beside the extension, so a release build of the add-on can
+# update it in place as on other hosts. This local build can't: it is not a production build and
+# has no ABI tag, so the SDK's updater refuses it.
 CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 add_library(scorbit_godot SHARED src/register_types.cpp src/scorbit_game_state.cpp)

@@ -56,8 +56,10 @@ nothing, so the game still runs.
 ## Notes
 
 - The SDK library ships beside the extension (`bin/`), and exports copy it next to the game, or
-  into `Contents/Frameworks` on macOS. It updates itself in place, as on other hosts, so the
-  game's install folder must be writable by the user that runs the game.
+  into `Contents/Frameworks` on macOS. In a released add-on it updates itself in place, as on
+  other hosts, so the game's install folder must be writable by the user that runs the game.
+- An add-on built from source with the commands above does **not** update itself: it isn't a
+  production build and has no ABI tag, so the SDK's updater refuses it. Use it for development.
 - The device key is stored at `user://scorbit/device_key` unless `key_path` says otherwise. Keep
   it between runs: a new key means a new device to pair.
 
