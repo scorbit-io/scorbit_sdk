@@ -156,6 +156,20 @@ Dictionary readEvent(const sb_event_t *event)
         data["bundles"] = bundles;
         break;
     }
+    case SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED: {
+        bool includeRecordings = false;
+        if (sb_event_diagnostics_upload_requested(event, &includeRecordings)) {
+            data["include_recordings"] = includeRecordings;
+        }
+        break;
+    }
+    case SB_EVT_DIAGNOSTICS_UPLOADED: {
+        bool success = false;
+        if (sb_event_diagnostics_uploaded(event, &success)) {
+            data["success"] = success;
+        }
+        break;
+    }
     case SB_EVT_PLAYER_PICTURE_READY: {
         sb_player_t player = 0;
         const uint8_t *bytes = nullptr;
@@ -337,6 +351,115 @@ void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData
     queue(*static_cast<Bridge *>(userData), std::move(result));
 }
 
+// A download's callback carries only its user data, so each one gets the URL its signal reports.
+struct DownloadContext {
+    std::shared_ptr<Bridge> bridge;
+    String url;
+};
+
+void onDownload(sb_error_t error, const char *reply, void *userData)
+{
+    std::unique_ptr<DownloadContext> context(static_cast<DownloadContext *>(userData));
+    Dictionary result = stringResult("download", error, reply);
+    result["url"] = context->url;
+    queue(*context->bridge, std::move(result));
+}
+
+void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *userData)
+{
+    std::unique_ptr<DownloadContext> context(static_cast<DownloadContext *>(userData));
+    Dictionary result;
+    result["url"] = context->url;
+    result["_result"] = "download_buffer";
+    result["error"] = static_cast<int>(error);
+    PackedByteArray bytes;
+    bytes.resize(static_cast<int64_t>(size));
+    if (size > 0 && data) {
+        std::memcpy(bytes.ptrw(), data, size);
+    }
+    result["data"] = bytes;
+    queue(*context->bridge, std::move(result));
+}
+
+void onDeviceState(sb_error_t error, int httpStatus, const char *reply, void *userData)
+{
+    Dictionary result = stringResult("device_state", error, reply);
+    result["http_status"] = httpStatus;
+    queue(*static_cast<Bridge *>(userData), std::move(result));
+}
+
+// The SDK's logger is process-wide, so its messages wait here for whichever node drains them.
+// Capped, so a burst of debug logging can't grow it without bound while nothing drains it.
+constexpr size_t MAX_QUEUED_LOGS = 1000;
+
+struct LogQueue {
+    std::mutex mutex;
+    std::vector<Dictionary> messages;
+};
+
+LogQueue &logQueue()
+{
+    static auto *instance = new LogQueue; // never freed: the SDK may log during shutdown
+    return *instance;
+}
+
+void onLog(const char *message, sb_log_level_t level, const char *file, int line, int64_t timestamp,
+           void * /*userData*/)
+{
+    Dictionary entry;
+    entry["message"] = toString(message);
+    entry["level"] = static_cast<int>(level);
+    entry["file"] = toString(file);
+    entry["line"] = line;
+    entry["timestamp"] = timestamp;
+    auto &q = logQueue();
+    std::scoped_lock lock(q.mutex);
+    if (q.messages.size() >= MAX_QUEUED_LOGS) {
+        q.messages.erase(q.messages.begin());
+    }
+    q.messages.push_back(std::move(entry));
+}
+
+std::vector<CharString> toUtf8(const PackedStringArray &strings)
+{
+    std::vector<CharString> out;
+    out.reserve(static_cast<size_t>(strings.size()));
+    for (int64_t i = 0; i < strings.size(); ++i) {
+        out.push_back(strings[i].utf8());
+    }
+    return out;
+}
+
+std::vector<const char *> toPointers(const std::vector<CharString> &strings)
+{
+    std::vector<const char *> out;
+    for (const auto &s : strings) {
+        out.push_back(s.get_data());
+    }
+    return out;
+}
+
+// Header storage and the sb_http_header_t array pointing into it, valid while this lives.
+struct Headers {
+    std::vector<CharString> storage;
+    std::vector<sb_http_header_t> array;
+};
+
+Headers toHeaders(const Dictionary &headers)
+{
+    Headers out;
+    const Array keys = headers.keys();
+    out.storage.reserve(static_cast<size_t>(keys.size()) * 2);
+    for (int64_t i = 0; i < keys.size(); ++i) {
+        out.storage.push_back(String(keys[i]).utf8());
+        out.storage.push_back(String(headers[keys[i]]).utf8());
+    }
+    for (size_t i = 0; i + 1 < out.storage.size(); i += 2) {
+        out.array.push_back({out.storage[i].get_data(), out.storage[i + 1].get_data()});
+    }
+    return out;
+}
+
 void onEvent(const sb_event_t *event, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
@@ -411,6 +534,45 @@ bool ScorbitGameState::start(const Dictionary &config)
         sb_config_set_hostname(cfg, String(config["hostname"]).utf8().get_data());
     }
     sb_config_set_encrypted_key(cfg, String(config["encrypted_key"]).utf8().get_data());
+    if (config.has("score_features")) {
+        const auto features = toUtf8(PackedStringArray(config["score_features"]));
+        auto pointers = toPointers(features);
+        sb_config_set_score_features(cfg, pointers.data(), pointers.size(),
+                                     int(config.get("score_features_version", 1)));
+    }
+    if (config.has("threads_priority")) {
+        sb_config_set_threads_priority(cfg, int(config["threads_priority"]));
+    }
+    if (config.has("worker_thread_count")) {
+        sb_config_set_worker_thread_count(cfg, int(config["worker_thread_count"]));
+    }
+    if (config.has("machine_title")) {
+        sb_config_set_machine_title(cfg, String(config["machine_title"]).utf8().get_data());
+    }
+    if (config.has("game_firmware")) {
+        const Dictionary fw = config["game_firmware"];
+        sb_config_set_game_firmware(cfg, String(fw.get("id", "")).utf8().get_data(),
+                                    String(fw.get("version", "")).utf8().get_data(),
+                                    String(fw.get("serial", "")).utf8().get_data());
+    }
+    if (config.has("uuid")) {
+        sb_config_set_uuid(cfg, String(config["uuid"]).utf8().get_data());
+    }
+    if (config.has("serial_number")) {
+        sb_config_set_serial_number(cfg, static_cast<uint64_t>(int64_t(config["serial_number"])));
+    }
+    if (config.has("extra_fingerprint")) {
+        sb_config_set_extra_fingerprint(cfg, String(config["extra_fingerprint"]).utf8().get_data());
+    }
+    if (config.has("cf_hostname")) {
+        sb_config_set_cf_hostname(cfg, String(config["cf_hostname"]).utf8().get_data());
+    }
+    if (config.has("heartbeat_host")) {
+        sb_config_set_heartbeat_host(cfg, String(config["heartbeat_host"]).utf8().get_data());
+    }
+    if (config.has("heartbeat_port")) {
+        sb_config_set_heartbeat_port(cfg, static_cast<uint16_t>(int(config["heartbeat_port"])));
+    }
     if (config.has("auto_download_player_pics")) {
         sb_config_set_auto_download_player_pics(cfg, bool(config["auto_download_player_pics"]));
     }
@@ -458,6 +620,18 @@ void ScorbitGameState::_process(double /*delta*/)
     for (const auto &event : events) {
         emitEvent(event);
     }
+    if (m_logSignal) {
+        std::vector<Dictionary> logs;
+        {
+            auto &q = logQueue();
+            std::scoped_lock lock(q.mutex);
+            logs.swap(q.messages);
+        }
+        for (const auto &log : logs) {
+            emit_signal("log_message", log["message"], log["level"], log["file"], log["line"],
+                        log["timestamp"]);
+        }
+    }
 }
 
 void ScorbitGameState::emitEvent(const Dictionary &event)
@@ -473,6 +647,12 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
             emit_signal("unpair_finished", error, event["reply"]);
         } else if (name == "pair_machine") {
             emit_signal("pair_machine_finished", error, event["reply"]);
+        } else if (name == "download") {
+            emit_signal("download_finished", error, event["url"], event["reply"]);
+        } else if (name == "download_buffer") {
+            emit_signal("download_buffer_finished", error, event["url"], event["data"]);
+        } else if (name == "device_state") {
+            emit_signal("device_state_reported", error, event["http_status"], event["reply"]);
         }
         return;
     }
@@ -496,6 +676,12 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
         break;
     case SB_EVT_PRICING_RECEIVED:
         emit_signal("pricing_received", event);
+        break;
+    case SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED:
+        emit_signal("diagnostics_upload_requested", event.get("include_recordings", false));
+        break;
+    case SB_EVT_DIAGNOSTICS_UPLOADED:
+        emit_signal("diagnostics_uploaded", event.get("success", false));
         break;
     case SB_EVT_PLAYER_PICTURE_READY:
         emit_signal("player_picture_ready", event.get("player", 0),
@@ -633,6 +819,75 @@ void ScorbitGameState::request_top_scores(int scope, int period, const String &s
     }
 }
 
+void ScorbitGameState::download(const String &url, const String &filename,
+                                const Dictionary &headers)
+{
+    if (m_handle) {
+        const auto h = toHeaders(headers);
+        sb_download(m_handle, url.utf8().get_data(), filename.utf8().get_data(), h.array.data(),
+                    h.array.size(), &onDownload, new DownloadContext {m_bridge, url});
+    }
+}
+
+void ScorbitGameState::download_buffer(const String &url, int reserveSize,
+                                       const Dictionary &headers)
+{
+    if (m_handle) {
+        const auto h = toHeaders(headers);
+        sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
+                           h.array.data(), h.array.size(), &onDownloadBuffer,
+                           new DownloadContext {m_bridge, url});
+    }
+}
+
+void ScorbitGameState::upload_diagnostics(const PackedStringArray &logPaths,
+                                          const PackedStringArray &recordingPaths,
+                                          const String &logString, int64_t requestGeneration)
+{
+    if (m_handle) {
+        const auto logs = toUtf8(logPaths);
+        const auto recordings = toUtf8(recordingPaths);
+        auto logPtrs = toPointers(logs);
+        auto recordingPtrs = toPointers(recordings);
+        const uint64_t generation = static_cast<uint64_t>(requestGeneration);
+        sb_upload_diagnostics_ex(
+                m_handle, logPtrs.empty() ? nullptr : logPtrs.data(), logPtrs.size(),
+                recordingPtrs.empty() ? nullptr : recordingPtrs.data(), recordingPtrs.size(),
+                logString.utf8().get_data(), requestGeneration < 0 ? nullptr : &generation);
+    }
+}
+
+void ScorbitGameState::report_device_state(const String &type, const String &version,
+                                           bool installed, const String &log)
+{
+    if (m_handle) {
+        sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(),
+                               installed, log.is_empty() ? nullptr : log.utf8().get_data(),
+                               &onDeviceState, m_bridge.get());
+    }
+}
+
+bool ScorbitGameState::logger_callbacks_supported() const
+{
+    return sb_logger_callbacks_supported();
+}
+
+void ScorbitGameState::enable_log_messages(int maxLength)
+{
+    if (!m_logSignal) {
+        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
+        m_logSignal = true;
+    }
+}
+
+void ScorbitGameState::disable_log_messages()
+{
+    if (m_logSignal) {
+        sb_reset_logger();
+        m_logSignal = false;
+    }
+}
+
 int64_t ScorbitGameState::get_machine_serial() const
 {
     return m_handle ? static_cast<int64_t>(sb_get_machine_serial(m_handle)) : 0;
@@ -697,6 +952,21 @@ void ScorbitGameState::_bind_methods()
                          DEFVAL(SB_LEADERBOARD_PERIOD_ALL_TIME), DEFVAL(String()),
                          DEFVAL(SB_LEADERBOARD_VPIN_ANY));
     ClassDB::bind_method(D_METHOD("get_machine_serial"), &ScorbitGameState::get_machine_serial);
+    ClassDB::bind_method(D_METHOD("download", "url", "filename", "headers"),
+                         &ScorbitGameState::download, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("download_buffer", "url", "reserve_size", "headers"),
+                         &ScorbitGameState::download_buffer, DEFVAL(0), DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("upload_diagnostics", "log_paths", "recording_paths",
+                                  "log_string", "request_generation"),
+                         &ScorbitGameState::upload_diagnostics, DEFVAL(PackedStringArray()),
+                         DEFVAL(PackedStringArray()), DEFVAL(String()), DEFVAL(-1));
+    ClassDB::bind_method(D_METHOD("report_device_state", "type", "version", "installed", "log"),
+                         &ScorbitGameState::report_device_state, DEFVAL(true), DEFVAL(String()));
+    ClassDB::bind_method(D_METHOD("logger_callbacks_supported"),
+                         &ScorbitGameState::logger_callbacks_supported);
+    ClassDB::bind_method(D_METHOD("enable_log_messages", "max_length"),
+                         &ScorbitGameState::enable_log_messages, DEFVAL(512));
+    ClassDB::bind_method(D_METHOD("disable_log_messages"), &ScorbitGameState::disable_log_messages);
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
     ClassDB::bind_method(D_METHOD("get_status"), &ScorbitGameState::get_status);
     ClassDB::bind_method(D_METHOD("get_machine_uuid"), &ScorbitGameState::get_machine_uuid);
@@ -712,6 +982,22 @@ void ScorbitGameState::_bind_methods()
     ADD_SIGNAL(MethodInfo("credits_status_requested"));
     ADD_SIGNAL(MethodInfo("top_scores_received", PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::ARRAY, "entries")));
+    ADD_SIGNAL(MethodInfo("download_finished", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "url"),
+                          PropertyInfo(Variant::STRING, "result")));
+    ADD_SIGNAL(MethodInfo("download_buffer_finished", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "url"),
+                          PropertyInfo(Variant::PACKED_BYTE_ARRAY, "data")));
+    ADD_SIGNAL(MethodInfo("device_state_reported", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::INT, "http_status"),
+                          PropertyInfo(Variant::STRING, "reply")));
+    ADD_SIGNAL(MethodInfo("diagnostics_upload_requested",
+                          PropertyInfo(Variant::BOOL, "include_recordings")));
+    ADD_SIGNAL(MethodInfo("diagnostics_uploaded", PropertyInfo(Variant::BOOL, "success")));
+    ADD_SIGNAL(MethodInfo("log_message", PropertyInfo(Variant::STRING, "message"),
+                          PropertyInfo(Variant::INT, "level"),
+                          PropertyInfo(Variant::STRING, "file"), PropertyInfo(Variant::INT, "line"),
+                          PropertyInfo(Variant::INT, "timestamp")));
     ADD_SIGNAL(MethodInfo("pair_code_received", PropertyInfo(Variant::INT, "error"),
                           PropertyInfo(Variant::STRING, "code")));
     ADD_SIGNAL(MethodInfo("unpair_finished", PropertyInfo(Variant::INT, "error"),

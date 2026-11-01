@@ -23,6 +23,7 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 #include <memory>
@@ -76,6 +77,18 @@ public:
     void request_pair_machine(const godot::String &machineUuid, const godot::String &ownerUuid);
     void request_top_scores(int scope, int period, const godot::String &since, int vpinFilter);
     int64_t get_machine_serial() const;
+    void download(const godot::String &url, const godot::String &filename,
+                  const godot::Dictionary &headers);
+    void download_buffer(const godot::String &url, int reserveSize,
+                         const godot::Dictionary &headers);
+    void upload_diagnostics(const godot::PackedStringArray &logPaths,
+                            const godot::PackedStringArray &recordingPaths,
+                            const godot::String &logString, int64_t requestGeneration);
+    void report_device_state(const godot::String &type, const godot::String &version,
+                             bool installed, const godot::String &log);
+    bool logger_callbacks_supported() const;
+    void enable_log_messages(int maxLength);
+    void disable_log_messages();
     void commit();
 
     int get_status() const;
@@ -90,6 +103,7 @@ private:
 
     sb_game_handle_t m_handle {nullptr};
     std::shared_ptr<Bridge> m_bridge;
+    bool m_logSignal {false};
 };
 
 } // namespace scorbit_godot

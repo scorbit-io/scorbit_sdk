@@ -9,6 +9,7 @@ var _expect_native := false
 var _scorbit: Node
 var _frame := 0
 var _failures := 0
+var _logs := 0
 
 
 func _initialize() -> void:
@@ -29,6 +30,9 @@ func _process(_delta: float) -> bool:
 	if _frame < FRAMES:
 		return false
 
+	# The SDK logs as it starts, so a working log bridge has delivered lines by now.
+	_check((_logs > 0) == _expect_native, "log_message delivered SDK log lines")
+	_scorbit.disable_log_messages()
 	_scorbit.stop()
 	_check(not _scorbit.is_started(), "is_started() after stop()")
 	print("smoke_test: %d failure(s)" % _failures)
@@ -71,6 +75,11 @@ func _begin() -> void:
 					name + " matches")
 	_scorbit.request_top_scores(_scorbit.LEADERBOARD_SCOPE_MACHINE, _scorbit.LEADERBOARD_PERIOD_30D)
 	_scorbit.request_pair_code()
+	_check(_scorbit.logger_callbacks_supported() == _expect_native, "logger_callbacks_supported()")
+	_scorbit.enable_log_messages()
+	_scorbit.log_message.connect(func(_m, _l, _f, _n, _t): _logs += 1)
+	_scorbit.report_device_state("smoke", "1.0.0")
+	_scorbit.upload_diagnostics(PackedStringArray(), PackedStringArray(), "smoke diagnostics")
 	_check(_scorbit.get_machine_serial() >= 0, "get_machine_serial()")
 
 	_scorbit.set_game_started()

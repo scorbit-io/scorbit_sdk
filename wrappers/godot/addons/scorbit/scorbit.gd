@@ -20,6 +20,18 @@ signal pricing_received(pricing: Dictionary)
 ## Answers request_top_scores(): error 0 on success, and one Dictionary per entry (rank, high_score,
 ## player_display_name, player_initials, player_avatar, is_verified, created, ...).
 signal top_scores_received(error: int, entries: Array)
+## Answers download(): result is the saved file's path on success.
+signal download_finished(error: int, url: String, result: String)
+## Answers download_buffer() with the downloaded bytes.
+signal download_buffer_finished(error: int, url: String, data: PackedByteArray)
+## Answers report_device_state().
+signal device_state_reported(error: int, http_status: int, reply: String)
+## Scorbit support asked for diagnostics. Answer with upload_diagnostics().
+signal diagnostics_upload_requested(include_recordings: bool)
+## The diagnostics upload finished.
+signal diagnostics_uploaded(success: bool)
+## An SDK log line, after enable_log_messages(). level is 0 debug, 1 info, 2 warning, 3 error.
+signal log_message(message: String, level: int, file: String, line: int, timestamp: int)
 ## Answers request_pair_code(): the short code a player enters in the Scorbit app.
 signal pair_code_received(error: int, code: String)
 ## Answers request_unpair().
@@ -82,6 +94,12 @@ func _ready() -> void:
 	_native.pair_code_received.connect(pair_code_received.emit)
 	_native.unpair_finished.connect(unpair_finished.emit)
 	_native.pair_machine_finished.connect(pair_machine_finished.emit)
+	_native.download_finished.connect(download_finished.emit)
+	_native.download_buffer_finished.connect(download_buffer_finished.emit)
+	_native.device_state_reported.connect(device_state_reported.emit)
+	_native.diagnostics_upload_requested.connect(diagnostics_upload_requested.emit)
+	_native.diagnostics_uploaded.connect(diagnostics_uploaded.emit)
+	_native.log_message.connect(log_message.emit)
 
 
 func _exit_tree() -> void:
@@ -94,8 +112,11 @@ func is_available() -> bool:
 
 
 ## Creates the game state. config keys: provider, machine_id, game_code_version and encrypted_key
-## (required), hostname ("production" by default), auto_download_player_pics, and key_path (where
-## the device key is kept, user://scorbit/device_key by default).
+## (required), hostname ("production" by default), auto_download_player_pics, key_path (where the
+## device key is kept, user://scorbit/device_key by default), score_features (an Array of names) and
+## score_features_version, machine_title, game_firmware ({id, version, serial}), uuid,
+## serial_number, extra_fingerprint, threads_priority, worker_thread_count, cf_hostname,
+## heartbeat_host and heartbeat_port.
 func start(config: Dictionary) -> bool:
 	return _native.start(config) if _native else false
 
@@ -205,6 +226,50 @@ func request_unpair() -> void:
 func request_pair_machine(machine_uuid: String, owner_uuid: String) -> void:
 	if _native:
 		_native.request_pair_machine(machine_uuid, owner_uuid)
+
+
+## Downloads url to filename; the answer arrives as download_finished. headers: {name: value}.
+func download(url: String, filename: String, headers: Dictionary = {}) -> void:
+	if _native:
+		_native.download(url, filename, headers)
+
+
+## Downloads url into memory; the answer arrives as download_buffer_finished.
+func download_buffer(url: String, reserve_size: int = 0, headers: Dictionary = {}) -> void:
+	if _native:
+		_native.download_buffer(url, reserve_size, headers)
+
+
+## Uploads diagnostics, e.g. on diagnostics_upload_requested. request_generation echoes the
+## request it answers; -1 for none.
+func upload_diagnostics(log_paths: PackedStringArray = PackedStringArray(),
+		recording_paths: PackedStringArray = PackedStringArray(), log_string: String = "",
+		request_generation: int = -1) -> void:
+	if _native:
+		_native.upload_diagnostics(log_paths, recording_paths, log_string, request_generation)
+
+
+## Reports a typed piece of the device's state; the answer arrives as device_state_reported.
+func report_device_state(type: String, version: String, installed: bool = true,
+		log: String = "") -> void:
+	if _native:
+		_native.report_device_state(type, version, installed, log)
+
+
+## Whether the native library can deliver its log lines (log_message).
+func logger_callbacks_supported() -> bool:
+	return _native.logger_callbacks_supported() if _native else false
+
+
+## Starts emitting SDK log lines as log_message; messages longer than max_length are cut.
+func enable_log_messages(max_length: int = 512) -> void:
+	if _native:
+		_native.enable_log_messages(max_length)
+
+
+func disable_log_messages() -> void:
+	if _native:
+		_native.disable_log_messages()
 
 
 func get_machine_serial() -> int:
