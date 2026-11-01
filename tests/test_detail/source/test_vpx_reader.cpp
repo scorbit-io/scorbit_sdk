@@ -769,6 +769,8 @@ TEST_CASE("helper names with more than eight parts are not followed", "[vpx_read
 }
 
 #ifndef _WIN32
+// A script VPX would load but the reader refuses to read (a link, a FIFO) leaves the table
+// unreadable: never a signature over something else, never a fall-through to another file.
 TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader]")
 {
     SECTION("a helper that is a symbolic link")
@@ -778,8 +780,7 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         fs::create_symlink(t.root / "elsewhere" / "secret.txt", t.table / "Helper.vbs");
         t.put(t.app / "core.vbs", "'");
         const auto r = t.sign();
-        CHECK(r.code == Code::missing_helper);
-        CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
+        CHECK(r.code == Code::table_unreadable);
         CHECK(r.inputs.helperScripts.empty());
     }
     SECTION("a folder under the table's that is a symbolic link")
@@ -789,8 +790,8 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         fs::create_directory_symlink(t.root / "elsewhere", t.table / "user");
         t.put(t.app / "core.vbs", "'");
         const auto r = t.sign();
-        CHECK(r.code == Code::missing_helper);
-        CHECK(r.missingHelpers == std::vector<std::string> {"helper.vbs"});
+        CHECK(r.code == Code::table_unreadable);
+        CHECK(r.inputs.helperScripts.empty());
     }
     SECTION("a linked file is never read, even where VPX's folders are searched")
     {
@@ -803,9 +804,22 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
         t.put(t.app / "scripts" / "core.vbs", "'");
         const auto r = t.sign();
-        REQUIRE(r.code == Code::ok);
+        CHECK(r.code == Code::table_unreadable); // not a signature over the embedded script
         CHECK_FALSE(r.sidecar);
         CHECK(r.inputs.script.find("Secret") == std::string::npos);
+    }
+    SECTION("a refused sidecar is not passed over for one later in VPX's order")
+    {
+        // table.vbs beside the table is a link, so VPX would load its target; a real table.vbs in
+        // VPX's folder comes later in the search and must not be signed in its place.
+        Tree t("refused_first");
+        t.put(t.root / "elsewhere" / "target.vbs", "Sub Target() : End Sub\r\n");
+        fs::create_symlink(t.root / "elsewhere" / "target.vbs", t.table / "table.vbs");
+        t.put(t.app / "table.vbs", vpx_fixtures::kSidecar);
+        const auto r = t.sign();
+        CHECK(r.code == Code::table_unreadable);
+        CHECK_FALSE(r.sidecar);
+        CHECK(r.inputs.script.empty());
     }
     SECTION("a table reached through a link is still its own folder to VPX's search")
     {
@@ -822,8 +836,8 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
                 .write(reinterpret_cast<const char *>(bytes.data()), std::streamsize(bytes.size()));
         const auto r = vpx::signFile(
                 {(t.root / "linked" / "table.vpx").string(), "", t.app.string(), t.pref.string()});
-        CHECK(r.code == Code::missing_helper);
-        CHECK(r.missingHelpers == std::vector<std::string> {"lib/x.vbs"});
+        CHECK(r.code == Code::table_unreadable);
+        CHECK(r.inputs.helperScripts.empty());
         CHECK(r.inputs.vpxScripts.empty());
     }
     SECTION("a helper VPX's search reaches inside the table's folder is hashed by content")
@@ -869,6 +883,42 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
             CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
         }
     }
+    SECTION("a linked folder under the table's that holds nothing wanted is passed over")
+    {
+        // VPX looks in user/ (a link to an empty folder), finds nothing and moves on to scripts/;
+        // the reader refuses the link only when the name it wants is behind it.
+        Tree t("link_empty_user");
+        fs::create_directories(t.root / "empty");
+        fs::create_directory_symlink(t.root / "empty", t.table / "user");
+        t.put(t.table / "scripts" / "Helper.vbs", vpx_fixtures::kHelper);
+        t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+        t.put(t.app / "core.vbs", "'");
+        const auto r = t.sign();
+        REQUIRE(r.code == Code::ok);
+        REQUIRE_FALSE(r.inputs.helperScripts.empty());
+        CHECK(r.inputs.helperScripts[0].content == vpx_fixtures::kHelper);
+    }
+    SECTION("a dangling link is not there, for VPX or the reader")
+    {
+        // VPX passes over links that point nowhere; so must the reader, or one leftover broken
+        // link in an install would make every table unreadable.
+        for (const char *dangling : {"app/user", "app/core.vbs", "table/Helper.vbs"}) {
+            INFO(dangling);
+            Tree t("dangling");
+            t.put(t.app / "scripts" / "core.vbs", "'");
+            t.put(t.table / "scripts" / "Helper.vbs", vpx_fixtures::kHelper);
+            t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
+            const fs::path link = std::string(dangling).rfind("table/", 0) == 0
+                                          ? t.table / std::string(dangling).substr(6)
+                                          : t.root / dangling;
+            fs::create_symlink(t.root / "nowhere", link);
+            const auto r = t.sign();
+            REQUIRE(r.code == Code::ok);
+            CHECK(r.inputs.vpxScripts == std::vector<std::string> {"core.vbs"});
+            REQUIRE_FALSE(r.inputs.helperScripts.empty());
+            CHECK(r.inputs.helperScripts[0].content == vpx_fixtures::kHelper);
+        }
+    }
     SECTION("a sidecar that is a FIFO")
     {
         Tree t("fifo");
@@ -877,11 +927,22 @@ TEST_CASE("the script search never follows a link or opens a FIFO", "[vpx_reader
         t.put(t.table / "extra.vbs", vpx_fixtures::kExtra);
         t.put(t.app / "core.vbs", "'");
         const auto r = t.sign(); // returns: the FIFO is never opened
-        REQUIRE(r.code == Code::ok);
+        CHECK(r.code == Code::table_unreadable);
         CHECK_FALSE(r.sidecar);
     }
 }
 #endif
+
+TEST_CASE("only name-surrogate reparse tags count as links", "[vpx_reader]")
+{
+    // Tag values from Microsoft's winnt.h; checked on every platform, used on Windows.
+    CHECK(vpx::detail::isNameSurrogateTag(0xA000000Cu));       // IO_REPARSE_TAG_SYMLINK
+    CHECK(vpx::detail::isNameSurrogateTag(0xA0000003u));       // IO_REPARSE_TAG_MOUNT_POINT
+    CHECK_FALSE(vpx::detail::isNameSurrogateTag(0x9000001Au)); // IO_REPARSE_TAG_CLOUD_1
+    CHECK_FALSE(vpx::detail::isNameSurrogateTag(0x9000601Au)); // IO_REPARSE_TAG_CLOUD_6
+    CHECK_FALSE(vpx::detail::isNameSurrogateTag(0x80000021u)); // IO_REPARSE_TAG_ONEDRIVE
+    CHECK_FALSE(vpx::detail::isNameSurrogateTag(0x8000001Bu)); // IO_REPARSE_TAG_APPEXECLINK
+}
 
 TEST_CASE("result codes keep their values", "[vpx_reader]")
 {
