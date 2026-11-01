@@ -444,7 +444,7 @@ Function ScorbitPollEvent()
     ScorbitPollEvent = SCORBIT_EVENT_NONE
     On Error Resume Next
     If ScorbitImpl_Count = 0 Then ScorbitImpl_Scan
-    If ScorbitImpl_Count = 0 Then Err.Clear : Exit Function
+    If ScorbitImpl_Count = 0 Then ScorbitImpl_EventSlot = 0 : Err.Clear : Exit Function
     ScorbitPollEvent = ScorbitImpl_Queue(ScorbitImpl_Head)
     ScorbitImpl_EventSlot = ScorbitImpl_QueueSlot(ScorbitImpl_Head)
     ScorbitImpl_Head = (ScorbitImpl_Head + 1) Mod 32
@@ -470,6 +470,16 @@ End Function
 ' End Sub
 
 ' ---------------------------------------------------------------- internal
+
+' Length-prefixed, so a value's text cannot be mistaken for its neighbour's.
+Function ScorbitImpl_Field(value)
+    ScorbitImpl_Field = Len(value) & ":" & value
+End Function
+
+' An unclaimed slot with nothing in it, as ScorbitImpl_Scan records a slot.
+Function ScorbitImpl_EmptyPlayer()
+    ScorbitImpl_EmptyPlayer = "0" & ScorbitImpl_Field("") & ScorbitImpl_Field("") & ScorbitImpl_Field("") & ScorbitImpl_Field("")
+End Function
 
 Sub ScorbitImpl_ResetEvents()
     Dim i
@@ -500,9 +510,9 @@ Sub ScorbitImpl_Scan()
     End If
     changed = False
     For slot = 1 To SCORBIT_MAX_PLAYERS
-        player = CInt(ScorbitPlayerClaimed(slot)) & "|" & ScorbitPlayerId(slot) & "|" & ScorbitPlayerName(slot) _
-            & "|" & ScorbitPlayerInitials(slot) & "|" & ScorbitPlayerClaimLink(slot)
-        If player <> ScorbitImpl_Players(slot) And Not (ScorbitImpl_Players(slot) = "" And player = "0||||") Then changed = True
+        player = CInt(ScorbitPlayerClaimed(slot)) & ScorbitImpl_Field(ScorbitPlayerId(slot)) & ScorbitImpl_Field(ScorbitPlayerName(slot)) _
+            & ScorbitImpl_Field(ScorbitPlayerInitials(slot)) & ScorbitImpl_Field(ScorbitPlayerClaimLink(slot))
+        If player <> ScorbitImpl_Players(slot) And Not (ScorbitImpl_Players(slot) = "" And player = ScorbitImpl_EmptyPlayer()) Then changed = True
         ScorbitImpl_Players(slot) = player
     Next
     If changed Then ScorbitImpl_Push SCORBIT_EVENT_PLAYERS_UPDATED, 0
