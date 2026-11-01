@@ -43,8 +43,9 @@ func _on_ball_started(ball: int) -> void:
 	Scorbit.commit()
 ```
 
-`encrypted_key` is required: the add-on doesn't yet sign with a machine's hardware key (TPM or tap
-pad), so `start()` fails without one.
+`provider`, `machine_id`, `game_code_version` and `encrypted_key` are required, and `start()`
+fails without any of them. `encrypted_key` is required because the add-on doesn't yet sign with a
+machine's hardware key (TPM or tap pad).
 
 Call `commit()` after each batch of changes. SDK events arrive as signals on the main thread:
 `sdk_event`, `pairing_status_changed`, `game_start_requested`, `players_updated` and

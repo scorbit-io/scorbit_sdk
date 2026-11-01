@@ -40,6 +40,10 @@ func _begin() -> void:
 	_check(ClassDB.class_exists("ScorbitGameState") == _expect_native, "native class loaded")
 	_check(_scorbit.is_available() == _expect_native, "is_available()")
 
+	_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234}),
+			"start() refuses a config without game_code_version and encrypted_key")
+	_check(not _scorbit.is_started(), "is_started() after a refused start()")
+
 	# A dummy key and the staging host, as the SDK's own interface tests: no network needed.
 	var started: bool = _scorbit.start({
 		"provider": "testprovider",

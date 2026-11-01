@@ -193,8 +193,15 @@ bool ScorbitGameState::start(const Dictionary &config)
         UtilityFunctions::push_warning("Scorbit: already started");
         return true;
     }
-    if (!config.has("provider") || !config.has("machine_id")) {
-        UtilityFunctions::push_error("Scorbit: config needs at least provider and machine_id");
+    // The C API needs all four; encrypted_key because the add-on has no hardware signer.
+    String missing;
+    for (const char *key : {"provider", "machine_id", "game_code_version", "encrypted_key"}) {
+        if (!config.has(key)) {
+            missing += missing.is_empty() ? String(key) : String(", ") + key;
+        }
+    }
+    if (!missing.is_empty()) {
+        UtilityFunctions::push_error("Scorbit: config is missing " + missing);
         return false;
     }
 
@@ -204,15 +211,11 @@ bool ScorbitGameState::start(const Dictionary &config)
     sb_config_t cfg = sb_config_create();
     sb_config_set_provider(cfg, String(config["provider"]).utf8().get_data());
     sb_config_set_machine_id(cfg, static_cast<int32_t>(int64_t(config["machine_id"])));
-    if (config.has("game_code_version")) {
-        sb_config_set_game_code_version(cfg, String(config["game_code_version"]).utf8().get_data());
-    }
+    sb_config_set_game_code_version(cfg, String(config["game_code_version"]).utf8().get_data());
     if (config.has("hostname")) {
         sb_config_set_hostname(cfg, String(config["hostname"]).utf8().get_data());
     }
-    if (config.has("encrypted_key")) {
-        sb_config_set_encrypted_key(cfg, String(config["encrypted_key"]).utf8().get_data());
-    }
+    sb_config_set_encrypted_key(cfg, String(config["encrypted_key"]).utf8().get_data());
     if (config.has("auto_download_player_pics")) {
         sb_config_set_auto_download_player_pics(cfg, bool(config["auto_download_player_pics"]));
     }

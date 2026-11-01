@@ -52,9 +52,9 @@ func is_available() -> bool:
 	return _native != null
 
 
-## Creates the game state. config keys: provider, machine_id and encrypted_key (required),
-## game_code_version, hostname ("production" by default), auto_download_player_pics, and key_path
-## (where the device key is kept, user://scorbit/device_key by default).
+## Creates the game state. config keys: provider, machine_id, game_code_version and encrypted_key
+## (required), hostname ("production" by default), auto_download_player_pics, and key_path (where
+## the device key is kept, user://scorbit/device_key by default).
 func start(config: Dictionary) -> bool:
 	return _native.start(config) if _native else false
 
