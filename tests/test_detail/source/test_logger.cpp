@@ -18,6 +18,7 @@
  */
 
 #include <logger/logger.h>
+#include "../../../libs/logger/detail/cut_long_string.h"
 #include <scorbit_sdk/log.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -27,7 +28,9 @@
 #include <random>
 #include <chrono>
 #include <atomic>
+#include <functional>
 #include <future>
+#include <utility>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -222,24 +225,35 @@ TEST_CASE("logger multithread")
 
 namespace {
 
-// Unregisters on any exit, so a failed REQUIRE cannot leave a callback holding dangling locals.
-struct ResetLoggerOnExit {
-    ~ResetLoggerOnExit() { resetLogger(); }
+// Declared after the state a callback captures, so on any exit (a failed REQUIRE included) it runs
+// first: it unblocks the callback, then resetLogger() waits for it while that state is alive.
+struct OnExit {
+    std::function<void()> fn;
+    ~OnExit() { fn(); }
 };
 
 } // namespace
 
 TEST_CASE("resetLogger waits for a callback that is already running")
 {
-    ResetLoggerOnExit guard;
     std::promise<void> entered;
     std::promise<void> release;
     auto released = release.get_future().share();
+    bool releaseSet = false;
     std::atomic<bool> blockedOnce {false};
     std::atomic<bool> running {false};
+    auto unblock = [&] {
+        if (!std::exchange(releaseSet, true)) {
+            release.set_value();
+        }
+    };
+    OnExit cleanup {[&] {
+        unblock();
+        resetLogger();
+    }};
 
     scorbit::addLoggerCallback(
-            [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
+            [&, released](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
                 running = true;
                 if (!blockedOnce.exchange(true)) {
                     entered.set_value();
@@ -254,16 +268,16 @@ TEST_CASE("resetLogger waits for a callback that is already running")
     auto reset = std::async(std::launch::async, [] { resetLogger(); });
     CHECK(reset.wait_for(100ms) == std::future_status::timeout);
 
-    release.set_value();
+    unblock();
     REQUIRE(reset.wait_for(5s) == std::future_status::ready);
     CHECK_FALSE(running);
 }
 
 TEST_CASE("a logger callback may reset the logger itself")
 {
-    ResetLoggerOnExit guard;
     std::promise<void> done;
     std::atomic<bool> once {false};
+    OnExit cleanup {[] { resetLogger(); }};
 
     scorbit::addLoggerCallback(
             [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
@@ -279,14 +293,23 @@ TEST_CASE("a logger callback may reset the logger itself")
 
 TEST_CASE("callbacks added during a dispatch do not disturb it")
 {
-    ResetLoggerOnExit guard;
     std::promise<void> entered;
     std::promise<void> release;
     auto released = release.get_future().share();
+    bool releaseSet = false;
     std::atomic<int> calls {0};
+    auto unblock = [&] {
+        if (!std::exchange(releaseSet, true)) {
+            release.set_value();
+        }
+    };
+    OnExit cleanup {[&] {
+        unblock();
+        resetLogger();
+    }};
 
     scorbit::addLoggerCallback(
-            [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
+            [&, released](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
                 if (calls.fetch_add(1) == 0) {
                     entered.set_value();
                     released.wait();
@@ -300,7 +323,7 @@ TEST_CASE("callbacks added during a dispatch do not disturb it")
         scorbit::addLoggerCallback(
                 [](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {}, 512);
     }
-    release.set_value();
+    unblock();
 
     INF("second");
     const auto deadline = std::chrono::steady_clock::now() + 5s;
@@ -308,4 +331,15 @@ TEST_CASE("callbacks added during a dispatch do not disturb it")
         sleepForLogger();
     }
     CHECK(calls >= 2);
+}
+
+TEST_CASE("cutLongString handles limits too small for the ellipsis")
+{
+    const std::string message = "a message longer than any of these limits";
+    for (size_t limit = 0; limit <= 7; ++limit) {
+        CHECK(logger::cutLongString(message, limit).size() <= limit);
+    }
+    const auto cut = logger::cutLongString(message, 20);
+    CHECK(cut.size() <= 20);
+    CHECK(cut.find(" ... ") != std::string::npos);
 }

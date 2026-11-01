@@ -23,6 +23,9 @@ inline std::string cutLongString(const std::string &str, size_t maxLength)
 
     constexpr const char *ELIDE_STRING = " ... ";
     constexpr std::size_t ELIDE_STRING_LENGTH = std::char_traits<char>::length(ELIDE_STRING);
+    if (maxLength <= ELIDE_STRING_LENGTH) { // no room for the ellipsis: just cut
+        return str.substr(0, maxLength);
+    }
     const auto halfSize = (maxLength - ELIDE_STRING_LENGTH) / 2;
     return fmt::format("{}{}{}", str.substr(0, halfSize), ELIDE_STRING,
                        str.substr(str.length() - halfSize));

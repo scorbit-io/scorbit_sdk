@@ -848,6 +848,11 @@ void ScorbitGameState::download(const String &url, const String &filename,
 void ScorbitGameState::download_buffer(const String &url, int reserveSize,
                                        const Dictionary &headers)
 {
+    if (reserveSize < 0) {
+        UtilityFunctions::push_error(
+                "Scorbit: download_buffer() reserve_size must not be negative");
+        return;
+    }
     if (m_handle) {
         const auto h = toHeaders(headers);
         sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
@@ -890,6 +895,10 @@ bool ScorbitGameState::logger_callbacks_supported() const
 
 void ScorbitGameState::enable_log_messages(int maxLength)
 {
+    if (maxLength < 1) {
+        UtilityFunctions::push_error("Scorbit: enable_log_messages() max_length must be positive");
+        return;
+    }
     if (!m_logSignal) {
         sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(maxLength));
         m_logSignal = true;

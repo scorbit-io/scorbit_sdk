@@ -32,10 +32,18 @@ func _ready() -> void:
 	# Let the Scorbit app start games and add credits on this machine.
 	Scorbit.set_capabilities(Scorbit.CAPABILITY_START_GAME | Scorbit.CAPABILITY_CREDIT_DROP)
 	_report_credits()
-	Scorbit.set_game_started()
+	_start_game(Scorbit.STARTED_BY_BUTTON)
+
+
+func _start_game(origin: int) -> void:
+	_score = 0
+	_ball = 1
+	_elapsed = 0.0
+	Scorbit.set_game_started(origin)
 	Scorbit.set_active_player(1)
 	Scorbit.set_current_ball(_ball)
 	Scorbit.add_mode("MB:Multiball")
+	set_process(true)
 
 
 func _process(delta: float) -> void:
@@ -54,8 +62,8 @@ func _process(delta: float) -> void:
 		if _ball > 3:
 			Scorbit.set_game_finished()
 			Scorbit.commit()
-			# The game is over, but the SDK keeps running until the project quits, so it can
-			# still deliver the final update. Only this node stops.
+			# The game is over, but the SDK keeps running so it can deliver the final update and
+			# the app can start the next game. Only the simulation pauses.
 			set_process(false)
 			return
 		Scorbit.set_current_ball(_ball)
@@ -63,9 +71,9 @@ func _process(delta: float) -> void:
 
 
 func _on_game_start_requested(players: int) -> void:
-	# A real game would start a game with this many players here.
+	# A real game would start a game with this many players; this one always plays one.
 	print("Scorbit app asked to start a %d-player game" % players)
-	Scorbit.set_game_started(Scorbit.STARTED_FROM_LOBBY)
+	_start_game(Scorbit.STARTED_FROM_LOBBY)
 
 
 func _on_credits_add_requested(credits: int, transaction: String) -> void:

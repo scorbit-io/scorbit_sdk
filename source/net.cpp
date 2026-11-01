@@ -4859,7 +4859,12 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         Error error {Error::ApiError};
         std::vector<uint8_t> buffer;
         if (reserveBufferSize > 0) {
-            buffer.reserve(reserveBufferSize);
+            try {
+                buffer.reserve(reserveBufferSize);
+            } catch (const std::exception &e) { // only a hint: an absurd size must not end the host
+                WRN("API download buffer: can't reserve {} bytes ({}), continuing without",
+                    reserveBufferSize, e.what());
+            }
         }
 
         const auto fullUrl = this->url(url);

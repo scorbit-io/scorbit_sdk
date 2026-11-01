@@ -7,6 +7,7 @@ const FRAMES := 30
 const MAX_FRAMES := 600  # log lines arrive asynchronously; give the SDK's worker time to report
 
 var _expect_native := false
+var _expect_logs := false  # a native build with the callback logger backend
 var _scorbit: Node
 var _frame := 0
 var _failures := 0
@@ -29,12 +30,12 @@ func _process(_delta: float) -> bool:
 		_scorbit.set_score(1, 2500)
 		_scorbit.set_game_finished()
 		_scorbit.commit()
-	if _frame < FRAMES or (_expect_native and not _reported("missing.log") and _frame < MAX_FRAMES):
+	if _frame < FRAMES or (_expect_logs and not _reported("missing.log") and _frame < MAX_FRAMES):
 		return false
 
 	# The SDK logs as it starts, so a working log bridge has delivered lines by now.
-	_check((_logs > 0) == _expect_native, "log_message delivered SDK log lines")
-	if _expect_native:
+	_check((_logs > 0) == _expect_logs, "log_message delivered SDK log lines")
+	if _expect_logs:
 		# A user:// path must reach the SDK as a real path: only the missing file is skipped.
 		_check(_reported("missing.log"), "upload_diagnostics() checked the log paths")
 		_check(not _reported("diag.log"), "upload_diagnostics() found a user:// log file")
@@ -81,7 +82,10 @@ func _begin() -> void:
 					name + " matches")
 	_scorbit.request_top_scores(_scorbit.LEADERBOARD_SCOPE_MACHINE, _scorbit.LEADERBOARD_PERIOD_30D)
 	_scorbit.request_pair_code()
-	_check(_scorbit.logger_callbacks_supported() == _expect_native, "logger_callbacks_supported()")
+	# Native builds may use either logger backend; only the callback one delivers log lines.
+	_expect_logs = _expect_native and _scorbit.logger_callbacks_supported()
+	if not _expect_native:
+		_check(not _scorbit.logger_callbacks_supported(), "logger_callbacks_supported()")
 	_scorbit.enable_log_messages()
 	_scorbit.log_message.connect(_on_log)
 	_scorbit.report_device_state("smoke", "1.0.0")
