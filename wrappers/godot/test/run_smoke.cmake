@@ -26,7 +26,15 @@ file(
     "config_version=5\n\n[application]\n\nconfig/name=\"scorbit_smoke\"\n"
 )
 
-# A project loads its extensions once the editor has imported it (.godot/extension_list.cfg).
+# A project loads the extensions listed in .godot/extension_list.cfg, which the editor writes on
+# the first import. Written here instead: Godot 4.7.2 crashes at the end of a first *headless*
+# import whenever a GDExtension registers a class (even a trivial one), and this avoids it.
+if(NOT WITHOUT_NATIVE)
+    file(
+        WRITE ${PROJECT_DIR}/.godot/extension_list.cfg
+        "res://addons/scorbit/scorbit.gdextension\n"
+    )
+endif()
 execute_process(
     COMMAND ${GODOT} --headless --path ${PROJECT_DIR} --import
     RESULT_VARIABLE _import_result

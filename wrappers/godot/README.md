@@ -13,11 +13,13 @@ cmake -S wrappers/godot -B build/godot -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/godot
 ```
 
-The add-on is staged in `build/godot/addons/scorbit`, with its native libraries in `bin/`. Build
-`-DSCORBIT_GODOT_TARGET=template_debug` too if you run debug exports.
+The add-on is staged in `build/godot/addons/scorbit`, with its native libraries in `bin/`. Godot
+loads the `template_debug` library in the editor and in debug exports, and `template_release` in
+release exports, so ship both: build again with `-DSCORBIT_GODOT_TARGET=template_debug` into
+another build directory and copy its `bin/` files alongside.
 
-If a Godot 4 binary is on `PATH` (or given with `-DGODOT_EXECUTABLE=...`), `ctest --test-dir
-build/godot` runs a headless session with the native library and without it.
+In a `template_debug` build, if a Godot 4 binary is on `PATH` (or given with
+`-DGODOT_EXECUTABLE=...`), `ctest` runs a headless session with the native library and without it.
 
 ## Install in a game
 

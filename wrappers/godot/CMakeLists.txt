@@ -115,8 +115,9 @@ add_custom_command(
 )
 
 # A headless run of the add-on, wherever a Godot 4 binary is found (GODOT_EXECUTABLE overrides).
+# Debug builds only: the editor and `godot -s` load the template_debug library.
 find_program(GODOT_EXECUTABLE NAMES godot godot4 Godot)
-if(GODOT_EXECUTABLE)
+if(GODOT_EXECUTABLE AND SCORBIT_GODOT_TARGET STREQUAL "template_debug")
     enable_testing()
     # The same session with the native library, and without it: every call must then do nothing.
     foreach(_case native without_native)
