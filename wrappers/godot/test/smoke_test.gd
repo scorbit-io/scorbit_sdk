@@ -56,6 +56,15 @@ func _begin() -> void:
 	_check(started == _expect_native, "start()")
 	_check(_scorbit.is_started() == _expect_native, "is_started() after start()")
 
+	if _expect_native:
+		_check(_scorbit.CAPABILITY_START_GAME == ClassDB.class_get_integer_constant(
+				"ScorbitGameState", "CAPABILITY_START_GAME"), "CAPABILITY_START_GAME matches")
+		_check(_scorbit.CAPABILITY_CREDIT_DROP == ClassDB.class_get_integer_constant(
+				"ScorbitGameState", "CAPABILITY_CREDIT_DROP"), "CAPABILITY_CREDIT_DROP matches")
+	_scorbit.set_capabilities(_scorbit.CAPABILITY_START_GAME | _scorbit.CAPABILITY_CREDIT_DROP)
+	_scorbit.set_credits_status(false, 3, 10)
+	_scorbit.set_credits_dropped(1, "smoke-transaction")
+
 	_scorbit.set_game_started()
 	_scorbit.set_active_player(1)
 	_scorbit.set_current_ball(1)

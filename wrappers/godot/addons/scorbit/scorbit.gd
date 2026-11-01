@@ -10,12 +10,23 @@ signal pairing_status_changed(is_paired: bool)
 signal game_start_requested(players: int)
 signal players_updated(players: Dictionary)
 signal player_picture_ready(player: int, picture: PackedByteArray)
+## The Scorbit app asked to add credits. Answer with set_credits_dropped(credits, transaction).
+signal credits_add_requested(credits: int, transaction: String)
+## Scorbit asked for the machine's credit status. Answer with set_credits_status().
+signal credits_status_requested()
+## The machine's pricing: free_play, payments_enabled, credit_price, credit_regular_price,
+## credit_sale_price, and bundles (each with credits, price, regular_price, sale_price).
+signal pricing_received(pricing: Dictionary)
 
 const NATIVE_CLASS := "ScorbitGameState"
 
 # Game start origins, for set_game_started().
 const STARTED_BY_BUTTON := 0
 const STARTED_FROM_LOBBY := 1
+
+# Capability flags for set_capabilities(); combine with |.
+const CAPABILITY_START_GAME := 1  # the Scorbit app can start a game (game_start_requested)
+const CAPABILITY_CREDIT_DROP := 2  # the Scorbit app can add credits (credits_add_requested)
 
 # get_status() values.
 const NOT_AUTHENTICATED := 0
@@ -41,6 +52,9 @@ func _ready() -> void:
 	_native.game_start_requested.connect(game_start_requested.emit)
 	_native.players_updated.connect(players_updated.emit)
 	_native.player_picture_ready.connect(player_picture_ready.emit)
+	_native.credits_add_requested.connect(credits_add_requested.emit)
+	_native.credits_status_requested.connect(credits_status_requested.emit)
+	_native.pricing_received.connect(pricing_received.emit)
 
 
 func _exit_tree() -> void:
@@ -117,6 +131,26 @@ func clear_modes() -> void:
 func set_mode_completed(mode: String) -> void:
 	if _native:
 		_native.set_mode_completed(mode)
+
+
+## What the machine supports, e.g. CAPABILITY_START_GAME | CAPABILITY_CREDIT_DROP. Call after
+## start(); until then no capability is advertised, so the Scorbit app can't start a game or add
+## credits.
+func set_capabilities(capabilities: int) -> void:
+	if _native:
+		_native.set_capabilities(capabilities)
+
+
+## Reports credits added on a credits_add_requested, with the transaction it carried.
+func set_credits_dropped(credits: int, transaction: String, success: bool = true) -> void:
+	if _native:
+		_native.set_credits_dropped(credits, transaction, success)
+
+
+## Reports the machine's credit status, e.g. on credits_status_requested.
+func set_credits_status(free_play: bool, credits: int, max_credits: int, pricing: String = "") -> void:
+	if _native:
+		_native.set_credits_status(free_play, credits, max_credits, pricing)
 
 
 ## Sends the changes since the last commit. Call once per frame or after a batch of changes.

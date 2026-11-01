@@ -23,6 +23,7 @@
 
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -103,6 +104,56 @@ Dictionary readEvent(const sb_event_t *event)
             players[static_cast<int>(p)] = info;
         }
         data["players"] = players;
+        break;
+    }
+    case SB_EVT_CREDITS_ADD_REQUESTED: {
+        int credits = 0;
+        const char *transaction = nullptr;
+        if (sb_event_credits_add_requested(event, &credits, &transaction)) {
+            data["credits"] = credits;
+            data["transaction"] = toString(transaction);
+        }
+        break;
+    }
+    case SB_EVT_PRICING_RECEIVED: {
+        bool flag = false;
+        if (sb_event_pricing_free_play(event, &flag)) {
+            data["free_play"] = flag;
+        }
+        if (sb_event_pricing_payments_enabled(event, &flag)) {
+            data["payments_enabled"] = flag;
+        }
+        const char *str = nullptr;
+        if (sb_event_pricing_credit_price(event, &str)) {
+            data["credit_price"] = toString(str);
+        }
+        if (sb_event_pricing_credit_regular_price(event, &str)) {
+            data["credit_regular_price"] = toString(str);
+        }
+        if (sb_event_pricing_credit_sale_price(event, &str)) {
+            data["credit_sale_price"] = toString(str);
+        }
+        int count = 0;
+        sb_event_pricing_bundles_count(event, &count);
+        Array bundles;
+        for (int i = 0; i < count; ++i) {
+            Dictionary bundle;
+            int credits = 0;
+            if (sb_event_pricing_bundle_credits(event, i, &credits)) {
+                bundle["credits"] = credits;
+            }
+            if (sb_event_pricing_bundle_price(event, i, &str)) {
+                bundle["price"] = toString(str);
+            }
+            if (sb_event_pricing_bundle_regular_price(event, i, &str)) {
+                bundle["regular_price"] = toString(str);
+            }
+            if (sb_event_pricing_bundle_sale_price(event, i, &str)) {
+                bundle["sale_price"] = toString(str);
+            }
+            bundles.push_back(bundle);
+        }
+        data["bundles"] = bundles;
         break;
     }
     case SB_EVT_PLAYER_PICTURE_READY: {
@@ -263,6 +314,15 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
     case SB_EVT_PLAYERS_UPDATED:
         emit_signal("players_updated", event.get("players", Dictionary()));
         break;
+    case SB_EVT_CREDITS_ADD_REQUESTED:
+        emit_signal("credits_add_requested", event.get("credits", 0), event.get("transaction", ""));
+        break;
+    case SB_EVT_CREDITS_STATUS_REQUESTED:
+        emit_signal("credits_status_requested");
+        break;
+    case SB_EVT_PRICING_RECEIVED:
+        emit_signal("pricing_received", event);
+        break;
     case SB_EVT_PLAYER_PICTURE_READY:
         emit_signal("player_picture_ready", event.get("player", 0),
                     event.get("picture", PackedByteArray()));
@@ -342,6 +402,28 @@ void ScorbitGameState::set_mode_completed(const String &mode)
     }
 }
 
+void ScorbitGameState::set_capabilities(int capabilities)
+{
+    if (m_handle) {
+        sb_set_capabilities(m_handle, static_cast<sb_capabilities_t>(capabilities));
+    }
+}
+
+void ScorbitGameState::set_credits_dropped(int credits, const String &transaction, bool success)
+{
+    if (m_handle) {
+        sb_set_credits_dropped(m_handle, credits, transaction.utf8().get_data(), success);
+    }
+}
+
+void ScorbitGameState::set_credits_status(bool freePlay, int credits, int maxCredits,
+                                          const String &pricing)
+{
+    if (m_handle) {
+        sb_set_credits_status(m_handle, freePlay, credits, maxCredits, pricing.utf8().get_data());
+    }
+}
+
 void ScorbitGameState::commit()
 {
     if (m_handle) {
@@ -384,6 +466,13 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_method(D_METHOD("clear_modes"), &ScorbitGameState::clear_modes);
     ClassDB::bind_method(D_METHOD("set_mode_completed", "mode"),
                          &ScorbitGameState::set_mode_completed);
+    ClassDB::bind_method(D_METHOD("set_capabilities", "capabilities"),
+                         &ScorbitGameState::set_capabilities);
+    ClassDB::bind_method(D_METHOD("set_credits_dropped", "credits", "transaction", "success"),
+                         &ScorbitGameState::set_credits_dropped, DEFVAL(true));
+    ClassDB::bind_method(
+            D_METHOD("set_credits_status", "free_play", "credits", "max_credits", "pricing"),
+            &ScorbitGameState::set_credits_status, DEFVAL(String()));
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
     ClassDB::bind_method(D_METHOD("get_status"), &ScorbitGameState::get_status);
     ClassDB::bind_method(D_METHOD("get_machine_uuid"), &ScorbitGameState::get_machine_uuid);
@@ -394,6 +483,10 @@ void ScorbitGameState::_bind_methods()
     ADD_SIGNAL(MethodInfo("pairing_status_changed", PropertyInfo(Variant::BOOL, "is_paired")));
     ADD_SIGNAL(MethodInfo("game_start_requested", PropertyInfo(Variant::INT, "players")));
     ADD_SIGNAL(MethodInfo("players_updated", PropertyInfo(Variant::DICTIONARY, "players")));
+    ADD_SIGNAL(MethodInfo("credits_add_requested", PropertyInfo(Variant::INT, "credits"),
+                          PropertyInfo(Variant::STRING, "transaction")));
+    ADD_SIGNAL(MethodInfo("credits_status_requested"));
+    ADD_SIGNAL(MethodInfo("pricing_received", PropertyInfo(Variant::DICTIONARY, "pricing")));
     ADD_SIGNAL(MethodInfo("player_picture_ready", PropertyInfo(Variant::INT, "player"),
                           PropertyInfo(Variant::PACKED_BYTE_ARRAY, "picture")));
 
@@ -402,6 +495,10 @@ void ScorbitGameState::_bind_methods()
                                    SB_GAME_STARTED_BY_BUTTON);
     ClassDB::bind_integer_constant(cls, "GameStartOrigin", "STARTED_FROM_LOBBY",
                                    SB_GAME_STARTED_FROM_LOBBY);
+    ClassDB::bind_integer_constant(cls, "Capability", "CAPABILITY_START_GAME",
+                                   SB_CAPABILITY_START_GAME, true);
+    ClassDB::bind_integer_constant(cls, "Capability", "CAPABILITY_CREDIT_DROP",
+                                   SB_CAPABILITY_CREDIT_DROP, true);
     ClassDB::bind_integer_constant(cls, "Status", "NOT_AUTHENTICATED", SB_NET_NOT_AUTHENTICATED);
     ClassDB::bind_integer_constant(cls, "Status", "AUTHENTICATING", SB_NET_AUTHENTICATING);
     ClassDB::bind_integer_constant(cls, "Status", "CHECKING_PAIRING",
@@ -416,6 +513,11 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_integer_constant(cls, "Event", "EVENT_PLAYERS_UPDATED", SB_EVT_PLAYERS_UPDATED);
     ClassDB::bind_integer_constant(cls, "Event", "EVENT_PLAYER_PICTURE_READY",
                                    SB_EVT_PLAYER_PICTURE_READY);
+    ClassDB::bind_integer_constant(cls, "Event", "EVENT_CREDITS_ADD_REQUESTED",
+                                   SB_EVT_CREDITS_ADD_REQUESTED);
+    ClassDB::bind_integer_constant(cls, "Event", "EVENT_CREDITS_STATUS_REQUESTED",
+                                   SB_EVT_CREDITS_STATUS_REQUESTED);
+    ClassDB::bind_integer_constant(cls, "Event", "EVENT_PRICING_RECEIVED", SB_EVT_PRICING_RECEIVED);
     ClassDB::bind_integer_constant(cls, "Event", "EVENT_PAIRING_STATUS_CHANGED",
                                    SB_EVT_PAIRING_STATUS_CHANGED);
 }

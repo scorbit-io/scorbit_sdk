@@ -67,6 +67,10 @@ public:
     void remove_mode(const godot::String &mode);
     void clear_modes();
     void set_mode_completed(const godot::String &mode);
+    void set_capabilities(int capabilities);
+    void set_credits_dropped(int credits, const godot::String &transaction, bool success);
+    void set_credits_status(bool freePlay, int credits, int maxCredits,
+                            const godot::String &pricing);
     void commit();
 
     int get_status() const;
