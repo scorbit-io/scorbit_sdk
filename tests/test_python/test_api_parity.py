@@ -7,7 +7,7 @@
 # The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
 
-"""Every public C function is reachable from the C++ API and from both Python packages.
+"""Every public C function is reachable from the C++ API, both Python packages and the Godot add-on.
 
 The C API is the one surface every wrapper builds on, so a function the C headers declare but a
 wrapper never calls is a feature that platform's integrators cannot use. Like
@@ -22,6 +22,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 HEADERS = os.path.join(ROOT, "include", "scorbit_sdk")
+GODOT_SOURCES = os.path.join(ROOT, "wrappers", "godot", "src")
 PYTHON_PACKAGES = {
     "py3": os.path.join(ROOT, "wrappers", "python", "src", "scorbit"),
     "py27": os.path.join(ROOT, "wrappers", "python27", "src", "scorbit"),
@@ -44,8 +45,35 @@ EXCEPTIONS = {
         "cpp": "superseded by sb_upload_diagnostics_ex",
         "py3": "superseded by sb_upload_diagnostics_ex",
         "py27": "superseded by sb_upload_diagnostics_ex",
+        "godot": "superseded by sb_upload_diagnostics_ex",
     },
+    "sb_config_set_signer": {
+        "godot": "the SDK calls its signer synchronously on its own thread, which GDScript can't "
+        "serve; the add-on authenticates with encrypted_key",
+    },
+    "sb_download_with_options": {"godot": "internal use"},
 }
+
+# The Scorbitron device daemon's probe and self-update plumbing: no game calls these.
+for _name in [
+    "sb_config_add_probe_flash_probe",
+    "sb_config_set_pbspkcomm_firmware_id",
+    "sb_config_set_probe_firmware",
+    "sb_config_set_probe_flash_nfc_trigger",
+    "sb_config_set_scorbitd_platform_id",
+    "sb_config_set_scorbitd_version",
+    "sb_event_firmwares_list_received",
+    "sb_event_hardware_probe_requested",
+    "sb_event_probe_flash_requested",
+    "sb_event_scorbitd_update_received",
+    "sb_event_scorbitd_updated",
+    "sb_set_pbspkcomm_firmware_id",
+    "sb_set_probe_firmware",
+    "sb_submit_hardware_probe_result",
+    "sb_submit_probe_flash_result",
+    "sb_submit_probe_flash_stage",
+]:
+    EXCEPTIONS.setdefault(_name, {})["godot"] = "Scorbitron device daemon plumbing"
 
 
 def strip_comments(text, line_comment):
@@ -69,6 +97,16 @@ def cpp_calls(names):
     return used(names, text, r"(?<![\w.])")
 
 
+def godot_calls(names):
+    # The add-on's C++ calls the C API directly, as the C++ headers do.
+    text = ""
+    for name in sorted(os.listdir(GODOT_SOURCES)):
+        if name.endswith((".cpp", ".h")):
+            with open(os.path.join(GODOT_SOURCES, name)) as f:
+                text += strip_comments(f.read(), "//")
+    return used(names, text, r"(?<![\w.])")
+
+
 def python_calls(names, package):
     text = ""
     for name in sorted(os.listdir(package)):
@@ -82,7 +120,7 @@ def python_calls(names, package):
 class TestEveryPlatformReachesTheCApi(unittest.TestCase):
     def setUp(self):
         self.functions = set(_abi.c_prototypes())
-        self.coverage = {"cpp": cpp_calls(self.functions)}
+        self.coverage = {"cpp": cpp_calls(self.functions), "godot": godot_calls(self.functions)}
         for platform, package in PYTHON_PACKAGES.items():
             self.coverage[platform] = python_calls(self.functions, package)
 
@@ -92,7 +130,8 @@ class TestEveryPlatformReachesTheCApi(unittest.TestCase):
         for platform, covered in self.coverage.items():
             with self.subTest(platform=platform):
                 self.assertIn("sb_download", covered)
-                self.assertGreater(len(covered), 100)
+                # Godot uses fewest, about 98, by leaving out the device daemon's plumbing.
+                self.assertGreater(len(covered), 90)
 
     def test_every_function_is_used_or_excepted(self):
         for platform, covered in sorted(self.coverage.items()):

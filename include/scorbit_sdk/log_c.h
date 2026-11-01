@@ -67,6 +67,9 @@ void sb_add_logger_callback(sb_log_callback_t callback, void *user_data, size_t 
  * using @ref sb_add_logger_callback. After this call, no logger callback will be invoked
  * until a new one is added.
  *
+ * If a callback is running when this is called, it waits for that callback to return, so a
+ * callback must not wait on the thread that calls this. A callback may call it itself.
+ *
  * @see sb_add_logger_callback
  */
 SCORBIT_SDK_EXPORT

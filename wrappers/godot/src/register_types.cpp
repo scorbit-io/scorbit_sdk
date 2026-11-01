@@ -34,8 +34,11 @@ void initializeModule(ModuleInitializationLevel level)
     GDREGISTER_CLASS(scorbit_godot::ScorbitGameState);
 }
 
-void uninitializeModule(ModuleInitializationLevel /*level*/)
+void uninitializeModule(ModuleInitializationLevel level)
 {
+    if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+        sb_reset_logger(); // the SDK must not call back into this library once it is unloaded
+    }
 }
 
 } // namespace
