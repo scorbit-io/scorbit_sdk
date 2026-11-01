@@ -97,11 +97,18 @@ set_target_properties(
     PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "${_rpath}"
 )
 
-# Stage the add-on: the GDScript side from source, the two native libraries built here.
+# Stage the add-on: the GDScript side from source, the two native libraries built here. A target
+# of its own that runs on every build, so edits to the GDScript side are always picked up.
 set(SCORBIT_GODOT_ADDON_DIR ${CMAKE_BINARY_DIR}/addons/scorbit)
-add_custom_command(
-    TARGET scorbit_godot
-    POST_BUILD
+if(WIN32)
+    # A DLL has no soname.
+    set(_sdk_runtime $<TARGET_FILE:scorbit_sdk>)
+else()
+    set(_sdk_runtime $<TARGET_SONAME_FILE:scorbit_sdk>)
+endif()
+add_custom_target(
+    scorbit_godot_addon
+    ALL
     COMMAND
         ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/addons/scorbit
         ${SCORBIT_GODOT_ADDON_DIR}
@@ -109,10 +116,11 @@ add_custom_command(
     COMMAND
         ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:scorbit_godot>
         ${SCORBIT_GODOT_ADDON_DIR}/bin/
-    COMMAND
-        ${CMAKE_COMMAND} -E copy_if_different $<TARGET_SONAME_FILE:scorbit_sdk>
-        ${SCORBIT_GODOT_ADDON_DIR}/bin/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_sdk_runtime} ${SCORBIT_GODOT_ADDON_DIR}/bin/
+    COMMENT "Staging the Scorbit add-on in ${SCORBIT_GODOT_ADDON_DIR}"
+    VERBATIM
 )
+add_dependencies(scorbit_godot_addon scorbit_godot)
 
 # A headless run of the add-on, wherever a Godot 4 binary is found (GODOT_EXECUTABLE overrides).
 # Debug builds only: the editor and `godot -s` load the template_debug library.

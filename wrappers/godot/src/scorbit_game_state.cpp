@@ -135,22 +135,32 @@ void onEvent(const sb_event_t *event, void *userData)
     bridge->events.push_back(std::move(data));
 }
 
+// keyPath is UTF-8; the narrow path constructors would read it in the local code page on Windows.
+std::filesystem::path keyFile(const Bridge &bridge)
+{
+    return std::filesystem::u8path(bridge.keyPath);
+}
+
 void onSaveKey(const char *key, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
     if (!key || bridge->keyPath.empty()) {
         return;
     }
+    const auto path = keyFile(*bridge);
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(bridge->keyPath).parent_path(), ec);
-    std::ofstream out(bridge->keyPath, std::ios::binary | std::ios::trunc);
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out << key;
 }
 
 int onLoadKey(char *buffer, size_t bufferSize, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
-    std::ifstream in(bridge->keyPath, std::ios::binary);
+    if (bridge->keyPath.empty()) {
+        return 0;
+    }
+    std::ifstream in(keyFile(*bridge), std::ios::binary);
     if (!in) {
         return 0; // first run: no key yet
     }
@@ -214,7 +224,7 @@ bool ScorbitGameState::start(const Dictionary &config)
     sb_config_destroy(cfg);
     if (!m_handle) {
         UtilityFunctions::push_error(
-                "Scorbit: could not create the game state (no encrypted_key and no hardware key?)");
+                "Scorbit: could not create the game state (is encrypted_key set?)");
         return false;
     }
     set_process(true);
@@ -230,6 +240,9 @@ void ScorbitGameState::stop()
     sb_destroy_game_state(m_handle);
     m_handle = nullptr;
     set_process(false);
+    // Events this game state raised but never delivered must not reach the next one.
+    std::scoped_lock lock(m_bridge->mutex);
+    m_bridge->events.clear();
 }
 
 bool ScorbitGameState::is_started() const

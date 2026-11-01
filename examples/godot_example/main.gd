@@ -13,6 +13,7 @@ const CONFIG := {
 var _score := 0
 var _ball := 1
 var _elapsed := 0.0
+var _pair_link_shown := false
 
 
 func _ready() -> void:
@@ -24,7 +25,6 @@ func _ready() -> void:
 	if not Scorbit.start(CONFIG):
 		push_error("Scorbit failed to start")
 		return
-	print("Pair this machine: ", Scorbit.get_pair_deeplink())
 	Scorbit.set_game_started()
 	Scorbit.set_active_player(1)
 	Scorbit.set_current_ball(_ball)
@@ -34,6 +34,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if not Scorbit.is_started():
 		return
+	_show_pair_link()
 	_elapsed += delta
 	_score += 10
 	Scorbit.set_score(1, _score)
@@ -46,10 +47,21 @@ func _process(delta: float) -> void:
 		if _ball > 3:
 			Scorbit.set_game_finished()
 			Scorbit.commit()
-			Scorbit.stop()
+			# The game is over, but the SDK keeps running until the project quits, so it can
+			# still deliver the final update. Only this node stops.
+			set_process(false)
 			return
 		Scorbit.set_current_ball(_ball)
 	Scorbit.commit()
+
+
+# The pairing link carries the machine's UUID, which the SDK only knows once it has
+# authenticated, so it is shown once the machine is known to be unpaired.
+func _show_pair_link() -> void:
+	if _pair_link_shown or Scorbit.get_status() != Scorbit.UNPAIRED:
+		return
+	_pair_link_shown = true
+	print("Pair this machine: ", Scorbit.get_pair_deeplink())
 
 
 func _on_players_updated(players: Dictionary) -> void:
