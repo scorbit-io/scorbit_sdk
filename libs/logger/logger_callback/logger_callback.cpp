@@ -22,6 +22,7 @@
 
 #include <blockingconcurrentqueue.h>
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <variant>
@@ -93,8 +94,14 @@ public:
 
     void clear()
     {
-        std::scoped_lock lock {m_cbMutex};
+        std::unique_lock lock {m_cbMutex};
         m_callbacks.clear();
+        // Callers free callback state (or unload its library) once this returns, so wait out a
+        // callback already running -- unless this is that callback, which would deadlock.
+        if (m_dispatching && std::this_thread::get_id() != m_thread.get_id()) {
+            const auto running = m_dispatches; // only that one: later ones see an empty list
+            m_idle.wait(lock, [&] { return m_dispatches != running; });
+        }
     }
 
     void log(const std::string &message, LogLevel level, const char *file, int line)
@@ -136,7 +143,11 @@ private:
             auto logData = std::move(std::get<LogData>(item));
 
             std::unique_lock<std::mutex> cbLock {m_cbMutex};
-            for (auto cbItem : m_callbacks) {
+            m_dispatching = true;
+            // By index: callbacks run unlocked, and clear()/addCallback() may change the vector
+            // meanwhile, which would invalidate iterators.
+            for (size_t i = 0; i < m_callbacks.size(); ++i) {
+                auto cbItem = m_callbacks[i];
                 cbLock.unlock();
 
                 if (LIKELY(cbItem.callback)) {
@@ -154,6 +165,10 @@ private:
 
                 cbLock.lock(); // Lock again for the next callback
             }
+            m_dispatching = false;
+            ++m_dispatches;
+            cbLock.unlock();
+            m_idle.notify_all();
         }
     }
 
@@ -162,6 +177,9 @@ private:
     std::vector<CallbackAndData> m_callbacks;
 
     std::mutex m_cbMutex;
+    std::condition_variable m_idle; // signalled when a dispatch ends
+    bool m_dispatching {false};     // guarded by m_cbMutex
+    uint64_t m_dispatches {0};      // dispatches completed, guarded by m_cbMutex
 
     std::thread m_thread; // This should be last, other members must be valid when it is destroyed
 };

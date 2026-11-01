@@ -26,6 +26,8 @@
 #include <thread>
 #include <random>
 #include <chrono>
+#include <atomic>
+#include <future>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -216,4 +218,94 @@ TEST_CASE("logger multithread")
     CHECK_THAT(logs, UnorderedEquals(testLogs));
 
     resetLogger();
+}
+
+namespace {
+
+// Unregisters on any exit, so a failed REQUIRE cannot leave a callback holding dangling locals.
+struct ResetLoggerOnExit {
+    ~ResetLoggerOnExit() { resetLogger(); }
+};
+
+} // namespace
+
+TEST_CASE("resetLogger waits for a callback that is already running")
+{
+    ResetLoggerOnExit guard;
+    std::promise<void> entered;
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    std::atomic<bool> blockedOnce {false};
+    std::atomic<bool> running {false};
+
+    scorbit::addLoggerCallback(
+            [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
+                running = true;
+                if (!blockedOnce.exchange(true)) {
+                    entered.set_value();
+                    released.wait();
+                }
+                running = false;
+            },
+            512);
+    INF("block the dispatcher");
+    REQUIRE(entered.get_future().wait_for(5s) == std::future_status::ready);
+
+    auto reset = std::async(std::launch::async, [] { resetLogger(); });
+    CHECK(reset.wait_for(100ms) == std::future_status::timeout);
+
+    release.set_value();
+    REQUIRE(reset.wait_for(5s) == std::future_status::ready);
+    CHECK_FALSE(running);
+}
+
+TEST_CASE("a logger callback may reset the logger itself")
+{
+    ResetLoggerOnExit guard;
+    std::promise<void> done;
+    std::atomic<bool> once {false};
+
+    scorbit::addLoggerCallback(
+            [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
+                if (!once.exchange(true)) {
+                    sb_reset_logger(); // the C call: resetLogger() would free this very callback
+                    done.set_value();
+                }
+            },
+            512);
+    INF("reset from inside");
+    CHECK(done.get_future().wait_for(5s) == std::future_status::ready);
+}
+
+TEST_CASE("callbacks added during a dispatch do not disturb it")
+{
+    ResetLoggerOnExit guard;
+    std::promise<void> entered;
+    std::promise<void> release;
+    auto released = release.get_future().share();
+    std::atomic<int> calls {0};
+
+    scorbit::addLoggerCallback(
+            [&](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {
+                if (calls.fetch_add(1) == 0) {
+                    entered.set_value();
+                    released.wait();
+                }
+            },
+            512);
+    INF("first");
+    REQUIRE(entered.get_future().wait_for(5s) == std::future_status::ready);
+
+    for (int i = 0; i < 64; ++i) { // enough to reallocate the callback list mid-dispatch
+        scorbit::addLoggerCallback(
+                [](std::string_view, scorbit::LogLevel, const char *, int, int64_t) {}, 512);
+    }
+    release.set_value();
+
+    INF("second");
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (calls < 2 && std::chrono::steady_clock::now() < deadline) {
+        sleepForLogger();
+    }
+    CHECK(calls >= 2);
 }
