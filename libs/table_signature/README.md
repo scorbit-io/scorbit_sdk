@@ -119,7 +119,27 @@ matches either (unlike VPX), so a link shipped with a table cannot make the read
 outside it. In VPX's install and preferences folders a linked folder is followed, since installs
 often link `scripts/` or `user/`. A middle
 folder swapped for a link between listing it and opening a file inside is not detected; only the
-file itself is opened refusing a link. At most `maxListedEntries` folder entries are listed. A sidecar `<table>.vbs`, found by that search or
+file itself is opened refusing a link. At most `maxListedEntries` folder entries are listed.
+
+An entry the reader refuses still takes its place in VPX's order: if the first match for the
+sidecar or a helper is a link, FIFO or device that VPX would load, the table is
+`table_unreadable`. The reader never falls through to a later file or to the embedded script,
+which would sign something VPX does not run.
+
+Cloud-synced files:
+- **Windows:** only links and junctions (name-surrogate reparse tags) are refused. A cloud
+  placeholder, such as OneDrive Files On-Demand, is opened normally so its contents are fetched,
+  after checking on the same file that it is not a link. If its contents can't be fetched (offline),
+  the read fails and the table is `table_unreadable`.
+- **macOS:** an evicted iCloud ("dataless") file is a regular file to the search. Reading it
+  either downloads it first (the system default, which may block), or fails when the process's
+  I/O policy forbids materializing dataless files or the download fails. A failed read makes the
+  table `table_unreadable`.
+
+So on both platforms a cloud file is either read in full or makes the table unreadable, never
+silently skipped.
+
+A sidecar `<table>.vbs`, found by that search or
 else as `<folder>.vbs` in the table's folder, replaces the `CODE` record. Otherwise a `CODE` record
 under legacy protection (`SECB` with script editing disabled) is `legacy_protected`. The `CODE`
 script ends at its first NUL, as VPX reads it.
