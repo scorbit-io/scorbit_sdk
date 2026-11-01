@@ -265,13 +265,22 @@ private:
     size_t m_size;
 };
 
+/// A Windows reparse tag that makes its entry stand for another (a symbolic link, a junction):
+/// Microsoft's name-surrogate bit (IsReparseTagNameSurrogate). Cloud-file placeholders (OneDrive
+/// Files On-Demand) are reparse points too but not surrogates: they are the file itself.
+constexpr auto isNameSurrogateTag(uint32_t tag) -> bool
+{
+    return (tag & 0x20000000u) != 0;
+}
+
 /// Read-only, never locking: other processes (VPX itself) may keep reading and writing the file.
 class FileSource : public Source
 {
 public:
     ~FileSource() override { close(); }
 
-    /// noFollow: refuse a symbolic link or other reparse point as the file itself.
+    /// noFollow: refuse a symbolic link (on Windows, a name-surrogate reparse point) as the file
+    /// itself. A cloud placeholder is opened so that its contents are fetched.
     auto open(const std::string &utf8Path, bool noFollow = false) -> Code
     {
 #ifdef _WIN32
@@ -294,11 +303,38 @@ public:
                            ? Code::table_unreadable
                            : Code::table_unreadable_permission;
         }
+        if (noFollow) {
+            FILE_ATTRIBUTE_TAG_INFO tag {};
+            if (!GetFileInformationByHandleEx(m_handle, FileAttributeTagInfo, &tag, sizeof tag)) {
+                return Code::table_unreadable;
+            }
+            if ((tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                if (isNameSurrogateTag(tag.ReparseTag)) {
+                    return Code::table_unreadable; // a link or junction
+                }
+                // A placeholder: open it normally so its contents are fetched, and check that it
+                // is still the same file, not something swapped in between.
+                BY_HANDLE_FILE_INFORMATION before;
+                if (!GetFileInformationByHandle(m_handle, &before)) {
+                    return Code::table_unreadable;
+                }
+                close();
+                m_handle = CreateFileW(wide.c_str(), GENERIC_READ,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                BY_HANDLE_FILE_INFORMATION after;
+                if (m_handle == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(m_handle, &after)
+                    || after.dwVolumeSerialNumber != before.dwVolumeSerialNumber
+                    || after.nFileIndexHigh != before.nFileIndexHigh
+                    || after.nFileIndexLow != before.nFileIndexLow) {
+                    return Code::table_unreadable;
+                }
+            }
+        }
         LARGE_INTEGER size;
         BY_HANDLE_FILE_INFORMATION info;
         if (GetFileType(m_handle) != FILE_TYPE_DISK || !GetFileInformationByHandle(m_handle, &info)
             || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0
-            || (noFollow && (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
             || !GetFileSizeEx(m_handle, &size) || size.QuadPart < 0) {
             return Code::table_unreadable;
         }
@@ -1170,10 +1206,35 @@ inline auto fileName(const std::filesystem::path &p) -> std::string
     return std::string(s.begin(), s.end());
 }
 
-/// Directory lookups for the script search. Each folder is listed once, and only files and folders
-/// match, never a FIFO or device, and never a file that is itself a link. Under the table's folder
-/// a linked folder or junction never matches either, so a table cannot lead the reader outside it.
-/// In VPX's own folders a linked folder is followed, as VPX installs often link them.
+#ifdef _WIN32
+/// Whether a listed entry stands for another (a link or junction), by its reparse tag; an entry
+/// that cannot be looked at counts as one, to fail closed.
+inline auto isLinkEntry(const std::filesystem::path &p) -> bool
+{
+    WIN32_FIND_DATAW fd;
+    const HANDLE h = FindFirstFileW(p.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        return true;
+    }
+    FindClose(h);
+    return (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 && isNameSurrogateTag(fd.dwReserved0);
+}
+#endif
+
+/// One lookup: the entry found, or refused (an entry VPX would use that the reader will not read:
+/// a link where links are refused, a FIFO, a device), or neither.
+struct Hit {
+    std::filesystem::path path;
+    bool refused = false;
+
+    auto found() const -> bool { return !path.empty() || refused; }
+};
+
+/// Directory lookups for the script search. Each folder is listed once. Files and folders match;
+/// a FIFO, device, a file that is itself a link, and under the table's folder any link or junction
+/// are refused: such an entry still takes its place in VPX's order, so the search never falls
+/// through it to another file VPX would not have used. In VPX's own folders a linked folder is
+/// followed, as VPX installs often link them.
 class Search
 {
 public:
@@ -1185,7 +1246,7 @@ public:
     /// The entry of dir named name ignoring ASCII case; an exact match wins, then the
     /// bytewise-smallest name, so the choice does not depend on directory order.
     auto find(const std::filesystem::path &dir, const std::string &name, bool wantDirectory,
-              bool followLinks) -> std::filesystem::path
+              bool followLinks) -> Hit
     {
         const Listing &listing = list(dir, followLinks);
         const auto it = listing.find(lowerAscii(name));
@@ -1194,13 +1255,16 @@ public:
         }
         const Entry *best = nullptr;
         for (const Entry &e : it->second) {
-            if (e.directory != wantDirectory
+            if ((!e.refused && e.directory != wantDirectory)
                 || (best != nullptr && (best->name == name || (e.name != name && e.name > best->name)))) {
                 continue;
             }
             best = &e;
         }
-        return best == nullptr ? std::filesystem::path() : best->path;
+        if (best == nullptr) {
+            return {};
+        }
+        return best->refused ? Hit {{}, true} : Hit {best->path, false};
     }
 
 private:
@@ -1208,6 +1272,7 @@ private:
         std::string name;
         std::filesystem::path path;
         bool directory;
+        bool refused;
     };
     using Listing = std::map<std::string, std::vector<Entry>>;
 
@@ -1228,40 +1293,30 @@ private:
             if ((m_listed & 1023) == 0) {
                 checkCancel(m_opt);
             }
-            std::error_code sec;
-            const auto own = it->symlink_status(sec);
-            if (sec) {
-                continue;
-            }
-            // A linked folder counts only where links are followed; a linked file never does.
-            bool directory = std::filesystem::is_directory(own);
-            if (followLinks && std::filesystem::is_symlink(own)) {
-                std::error_code tec;
-                directory = std::filesystem::is_directory(it->status(tec)) && !tec;
-                if (!directory) {
-                    continue;
-                }
-            }
-            if (!directory && !std::filesystem::is_regular_file(own)) {
-                continue;
-            }
-#ifdef _WIN32
-            // Some standard libraries (MinGW's) report a junction as a plain folder.
-            if (!followLinks) {
-                const DWORD attributes = GetFileAttributesW(it->path().c_str());
-                if (attributes == INVALID_FILE_ATTRIBUTES
-                    || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
-                    continue;
-                }
-            }
-#endif
             std::string name;
             try {
                 name = fileName(it->path());
             } catch (const std::exception &) {
                 continue; // a name with no UTF-8 form cannot be what a script names
             }
-            listing[lowerAscii(name)].push_back({name, it->path(), directory});
+            std::error_code sec;
+            const auto own = it->symlink_status(sec);
+            bool directory = !sec && std::filesystem::is_directory(own);
+            bool refused = sec || (!directory && !std::filesystem::is_regular_file(own));
+            // A linked folder counts only where links are followed; a linked file never does.
+            if (!sec && followLinks && std::filesystem::is_symlink(own)) {
+                std::error_code tec;
+                directory = std::filesystem::is_directory(it->status(tec)) && !tec;
+                refused = !directory;
+            }
+#ifdef _WIN32
+            // A link or junction, which some standard libraries (MinGW's) report as a plain entry;
+            // a cloud placeholder is not one.
+            if (!refused && !followLinks && isLinkEntry(it->path())) {
+                refused = true;
+            }
+#endif
+            listing[lowerAscii(name)].push_back({name, it->path(), directory, refused});
         }
         // A folder that is not there is empty; one that cannot be listed is not.
         if (ec && ec != std::errc::no_such_file_or_directory && ec != std::errc::not_a_directory) {
@@ -1346,34 +1401,36 @@ inline auto isTableFolder(const std::filesystem::path &dir, const std::filesyste
     return same || ec;
 }
 
-/// base/parts..., each part matched ignoring ASCII case; empty if any part is missing. A walk from
-/// one of VPX's folders (followLinks) that reaches the table's own folder sets reachedTable: from
-/// there on it refuses links, and what it finds is the table's own, hashed by content.
+/// base/parts..., each part matched ignoring ASCII case; nothing if any part is missing, refused
+/// if any part is refused. A walk from one of VPX's folders (followLinks) that reaches the table's
+/// own folder sets reachedTable: from there on it refuses links, and what it finds is the table's
+/// own, hashed by content.
 inline auto findPath(Search &search, const std::filesystem::path &base,
                      const std::vector<std::string> &parts, bool followLinks,
-                     const std::filesystem::path &table, bool &reachedTable) -> std::filesystem::path
+                     const std::filesystem::path &table, bool &reachedTable) -> Hit
 {
     reachedTable = false;
     if (base.empty() || parts.empty()) {
         return {};
     }
-    std::filesystem::path p = base;
-    if (followLinks && isTableFolder(p, table)) {
+    Hit hit {base, false};
+    if (followLinks && isTableFolder(base, table)) {
         reachedTable = true;
     }
-    for (size_t i = 0; i < parts.size() && !p.empty(); i++) {
-        p = search.find(p, parts[i], i + 1 < parts.size(), followLinks && !reachedTable);
-        if (followLinks && !reachedTable && !p.empty() && i + 1 < parts.size()
-            && isTableFolder(p, table)) {
+    for (size_t i = 0; i < parts.size() && !hit.path.empty(); i++) {
+        hit = search.find(hit.path, parts[i], i + 1 < parts.size(), followLinks && !reachedTable);
+        if (followLinks && !reachedTable && !hit.path.empty() && i + 1 < parts.size()
+            && isTableFolder(hit.path, table)) {
             reachedTable = true;
         }
     }
-    return p;
+    return hit;
 }
 
 struct Found {
-    std::filesystem::path path; ///< empty: not found
+    std::filesystem::path path; ///< empty: not found (or refused)
     bool inTable = false;       ///< found under the table's folder
+    bool refused = false;       ///< VPX would use an entry the reader will not read
 };
 
 /// VPX's FileLocator::SearchScript: the first match in its folder order.
@@ -1391,14 +1448,14 @@ inline auto searchScript(Search &search, const std::filesystem::path &table,
     for (const Root &root : roots) {
         const bool inTable = &root.dir == &table;
         bool reached = false;
-        if (auto p = findPath(search, root.dir, parts, !inTable, table, reached); !p.empty()) {
-            return {p, inTable || reached};
+        if (const Hit h = findPath(search, root.dir, parts, !inTable, table, reached); h.found()) {
+            return {h.path, inTable || reached, h.refused};
         }
         for (const char *sub : root.subs) {
             std::vector<std::string> sp {sub};
             sp.insert(sp.end(), parts.begin(), parts.end());
-            if (auto p = findPath(search, root.dir, sp, !inTable, table, reached); !p.empty()) {
-                return {p, inTable || reached};
+            if (const Hit h = findPath(search, root.dir, sp, !inTable, table, reached); h.found()) {
+                return {h.path, inTable || reached, h.refused};
             }
         }
     }
@@ -1433,7 +1490,13 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         stem.resize(dot);
     }
     checkCancel(opt);
-    std::filesystem::path sidecar = searchScript(search, dir, app, pref, {stem + ".vbs"}).path;
+    // A sidecar VPX would load but the reader will not read (a link, a FIFO) makes the table
+    // unreadable: signing the embedded script instead would sign what VPX does not run.
+    const Found sidecarFound = searchScript(search, dir, app, pref, {stem + ".vbs"});
+    if (sidecarFound.refused) {
+        fail(Code::table_unreadable);
+    }
+    std::filesystem::path sidecar = sidecarFound.path;
     if (sidecar.empty()) {
         std::error_code ec;
         std::filesystem::path abs = std::filesystem::absolute(dir, ec).lexically_normal();
@@ -1441,7 +1504,11 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
             abs = abs.parent_path();
         }
         if (const std::string folder = ec ? std::string() : fileName(abs); !folder.empty()) {
-            sidecar = search.find(dir, folder + ".vbs", false, false);
+            const Hit fallback = search.find(dir, folder + ".vbs", false, false);
+            if (fallback.refused) {
+                fail(Code::table_unreadable);
+            }
+            sidecar = fallback.path;
         }
     }
     if (!sidecar.empty()) {
@@ -1493,6 +1560,9 @@ inline auto signFile(const Paths &paths, const Options &opt) -> Result
         seen.insert(name);
         checkCancel(opt);
         const Found found = parts.empty() ? Found {} : searchScript(search, dir, app, pref, parts);
+        if (found.refused) {
+            fail(Code::table_unreadable); // VPX would load it; the reader will not read it
+        }
         if (found.path.empty()) {
             res.missingHelpers.push_back(name);
         } else if (found.inTable) {
