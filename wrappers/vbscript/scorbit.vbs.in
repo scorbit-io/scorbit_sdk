@@ -61,19 +61,19 @@ Const SCORBIT_LEADERBOARD_VPIN_ANY = 0
 Const SCORBIT_LEADERBOARD_VPIN_ONLY = 1
 Const SCORBIT_LEADERBOARD_VPIN_REAL_ONLY = 2
 
-' ScorbitTopScoresResult
-Const SCORBIT_TOP_SCORES_PENDING = -1
+' ScorbitTopScoresResult: NONE until an answer arrives, and for an id no longer held
+Const SCORBIT_TOP_SCORES_NONE = -1
 Const SCORBIT_TOP_SCORES_OK = 0
 Const SCORBIT_TOP_SCORES_NOT_PAIRED = 1
 Const SCORBIT_TOP_SCORES_API_ERROR = 2
 Const SCORBIT_TOP_SCORES_FAILED = 3
 Const SCORBIT_TOP_SCORES_SUPERSEDED = 4
-Const SCORBIT_TOP_SCORES_NO_TABLE = 5
+Const SCORBIT_TOP_SCORES_NOT_DECLARED = 5
 Const SCORBIT_TOP_SCORES_UNSUPPORTED = 6
 Const SCORBIT_TOP_SCORES_MALFORMED = 7
-Const SCORBIT_TOP_SCORES_DISCONNECTED = 8
+Const SCORBIT_TOP_SCORES_LOST = 8
 Const SCORBIT_TOP_SCORES_MAX = 20
-' Results the plugin keeps; a newer one evicts the oldest, whose id then reads as PENDING again.
+' Results the plugin keeps; a newer one evicts the oldest, whose id then reads as NONE.
 Const SCORBIT_TOP_SCORES_HELD = 8
 
 ' ScorbitTopScoresFlags bits
@@ -142,10 +142,10 @@ Sub ScorbitInitWith(table, machineUuid)
     If table Is Nothing Then Err.Clear : Exit Sub
     Set ScorbitImpl_Table = table
     ' A plugin from before ApiLevel has no such member: level 1, the game calls only.
-    lvl = 1
     Err.Clear
-    lvl = table.ApiLevel
+    lvl = CLng(table.ApiLevel)
     If Err.Number <> 0 Then lvl = 1
+    If lvl < 1 Then lvl = 1
     Err.Clear
     ScorbitImpl_Level = lvl
     table.Declare machineUuid
@@ -289,16 +289,17 @@ End Function
 Function ScorbitRequestTopScores(scope, period, since, vpinFilter)
     ScorbitRequestTopScores = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then
-        ScorbitRequestTopScores = ScorbitImpl_Table.RequestTopScores(scope, period, vpinFilter, SCORBIT_TOP_SCORES_MAX, since)
-    End If
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitRequestTopScores = CLng(ScorbitImpl_Table.RequestTopScores(scope, period, vpinFilter, SCORBIT_TOP_SCORES_MAX, since))
+    If Err.Number <> 0 Then ScorbitRequestTopScores = 0
     Err.Clear
 End Function
 
+' SCORBIT_TOP_SCORES_*: NONE until the answer arrives, and for an id no longer held.
 Function ScorbitTopScoresResult(id)
-    ScorbitTopScoresResult = SCORBIT_TOP_SCORES_PENDING
+    ScorbitTopScoresResult = SCORBIT_TOP_SCORES_NONE
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresResult = ScorbitImpl_Table.TopScoresResult(id)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresResult = CLng(ScorbitImpl_Table.TopScoresResult(id))
+    If Err.Number <> 0 Then ScorbitTopScoresResult = SCORBIT_TOP_SCORES_NONE
     Err.Clear
 End Function
 
@@ -306,14 +307,21 @@ End Function
 Function ScorbitTopScoresAge(id)
     ScorbitTopScoresAge = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresAge = ScorbitImpl_Table.TopScoresAge(id)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresAge = CLng(ScorbitImpl_Table.TopScoresAge(id))
+    If Err.Number <> 0 Then ScorbitTopScoresAge = 0
     Err.Clear
 End Function
 
+' Entries, 0 to SCORBIT_TOP_SCORES_MAX; 0 unless the result is OK.
 Function ScorbitTopScoresCount(id)
+    Dim n
     ScorbitTopScoresCount = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresCount = ScorbitImpl_Table.TopScoresCount(id)
+    n = 0
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then n = CLng(ScorbitImpl_Table.TopScoresCount(id))
+    If Err.Number <> 0 Then n = 0
+    If n > SCORBIT_TOP_SCORES_MAX Then n = SCORBIT_TOP_SCORES_MAX
+    If n > 0 Then ScorbitTopScoresCount = n
     Err.Clear
 End Function
 
@@ -321,28 +329,33 @@ End Function
 Function ScorbitTopScoresRank(id, i)
     ScorbitTopScoresRank = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresRank = ScorbitImpl_Table.TopScoresRank(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresRank = CLng(ScorbitImpl_Table.TopScoresRank(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresRank = 0
     Err.Clear
 End Function
 
+' Exact up to 2^53.
 Function ScorbitTopScoresScore(id, i)
     ScorbitTopScoresScore = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresScore = ScorbitImpl_Table.TopScoresScore(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresScore = CDbl(ScorbitImpl_Table.TopScoresScore(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresScore = 0
     Err.Clear
 End Function
 
 Function ScorbitTopScoresName(id, i)
     ScorbitTopScoresName = ""
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresName = ScorbitImpl_Table.TopScoresName(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresName = CStr(ScorbitImpl_Table.TopScoresName(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresName = ""
     Err.Clear
 End Function
 
 Function ScorbitTopScoresInitials(id, i)
     ScorbitTopScoresInitials = ""
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresInitials = ScorbitImpl_Table.TopScoresInitials(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresInitials = CStr(ScorbitImpl_Table.TopScoresInitials(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresInitials = ""
     Err.Clear
 End Function
 
@@ -350,7 +363,8 @@ End Function
 Function ScorbitTopScoresFlags(id, i)
     ScorbitTopScoresFlags = 0
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresFlags = ScorbitImpl_Table.TopScoresFlags(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresFlags = CLng(ScorbitImpl_Table.TopScoresFlags(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresFlags = 0
     Err.Clear
 End Function
 
@@ -358,7 +372,8 @@ End Function
 Function ScorbitTopScoresCreated(id, i)
     ScorbitTopScoresCreated = ""
     On Error Resume Next
-    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresCreated = ScorbitImpl_Table.TopScoresCreated(id, i)
+    If ScorbitImpl_Level >= SCORBIT_API_READ_BACK Then ScorbitTopScoresCreated = CStr(ScorbitImpl_Table.TopScoresCreated(id, i))
+    If Err.Number <> 0 Then ScorbitTopScoresCreated = ""
     Err.Clear
 End Function
 

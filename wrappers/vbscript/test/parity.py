@@ -161,11 +161,17 @@ def c_enum_values(header):
 
 def binding(vbs):
     """Routines (name -> parameter count, body), commented-out routines, and constants."""
-    active, commented, consts, commented_consts = {}, {}, {}, {}
+    active, commented, consts, commented_consts, unread = {}, {}, {}, {}, []
     current = None
     for line in open(vbs, encoding="utf-8"):
         line = line.rstrip("\r\n")
-        m = re.match(r"^(\s*'\s*)?(?:Sub|Function)\s+Scorbit([A-Z][A-Za-z0-9]*)\s*\(([^)]*)\)", line)
+        if re.match(r"^\s*'?\s*(?:(?:Public|Private)\s+)?(?:Sub|Function)\s+Scorbit", line) and not re.match(
+                r"^(\s*'\s*)?(?:(?:Public|Private)\s+)?(?:Sub|Function)\s+Scorbit[A-Z][A-Za-z0-9_]*\s*\([^)]*\)\s*$", line):
+            unread.append(line.strip())
+        if re.match(r"^\s*'?\s*Const\s+SCORBIT_", line) and not re.match(
+                r"^(\s*'\s*)?Const\s+SCORBIT_[A-Z0-9_]+\s*=\s*(-?\d+|\"[^\"]*\")\s*$", line):
+            unread.append(line.strip())
+        m = re.match(r"^(\s*'\s*)?(?:(?:Public|Private)\s+)?(?:Sub|Function)\s+Scorbit([A-Z][A-Za-z0-9]*)\s*\(([^)]*)\)", line)
         if m:
             count = len([p for p in m.group(3).split(",") if p.strip()])
             if m.group(1):
@@ -182,7 +188,7 @@ def binding(vbs):
         m = re.match(r"^(\s*'\s*)?Const\s+(SCORBIT_[A-Z0-9_]+)\s*=\s*(-?\d+)\s*$", line)
         if m:
             (commented_consts if m.group(1) else consts)[m.group(2)] = int(m.group(3))
-    return active, commented, consts, commented_consts
+    return active, commented, consts, commented_consts, unread
 
 
 def upper_snake(camel):
@@ -193,8 +199,8 @@ def main():
     include, vbs = sys.argv[1], sys.argv[2]
     methods, unread = sdk_methods(include + "/game_state.h")
     events = sdk_events(include + "/event_types.h")
-    active, commented, consts, commented_consts = binding(vbs)
-    errors = []
+    active, commented, consts, commented_consts, unread_vbs = binding(vbs)
+    errors = [f"cannot read a binding line: {line}" for line in unread_vbs]
 
     for line in unread:
         errors.append(f"cannot read a GameState declaration: {line}")
@@ -256,6 +262,11 @@ def main():
             elif c_values[c_name] != value:
                 errors.append(f"{const} is {value}, {c_name} is {c_values[c_name]}")
             checked += 1
+        if prefix == "SCORBIT_EVENT_":
+            continue
+        for c_name in sorted(c_values):
+            if c_name.startswith(c_prefix) and prefix + c_name[len(c_prefix):] not in {**consts, **commented_consts}:
+                errors.append(f"{c_name} has no binding constant {prefix + c_name[len(c_prefix):]}")
 
     covered = len([n for n in methods if n not in OUT_OF_SCOPE and n not in COMMENTED_OUT])
     print(f"{len(methods)} GameState methods: {covered} in the binding, {len(COMMENTED_OUT)} commented out, "

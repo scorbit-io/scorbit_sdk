@@ -8,11 +8,12 @@ game to Scorbit the way a machine using this SDK does: the same calls, under the
 ## Using it
 
 The binding is one file, named for the SDK version it comes from: `scorbit-<version>.vbs`. Load the
-version the table was written for:
+version the table was written for, once, from the table script's top level (here `x.y.z` stands for
+that version):
 
 ```vbscript
 On Error Resume Next
-ExecuteGlobal GetTextFile("scorbit-2.0.5.vbs")
+ExecuteGlobal GetTextFile("scorbit-x.y.z.vbs")
 On Error Goto 0
 ScorbitInit "<machine uuid>"
 ```
@@ -101,7 +102,7 @@ End If
 
 `ScorbitTopScoresResult` is `SCORBIT_TOP_SCORES_OK` or a reason the request failed once the answer
 arrives. Up to `SCORBIT_TOP_SCORES_MAX` (20) entries come back. Before then it reads
-`SCORBIT_TOP_SCORES_PENDING`, but so does an id the plugin no longer holds:
+`SCORBIT_TOP_SCORES_NONE`, but so does an id the plugin no longer holds:
 - an id of 0, which means no answer can come;
 - a released id;
 - an id from before the table restarted;

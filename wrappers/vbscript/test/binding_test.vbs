@@ -1,3 +1,12 @@
+' Scorbit SDK
+'
+' (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
+'
+' MIT License
+'
+' The above copyright notice and this permission notice shall be included in
+' all copies or substantial portions of the Software.
+
 ' Scorbit SDK for VBScript: tests against mocks of the plugin's Scorbit.Table.
 ' cscript //nologo binding_test.vbs <path to scorbit-<version>.vbs>
 ' Exits with the number of failed checks. An error escaping the binding stops cscript with a
@@ -17,11 +26,11 @@ End Sub
 
 ' The plugin's object at ApiLevel 2. Records every call, in order.
 Class MockTable
-    Public Log, Uuid, Auth, System, Session, Text, Result
+    Public Log, Uuid, Auth, System, Session, Text, Result, CountValue
     Private claimed(9), ids(9), names(9), initials(9), links(9), pictures(9)
 
     Private Sub Class_Initialize()
-        Log = "" : Uuid = "" : Auth = -1 : System = -1 : Session = -1 : Text = "" : Result = -1
+        Log = "" : Uuid = "" : Auth = -1 : System = -1 : Session = -1 : Text = "" : Result = -1 : CountValue = 2
     End Sub
 
     Public Sub SetPlayer(slot, isClaimed, id, name, ini, link, pic)
@@ -60,7 +69,7 @@ Class MockTable
     End Function
     Public Function TopScoresResult(id) : TopScoresResult = Result : End Function
     Public Function TopScoresAge(id) : TopScoresAge = 12 : End Function
-    Public Function TopScoresCount(id) : TopScoresCount = 2 : End Function
+    Public Function TopScoresCount(id) : TopScoresCount = CountValue : End Function
     Public Function TopScoresRank(id, i) : TopScoresRank = i + 1 : End Function
     Public Function TopScoresScore(id, i) : TopScoresScore = 9007199254740992 - i : End Function
     Public Function TopScoresName(id, i) : TopScoresName = "Name" & i : End Function
@@ -123,7 +132,7 @@ ScorbitCommit
 Check ScorbitGetStatus() = SCORBIT_STATUS_UNKNOWN, "no plugin: status unknown"
 Check ScorbitGetMachineUuid() = "", "no plugin: no uuid"
 Check ScorbitRequestTopScores(0, 0, "", 0) = 0, "no plugin: no request id"
-Check ScorbitTopScoresResult(1) = SCORBIT_TOP_SCORES_PENDING, "no plugin: no result"
+Check ScorbitTopScoresResult(1) = SCORBIT_TOP_SCORES_NONE, "no plugin: no result"
 Check ScorbitPlayerName(1) = "", "no plugin: no player"
 Check Not ScorbitPlayerClaimed(1), "no plugin: unclaimed"
 Check ScorbitPollEvent() = SCORBIT_EVENT_NONE, "no plugin: no event"
@@ -165,7 +174,7 @@ Dim id
 id = ScorbitRequestTopScores(SCORBIT_LEADERBOARD_SCOPE_GAME, SCORBIT_LEADERBOARD_PERIOD_30D, "2026-01-01T00:00:00Z", SCORBIT_LEADERBOARD_VPIN_ONLY)
 Check id = 7, "level 2: request id"
 Check m.Log = "RequestTopScores 2,2,1,20,2026-01-01T00:00:00Z;", "level 2: request mapped to the native order: " & m.Log
-Check ScorbitTopScoresResult(id) = SCORBIT_TOP_SCORES_PENDING, "level 2: pending"
+Check ScorbitTopScoresResult(id) = SCORBIT_TOP_SCORES_NONE, "level 2: pending"
 m.Result = SCORBIT_TOP_SCORES_OK
 Check ScorbitTopScoresResult(id) = SCORBIT_TOP_SCORES_OK, "level 2: result"
 Check ScorbitTopScoresAge(id) = 12, "level 2: age"
@@ -176,6 +185,16 @@ Check ScorbitTopScoresName(id, 1) = "Name1", "level 2: name"
 Check ScorbitTopScoresInitials(id, 0) = "AB0", "level 2: initials"
 Check (ScorbitTopScoresFlags(id, 0) And SCORBIT_SCORE_FLAG_VERIFIED) <> 0, "level 2: flags"
 Check ScorbitTopScoresCreated(id, 0) = "2026-11-01T12:00:00Z", "level 2: created"
+m.CountValue = Null
+Check ScorbitTopScoresCount(id) = 0, "level 2: a Null count reads 0"
+m.CountValue = "many"
+Check ScorbitTopScoresCount(id) = 0, "level 2: a text count reads 0"
+m.CountValue = 1000
+Check ScorbitTopScoresCount(id) = SCORBIT_TOP_SCORES_MAX, "level 2: a huge count is clamped"
+m.CountValue = 2
+m.Log = ""
+ScorbitSetScore 1, 3000000000, 0
+Check m.Log = "SetScore 1,3000000000,0;", "level 2: a score past 2^31 passes through: " & m.Log
 m.Log = ""
 ScorbitReleaseTopScores id
 Check m.Log = "ReleaseTopScores 7;", "level 2: release"
@@ -222,7 +241,7 @@ ScorbitAddMode "MB:Multiball"
 Check ScorbitGetStatus() = SCORBIT_STATUS_UNKNOWN, "raising: status unknown"
 Check ScorbitGetMachineUuid() = "", "raising: uuid empty"
 Check ScorbitRequestTopScores(0, 0, "", 0) = 0, "raising: no request id"
-Check ScorbitTopScoresResult(1) = SCORBIT_TOP_SCORES_PENDING, "raising: no result"
+Check ScorbitTopScoresResult(1) = SCORBIT_TOP_SCORES_NONE, "raising: no result"
 Check ScorbitPlayerName(1) = "", "raising: no name"
 Check ScorbitPollEvent() = SCORBIT_EVENT_NONE, "raising: no event"
 

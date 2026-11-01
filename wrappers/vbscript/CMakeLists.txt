@@ -16,13 +16,12 @@ cmake_minimum_required(VERSION 3.28)
 
 project(scorbit_vbscript NONE)
 
-file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION SCORBIT_SDK_VERSION LIMIT_COUNT 1)
+# Normalized, so it is the same entry as the SDK's own when the tests project includes both:
+# two spellings of one path are two outputs of one file to Ninja.
+cmake_path(SET SCORBIT_VERSION_FILE NORMALIZE "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
+file(STRINGS ${SCORBIT_VERSION_FILE} SCORBIT_SDK_VERSION LIMIT_COUNT 1)
 # A version bump reconfigures, so the file and its tests follow it.
-set_property(
-    DIRECTORY
-    APPEND
-    PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION
-)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SCORBIT_VERSION_FILE})
 string(STRIP "${SCORBIT_SDK_VERSION}" SCORBIT_SDK_VERSION)
 set(SCORBIT_VBS ${CMAKE_CURRENT_BINARY_DIR}/scorbit-${SCORBIT_SDK_VERSION}.vbs)
 
@@ -43,10 +42,14 @@ else()
     message(WARNING "No Python 3 interpreter: the VBScript binding's parity test is not registered")
 endif()
 
-if(WIN32)
-    find_program(CSCRIPT cscript REQUIRED)
+# A cscript runtime error ends the script with no summary, so a pass needs its own line.
+if(CMAKE_HOST_WIN32)
+    find_program(CSCRIPT cscript)
+endif()
+if(CSCRIPT)
     add_test(
         NAME vbscript_binding
         COMMAND ${CSCRIPT} //nologo ${CMAKE_CURRENT_SOURCE_DIR}/test/binding_test.vbs ${SCORBIT_VBS}
     )
+    set_tests_properties(vbscript_binding PROPERTIES PASS_REGULAR_EXPRESSION " 0 failed")
 endif()
