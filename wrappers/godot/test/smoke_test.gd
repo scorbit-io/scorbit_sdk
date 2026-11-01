@@ -64,6 +64,14 @@ func _begin() -> void:
 	_scorbit.set_capabilities(_scorbit.CAPABILITY_START_GAME | _scorbit.CAPABILITY_CREDIT_DROP)
 	_scorbit.set_credits_status(false, 3, 10)
 	_scorbit.set_credits_dropped(1, "smoke-transaction")
+	if _expect_native:
+		for name in ["LEADERBOARD_SCOPE_GAME", "LEADERBOARD_PERIOD_365D", "LEADERBOARD_VPIN_REAL_ONLY"]:
+			var gd_value = _scorbit.get_script().get_script_constant_map().get(name)
+			_check(gd_value == ClassDB.class_get_integer_constant("ScorbitGameState", name),
+					name + " matches")
+	_scorbit.request_top_scores(_scorbit.LEADERBOARD_SCOPE_MACHINE, _scorbit.LEADERBOARD_PERIOD_30D)
+	_scorbit.request_pair_code()
+	_check(_scorbit.get_machine_serial() >= 0, "get_machine_serial()")
 
 	_scorbit.set_game_started()
 	_scorbit.set_active_player(1)

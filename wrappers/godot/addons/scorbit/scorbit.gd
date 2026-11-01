@@ -17,6 +17,15 @@ signal credits_status_requested()
 ## The machine's pricing: free_play, payments_enabled, credit_price, credit_regular_price,
 ## credit_sale_price, and bundles (each with credits, price, regular_price, sale_price).
 signal pricing_received(pricing: Dictionary)
+## Answers request_top_scores(): error 0 on success, and one Dictionary per entry (rank, high_score,
+## player_display_name, player_initials, player_avatar, is_verified, created, ...).
+signal top_scores_received(error: int, entries: Array)
+## Answers request_pair_code(): the short code a player enters in the Scorbit app.
+signal pair_code_received(error: int, code: String)
+## Answers request_unpair().
+signal unpair_finished(error: int, reply: String)
+## Answers request_pair_machine().
+signal pair_machine_finished(error: int, reply: String)
 
 const NATIVE_CLASS := "ScorbitGameState"
 
@@ -27,6 +36,20 @@ const STARTED_FROM_LOBBY := 1
 # Capability flags for set_capabilities(); combine with |.
 const CAPABILITY_START_GAME := 1  # the Scorbit app can start a game (game_start_requested)
 const CAPABILITY_CREDIT_DROP := 2  # the Scorbit app can add credits (credits_add_requested)
+
+# request_top_scores() options.
+const LEADERBOARD_SCOPE_MACHINE := 0
+const LEADERBOARD_SCOPE_VARIANT := 1
+const LEADERBOARD_SCOPE_GAME := 2
+const LEADERBOARD_PERIOD_ALL_TIME := 0
+const LEADERBOARD_PERIOD_14D := 1
+const LEADERBOARD_PERIOD_30D := 2
+const LEADERBOARD_PERIOD_90D := 3
+const LEADERBOARD_PERIOD_180D := 4
+const LEADERBOARD_PERIOD_365D := 5
+const LEADERBOARD_VPIN_ANY := 0
+const LEADERBOARD_VPIN_ONLY := 1
+const LEADERBOARD_VPIN_REAL_ONLY := 2
 
 # get_status() values.
 const NOT_AUTHENTICATED := 0
@@ -55,6 +78,10 @@ func _ready() -> void:
 	_native.credits_add_requested.connect(credits_add_requested.emit)
 	_native.credits_status_requested.connect(credits_status_requested.emit)
 	_native.pricing_received.connect(pricing_received.emit)
+	_native.top_scores_received.connect(top_scores_received.emit)
+	_native.pair_code_received.connect(pair_code_received.emit)
+	_native.unpair_finished.connect(unpair_finished.emit)
+	_native.pair_machine_finished.connect(pair_machine_finished.emit)
 
 
 func _exit_tree() -> void:
@@ -151,6 +178,37 @@ func set_credits_dropped(credits: int, transaction: String, success: bool = true
 func set_credits_status(free_play: bool, credits: int, max_credits: int, pricing: String = "") -> void:
 	if _native:
 		_native.set_credits_status(free_play, credits, max_credits, pricing)
+
+
+## Requests a leaderboard; the answer arrives as top_scores_received. since is an ISO-8601 date
+## to count scores from, or "" for none.
+func request_top_scores(scope: int = LEADERBOARD_SCOPE_MACHINE,
+		period: int = LEADERBOARD_PERIOD_ALL_TIME, since: String = "",
+		vpin_filter: int = LEADERBOARD_VPIN_ANY) -> void:
+	if _native:
+		_native.request_top_scores(scope, period, since, vpin_filter)
+
+
+## Requests a short pairing code; the answer arrives as pair_code_received.
+func request_pair_code() -> void:
+	if _native:
+		_native.request_pair_code()
+
+
+## Unpairs the machine; the answer arrives as unpair_finished.
+func request_unpair() -> void:
+	if _native:
+		_native.request_unpair()
+
+
+## Pairs this machine to a venue machine for an owner; the answer arrives as pair_machine_finished.
+func request_pair_machine(machine_uuid: String, owner_uuid: String) -> void:
+	if _native:
+		_native.request_pair_machine(machine_uuid, owner_uuid)
+
+
+func get_machine_serial() -> int:
+	return _native.get_machine_serial() if _native else 0
 
 
 ## Sends the changes since the last commit. Call once per frame or after a batch of changes.

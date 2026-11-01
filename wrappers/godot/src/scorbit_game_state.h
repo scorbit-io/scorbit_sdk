@@ -71,6 +71,11 @@ public:
     void set_credits_dropped(int credits, const godot::String &transaction, bool success);
     void set_credits_status(bool freePlay, int credits, int maxCredits,
                             const godot::String &pricing);
+    void request_pair_code();
+    void request_unpair();
+    void request_pair_machine(const godot::String &machineUuid, const godot::String &ownerUuid);
+    void request_top_scores(int scope, int period, const godot::String &since, int vpinFilter);
+    int64_t get_machine_serial() const;
     void commit();
 
     int get_status() const;

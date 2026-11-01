@@ -177,6 +177,166 @@ Dictionary readEvent(const sb_event_t *event)
     return data;
 }
 
+// Every field of each entry, copied out: the leaderboard is valid only during its callback.
+Array readLeaderboard(const sb_leaderboard_t *leaderboard)
+{
+    Array entries;
+    const size_t count = sb_leaderboard_entries_count(leaderboard);
+    for (size_t i = 0; i < count; ++i) {
+        Dictionary entry;
+        {
+            uint64_t v {0};
+            if (sb_leaderboard_entry_id(leaderboard, i, &v)) {
+                entry["id"] = static_cast<int64_t>(v);
+            }
+        }
+        {
+            int v {0};
+            if (sb_leaderboard_entry_rank(leaderboard, i, &v)) {
+                entry["rank"] = v;
+            }
+        }
+        {
+            sb_score_t v {0};
+            if (sb_leaderboard_entry_high_score(leaderboard, i, &v)) {
+                entry["high_score"] = static_cast<int64_t>(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_image(leaderboard, i, &v)) {
+                entry["image"] = toString(v);
+            }
+        }
+        {
+            int v {0};
+            if (sb_leaderboard_entry_reaction_count(leaderboard, i, &v)) {
+                entry["reaction_count"] = v;
+            }
+        }
+        {
+            int v {0};
+            if (sb_leaderboard_entry_score_count(leaderboard, i, &v)) {
+                entry["score_count"] = v;
+            }
+        }
+        {
+            bool v {false};
+            if (sb_leaderboard_entry_is_nfc_verified(leaderboard, i, &v)) {
+                entry["is_nfc_verified"] = v;
+            }
+        }
+        {
+            bool v {false};
+            if (sb_leaderboard_entry_is_verified(leaderboard, i, &v)) {
+                entry["is_verified"] = v;
+            }
+        }
+        {
+            bool v {false};
+            if (sb_leaderboard_entry_is_vpin(leaderboard, i, &v)) {
+                entry["is_vpin"] = v;
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_created(leaderboard, i, &v)) {
+                entry["created"] = toString(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_id(leaderboard, i, &v)) {
+                entry["player_id"] = toString(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_username(leaderboard, i, &v)) {
+                entry["player_username"] = toString(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_display_name(leaderboard, i, &v)) {
+                entry["player_display_name"] = toString(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_initials(leaderboard, i, &v)) {
+                entry["player_initials"] = toString(v);
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_avatar(leaderboard, i, &v)) {
+                entry["player_avatar"] = toString(v);
+            }
+        }
+        {
+            int v {0};
+            if (sb_leaderboard_entry_player_follower_count(leaderboard, i, &v)) {
+                entry["player_follower_count"] = v;
+            }
+        }
+        {
+            int v {0};
+            if (sb_leaderboard_entry_player_following_count(leaderboard, i, &v)) {
+                entry["player_following_count"] = v;
+            }
+        }
+        {
+            const char *v {nullptr};
+            if (sb_leaderboard_entry_player_last_login(leaderboard, i, &v)) {
+                entry["player_last_login"] = toString(v);
+            }
+        }
+        entries.push_back(entry);
+    }
+    return entries;
+}
+
+// Results of requests are queued like events, tagged with which request they answer.
+void queue(Bridge &bridge, Dictionary result)
+{
+    std::scoped_lock lock(bridge.mutex);
+    bridge.events.push_back(std::move(result));
+}
+
+Dictionary stringResult(const char *name, sb_error_t error, const char *reply)
+{
+    Dictionary result;
+    result["_result"] = name;
+    result["error"] = static_cast<int>(error);
+    result["reply"] = toString(reply);
+    return result;
+}
+
+void onPairCode(sb_error_t error, const char *reply, void *userData)
+{
+    queue(*static_cast<Bridge *>(userData), stringResult("pair_code", error, reply));
+}
+
+void onUnpair(sb_error_t error, const char *reply, void *userData)
+{
+    queue(*static_cast<Bridge *>(userData), stringResult("unpair", error, reply));
+}
+
+void onPairMachine(sb_error_t error, const char *reply, void *userData)
+{
+    queue(*static_cast<Bridge *>(userData), stringResult("pair_machine", error, reply));
+}
+
+void onTopScores(sb_error_t error, sb_leaderboard_t *leaderboard, void *userData)
+{
+    Dictionary result;
+    result["_result"] = "top_scores";
+    result["error"] = static_cast<int>(error);
+    result["entries"] = leaderboard ? readLeaderboard(leaderboard) : Array();
+    queue(*static_cast<Bridge *>(userData), std::move(result));
+}
+
 void onEvent(const sb_event_t *event, void *userData)
 {
     auto *bridge = static_cast<Bridge *>(userData);
@@ -302,6 +462,20 @@ void ScorbitGameState::_process(double /*delta*/)
 
 void ScorbitGameState::emitEvent(const Dictionary &event)
 {
+    if (event.has("_result")) {
+        const String name = event["_result"];
+        const int error = event["error"];
+        if (name == "top_scores") {
+            emit_signal("top_scores_received", error, event["entries"]);
+        } else if (name == "pair_code") {
+            emit_signal("pair_code_received", error, event["reply"]);
+        } else if (name == "unpair") {
+            emit_signal("unpair_finished", error, event["reply"]);
+        } else if (name == "pair_machine") {
+            emit_signal("pair_machine_finished", error, event["reply"]);
+        }
+        return;
+    }
     const int type = event["type"];
     emit_signal("sdk_event", type, event);
     switch (type) {
@@ -424,6 +598,46 @@ void ScorbitGameState::set_credits_status(bool freePlay, int credits, int maxCre
     }
 }
 
+void ScorbitGameState::request_pair_code()
+{
+    if (m_handle) {
+        sb_request_pair_code(m_handle, &onPairCode, m_bridge.get());
+    }
+}
+
+void ScorbitGameState::request_unpair()
+{
+    if (m_handle) {
+        sb_request_unpair(m_handle, &onUnpair, m_bridge.get());
+    }
+}
+
+void ScorbitGameState::request_pair_machine(const String &machineUuid, const String &ownerUuid)
+{
+    if (m_handle) {
+        sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
+                                     ownerUuid.utf8().get_data(), &onPairMachine, m_bridge.get());
+    }
+}
+
+void ScorbitGameState::request_top_scores(int scope, int period, const String &since,
+                                          int vpinFilter)
+{
+    if (m_handle) {
+        const auto sinceUtf8 = since.utf8();
+        sb_request_top_scores(m_handle, static_cast<sb_leaderboard_scope_t>(scope),
+                              static_cast<sb_leaderboard_period_t>(period),
+                              since.is_empty() ? nullptr : sinceUtf8.get_data(),
+                              static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
+                              m_bridge.get());
+    }
+}
+
+int64_t ScorbitGameState::get_machine_serial() const
+{
+    return m_handle ? static_cast<int64_t>(sb_get_machine_serial(m_handle)) : 0;
+}
+
 void ScorbitGameState::commit()
 {
     if (m_handle) {
@@ -473,6 +687,16 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_method(
             D_METHOD("set_credits_status", "free_play", "credits", "max_credits", "pricing"),
             &ScorbitGameState::set_credits_status, DEFVAL(String()));
+    ClassDB::bind_method(D_METHOD("request_pair_code"), &ScorbitGameState::request_pair_code);
+    ClassDB::bind_method(D_METHOD("request_unpair"), &ScorbitGameState::request_unpair);
+    ClassDB::bind_method(D_METHOD("request_pair_machine", "machine_uuid", "owner_uuid"),
+                         &ScorbitGameState::request_pair_machine);
+    ClassDB::bind_method(D_METHOD("request_top_scores", "scope", "period", "since", "vpin_filter"),
+                         &ScorbitGameState::request_top_scores,
+                         DEFVAL(SB_LEADERBOARD_SCOPE_MACHINE),
+                         DEFVAL(SB_LEADERBOARD_PERIOD_ALL_TIME), DEFVAL(String()),
+                         DEFVAL(SB_LEADERBOARD_VPIN_ANY));
+    ClassDB::bind_method(D_METHOD("get_machine_serial"), &ScorbitGameState::get_machine_serial);
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
     ClassDB::bind_method(D_METHOD("get_status"), &ScorbitGameState::get_status);
     ClassDB::bind_method(D_METHOD("get_machine_uuid"), &ScorbitGameState::get_machine_uuid);
@@ -486,6 +710,14 @@ void ScorbitGameState::_bind_methods()
     ADD_SIGNAL(MethodInfo("credits_add_requested", PropertyInfo(Variant::INT, "credits"),
                           PropertyInfo(Variant::STRING, "transaction")));
     ADD_SIGNAL(MethodInfo("credits_status_requested"));
+    ADD_SIGNAL(MethodInfo("top_scores_received", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::ARRAY, "entries")));
+    ADD_SIGNAL(MethodInfo("pair_code_received", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "code")));
+    ADD_SIGNAL(MethodInfo("unpair_finished", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "reply")));
+    ADD_SIGNAL(MethodInfo("pair_machine_finished", PropertyInfo(Variant::INT, "error"),
+                          PropertyInfo(Variant::STRING, "reply")));
     ADD_SIGNAL(MethodInfo("pricing_received", PropertyInfo(Variant::DICTIONARY, "pricing")));
     ADD_SIGNAL(MethodInfo("player_picture_ready", PropertyInfo(Variant::INT, "player"),
                           PropertyInfo(Variant::PACKED_BYTE_ARRAY, "picture")));
@@ -499,6 +731,30 @@ void ScorbitGameState::_bind_methods()
                                    SB_CAPABILITY_START_GAME, true);
     ClassDB::bind_integer_constant(cls, "Capability", "CAPABILITY_CREDIT_DROP",
                                    SB_CAPABILITY_CREDIT_DROP, true);
+    ClassDB::bind_integer_constant(cls, "LeaderboardScope", "LEADERBOARD_SCOPE_MACHINE",
+                                   SB_LEADERBOARD_SCOPE_MACHINE);
+    ClassDB::bind_integer_constant(cls, "LeaderboardScope", "LEADERBOARD_SCOPE_VARIANT",
+                                   SB_LEADERBOARD_SCOPE_VARIANT);
+    ClassDB::bind_integer_constant(cls, "LeaderboardScope", "LEADERBOARD_SCOPE_GAME",
+                                   SB_LEADERBOARD_SCOPE_GAME);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_ALL_TIME",
+                                   SB_LEADERBOARD_PERIOD_ALL_TIME);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_14D",
+                                   SB_LEADERBOARD_PERIOD_14D);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_30D",
+                                   SB_LEADERBOARD_PERIOD_30D);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_90D",
+                                   SB_LEADERBOARD_PERIOD_90D);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_180D",
+                                   SB_LEADERBOARD_PERIOD_180D);
+    ClassDB::bind_integer_constant(cls, "LeaderboardPeriod", "LEADERBOARD_PERIOD_365D",
+                                   SB_LEADERBOARD_PERIOD_365D);
+    ClassDB::bind_integer_constant(cls, "LeaderboardVpinFilter", "LEADERBOARD_VPIN_ANY",
+                                   SB_LEADERBOARD_VPIN_ANY);
+    ClassDB::bind_integer_constant(cls, "LeaderboardVpinFilter", "LEADERBOARD_VPIN_ONLY",
+                                   SB_LEADERBOARD_VPIN_ONLY);
+    ClassDB::bind_integer_constant(cls, "LeaderboardVpinFilter", "LEADERBOARD_VPIN_REAL_ONLY",
+                                   SB_LEADERBOARD_VPIN_REAL_ONLY);
     ClassDB::bind_integer_constant(cls, "Status", "NOT_AUTHENTICATED", SB_NET_NOT_AUTHENTICATED);
     ClassDB::bind_integer_constant(cls, "Status", "AUTHENTICATING", SB_NET_AUTHENTICATING);
     ClassDB::bind_integer_constant(cls, "Status", "CHECKING_PAIRING",
