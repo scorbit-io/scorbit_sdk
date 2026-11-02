@@ -33,6 +33,7 @@ Const SCORBIT_SDK_VERSION = "@SCORBIT_SDK_VERSION@"
 ' Scorbit.Table's ApiLevel needed by each group of routines.
 Const SCORBIT_API_GAME = 1
 Const SCORBIT_API_READ_BACK = 2
+Const SCORBIT_API_ACHIEVEMENTS = 3
 
 ' GameStartOrigin
 Const SCORBIT_GAME_STARTED_BY_BUTTON = 0
@@ -99,6 +100,7 @@ Const SCORBIT_MAX_PLAYERS = 9
 Const SCORBIT_EVENT_PLAYERS_UPDATED = 4
 Const SCORBIT_EVENT_PLAYER_PICTURE_READY = 5
 Const SCORBIT_EVENT_PAIRING_STATUS_CHANGED = 9
+Const SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED = 10
 Const SCORBIT_EVENT_NONE = 1000
 ' Served only to public, coin-operated cabinets, which the plugin does not serve:
 ' Const SCORBIT_EVENT_GAME_START_REQUESTED = 0
@@ -109,12 +111,26 @@ Const SCORBIT_EVENT_NONE = 1000
 Dim ScorbitImpl_Table, ScorbitImpl_Level
 Dim ScorbitImpl_Auth, ScorbitImpl_Players(9), ScorbitImpl_Pictures(9)
 Dim ScorbitImpl_Queue(31), ScorbitImpl_QueueSlot(31), ScorbitImpl_Head, ScorbitImpl_Count, ScorbitImpl_EventSlot
+Dim ScorbitImpl_QueueUnlock(31), ScorbitImpl_EventUnlock
 Set ScorbitImpl_Table = Nothing
+Set ScorbitImpl_EventUnlock = Nothing
 ScorbitImpl_Level = 0
 ScorbitImpl_Auth = -1
 ScorbitImpl_Head = 0
 ScorbitImpl_Count = 0
 ScorbitImpl_EventSlot = 0
+
+' An achievement Scorbit granted a claimed player, as SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED
+' reports it. Artwork is the full path of its artwork, the kind the plugin hands over, or "".
+' The file belongs to the plugin, like a player's picture: load it, or copy it, rather than
+' keeping the path.
+Class ScorbitAchievementUnlock
+    Public Key, Player, Name, Description, Artwork
+
+    Private Sub Class_Initialize()
+        Key = "" : Player = 0 : Name = "" : Description = "" : Artwork = ""
+    End Sub
+End Class
 
 ' ---------------------------------------------------------------- setup
 
@@ -436,6 +452,18 @@ Function ScorbitPlayerPicture(slot)
     Err.Clear
 End Function
 
+' ---------------------------------------------------------------- achievements
+' The SDK evaluates achievements by itself on every commit, from the game state and the game
+' events below. An achievement Scorbit granted is polled as SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED.
+
+' Adds value to the named game event register (e.g. "spins"), matched against achievement
+' conditions. Recorded with the next commit; value may be negative.
+Sub ScorbitAddGameEvent(name, value)
+    On Error Resume Next
+    If ScorbitImpl_Level >= SCORBIT_API_ACHIEVEMENTS Then ScorbitImpl_Table.AddGameEvent name, value
+    Err.Clear
+End Sub
+
 ' ---------------------------------------------------------------- events
 
 ' Call from a timer. Returns the next SCORBIT_EVENT_*, or SCORBIT_EVENT_NONE. Events
@@ -444,17 +472,25 @@ Function ScorbitPollEvent()
     ScorbitPollEvent = SCORBIT_EVENT_NONE
     On Error Resume Next
     If ScorbitImpl_Count = 0 Then ScorbitImpl_Scan
-    If ScorbitImpl_Count = 0 Then ScorbitImpl_EventSlot = 0 : Err.Clear : Exit Function
+    If ScorbitImpl_Count = 0 Then ScorbitImpl_EventSlot = 0 : Set ScorbitImpl_EventUnlock = Nothing : Err.Clear : Exit Function
     ScorbitPollEvent = ScorbitImpl_Queue(ScorbitImpl_Head)
     ScorbitImpl_EventSlot = ScorbitImpl_QueueSlot(ScorbitImpl_Head)
+    Set ScorbitImpl_EventUnlock = ScorbitImpl_QueueUnlock(ScorbitImpl_Head)
+    Set ScorbitImpl_QueueUnlock(ScorbitImpl_Head) = Nothing
     ScorbitImpl_Head = (ScorbitImpl_Head + 1) Mod 32
     ScorbitImpl_Count = ScorbitImpl_Count - 1
     Err.Clear
 End Function
 
-' The player slot of the last SCORBIT_EVENT_PLAYER_PICTURE_READY, 0 otherwise.
+' The player slot of the last SCORBIT_EVENT_PLAYER_PICTURE_READY or
+' SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, 0 otherwise.
 Function ScorbitEventSlot()
     ScorbitEventSlot = ScorbitImpl_EventSlot
+End Function
+
+' The ScorbitAchievementUnlock of the last SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, Nothing otherwise.
+Function ScorbitEventAchievement()
+    Set ScorbitEventAchievement = ScorbitImpl_EventUnlock
 End Function
 
 ' ---------------------------------------------------------------- not served by the plugin
@@ -488,15 +524,21 @@ Sub ScorbitImpl_ResetEvents()
         ScorbitImpl_Players(i) = ""
         ScorbitImpl_Pictures(i) = ""
     Next
+    For i = 0 To 31
+        Set ScorbitImpl_QueueUnlock(i) = Nothing
+    Next
     ScorbitImpl_Head = 0
     ScorbitImpl_Count = 0
     ScorbitImpl_EventSlot = 0
+    Set ScorbitImpl_EventUnlock = Nothing
 End Sub
 
-Sub ScorbitImpl_Push(evt, slot)
+' unlock: the event's ScorbitAchievementUnlock, Nothing for other events.
+Sub ScorbitImpl_Push(evt, slot, unlock)
     If ScorbitImpl_Count >= 32 Then Exit Sub
     ScorbitImpl_Queue((ScorbitImpl_Head + ScorbitImpl_Count) Mod 32) = evt
     ScorbitImpl_QueueSlot((ScorbitImpl_Head + ScorbitImpl_Count) Mod 32) = slot
+    Set ScorbitImpl_QueueUnlock((ScorbitImpl_Head + ScorbitImpl_Count) Mod 32) = unlock
     ScorbitImpl_Count = ScorbitImpl_Count + 1
 End Sub
 
@@ -506,7 +548,7 @@ Sub ScorbitImpl_Scan()
     auth = ScorbitGetStatus()
     If auth <> ScorbitImpl_Auth Then
         ScorbitImpl_Auth = auth
-        ScorbitImpl_Push SCORBIT_EVENT_PAIRING_STATUS_CHANGED, 0
+        ScorbitImpl_Push SCORBIT_EVENT_PAIRING_STATUS_CHANGED, 0, Nothing
     End If
     changed = False
     For slot = 1 To SCORBIT_MAX_PLAYERS
@@ -515,12 +557,44 @@ Sub ScorbitImpl_Scan()
         If player <> ScorbitImpl_Players(slot) And Not (ScorbitImpl_Players(slot) = "" And player = ScorbitImpl_EmptyPlayer()) Then changed = True
         ScorbitImpl_Players(slot) = player
     Next
-    If changed Then ScorbitImpl_Push SCORBIT_EVENT_PLAYERS_UPDATED, 0
+    If changed Then ScorbitImpl_Push SCORBIT_EVENT_PLAYERS_UPDATED, 0, Nothing
     For slot = 1 To SCORBIT_MAX_PLAYERS
         picture = ScorbitPlayerPicture(slot)
         If picture <> ScorbitImpl_Pictures(slot) Then
             ScorbitImpl_Pictures(slot) = picture
-            If picture <> "" Then ScorbitImpl_Push SCORBIT_EVENT_PLAYER_PICTURE_READY, slot
+            If picture <> "" Then ScorbitImpl_Push SCORBIT_EVENT_PLAYER_PICTURE_READY, slot, Nothing
         End If
     Next
+    If ScorbitImpl_Level >= SCORBIT_API_ACHIEVEMENTS Then ScorbitImpl_ScanUnlocks
 End Sub
+
+' The plugin queues achievement unlocks; each is taken as the binding's queue has room.
+Sub ScorbitImpl_ScanUnlocks()
+    Dim more, u
+    On Error Resume Next
+    Do While ScorbitImpl_Count < 32
+        more = False
+        more = CBool(ScorbitImpl_Table.NextAchievementUnlock)
+        If Err.Number <> 0 Then more = False
+        Err.Clear
+        If Not more Then Exit Do
+        Set u = ScorbitImpl_ReadUnlock()
+        ScorbitImpl_Push SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, u.Player, u
+    Loop
+    Err.Clear
+End Sub
+
+' The unlock NextAchievementUnlock just took. A field the plugin can't give keeps its default.
+Function ScorbitImpl_ReadUnlock()
+    Dim t, u
+    On Error Resume Next
+    Set t = ScorbitImpl_Table
+    Set u = New ScorbitAchievementUnlock
+    u.Key = CStr(t.AchievementUnlockKey)
+    u.Player = CLng(t.AchievementUnlockPlayer)
+    u.Name = CStr(t.AchievementUnlockName)
+    u.Description = CStr(t.AchievementUnlockDescription)
+    u.Artwork = CStr(t.AchievementUnlockArtwork)
+    Err.Clear
+    Set ScorbitImpl_ReadUnlock = u
+End Function

@@ -62,6 +62,8 @@ Scores are exact up to 2^53.
 | `requestTopScores(scope, period, since, vpinFilter, callback)` | `ScorbitRequestTopScores(scope, period, since, vpinFilter)`: a request id, polled (below) | 2 |
 | `PlayersUpdated`, `player_info.h` | `ScorbitPlayerClaimed(slot)`, `ScorbitPlayerId`, `ScorbitPlayerName`, `ScorbitPlayerInitials`, `ScorbitPlayerClaimLink`: slots 1 to 9 | 2 |
 | `PlayerPictureReady` | `ScorbitPlayerPicture(slot)`: the path of the claimed player's picture, a JPEG, or `""` | 2 |
+| `addGameEvent` | `ScorbitAddGameEvent name, value`: a game event register, e.g. spinner spins, matched against achievement conditions | 3 |
+| `AchievementUnlocked` | `SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED`, read with `ScorbitEventAchievement()` (below) | 3 |
 
 A picture file belongs to the plugin. It lasts until the slot's claim or picture changes, the table
 ends or the plugin unloads, so load it or copy it rather than keeping the path.
@@ -80,18 +82,28 @@ VBScript has no callbacks the SDK could call, so answers and events are polled f
 
 ```vbscript
 Sub ScorbitTimer_Timer()
-    Dim evt
+    Dim evt, unlock
     evt = ScorbitPollEvent()
     Do While evt <> SCORBIT_EVENT_NONE
         Select Case evt
             Case SCORBIT_EVENT_PAIRING_STATUS_CHANGED: ' ScorbitGetStatus()
             Case SCORBIT_EVENT_PLAYERS_UPDATED: ' ScorbitPlayerName(slot), ScorbitPlayerClaimLink(slot), ...
             Case SCORBIT_EVENT_PLAYER_PICTURE_READY: ' ScorbitPlayerPicture(ScorbitEventSlot())
+            Case SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED:
+                Set unlock = ScorbitEventAchievement()
+                ' unlock.Key, unlock.Player, unlock.Name, unlock.Description, unlock.Artwork
         End Select
         evt = ScorbitPollEvent()
     Loop
 End Sub
 ```
+
+The SDK the plugin runs evaluates achievements by itself on every commit, from the game state and
+the game events the table adds with `ScorbitAddGameEvent`. `SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED`
+reports an achievement Scorbit granted, ready to show. `ScorbitEventAchievement()` returns it as a
+`ScorbitAchievementUnlock`, with `Key`, `Player`, `Name`, `Description` and `Artwork`: the full path
+of its artwork, or `""`. The plugin chooses which artwork it hands over. Like a player's picture,
+the file belongs to the plugin.
 
 A leaderboard request returns an id, and its answer is kept under that id until released:
 
@@ -127,6 +139,22 @@ So check for an id of 0, and give up on a request after a time of the table's ow
   identified by its uuid.
 - **Device plumbing** (diagnostics, device state, firmware, downloads) is not a game's to call.
 
+## `Scorbit.Table` at `ApiLevel` 3
+
+The achievement routines need these members of the plugin's object:
+
+| Member | Returns | SDK |
+|---|---|---|
+| `AddGameEvent name, value` | | `sb_add_game_event` |
+| `NextAchievementUnlock()` | `Boolean`: takes the oldest queued unlock, `False` when none is left | `SB_EVT_ACHIEVEMENT_UNLOCKED` |
+| `AchievementUnlockKey`, `AchievementUnlockName`, `AchievementUnlockDescription` | `String`, of the unlock taken | `sb_event_achievement_unlocked`, `_name`, `_description` |
+| `AchievementUnlockPlayer` | `Long`, of the unlock taken | `sb_event_achievement_unlocked` |
+| `AchievementUnlockArtwork` | `String`: the full path of the unlock's artwork, saved by the plugin, or `""` | `sb_event_achievement_artwork` |
+
+The plugin queues every `SB_EVT_ACHIEVEMENT_UNLOCKED` it receives. The binding takes them as its own
+event queue has room, so none is dropped while the table polls. A member the plugin lacks, or one
+that raises, reads as the field's default.
+
 ## Building and testing
 
 ```sh
@@ -142,5 +170,5 @@ editing `scorbit.vbs.in`. The suite in `tests/` runs the same tests. The tests a
   - every routine is guarded before it touches the plugin's object;
   - the constants carry the SDK's values.
 - **The binding**, on Windows under `cscript`, against mocks of `Scorbit.Table`. It covers the
-  no-plugin path, an object from before `ApiLevel`, the argument order and polled events, and checks
-  that a raising object never reaches the table.
+  no-plugin path, an object from before `ApiLevel`, the argument order, polled events, the
+  achievements at `ApiLevel` 3, and checks that a raising object never reaches the table.
