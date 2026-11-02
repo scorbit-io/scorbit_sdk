@@ -76,7 +76,21 @@ public:
     GameState(const GameState &) = delete;
     GameState &operator=(const GameState &) = delete;
     GameState(GameState &&) = default;
-    GameState &operator=(GameState &&) = default;
+
+    /// Destroys this object's SDK instance, joining its threads, before taking over @p other's
+    /// callback storage: the old instance's callbacks may run until then.
+    GameState &operator=(GameState &&other) noexcept
+    {
+        if (this != &other) {
+            m_handle.reset();
+            m_eventCallbackStorage = std::move(other.m_eventCallbackStorage);
+            m_saveKeyCallbackStorage = std::move(other.m_saveKeyCallbackStorage);
+            m_loadKeyCallbackStorage = std::move(other.m_loadKeyCallbackStorage);
+            m_pendingSwitches = std::move(other.m_pendingSwitches);
+            m_handle = std::move(other.m_handle);
+        }
+        return *this;
+    }
 
     /**
      * @brief Mark the game as started.
