@@ -709,7 +709,7 @@ namespace {
 constexpr auto OTHER = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 constexpr auto UNREACHABLE = "<unreachable>";
 
-enum class Race { None, Paired, Unpaired, StaleReply, NewsDuringCheck };
+enum class Race { None, Paired, Unpaired, StaleReply, NewsDuringCheck, NewsEveryCheck };
 
 struct ResolutionRow {
     const char *name;
@@ -746,6 +746,7 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
         {"switched, unpair, on target",    200, ok, CURRENT, Race::Unpaired,   {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
         {"switched, stale reply",          200, ok, CURRENT, Race::StaleReply, {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
         {"switched, news during check",    200, ok, CURRENT, Race::NewsDuringCheck, {TARGET, OTHER}, SB_SWITCH_MACHINE_FAILED,   OTHER,   2},
+        {"switched, news on every check",  200, ok, CURRENT, Race::NewsEveryCheck, {TARGET, TARGET, TARGET}, SB_SWITCH_MACHINE_FAILED, "", 3},
         {"switched, unreachable",          200, ok, CURRENT, Race::Unpaired,   {UNREACHABLE},   SB_SWITCH_MACHINE_FAILED,            "",      1},
         {"already attached, clean",        200, ok, TARGET,  Race::None,       {},              SB_SWITCH_MACHINE_ALREADY_ATTACHED,  TARGET,  0},
         {"already attached, re-pair",      200, ok, TARGET,  Race::Paired,     {OTHER},         SB_SWITCH_MACHINE_FAILED,            OTHER,   1},
@@ -778,6 +779,7 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
                                  case Race::Paired:
                                  case Race::Unpaired:
                                  case Race::NewsDuringCheck:
+                                 case Race::NewsEveryCheck:
                                      CHECK(NetTestAccess::foldIntoSwitch(*v.net));
                                      break;
                                  case Race::StaleReply:
@@ -792,7 +794,8 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
                              [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
                                  REQUIRE(check < row.answers.size());
                                  const auto answer = row.answers[check++];
-                                 if (row.race == Race::NewsDuringCheck && check == 1) {
+                                 if ((row.race == Race::NewsDuringCheck && check == 1)
+                                     || row.race == Race::NewsEveryCheck) {
                                      CHECK(NetTestAccess::foldIntoSwitch(*v.net)); // more news
                                  }
                                  if (answer == UNREACHABLE) {
@@ -817,9 +820,10 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
             CHECK(check == static_cast<std::size_t>(row.checks));
             CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
             CHECK(v.net->venueMachine() == row.machine);
-            // An unreachable server is not an answer: the pairing stays to be checked (and
-            // retried), never reported as unpaired.
-            const bool unreachable = !row.answers.empty() && row.answers.back() == UNREACHABLE;
+            // An unreachable server is not an answer, nor is one still overtaken by news at the
+            // bound: the pairing stays to be checked (and retried), never guessed or "unpaired".
+            const bool unreachable = (!row.answers.empty() && row.answers.back() == UNREACHABLE)
+                                  || row.race == Race::NewsEveryCheck;
             const auto expectedStatus = unreachable ? AuthStatus::AuthenticatedCheckingPairing
                                       : row.machine.empty() ? AuthStatus::AuthenticatedUnpaired
                                                             : AuthStatus::AuthenticatedPaired;

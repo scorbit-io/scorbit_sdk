@@ -986,9 +986,8 @@ const DeviceInfo &Net::deviceInfo() const
     return m_deviceInfo;
 }
 
-bool Net::isLeaderboardContextReady(LeaderboardScope scope) const
+bool Net::isLeaderboardContextReady(LeaderboardScope scope, const MachineInfo &m) const
 {
-    const auto m = machine();
     return detail::isLeaderboardContextReady(m_status, scope, m.machineUuid, m.variantUuid,
                                              m.gameSlug);
 }
@@ -1039,7 +1038,10 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             return;
         }
 
-        if (!isLeaderboardContextReady(scope)) {
+        // One snapshot: the request is judged ready and addressed for the same machine, never
+        // judged against one and sent for another a switch has put in its place since.
+        const auto ctx = machine();
+        if (!isLeaderboardContextReady(scope, ctx)) {
             if (deferAttempt >= TOP_SCORES_DEFER_MAX_ATTEMPTS) {
                 ERR("API request top scores gave up after {} defer attempts (scope={})",
                     TOP_SCORES_DEFER_MAX_ATTEMPTS, static_cast<int>(scope));
@@ -1060,8 +1062,8 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             return;
         }
 
-        auto deferredSetup = [this, scope, periodParam, since,
-                              vpinFilter]() -> std::tuple<cpr::Url, cpr::Parameters> {
+        auto deferredSetup = [this, scope, periodParam, since, vpinFilter,
+                              ctx]() -> std::tuple<cpr::Url, cpr::Parameters> {
             cpr::Parameters parameters;
             if (!since.empty()) {
                 parameters.Add({"since", since});
@@ -1081,19 +1083,18 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             }
 
             switch (scope) {
-            case LeaderboardScope::Machine:
-                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
             case LeaderboardScope::Variant:
-                return make_tuple(
-                        url(URL_VARIANT_LEADERS,
-                            fmt::arg(ARG_VARIANT_UUID, machine().variantUuid.value_or(""))),
-                        std::move(parameters));
-            case LeaderboardScope::Game:
-                return make_tuple(url(URL_GAME_LEADERS,
-                                      fmt::arg(ARG_GAME_SLUG, machine().gameSlug.value_or(""))),
+                return make_tuple(urlFor(ctx.machineUuid, URL_VARIANT_LEADERS,
+                                         fmt::arg(ARG_VARIANT_UUID, ctx.variantUuid.value_or(""))),
                                   std::move(parameters));
+            case LeaderboardScope::Game:
+                return make_tuple(urlFor(ctx.machineUuid, URL_GAME_LEADERS,
+                                         fmt::arg(ARG_GAME_SLUG, ctx.gameSlug.value_or(""))),
+                                  std::move(parameters));
+            case LeaderboardScope::Machine:
             default:
-                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
+                return make_tuple(urlFor(ctx.machineUuid, URL_MACHINE_LEADERS),
+                                  std::move(parameters));
             }
         };
 
@@ -3855,8 +3856,11 @@ void Net::requestMachineObject()
 
 task_t Net::createRequestMachineObjectTask()
 {
+    // Asked for, and applied to, the machine of this moment: a pairing reply may change the machine
+    // without a new generation, and the object of one must never refine another.
     const auto gen = machineGen();
-    auto callback = [this, gen](Error error, std::string reply) {
+    const auto forMachine = venueMachine();
+    auto callback = [this, gen, forMachine](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API request machine object: ok, {}", reply);
             try {
@@ -3865,6 +3869,9 @@ task_t Net::createRequestMachineObjectTask()
                 const auto edition = j.value(JKEY_MOBJ_EDITION, std::string {});
 
                 const bool applied = refineMachine(gen, [&](MachineInfo &m) {
+                    if (m.machineUuid != forMachine) {
+                        return;
+                    }
                     m.gameSlug.reset();
                     if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
                         gameIt != j.end() && gameIt->is_object()) {
@@ -3887,9 +3894,9 @@ task_t Net::createRequestMachineObjectTask()
         }
     };
 
-    return createGetRequestTask(std::move(callback), [this]() {
+    return createGetRequestTask(std::move(callback), [this, forMachine]() {
         INF("API request machine object...");
-        return make_tuple(url(URL_MACHINE_OBJECT), cpr::Parameters {});
+        return make_tuple(urlFor(forMachine, URL_MACHINE_OBJECT), cpr::Parameters {});
     });
 }
 
@@ -4313,10 +4320,15 @@ void Net::resolveSwitchNow(
     const auto before = m_switchDirty.load();
     askServer([this, outcome, target, start, askServer, done, tries, before,
                conclude](std::optional<std::string> onServer) mutable {
-        if (m_switchDirty.load() != before && tries + 1 < SWITCH_RESOLVE_TRIES) {
-            resolveSwitchNow(outcome, target, start, std::move(askServer), std::move(done),
-                             tries + 1);
-            return;
+        if (m_switchDirty.load() != before) {
+            if (tries + 1 < SWITCH_RESOLVE_TRIES) {
+                resolveSwitchNow(outcome, target, start, std::move(askServer), std::move(done),
+                                 tries + 1);
+                return;
+            }
+            // Still moving at the bound: this answer may already be stale, so it is no answer.
+            // Cleared and left "checking", the re-ask after the gate settles it under backoff.
+            onServer.reset();
         }
         m_switchDirty = 0;
 

@@ -570,7 +570,7 @@ private:
 
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
 
-    bool isLeaderboardContextReady(LeaderboardScope scope) const;
+    bool isLeaderboardContextReady(LeaderboardScope scope, const MachineInfo &m) const;
     std::optional<Error> leaderboardRequestTerminalError() const;
     void requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
                               const std::string &since, LeaderboardVpinFilter vpinFilter,
@@ -870,10 +870,18 @@ private:
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
     {
-        const auto formattedEndpoint = fmt::format(
-                fmt::runtime(endpoint), fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
-                fmt::arg(ARG_MACHINE_UUID, machine().machineUuid),
-                std::forward<Args>(args)...); // Pass extra args
+        return urlFor(machine().machineUuid, endpoint, std::forward<Args>(args)...);
+    }
+
+    /// As url(), for @p machineUuid rather than the live machine: for a request whose readiness
+    /// or reply was judged against a snapshot taken earlier.
+    template<typename... Args>
+    cpr::Url urlFor(const std::string &machineUuid, std::string_view endpoint, Args &&...args) const
+    {
+        const auto formattedEndpoint = fmt::format(fmt::runtime(endpoint),
+                                                   fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                                                   fmt::arg(ARG_MACHINE_UUID, machineUuid),
+                                                   std::forward<Args>(args)...); // Pass extra args
 
         if (formattedEndpoint.starts_with("http://") || formattedEndpoint.starts_with("https://")) {
             return cpr::Url {formattedEndpoint};
