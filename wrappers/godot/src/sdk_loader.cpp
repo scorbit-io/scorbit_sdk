@@ -52,10 +52,13 @@ using Handle = HMODULE;
 
 Handle openLibrary(const String &path)
 {
-    const auto wide = path.utf16();
-    // Altered search path: the SDK's own dependencies are found beside it, not beside the game.
-    return LoadLibraryExW(reinterpret_cast<const wchar_t *>(wide.get_data()), nullptr,
-                          LOAD_WITH_ALTERED_SEARCH_PATH);
+    const auto utf16 = path.utf16();
+    // LoadLibraryEx needs a fully qualified path with backslashes; Godot's paths use '/'.
+    auto native = std::filesystem::path(reinterpret_cast<const wchar_t *>(utf16.get_data()));
+    native.make_preferred();
+    // The SDK's own dependencies are found beside it, then in the system folders.
+    return LoadLibraryExW(native.c_str(), nullptr,
+                          LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 }
 
 void *symbol(Handle library, const char *name)
