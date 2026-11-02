@@ -73,9 +73,13 @@ static MunitResult test_achievement_event_helpers_reject_null(const MunitParamet
     (void)user_data;
 
     const char *key = NULL;
-    sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
-    munit_assert(!sb_event_achievement_updated(NULL, &key, NULL, NULL, &status));
-    munit_assert(sb_event_achievement_rules_count(NULL) == 0);
+    sb_player_t player = 0;
+    const uint8_t *data = NULL;
+    size_t size = 0;
+    munit_assert(!sb_event_achievement_unlocked(NULL, &key, &player));
+    munit_assert(!sb_event_achievement_name(NULL, &key));
+    munit_assert(!sb_event_achievement_description(NULL, &key));
+    munit_assert(!sb_event_achievement_artwork(NULL, &data, &size));
     return MUNIT_OK;
 }
 

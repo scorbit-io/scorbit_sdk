@@ -2806,10 +2806,10 @@ void Net::postAchievementReport(std::string body, ApiReplyCallback callback)
                                         std::move(deferredSetup)));
 }
 
-void Net::downloadAchievementFrame(std::string url, std::string filename, ApiReplyCallback callback)
+void Net::downloadAchievementArtwork(std::string url, VectorCallback callback)
 {
-    // download() formats the URL as an endpoint: a root-relative media path is joined to the API
-    // host, and a literal brace must survive the formatting
+    // downloadBuffer() formats the URL as an endpoint: a root-relative media path is joined to the
+    // API host, and a literal brace must survive the formatting
     if (url.starts_with('/')) {
         url.erase(0, 1);
     }
@@ -2823,20 +2823,20 @@ void Net::downloadAchievementFrame(std::string url, std::string filename, ApiRep
     }
 
     // A signed storage URL carries its credentials in the query: only the elided form is logged
-    INF("API downloading achievement frame {} to {}", elideUrl(url), filename);
-    download(true,
-             [callback = std::move(callback), url = elideUrl(url),
-              filename](Error error, const std::string &reply) {
-                 if (error == Error::Success) {
-                     INF("API achievement frame: ok, {} saved to {}", url, filename);
-                 } else {
-                     // The reply repeats the full URL; the download task logged the status
-                     WRN("API achievement frame: failed, {}, error code: {}", url,
-                         static_cast<int>(error));
-                 }
-                 callback(ApiReply {error, error == Error::Success ? 200 : 0, reply, {}});
-             },
-             endpoint, filename, {});
+    INF("API downloading achievement artwork {}", elideUrl(url));
+    downloadBuffer(true,
+                   [callback = std::move(callback),
+                    url = elideUrl(url)](Error error, const std::vector<uint8_t> &data) {
+                       if (error == Error::Success) {
+                           INF("API achievement artwork: ok, {}, {} bytes", url, data.size());
+                       } else {
+                           // The download task logged the status
+                           WRN("API achievement artwork: failed, {}, error code: {}", url,
+                               static_cast<int>(error));
+                       }
+                       callback(error, data);
+                   },
+                   endpoint, 0, {});
 }
 
 void Net::scheduleAchievementRetry(std::chrono::steady_clock::duration delay,

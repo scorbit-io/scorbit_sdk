@@ -106,10 +106,10 @@ typedef enum {
     SB_EVT_MACHINE_CHANGED,
 
     /**
-     * @brief An achievement was unlocked, confirmed, retracted or progressed for a player.
-     * Use @ref sb_event_achievement_updated and the rule progress getters to process this event.
+     * @brief Scorbit granted a claimed player an achievement; the game may present it.
+     * Use @ref sb_event_achievement_unlocked and the achievement getters to process this event.
      */
-    SB_EVT_ACHIEVEMENT_UPDATED,
+    SB_EVT_ACHIEVEMENT_UNLOCKED,
 
     // ------------------ OEM providers can ignore the events below ------------------
 

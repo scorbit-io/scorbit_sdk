@@ -153,7 +153,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
 | `set_mode_completed(mode)` | Mark a mode as completed (used as condition for achievements). |
-| `add_event(name, value)` | Add to a named event register, e.g. spinner spins (achievements input). |
+| `add_game_event(name, value)` | Add to a named game event register, e.g. spinner spins (achievements input). |
 | `remove_mode(mode)` | Remove mode. |
 | `clear_modes()` | Clear all modes. |
 | `commit()` | Push updates to the cloud. |
@@ -174,22 +174,13 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 ### Achievements
 
 Achievements are evaluated automatically on every `commit()` for each player who claimed a
-slot; what happens is delivered to the event callback as `EventType.AchievementUpdated`
-(`event.get_achievement_updated()` returns an `AchievementUpdate`). With status
-`AchievementStatus.UnlockedLocally` the unlock may be presented at once; with
-`AchievementStatus.Retracted` it must be withdrawn.
+slot. When Scorbit grants one, the event callback receives `EventType.AchievementUnlocked`, and
+`event.get_achievement_unlocked()` returns an `AchievementUnlock`: `key`, `player`, `name`,
+`description` and `artwork`. It can be presented at once.
 
-| Method | Description |
-|--------|-------------|
-| `get_achievements()` | Cached definitions (`Achievement`, with full `rules`). |
-| `find_achievement(key)` | One definition, or `None`. |
-| `get_achievement_progress(player, key)` | Live `AchievementProgress` of a claimed player, or `None`. |
-| `refresh_achievements()` | Revalidate definitions now (normally automatic). |
-| `fetch_player_achievements(user_id, cb)` | Async stored state of a player, as JSON. |
-| `flush_achievement_reports()` | Report progress now instead of at ball end. |
-| `download_achievement_frames()` / `get_achievement_frame(key)` | Per-achievement DMD frames, kept locally. |
-
-Use `Config.set_data_dir(path)` to keep the achievements cache across reboots.
+`Config.set_achievement_artwork(AchievementArtwork.Frame)` (or `.Image`) makes the SDK download that
+artwork for every achievement and hand it over in `artwork`; with the default, `None_`, nothing is
+downloaded. `Config.set_data_dir(path)` keeps the achievements cache across reboots.
 
 ### `Event`
 

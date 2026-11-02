@@ -42,7 +42,12 @@ namespace {
 class FakeNet : public NetBase
 {
 public:
-    explicit FakeNet(std::string dataDir) { m_info.dataDir = std::move(dataDir); }
+    explicit FakeNet(std::string dataDir,
+                     sb_achievement_artwork_t artwork = SB_ACHIEVEMENT_ARTWORK_NONE)
+    {
+        m_info.dataDir = std::move(dataDir);
+        m_info.achievementArtwork = artwork;
+    }
 
     AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
     void authenticate() override { }
@@ -102,10 +107,9 @@ public:
     {
         reports.push_back({json::parse(body), std::move(cb)});
     }
-    void downloadAchievementFrame(std::string url, std::string filename,
-                                  ApiReplyCallback cb) override
+    void downloadAchievementArtwork(std::string url, VectorCallback cb) override
     {
-        frames.push_back({std::move(url), std::move(filename), std::move(cb)});
+        artworks.push_back({std::move(url), std::move(cb)});
     }
     void scheduleAchievementRetry(std::chrono::steady_clock::duration,
                                   std::function<void()> fn) override
@@ -128,8 +132,9 @@ public:
     }
     void publishEvent(EventPtr event) override
     {
-        if (auto *e = dynamic_cast<AchievementUpdatedEvent *>(event.get())) {
-            updates.push_back({e->key(), e->player(), e->status()});
+        if (auto *e = dynamic_cast<AchievementUnlockedEvent *>(event.get())) {
+            unlocks.push_back({e->key(), e->player(), e->name(), e->description(),
+                               std::string(e->artwork().begin(), e->artwork().end())});
         }
     }
 
@@ -160,22 +165,22 @@ public:
         json body;
         ApiReplyCallback reply;
     };
-    struct Update {
+    struct Unlock {
         std::string key;
         sb_player_t player;
-        sb_achievement_status_t status;
+        std::string name;
+        std::string description;
+        std::string artwork;
     };
-    struct FrameDownload {
+    struct ArtworkDownload {
         std::string url;
-        std::string filename;
-        ApiReplyCallback reply;
+        VectorCallback reply;
 
-        /** Writes @p content where the download goes, as the transfer would, and answers. */
         void complete(const std::string &content) const
         {
-            std::ofstream(filename, std::ios::binary) << content;
-            reply(ApiReply {Error::Success, 200, {}});
+            reply(Error::Success, std::vector<uint8_t>(content.begin(), content.end()));
         }
+        void fail() const { reply(Error::ApiError, {}); }
     };
 
     SessionCreatedCallback sessionCreated;
@@ -191,9 +196,9 @@ public:
     std::function<void()> retry;
     PlayersChangedCallback playersChanged;
     TokenRefreshedCallback tokenRefreshed;
-    std::vector<Update> updates;
+    std::vector<Unlock> unlocks;
     int rows {0};
-    std::deque<FrameDownload> frames;
+    std::deque<ArtworkDownload> artworks;
 
 private:
     DeviceInfo m_info;
@@ -220,8 +225,8 @@ const char *DEFINITIONS = R"({
   "game": "cactus-canyon", "frames_version": 0,
   "timezone": null, "utc_offsets": null, "calendar": {},
   "results": [
-    {"key": "game-cv-boom", "scope": "game", "is_single_session": true,
-     "frame": null, "frame_version": 0,
+    {"key": "game-cv-boom", "name": "Boom Balloon", "description": "Pop the balloon.",
+     "scope": "game", "is_single_session": true, "frame": null, "frame_version": 0,
      "rules": [{"type": "MODE", "comparison": ">=", "target": 1, "reference": "balloon",
                 "subachievement": null}]},
     {"key": "game-cv-spins", "scope": "game", "is_single_session": false,
@@ -254,11 +259,24 @@ std::string reply(const json &results)
     return json {{"results", results}}.dump();
 }
 
-bool hasUpdate(const FakeNet &net, const std::string &key, sb_achievement_status_t status)
+bool hasUnlock(const FakeNet &net, const std::string &key)
 {
-    return std::ranges::any_of(net.updates, [&](const FakeNet::Update &u) {
-        return u.key == key && u.status == status;
+    return std::ranges::any_of(net.unlocks, [&](const FakeNet::Unlock &u) { return u.key == key; });
+}
+
+/** Whether any report sent so far carries @p key. */
+bool reported(const FakeNet &net, const std::string &key)
+{
+    return std::ranges::any_of(net.reports, [&](const FakeNet::Report &report) {
+        return std::ranges::any_of(report.body["achievements"],
+                                   [&](const json &item) { return item["key"] == key; });
     });
+}
+
+/** A reply granting, or answering otherwise, the achievement @p key of a report. */
+ApiReply outcome(const std::string &key, const std::string &status)
+{
+    return ApiReply {Error::Success, 200, reply({{{"key", key}, {"status", status}}})};
 }
 
 /** A game state with definitions loaded, a started session and player 1 claimed. */
@@ -391,7 +409,7 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
     f.game->addMode("balloon");
     f.game->commit();
 
-    CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
+    CHECK(f.net->unlocks.empty()); // not before the server granted it
     REQUIRE(f.net->reports.size() == 1);
     const auto &body = f.net->reports.front().body;
     CHECK(body["user_id"] == "3f1c");
@@ -401,10 +419,54 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
     CHECK(body["achievements"][0]["key"] == "game-cv-boom");
     CHECK(body["achievements"][0]["achieved"] == true);
 
-    f.net->reports.front().reply(ApiReply {
-            Error::Success, 200, reply({{{"key", "game-cv-boom"}, {"status", "unlocked"}}})});
+    f.net->reports.front().reply(outcome("game-cv-boom", "unlocked"));
     f.game->runPendingPosts();
-    CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_CONFIRMED));
+    REQUIRE(f.net->unlocks.size() == 1);
+    const auto &unlock = f.net->unlocks.front();
+    CHECK(unlock.key == "game-cv-boom");
+    CHECK(unlock.player == 1);
+    CHECK(unlock.name == "Boom Balloon");
+    CHECK(unlock.description == "Pop the balloon.");
+    CHECK(unlock.artwork.empty()); // none was chosen
+}
+
+TEST_CASE("An achievement the player already held raises no unlock", "[achievements]")
+{
+    Fixture f;
+    f.game->addMode("balloon");
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+
+    f.net->reports.front().reply(outcome("game-cv-boom", "already_held"));
+    f.game->runPendingPosts();
+    CHECK(f.net->unlocks.empty());
+}
+
+TEST_CASE("A trophy is raised when the server grants it", "[achievements]")
+{
+    auto definitions = json::parse(DEFINITIONS);
+    definitions["results"].push_back({{"key", "game-cv-top-spinner"},
+                                      {"scope", "game"},
+                                      {"is_single_session", false},
+                                      {"is_trophy", true},
+                                      {"frame", nullptr},
+                                      {"frame_version", 0},
+                                      {"rules", json::array({{{"type", "EVENT"},
+                                                              {"comparison", ">="},
+                                                              {"target", 1},
+                                                              {"reference", "spins"}}})}});
+    Fixture f(json::array(), definitions.dump());
+
+    f.game->addEvent("spins", 3);
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    CHECK(f.net->unlocks.empty()); // a trophy is never the machine's call
+
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(outcome("game-cv-top-spinner", "unlocked"));
+    f.game->runPendingPosts();
+    REQUIRE(f.net->unlocks.size() == 1);
+    CHECK(f.net->unlocks.front().key == "game-cv-top-spinner");
 }
 
 TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]")
@@ -415,11 +477,9 @@ TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]
     f.game->addEvent("spins", 40);
     f.game->commit();
     CHECK(f.net->reports.empty()); // not streamed
-    CHECK_FALSE(hasUpdate(*f.net, "game-cv-spins", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
 
     f.game->addEvent("spins", 60);
     f.game->commit();
-    CHECK(hasUpdate(*f.net, "game-cv-spins", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
     CHECK(f.net->reports.empty());
 
     f.game->setCurrentBall(2);
@@ -430,6 +490,11 @@ TEST_CASE("Unlimited progress is reported at the ball boundary", "[achievements]
     CHECK(item["key"] == "game-cv-spins");
     CHECK(item["achieved"] == true);
     CHECK(item["rule_progress"][0]["value"] == 100); // 40 + 60
+    CHECK(f.net->unlocks.empty());
+
+    f.net->reports.front().reply(outcome("game-cv-spins", "unlocked"));
+    f.game->runPendingPosts();
+    CHECK(hasUnlock(*f.net, "game-cv-spins"));
 }
 
 TEST_CASE("A CALENDAR achievement waits for a synchronised clock", "[achievements]")
@@ -484,7 +549,6 @@ TEST_CASE("A baseline already achieved is not claimed again", "[achievements]")
 
     f.game->addMode("balloon");
     f.game->commit();
-    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
     CHECK(f.net->reports.empty());
 }
 
@@ -524,7 +588,7 @@ TEST_CASE("A refused report is dropped, not retried", "[achievements]")
     CHECK(f.net->reports.empty());
 }
 
-TEST_CASE("A rejected unlock is retracted", "[achievements]")
+TEST_CASE("A rejected unlock is never raised", "[achievements]")
 {
     Fixture f;
     f.game->addMode("balloon");
@@ -538,7 +602,7 @@ TEST_CASE("A rejected unlock is retracted", "[achievements]")
                               {"code", "scope_mismatch"},
                               {"detail", "The achievement's scope does not permit it here."}}})});
     f.game->runPendingPosts();
-    CHECK(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_RETRACTED));
+    CHECK(f.net->unlocks.empty());
 }
 
 TEST_CASE("The end of the game flushes unlimited progress", "[achievements]")
@@ -576,9 +640,9 @@ TEST_CASE("A player claiming mid-game gets the facts of the whole session", "[ac
     net->progressReply(ApiReply {Error::Success, 200, "[]"});
     game.runPendingPosts();
 
-    CHECK(hasUpdate(*net, "game-cv-boom", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
     REQUIRE(net->reports.size() == 1);
     CHECK(net->reports.front().body["user_id"] == "3f1c");
+    CHECK(net->reports.front().body["achievements"][0]["key"] == "game-cv-boom");
 }
 
 TEST_CASE("An empty result is delivered, and acknowledges nothing", "[achievements]")
@@ -595,8 +659,7 @@ TEST_CASE("An empty result is delivered, and acknowledges nothing", "[achievemen
     f.game->runPendingPosts();
     CHECK(f.net->reports.empty()); // not retried
     CHECK_FALSE(f.net->retry);
-    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_RETRACTED));
-    CHECK_FALSE(hasUpdate(*f.net, "game-cv-boom", SB_ACHIEVEMENT_CONFIRMED));
+    CHECK(f.net->unlocks.empty()); // nothing granted
 
     f.game->setCurrentBall(2);
     f.game->commit();
@@ -669,121 +732,252 @@ TEST_CASE("A session uuid arriving after the game ended still releases its repor
     CHECK(game.achievements().view()->players.empty()); // not bound to the running game
 }
 
-TEST_CASE("DMD frames are downloaded per achievement when their version changes", "[achievements]")
+namespace {
+
+/** Definitions of three achievements: two with a frame and an icon, one with neither. */
+std::string artworkDefinitions(int64_t boomFrameVersion, const std::string &boomIcon,
+                               bool withBlast)
 {
-    const auto definitions = [](int64_t boomVersion, bool withBlast) {
-        json results = json::array();
-        results.push_back({{"key", "game-cv-boom"},
-                           {"scope", "game"},
-                           {"is_single_session", true},
-                           {"frame", "https://cdn.example/achievement_frame/game-cv-boom_3.png"},
-                           {"frame_version", boomVersion},
-                           {"rules", json::array({{{"type", "MODE"},
-                                                   {"comparison", ">="},
-                                                   {"target", 1},
-                                                   {"reference", "balloon"}}})}});
-        if (withBlast) {
-            results.push_back(
-                    {{"key", "game-cv-blast"},
+    const auto achievement = [](const std::string &key, const std::string &mode) {
+        return json {{"key", key},
                      {"scope", "game"},
                      {"is_single_session", true},
-                     {"frame", "https://cdn.example/achievement_frame/game-cv-blast_1.bin?sig=a"},
-                     {"frame_version", 1},
+                     {"frame", nullptr},
+                     {"frame_version", 0},
                      {"rules", json::array({{{"type", "MODE"},
                                              {"comparison", ">="},
                                              {"target", 1},
-                                             {"reference", "blast"}}})}});
-        }
-        results.push_back({{"key", "game-cv-plain"},
-                           {"scope", "game"},
-                           {"is_single_session", true},
-                           {"frame", nullptr},
-                           {"frame_version", 0},
-                           {"rules", json::array({{{"type", "MODE"},
-                                                   {"comparison", ">="},
-                                                   {"target", 1},
-                                                   {"reference", "plain"}}})}});
-        return feed(results);
+                                             {"reference", mode}}})}};
     };
-    const auto frameOf = [](const GameStateImpl &game, const std::string &key) {
-        const auto frame = game.achievements().frame(key);
-        return frame ? std::string(frame->begin(), frame->end()) : std::string {};
-    };
-
-    TempDir dir;
-    {
-        auto fake = std::make_unique<FakeNet>(dir.str());
-        auto *net = fake.get();
-        GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions(4, true)});
-        game.runPendingPosts();
-
-        // One at a time, achievements without a frame skipped
-        REQUIRE(net->frames.size() == 1);
-        CHECK(net->frames.front().url
-              == "https://cdn.example/achievement_frame/game-cv-boom_3.png");
-        net->frames.front().complete("BOOM4");
-        net->frames.pop_front();
-        game.runPendingPosts();
-
-        REQUIRE(net->frames.size() == 1);
-        CHECK(net->frames.front().url
-              == "https://cdn.example/achievement_frame/game-cv-blast_1.bin?sig=a");
-        net->frames.front().complete("BLAST1");
-        net->frames.pop_front();
-        game.runPendingPosts();
-        CHECK(net->frames.empty());
-
-        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
-        CHECK(frameOf(game, "game-cv-blast") == "BLAST1");
-        CHECK(frameOf(game, "game-cv-plain").empty());
+    json results = json::array();
+    auto boom = achievement("game-cv-boom", "balloon");
+    boom["frame"] = "https://cdn.example/achievement_frame/game-cv-boom.png";
+    boom["frame_version"] = boomFrameVersion;
+    boom["icon"] = boomIcon;
+    results.push_back(boom);
+    if (withBlast) {
+        auto blast = achievement("game-cv-blast", "blast");
+        blast["frame"] = "https://cdn.example/achievement_frame/game-cv-blast.png?sig=a";
+        blast["frame_version"] = 1;
+        blast["icon"] = "https://cdn.example/icons/blast.gif";
+        results.push_back(blast);
     }
+    results.push_back(achievement("game-cv-plain", "plain"));
+    return feed(results);
+}
+
+/** A game state given @p definitions, with the artwork of @p kind kept. */
+struct ArtworkFixture {
+    TempDir dir;
+    FakeNet *net;
+    std::unique_ptr<GameStateImpl> game;
+
+    ArtworkFixture(sb_achievement_artwork_t kind, const std::string &definitions)
+    {
+        auto fake = std::make_unique<FakeNet>(dir.str(), kind);
+        net = fake.get();
+        game = std::make_unique<GameStateImpl>(std::move(fake));
+        net->definitionsReply(ApiReply {Error::Success, 200, definitions, {}});
+        game->runPendingPosts();
+    }
+
+    /** Answers the next artwork download with @p content, or fails it when empty. */
+    void answer(const std::string &content)
+    {
+        REQUIRE_FALSE(net->artworks.empty());
+        const auto download = net->artworks.front();
+        net->artworks.pop_front();
+        content.empty() ? download.fail() : download.complete(content);
+        game->runPendingPosts();
+    }
+
+    std::string artworkOf(const std::string &key) const
+    {
+        const auto artwork = game->achievements().artwork(key);
+        return artwork ? std::string(artwork->begin(), artwork->end()) : std::string {};
+    }
+
+    /** Starts a game with player 1 claimed, and unlocks game-cv-boom. */
+    void unlockBoom()
+    {
+        game->setGameStarted(GameStartOrigin::StartButton);
+        net->claim(1, "3f1c");
+        net->sessionCreated("9ab2");
+        game->runPendingPosts();
+        net->progressReply(ApiReply {Error::Success, 200, "[]"});
+        game->runPendingPosts();
+
+        game->addMode("balloon");
+        game->commit();
+        REQUIRE(net->reports.size() == 1);
+        net->reports.front().reply(outcome("game-cv-boom", "unlocked"));
+        net->reports.pop_front();
+        game->runPendingPosts();
+    }
+};
+
+} // namespace
+
+TEST_CASE("DMD frames are kept in memory and downloaded again only when changed", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_FRAME,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true));
+
+    // One at a time, in definition order; achievements without a frame skipped
+    REQUIRE(f.net->artworks.size() == 1);
+    CHECK(f.net->artworks.front().url == "https://cdn.example/achievement_frame/game-cv-boom.png");
+    f.answer("BOOM4");
+    REQUIRE(f.net->artworks.size() == 1);
+    CHECK(f.net->artworks.front().url
+          == "https://cdn.example/achievement_frame/game-cv-blast.png?sig=a");
+    f.answer("BLAST1");
+    CHECK(f.net->artworks.empty());
+
+    CHECK(f.artworkOf("game-cv-boom") == "BOOM4");
+    CHECK(f.artworkOf("game-cv-blast") == "BLAST1");
+    CHECK(f.artworkOf("game-cv-plain").empty());
 
     SECTION("Unchanged versions download nothing")
     {
-        auto fake = std::make_unique<FakeNet>(dir.str());
-        auto *net = fake.get();
-        GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions(4, true)});
-        game.runPendingPosts();
-        CHECK(net->frames.empty());
-        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
+        f.net->revalidate();
+        f.game->runPendingPosts();
+        f.net->definitionsReply(ApiReply {Error::Success, 304, {}, {}});
+        f.game->runPendingPosts();
+        CHECK(f.net->artworks.empty());
+        CHECK(f.artworkOf("game-cv-boom") == "BOOM4");
     }
 
     SECTION("A bumped version is downloaded again; a dropped achievement loses its frame")
     {
-        auto fake = std::make_unique<FakeNet>(dir.str());
-        auto *net = fake.get();
-        GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions(5, false)});
-        game.runPendingPosts();
-        CHECK(frameOf(game, "game-cv-blast").empty());
+        f.net->revalidate();
+        f.game->runPendingPosts();
+        f.net->definitionsReply(
+                ApiReply {Error::Success,
+                          200,
+                          artworkDefinitions(5, "https://cdn.example/icons/boom.png", false),
+                          {}});
+        f.game->runPendingPosts();
+        CHECK(f.artworkOf("game-cv-blast").empty());
 
-        REQUIRE(net->frames.size() == 1);
-        CHECK(frameOf(game, "game-cv-boom") == "BOOM4"); // kept until the new one arrives
-        net->frames.front().complete("BOOM5");
-        net->frames.pop_front();
-        game.runPendingPosts();
-        CHECK(frameOf(game, "game-cv-boom") == "BOOM5");
+        REQUIRE(f.net->artworks.size() == 1);
+        CHECK(f.artworkOf("game-cv-boom") == "BOOM4"); // kept until the new one arrives
+        f.answer("BOOM5");
+        CHECK(f.artworkOf("game-cv-boom") == "BOOM5");
     }
 
     SECTION("A failed download is not retried until the next refresh")
     {
-        auto fake = std::make_unique<FakeNet>(dir.str());
-        auto *net = fake.get();
-        GameStateImpl game(std::move(fake));
-        net->definitionsReply(ApiReply {Error::Success, 200, definitions(5, true)});
-        game.runPendingPosts();
+        f.net->revalidate();
+        f.game->runPendingPosts();
+        f.net->definitionsReply(
+                ApiReply {Error::Success,
+                          200,
+                          artworkDefinitions(5, "https://cdn.example/icons/boom.png", true),
+                          {}});
+        f.game->runPendingPosts();
 
-        REQUIRE(net->frames.size() == 1);
-        net->frames.front().reply(ApiReply {Error::ApiError, 404, {}});
-        net->frames.pop_front();
-        game.runPendingPosts();
-        CHECK(net->frames.empty());
-        CHECK(frameOf(game, "game-cv-boom") == "BOOM4");
+        f.answer({});
+        CHECK(f.net->artworks.empty());
+        CHECK(f.artworkOf("game-cv-boom") == "BOOM4");
 
-        game.achievements().refreshFrames();
-        CHECK(net->frames.size() == 1);
+        f.game->achievements().refreshArtwork();
+        CHECK(f.net->artworks.size() == 1);
+    }
+}
+
+TEST_CASE("Images are kept in memory, downloaded again when their URL changes", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_IMAGE,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", false));
+
+    REQUIRE(f.net->artworks.size() == 1);
+    CHECK(f.net->artworks.front().url == "https://cdn.example/icons/boom.png");
+    f.answer("ICON1");
+    CHECK(f.artworkOf("game-cv-boom") == "ICON1");
+
+    // A new frame version alone doesn't touch the image
+    f.net->revalidate();
+    f.game->runPendingPosts();
+    f.net->definitionsReply(
+            ApiReply {Error::Success,
+                      200,
+                      artworkDefinitions(9, "https://cdn.example/icons/boom.png", false),
+                      {}});
+    f.game->runPendingPosts();
+    CHECK(f.net->artworks.empty());
+
+    f.net->revalidate();
+    f.game->runPendingPosts();
+    f.net->definitionsReply(
+            ApiReply {Error::Success,
+                      200,
+                      artworkDefinitions(9, "https://cdn.example/icons/boom-v2.png", false),
+                      {}});
+    f.game->runPendingPosts();
+    REQUIRE(f.net->artworks.size() == 1);
+    CHECK(f.net->artworks.front().url == "https://cdn.example/icons/boom-v2.png");
+}
+
+TEST_CASE("Without artwork chosen nothing is downloaded", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_NONE,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true));
+    CHECK(f.net->artworks.empty());
+}
+
+TEST_CASE("An unlock carries its artwork, and waits for it", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_FRAME,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true));
+
+    SECTION("Artwork already held is handed over with the unlock")
+    {
+        f.answer("BOOM4");
+        f.answer("BLAST1");
+        f.unlockBoom();
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork == "BOOM4");
+    }
+
+    SECTION("An unlock waits for its artwork's download")
+    {
+        f.unlockBoom();
+        CHECK(f.net->unlocks.empty());
+
+        f.answer("BOOM4");
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().key == "game-cv-boom");
+        CHECK(f.net->unlocks.front().artwork == "BOOM4");
+    }
+
+    SECTION("An unlock waits behind another achievement's download, too")
+    {
+        f.answer("BOOM4");
+        f.net->revalidate();
+        f.game->runPendingPosts();
+        f.net->definitionsReply(
+                ApiReply {Error::Success,
+                          200,
+                          artworkDefinitions(5, "https://cdn.example/icons/boom.png", true),
+                          {}});
+        f.game->runPendingPosts();
+        // blast's first download is still in flight; boom's new version is queued behind it
+        f.unlockBoom();
+        CHECK(f.net->unlocks.empty());
+
+        f.answer("BLAST1");
+        CHECK(f.net->unlocks.empty());
+        f.answer("BOOM5");
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork == "BOOM5");
+    }
+
+    SECTION("An unlock whose artwork can't be downloaded is raised without it")
+    {
+        f.unlockBoom();
+        f.answer({});
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork.empty());
     }
 }
 
@@ -801,6 +995,7 @@ TEST_CASE("Definitions are revalidated at least daily, and after local midnight"
                                 AchievementStorage {dir.str()},
                                 [](std::function<void()> fn) { fn(); },
                                 {},
+                                ArtworkKind::None,
                                 [&now] { return now; }};
 
     SECTION("Without a time zone, after UTC midnight, spread over a few minutes")
@@ -891,7 +1086,7 @@ TEST_CASE("Definitions fetched during a game apply from the next game", "[achiev
 
     f.game->addMode("blast");
     f.game->commit();
-    CHECK_FALSE(hasUpdate(*f.net, "game-cv-blast", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
+    CHECK_FALSE(reported(*f.net, "game-cv-blast"));
 
     f.game->setGameFinished();
     CHECK(f.game->achievements().view()->definitions->size() == 3);
@@ -904,5 +1099,5 @@ TEST_CASE("Definitions fetched during a game apply from the next game", "[achiev
 
     f.game->addMode("blast");
     f.game->commit();
-    CHECK(hasUpdate(*f.net, "game-cv-blast", SB_ACHIEVEMENT_UNLOCKED_LOCALLY));
+    CHECK(reported(*f.net, "game-cv-blast"));
 }

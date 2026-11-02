@@ -15,11 +15,11 @@ Do **not** store it for later use; extract the data you need inside the callback
 
 from __future__ import absolute_import
 
-from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint, c_uint8
+from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_size_t, c_uint, c_uint8
 
 from ._bindings import _lib
-from ._enums import AchievementStatus, EventType
-from ._types import AchievementUpdate, BundlePrice, PlayerInfo, PricingInfo
+from ._enums import EventType
+from ._types import AchievementUnlock, BundlePrice, PlayerInfo, PricingInfo
 
 
 class Event(object):
@@ -178,53 +178,6 @@ class Event(object):
         return None
 
     # ------------------------------------------------------------------
-    # Achievements
-    # ------------------------------------------------------------------
-
-    def get_achievement_updated(self):
-        # type: () -> AchievementUpdate | None
-        """Parse an ``AchievementUpdated`` event.
-
-        On ``AchievementStatus.UnlockedLocally`` the unlock may be presented
-        at once; on ``AchievementStatus.Retracted`` it must be withdrawn.
-
-        Returns:
-            An :class:`AchievementUpdate`, or ``None`` if the event type does
-            not match.
-        """
-        key = c_char_p()
-        player = c_uint(0)
-        user_id = c_char_p()
-        status = c_int(0)
-        if not _lib.sb_event_achievement_updated(
-            self._ptr, byref(key), byref(player), byref(user_id), byref(status)
-        ):
-            return None
-
-        rules = []
-        for i in range(_lib.sb_event_achievement_rules_count(self._ptr)):
-            index = c_size_t(0)
-            value = c_int64(0)
-            satisfied = c_bool(False)
-            if _lib.sb_event_achievement_rule(
-                self._ptr, i, byref(index), byref(value), byref(satisfied)
-            ):
-                rules.append((int(index.value), int(value.value), bool(satisfied.value)))
-
-        def decode(raw):
-            if isinstance(raw, bytes):
-                return raw.decode("utf-8", "replace")
-            return raw or ""
-
-        return AchievementUpdate(
-            decode(key.value),
-            int(player.value),
-            decode(user_id.value),
-            AchievementStatus(status.value),
-            rules,
-        )
-
-    # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
 
@@ -301,6 +254,46 @@ class Event(object):
             pic = bytes(bytearray(data[: size.value])) if size.value else b""
             return player.value, pic
         return None
+
+    # ------------------------------------------------------------------
+    # Achievements
+    # ------------------------------------------------------------------
+
+    def get_achievement_unlocked(self):
+        """Parse an ``AchievementUnlocked`` event.
+
+        Raised once Scorbit granted the achievement, so it can be presented
+        at once.
+
+        Returns:
+            An :class:`AchievementUnlock`, or ``None`` if the event type does
+            not match.
+        """
+        key = c_char_p()
+        player = c_uint(0)
+        if not _lib.sb_event_achievement_unlocked(self._ptr, byref(key), byref(player)):
+            return None
+
+        def text(getter):
+            out = c_char_p()
+            getter(self._ptr, byref(out))
+            val = out.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", "replace")
+            return val or ""
+
+        data = POINTER(c_uint8)()
+        size = c_size_t(0)
+        artwork = b""
+        if _lib.sb_event_achievement_artwork(self._ptr, byref(data), byref(size)) and size.value:
+            artwork = bytes(bytearray(data[: size.value]))
+
+        name = text(_lib.sb_event_achievement_name)
+        description = text(_lib.sb_event_achievement_description)
+        raw_key = key.value
+        if isinstance(raw_key, bytes):
+            raw_key = raw_key.decode("utf-8", "replace")
+        return AchievementUnlock(raw_key or "", int(player.value), name, description, artwork)
 
     # ------------------------------------------------------------------
     # Internal / scorbitd events

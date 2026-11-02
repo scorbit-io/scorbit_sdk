@@ -41,11 +41,7 @@ from ._version import __version__
 # -- public API ---------------------------------------------------------------
 
 from ._enums import (
-    AchievementComparison,
-    AchievementEvaluation,
-    AchievementRuleType,
-    AchievementScope,
-    AchievementStatus,
+    AchievementArtwork,
     AuthStatus,
     Capability,
     Error,
@@ -59,11 +55,7 @@ from ._enums import (
     LogLevel,
 )
 from ._types import (
-    Achievement,
-    AchievementProgress,
-    AchievementRule,
-    AchievementRuleProgress,
-    AchievementUpdate,
+    AchievementUnlock,
     BundlePrice,
     LeaderboardEntry,
     LeaderboardPlayer,
@@ -142,11 +134,7 @@ __all__ = [
     # Version
     "__version__",
     # Enums
-    "AchievementComparison",
-    "AchievementEvaluation",
-    "AchievementRuleType",
-    "AchievementScope",
-    "AchievementStatus",
+    "AchievementArtwork",
     "AuthStatus",
     "Capability",
     "Error",
@@ -161,11 +149,7 @@ __all__ = [
     "TableMappings",
     "LogLevel",
     # Types
-    "Achievement",
-    "AchievementProgress",
-    "AchievementRule",
-    "AchievementRuleProgress",
-    "AchievementUpdate",
+    "AchievementUnlock",
     "BundlePrice",
     "LeaderboardEntry",
     "LeaderboardPlayer",

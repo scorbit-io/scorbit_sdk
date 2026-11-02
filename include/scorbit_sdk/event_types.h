@@ -37,7 +37,7 @@ enum class EventType {
     PairingStatusChanged = SB_EVT_PAIRING_STATUS_CHANGED,
     TableMappingsUpdated = SB_EVT_TABLE_MAPPINGS_UPDATED,
     MachineChanged = SB_EVT_MACHINE_CHANGED,
-    AchievementUpdated = SB_EVT_ACHIEVEMENT_UPDATED,
+    AchievementUnlocked = SB_EVT_ACHIEVEMENT_UNLOCKED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

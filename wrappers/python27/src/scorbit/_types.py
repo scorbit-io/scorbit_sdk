@@ -141,6 +141,33 @@ class PlayerInfo(object):
         return "PlayerInfo(claim_deeplink={0!r})".format(self.claim_deeplink)
 
 
+class AchievementUnlock(object):
+    """An achievement Scorbit granted a claimed player (``AchievementUnlocked``).
+
+    Attributes:
+        key: The achievement's key.
+        player: The player number it was granted to.
+        name: The achievement's name.
+        description: Its description.
+        artwork: The artwork chosen with
+            :meth:`Config.set_achievement_artwork`, or ``b""`` when there is none.
+    """
+
+    __slots__ = ("key", "player", "name", "description", "artwork")
+
+    def __init__(self, key="", player=0, name="", description="", artwork=b""):
+        # type: (str, int, str, str, bytes) -> None
+        self.key = key
+        self.player = player
+        self.name = name
+        self.description = description
+        self.artwork = artwork
+
+    def __repr__(self):
+        # type: () -> str
+        return "AchievementUnlock(key={!r}, player={!r})".format(self.key, self.player)
+
+
 class LeaderboardPlayer(object):
     """Leaderboard player information."""
 
@@ -295,131 +322,3 @@ class TableMappings(object):
     def __repr__(self):
         # type: () -> str
         return "TableMappings(result={!r}, mappings={!r})".format(self.result, len(self.mappings))
-
-
-class AchievementRule(object):
-    """One rule of an achievement; all rules must be satisfied together."""
-
-    __slots__ = ("type", "comparison", "target", "reference")
-
-    def __init__(self, type=0, comparison=2, target=0, reference=""):
-        # type: (int, int, int, str) -> None
-        self.type = type
-        self.comparison = comparison
-        self.target = target
-        self.reference = reference
-
-    def __repr__(self):
-        # type: () -> str
-        return "AchievementRule(type={!r}, comparison={!r}, target={!r}, reference={!r})".format(
-            self.type, self.comparison, self.target, self.reference
-        )
-
-
-class Achievement(object):
-    """An achievement definition with its full rule set."""
-
-    __slots__ = (
-        "key",
-        "name",
-        "description",
-        "scope",
-        "evaluation",
-        "is_trophy",
-        "is_badge",
-        "visible",
-        "obscure",
-        "notify_when_achieved",
-        "icon_url",
-        "obscure_image_url",
-        "group_id",
-        "level",
-        "display_position",
-        "rules",
-    )
-
-    def __init__(self):
-        # type: () -> None
-        self.key = ""
-        self.name = ""
-        self.description = ""
-        self.scope = 0
-        self.evaluation = 0
-        self.is_trophy = False
-        self.is_badge = False
-        self.visible = True
-        self.obscure = False
-        self.notify_when_achieved = False
-        self.icon_url = ""
-        self.obscure_image_url = ""
-        self.group_id = None  # type: int | None
-        self.level = None  # type: int | None
-        self.display_position = None  # type: int | None
-        self.rules = []  # type: list
-
-    def __repr__(self):
-        # type: () -> str
-        return "Achievement(key={!r}, rules={!r})".format(self.key, len(self.rules))
-
-
-class AchievementRuleProgress(object):
-    """A claimed player's progress on one rule."""
-
-    __slots__ = ("judged", "value", "target", "satisfied")
-
-    def __init__(self, judged=False, value=0, target=0, satisfied=False):
-        # type: (bool, int, int, bool) -> None
-        self.judged = judged
-        self.value = value
-        self.target = target
-        self.satisfied = satisfied
-
-    def __repr__(self):
-        # type: () -> str
-        return "AchievementRuleProgress(value={!r}, target={!r}, satisfied={!r})".format(
-            self.value, self.target, self.satisfied
-        )
-
-
-class AchievementProgress(object):
-    """A claimed player's progress on one achievement during the current game."""
-
-    __slots__ = ("held", "all_satisfied", "confirmed", "rules")
-
-    def __init__(self, held=False, all_satisfied=False, confirmed=False, rules=None):
-        # type: (bool, bool, bool, list | None) -> None
-        self.held = held
-        self.all_satisfied = all_satisfied
-        self.confirmed = confirmed
-        self.rules = rules if rules is not None else []
-
-    def __repr__(self):
-        # type: () -> str
-        return "AchievementProgress(held={!r}, all_satisfied={!r})".format(
-            self.held, self.all_satisfied
-        )
-
-
-class AchievementUpdate(object):
-    """Content of an ``AchievementUpdated`` event.
-
-    Attributes:
-        rules: ``(index, value, satisfied)`` tuples for the rules the machine
-            could judge.
-    """
-
-    __slots__ = ("key", "player", "user_id", "status", "rules")
-
-    def __init__(self, key="", player=0, user_id="", status=0, rules=None):
-        # type: (str, int, str, int, list | None) -> None
-        self.key = key
-        self.player = player
-        self.user_id = user_id
-        self.status = status
-        self.rules = rules if rules is not None else []
-
-    def __repr__(self):
-        # type: () -> str
-        return "AchievementUpdate(key={!r}, player={!r}, status={!r})".format(
-            self.key, self.player, self.status
-        )

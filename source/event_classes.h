@@ -20,12 +20,12 @@
 #pragma once
 
 #include "scorbit_sdk/event_types.h"
-#include "scorbit_sdk/achievements_c.h"
 #include "player_profiles_manager.h"
 #include "identifiers.h"
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <optional>
@@ -459,40 +459,34 @@ private:
     std::string m_venueMachine;
 };
 
-// ---------------- AchievementUpdated implementation ----------------
+// ---------------- AchievementUnlocked implementation ----------------
 
-class AchievementUpdatedEvent : public EventBase
+class AchievementUnlockedEvent : public EventBase
 {
 public:
-    struct Rule {
-        size_t index {0};
-        int64_t value {0};
-        bool satisfied {false};
-    };
-
-    AchievementUpdatedEvent(std::string key, sb_player_t player, std::string userId,
-                            sb_achievement_status_t status, std::vector<Rule> rules)
-        : EventBase(EventType::AchievementUpdated, EventPriority::High)
+    AchievementUnlockedEvent(std::string key, sb_player_t player, std::string name,
+                             std::string description, std::vector<uint8_t> artwork)
+        : EventBase(EventType::AchievementUnlocked, EventPriority::High)
         , m_key {std::move(key)}
         , m_player {player}
-        , m_userId {std::move(userId)}
-        , m_status {status}
-        , m_rules {std::move(rules)}
+        , m_name {std::move(name)}
+        , m_description {std::move(description)}
+        , m_artwork {std::move(artwork)}
     {
     }
 
     auto key() const -> const std::string & { return m_key; }
     auto player() const -> sb_player_t { return m_player; }
-    auto userId() const -> const std::string & { return m_userId; }
-    auto status() const -> sb_achievement_status_t { return m_status; }
-    auto rules() const -> const std::vector<Rule> & { return m_rules; }
+    auto name() const -> const std::string & { return m_name; }
+    auto description() const -> const std::string & { return m_description; }
+    auto artwork() const -> const std::vector<uint8_t> & { return m_artwork; }
 
 private:
     std::string m_key;
     sb_player_t m_player;
-    std::string m_userId;
-    sb_achievement_status_t m_status;
-    std::vector<Rule> m_rules;
+    std::string m_name;
+    std::string m_description;
+    std::vector<uint8_t> m_artwork;
 };
 
 } // namespace detail

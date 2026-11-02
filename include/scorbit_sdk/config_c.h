@@ -20,6 +20,7 @@
 #pragma once
 
 #include <scorbit_sdk/export.h>
+#include "achievements_c.h"
 #include "event_types_c.h"
 #include "net_types_c.h"
 
@@ -186,9 +187,8 @@ void sb_config_set_threads_priority(sb_config_t config, int priority);
  * @brief Set a writable directory the SDK may keep persistent data in.
  *
  * The SDK stores its achievements cache there — the last achievement definitions with their
- * validator, and their DMD frames — so that a machine booting offline still evaluates
- * achievements, a reboot revalidates the definitions instead of downloading them again, and a
- * frame is already local when it has to be shown.
+ * validator — so that a machine booting offline still evaluates achievements, and a reboot
+ * revalidates the definitions instead of downloading them again.
  *
  * The directory should survive reboots. When it is not set, a directory under the system
  * temporary directory is used, which works but may be cleared on reboot.
@@ -199,6 +199,19 @@ void sb_config_set_threads_priority(sb_config_t config, int priority);
  */
 SCORBIT_SDK_EXPORT
 void sb_config_set_data_dir(sb_config_t config, const char *path);
+
+/**
+ * @brief Choose the artwork handed over with @ref SB_EVT_ACHIEVEMENT_UNLOCKED.
+ *
+ * The SDK downloads that artwork for every achievement and keeps it in memory, so an unlock can be
+ * presented with it at once; see @ref sb_achievement_artwork_t. Nothing is downloaded with the
+ * default, @ref SB_ACHIEVEMENT_ARTWORK_NONE.
+ *
+ * @param config The configuration handle.
+ * @param artwork The kind of artwork. Must be set before @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_achievement_artwork(sb_config_t config, sb_achievement_artwork_t artwork);
 
 /**
  * @brief Set how many threads the SDK uses for blocking work.
