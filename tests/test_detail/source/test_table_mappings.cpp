@@ -752,6 +752,7 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
         {"no answer, server did not",      502, "", CURRENT, Race::None,       {CURRENT},       SB_SWITCH_MACHINE_NETWORK,           CURRENT, 1},
         {"no answer, unreachable",         502, "", CURRENT, Race::None,       {UNREACHABLE},   SB_SWITCH_MACHINE_NETWORK,           "",      1},
         {"no token, server made it",       200, R"({"channels":[]})", CURRENT, Race::None, {TARGET}, SB_SWITCH_MACHINE_OK,           TARGET,  1},
+        {"no token, server did not",       200, R"({"channels":[]})", CURRENT, Race::None, {CURRENT}, SB_SWITCH_MACHINE_FAILED,     CURRENT, 1},
     };
     // clang-format on
 
