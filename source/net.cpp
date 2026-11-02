@@ -824,23 +824,28 @@ task_t Net::createGetConfigTask()
                 try {
                     json json = json::parse(reply);
 
-                    refineMachine(gen, [&json](MachineInfo &m) {
-                        if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
-                            it != json.end() && it->is_string()) {
-                            m.variantUuid = it->get<std::string>();
-                        }
-                        if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
-                            it != json.end() && it->is_string()) {
-                            m.venueUuid = it->get<std::string>();
-                        }
-                        if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
-                            configIt != json.end() && configIt->is_object()) {
-                            if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
-                                it != configIt->end() && it->is_string()) {
-                                it->get_to(m.opdbId);
+                    // A reply for a machine the device has since left is stale as a whole: its
+                    // machine id, config and pricing all belong to that machine.
+                    if (!refineMachine(gen, [&json](MachineInfo &m) {
+                            if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
+                                it != json.end() && it->is_string()) {
+                                m.variantUuid = it->get<std::string>();
                             }
-                        }
-                    });
+                            if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
+                                it != json.end() && it->is_string()) {
+                                m.venueUuid = it->get<std::string>();
+                            }
+                            if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+                                configIt != json.end() && configIt->is_object()) {
+                                if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
+                                    it != configIt->end() && it->is_string()) {
+                                    it->get_to(m.opdbId);
+                                }
+                            }
+                        })) {
+                        WRN("API get config: reply for a machine since left, discarded");
+                        return;
+                    }
 
                     if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
                         configIt != json.end() && configIt->is_object()) {
@@ -4008,7 +4013,10 @@ bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative
         }
     }
     updateDiscoveryDescription();
-    (void)changed;
+    if (changed) {
+        // Profiles belong to the machine they were claimed on, whatever moved the device.
+        m_playersManager.clear();
+    }
     return written;
 }
 
@@ -4615,11 +4623,15 @@ void Net::parseScorbitronObject(Error error, const std::string &reply, std::uint
         // Accepted, and still current when written: an authoritative change in between refuses it.
         const bool accepted = acceptPairingReply(gen, replyMachine)
                            && setMachineIdentity(replyMachine, false, gen);
+        // A reply that agrees with the machine a switch just adopted writes nothing (the switch
+        // owns the context), but the machine object it would fetch is still owed.
+        const bool agreesWithSwitch =
+                !accepted && isPaired && replyMachine == venueMachine() && switchGateHeld();
+        if ((accepted && isPaired) || agreesWithSwitch) {
+            requestCreditsStatusIfReady();
+            requestMachineObject();
+        }
         if (accepted) {
-            if (isPaired) {
-                requestCreditsStatusIfReady();
-                requestMachineObject();
-            }
         } else if (m_status == AuthStatus::AuthenticatedCheckingPairing && !switchGateHeld()) {
             // This reply would have settled the pairing; a newer change made it stale. Ask again,
             // or every request waiting on the pairing waits out its deadline.
