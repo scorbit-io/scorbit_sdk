@@ -4344,10 +4344,13 @@ void Net::applyServerPairing(const std::optional<std::string> &venueMachine)
         return;
     }
     if (!venueMachine) {
-        // Unknown: nothing goes out under a guessed pairing. Clear it, and ask again; that
-        // reply sets whatever the server holds.
-        onUnpaired();
-        sendScorbitronObject();
+        // Unknown: nothing goes out under a guessed pairing, and it is not "unpaired" either.
+        // "Checking" keeps the re-ask (sent by conclude once the gate opens) under the PATCH
+        // retry and its backoff until a reply sets whatever the server holds.
+        clearPairedMachineContext();
+        m_status = AuthStatus::AuthenticatedCheckingPairing;
+        notifyAuthStatusChanged();
+        restartCentrifugo();
         return;
     }
     if (venueMachine->empty()) {
@@ -5182,6 +5185,16 @@ std::uint64_t NetTestAccess::machineGen(const Net &net)
 void NetTestAccess::unpairForTest(Net &net)
 {
     net.onUnpaired();
+}
+
+void NetTestAccess::scorbitronReplyFailed(Net &net)
+{
+    net.parseScorbitronObject(Error::ApiError, {}, net.machineGen());
+}
+
+std::chrono::seconds NetTestAccess::scorbitronRetryBackoff(const Net &net)
+{
+    return net.m_scorbitronRetryBackoff;
 }
 
 void NetTestAccess::scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen)

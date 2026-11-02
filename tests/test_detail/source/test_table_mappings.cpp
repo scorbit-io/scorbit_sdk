@@ -817,6 +817,13 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
             CHECK(check == static_cast<std::size_t>(row.checks));
             CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
             CHECK(v.net->venueMachine() == row.machine);
+            // An unreachable server is not an answer: the pairing stays to be checked (and
+            // retried), never reported as unpaired.
+            const bool unreachable = !row.answers.empty() && row.answers.back() == UNREACHABLE;
+            const auto expectedStatus = unreachable ? AuthStatus::AuthenticatedCheckingPairing
+                                      : row.machine.empty() ? AuthStatus::AuthenticatedUnpaired
+                                                            : AuthStatus::AuthenticatedPaired;
+            CHECK(NetTestAccess::status(*v.net) == expectedStatus);
             // A game is stamped only with a real machine; without one it publishes live.
             const auto expectedStamp = row.machine.empty()
                                              ? std::optional<std::string> {}
@@ -888,6 +895,50 @@ TEST_CASE("A switch that ends with the pairing unresolved asks for it again")
             });
     CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
     CHECK(NetTestAccess::scorbitronObjectQueued(*v.net)); // the pairing is asked for again
+}
+
+TEST_CASE("A reconciliation that fails, then fails again, keeps asking until it succeeds")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    NetTestAccess::setVpinTransport(
+            *v.net,
+            {.post = [](const cpr::Url &, const cpr::Body &,
+                        const cpr::Header &) { return response(502); }, // no answer: unknown
+             .patch = [](const cpr::Url &, const cpr::Body &,
+                         const cpr::Header &) { return response(503); }}); // reconcile fails
+    std::vector<sb_switch_machine_result_t> results;
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET,
+            [&](sb_switch_machine_result_t result, const std::string &) {
+                results.push_back(result);
+            },
+            [](const std::string &, const std::string &, MachineSwitch::Done done) { done(); });
+    v.drain();
+
+    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_NETWORK});
+    CHECK(v.net->venueMachine().empty()); // nothing goes out under a guessed machine
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedCheckingPairing);
+    CHECK(NetTestAccess::scorbitronObjectQueued(*v.net));
+    CHECK(std::count(v.events.begin(), v.events.end(), EventType::PairingStatusChanged) == 0);
+
+    // The follow-up PATCH fails too, twice: each failure arms the retry, further out each time.
+    const auto first = NetTestAccess::scorbitronRetryBackoff(*v.net);
+    NetTestAccess::scorbitronReplyFailed(*v.net);
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedCheckingPairing);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(*v.net) == first * 2);
+    NetTestAccess::scorbitronReplyFailed(*v.net);
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedCheckingPairing);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(*v.net) == first * 4);
+
+    // Then it succeeds: the server's answer settles the pairing and the backoff starts over.
+    NetTestAccess::scorbitronReplyAt(*v.net, TARGET, NetTestAccess::machineGen(*v.net));
+    v.drain();
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedPaired);
+    CHECK(v.net->venueMachine() == TARGET);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(*v.net) == first);
+    CHECK(NetTestAccess::machineObjectRequests(*v.net) > 0);
+    CHECK(std::count(v.events.begin(), v.events.end(), EventType::PairingStatusChanged) == 1);
 }
 
 // ----------------------------- side effects of a machine change ---------------------------

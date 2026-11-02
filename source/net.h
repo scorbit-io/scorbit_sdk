@@ -295,6 +295,10 @@ struct NetTestAccess {
     static std::uint64_t machineGen(const Net &net);
     /// An unpair signal outside any switch.
     static void unpairForTest(Net &net);
+    /// As a scorbitron PATCH that got no usable reply.
+    static void scorbitronReplyFailed(Net &net);
+    /// The delay the next scorbitron PATCH retry will wait.
+    static std::chrono::seconds scorbitronRetryBackoff(const Net &net);
     /// As a scorbitron reply to a request made at generation @p gen, naming @p venueMachine.
     static void scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen);
     /// Seeds the Centrifugo token as a machine switch does.
