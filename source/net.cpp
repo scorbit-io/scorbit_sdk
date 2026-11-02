@@ -4284,9 +4284,11 @@ void Net::resolveSwitchNow(
         if (!now.empty() && now != start) {
             m_eventManager->push(std::make_shared<MachineChangedEvent>(now));
         }
-        // Only a settled status: "checking" is neither, and the re-ask below settles it.
-        if (m_status != AuthStatus::AuthenticatedCheckingPairing) {
-            emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
+        // Only a settled status: "checking" is neither (the re-ask below settles it), and a
+        // re-authentication meanwhile settles and announces the pairing itself.
+        if (const auto status = m_status.load(); status == AuthStatus::AuthenticatedPaired
+                                                 || status == AuthStatus::AuthenticatedUnpaired) {
+            emitPairingStatusEventIfChanged(status == AuthStatus::AuthenticatedPaired);
         }
         // A re-authentication during the switch left the pairing to a reply the switch held
         // back: ask for it again once the gate opens, or nothing resolves it.

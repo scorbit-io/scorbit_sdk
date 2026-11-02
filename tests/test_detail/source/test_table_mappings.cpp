@@ -897,6 +897,27 @@ TEST_CASE("A switch that ends with the pairing unresolved asks for it again")
     CHECK(NetTestAccess::scorbitronObjectQueued(*v.net)); // the pairing is asked for again
 }
 
+TEST_CASE("A switch that ends during a re-authentication raises no pairing event")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    NetTestAccess::setVpinTransport(
+            *v.net, {.post = [](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                return response(200, R"({"token":"jwt"})");
+            }});
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET, [](sb_switch_machine_result_t, const std::string &) {},
+            [&](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                NetTestAccess::adoptForTest(*v.net, target);
+                // A re-authentication starts before the switch concludes; it announces the
+                // pairing itself once settled.
+                NetTestAccess::setStatus(*v.net, AuthStatus::Authenticating);
+                done();
+            });
+    v.drain();
+    CHECK(std::count(v.events.begin(), v.events.end(), EventType::PairingStatusChanged) == 0);
+}
+
 TEST_CASE("A reconciliation that fails, then fails again, keeps asking until it succeeds")
 {
     VpinNet v(false);
