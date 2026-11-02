@@ -98,7 +98,8 @@ def cpp_calls(names):
 
 
 def godot_calls(names):
-    # The add-on's C++ calls the C API directly, as the C++ headers do.
+    # The add-on's C++ calls the C API through a table of the functions it loads
+    # (sdk_loader.h), which names each one.
     text = ""
     for name in sorted(os.listdir(GODOT_SOURCES)):
         if name.endswith((".cpp", ".h")):
