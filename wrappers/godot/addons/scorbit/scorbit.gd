@@ -45,6 +45,10 @@ signal pair_code_received(request_id: int, error: int, code: String)
 signal unpair_finished(request_id: int, error: int, reply: String)
 ## Answers request_pair_machine().
 signal pair_machine_finished(request_id: int, error: int, reply: String)
+## Scorbit granted a claimed player an achievement; it can be presented at once. artwork is the
+## kind chosen with the achievement_artwork setting of start(), empty when there is none.
+signal achievement_unlocked(key: String, player: int, name: String, description: String,
+		artwork: PackedByteArray)
 
 const NATIVE_CLASS := "ScorbitGameState"
 
@@ -69,6 +73,11 @@ const LEADERBOARD_PERIOD_365D := 5
 const LEADERBOARD_VPIN_ANY := 0
 const LEADERBOARD_VPIN_ONLY := 1
 const LEADERBOARD_VPIN_REAL_ONLY := 2
+
+# The achievement_artwork setting of start(): what achievement_unlocked hands over.
+const ACHIEVEMENT_ARTWORK_NONE := 0  # nothing (the default); nothing is downloaded
+const ACHIEVEMENT_ARTWORK_FRAME := 1  # the DMD frame, for the machine's display
+const ACHIEVEMENT_ARTWORK_IMAGE := 2  # the icon, a high-resolution image for LCD machines
 
 # get_status() values.
 const NOT_AUTHENTICATED := 0
@@ -101,6 +110,7 @@ func _ready() -> void:
 	_native.pair_code_received.connect(pair_code_received.emit)
 	_native.unpair_finished.connect(unpair_finished.emit)
 	_native.pair_machine_finished.connect(pair_machine_finished.emit)
+	_native.achievement_unlocked.connect(achievement_unlocked.emit)
 	_native.download_finished.connect(download_finished.emit)
 	_native.download_buffer_finished.connect(download_buffer_finished.emit)
 	_native.device_state_reported.connect(device_state_reported.emit)
@@ -131,7 +141,8 @@ func get_sdk_error() -> String:
 ## device key is kept, user://scorbit/device_key by default), score_features (an Array of names) and
 ## score_features_version, machine_title, game_firmware ({id, version, serial}), uuid,
 ## serial_number, extra_fingerprint, threads_priority, worker_thread_count, cf_hostname,
-## heartbeat_host and heartbeat_port.
+## heartbeat_host, heartbeat_port, achievement_artwork (an ACHIEVEMENT_ARTWORK_* value) and data_dir
+## (where the achievements cache is kept between runs, user://scorbit/data by default).
 func start(config: Dictionary) -> bool:
 	return _native.start(config) if _native else false
 
@@ -194,6 +205,13 @@ func clear_modes() -> void:
 func set_mode_completed(mode: String) -> void:
 	if _native:
 		_native.set_mode_completed(mode)
+
+
+## Adds value to the named game event register (e.g. "spins"), which achievements are matched
+## against. Recorded with the next commit(); value may be negative.
+func add_game_event(name: String, value: int) -> void:
+	if _native:
+		_native.add_game_event(name, value)
 
 
 ## What the machine supports, e.g. CAPABILITY_START_GAME | CAPABILITY_CREDIT_DROP. Call after

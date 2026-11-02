@@ -70,6 +70,12 @@ Everything a game uses from the SDK. `scorbit.gd` documents each call:
   - `credits_status_requested` is answered with `set_credits_status`.
   - `pricing_received` carries the machine's pricing.
 - **Players:** `players_updated` and `player_picture_ready`.
+- **Achievements:** the SDK evaluates them by itself on every `commit()`, from the game state and
+  the game event registers the game adds to with `add_game_event(name, value)`. When Scorbit grants
+  one, `achievement_unlocked(key, player, name, description, artwork)` reports it, ready to show.
+  The `achievement_artwork` setting of `start()` chooses the artwork: `ACHIEVEMENT_ARTWORK_FRAME`
+  (the DMD frame) or `ACHIEVEMENT_ARTWORK_IMAGE` (the icon); with the default,
+  `ACHIEVEMENT_ARTWORK_NONE`, none is downloaded.
 - **Leaderboards:** `request_top_scores(scope, period, since, vpin_filter)` answers with
   `top_scores_received`.
 - **Pairing:** `get_pair_deeplink`, `request_pair_code`, `request_pair_machine`, `request_unpair`,
@@ -99,5 +105,7 @@ are emitted on the main thread, and every node that enabled `log_message` gets e
   preset to load any extension, this one included.
 - The device key is stored at `user://scorbit/device_key` unless `key_path` says otherwise. Keep
   it between runs: a new key means a new device to pair.
+- The achievement definitions are cached in `user://scorbit/data` unless `data_dir` says otherwise,
+  so a game that starts offline still evaluates achievements.
 
 See `examples/godot_example` for a complete project.
