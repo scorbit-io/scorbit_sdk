@@ -29,6 +29,7 @@
 
 // Every SDK function the add-on calls. A call goes through the table: api().sb_name(...).
 #define SCORBIT_GODOT_SDK_FUNCTIONS(X)                                                             \
+    X(sb_add_game_event)                                                                           \
     X(sb_add_logger_callback)                                                                      \
     X(sb_add_mode)                                                                                 \
     X(sb_add_mode_expiring)                                                                        \
@@ -36,8 +37,10 @@
     X(sb_commit)                                                                                   \
     X(sb_config_create)                                                                            \
     X(sb_config_destroy)                                                                           \
+    X(sb_config_set_achievement_artwork)                                                           \
     X(sb_config_set_auto_download_player_pics)                                                     \
     X(sb_config_set_cf_hostname)                                                                   \
+    X(sb_config_set_data_dir)                                                                      \
     X(sb_config_set_encrypted_key)                                                                 \
     X(sb_config_set_event_callback)                                                                \
     X(sb_config_set_extra_fingerprint)                                                             \
@@ -60,6 +63,10 @@
     X(sb_destroy_game_state)                                                                       \
     X(sb_download)                                                                                 \
     X(sb_download_buffer)                                                                          \
+    X(sb_event_achievement_artwork)                                                                \
+    X(sb_event_achievement_description)                                                            \
+    X(sb_event_achievement_name)                                                                   \
+    X(sb_event_achievement_unlocked)                                                               \
     X(sb_event_config_received)                                                                    \
     X(sb_event_credits_add_requested)                                                              \
     X(sb_event_diagnostics_upload_requested)                                                       \

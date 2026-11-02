@@ -8,6 +8,7 @@ const CONFIG := {
 	"game_code_version": "0.1.0",
 	"hostname": "staging",
 	"encrypted_key": "8qWNpMPeO1AbgcoPSsdeUORGmO/hyB70oyrpFyRlYWbaVx4Kuan0CAGaXZWS3JWdgmPL7p9k3UFTwAp5y16L8O1tYaHLGkW4p/yWmA==",
+	"achievement_artwork": 2,  # Scorbit.ACHIEVEMENT_ARTWORK_IMAGE: the icon, for a screen
 }
 
 var _score := 0
@@ -26,6 +27,7 @@ func _ready() -> void:
 	Scorbit.game_start_requested.connect(_on_game_start_requested)
 	Scorbit.credits_add_requested.connect(_on_credits_add_requested)
 	Scorbit.credits_status_requested.connect(_report_credits)
+	Scorbit.achievement_unlocked.connect(_on_achievement_unlocked)
 	if not Scorbit.start(CONFIG):
 		push_error("Scorbit failed to start")
 		return
@@ -53,6 +55,7 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	_score += 10
 	Scorbit.set_score(1, _score)
+	Scorbit.add_game_event("spins", 1)
 	if _elapsed > 10.0:
 		_elapsed = 0.0
 		_ball += 1
@@ -93,6 +96,12 @@ func _show_pair_link() -> void:
 		return
 	_pair_link_shown = true
 	print("Pair this machine: ", Scorbit.get_pair_deeplink())
+
+
+func _on_achievement_unlocked(key: String, player: int, name: String, _description: String,
+		artwork: PackedByteArray) -> void:
+	# A real game would show the icon: Image.new().load_png_from_buffer(artwork)
+	print("Player %d unlocked %s (%s), icon of %d bytes" % [player, name, key, artwork.size()])
 
 
 func _on_players_updated(players: Dictionary) -> void:

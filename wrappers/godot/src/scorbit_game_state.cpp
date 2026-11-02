@@ -52,10 +52,22 @@ struct LogSink {
 namespace {
 
 constexpr auto DEFAULT_KEY_PATH = "user://scorbit/device_key";
+// The achievements cache: the last definitions, kept between runs.
+constexpr auto DEFAULT_DATA_DIR = "user://scorbit/data";
 
 String toString(const char *str)
 {
     return str ? String::utf8(str) : String();
+}
+
+PackedByteArray toBytes(const uint8_t *data, size_t size)
+{
+    PackedByteArray bytes;
+    bytes.resize(static_cast<int64_t>(size));
+    if (size > 0 && data) {
+        std::memcpy(bytes.ptrw(), data, size);
+    }
+    return bytes;
 }
 
 // Event data is valid only during the callback, so everything is copied out here.
@@ -191,14 +203,31 @@ Dictionary readEvent(const sb_event_t *event)
         const uint8_t *bytes = nullptr;
         size_t size = 0;
         if (api().sb_event_player_picture_ready(event, &player, &bytes, &size)) {
-            PackedByteArray picture;
-            picture.resize(static_cast<int64_t>(size));
-            if (size > 0 && bytes) {
-                std::memcpy(picture.ptrw(), bytes, size);
-            }
             data["player"] = static_cast<int>(player);
-            data["picture"] = picture;
+            data["picture"] = toBytes(bytes, size);
         }
+        break;
+    }
+    case SB_EVT_ACHIEVEMENT_UNLOCKED: {
+        const char *key = nullptr;
+        sb_player_t player = 0;
+        if (!api().sb_event_achievement_unlocked(event, &key, &player)) {
+            break;
+        }
+        data["key"] = toString(key);
+        data["player"] = static_cast<int>(player);
+        const char *str = nullptr;
+        if (api().sb_event_achievement_name(event, &str)) {
+            data["name"] = toString(str);
+        }
+        if (api().sb_event_achievement_description(event, &str)) {
+            data["description"] = toString(str);
+        }
+        const uint8_t *bytes = nullptr;
+        size_t size = 0;
+        data["artwork"] = api().sb_event_achievement_artwork(event, &bytes, &size)
+                                ? toBytes(bytes, size)
+                                : PackedByteArray();
         break;
     }
     default:
@@ -410,12 +439,7 @@ void onDownloadBuffer(sb_error_t error, const uint8_t *data, size_t size, void *
     result["url"] = context.url;
     result["_result"] = "download_buffer";
     result["error"] = static_cast<int>(error);
-    PackedByteArray bytes;
-    bytes.resize(static_cast<int64_t>(size));
-    if (size > 0 && data) {
-        std::memcpy(bytes.ptrw(), data, size);
-    }
-    result["data"] = bytes;
+    result["data"] = toBytes(data, size);
     queueReply(context, std::move(result));
 }
 
@@ -655,6 +679,12 @@ bool ScorbitGameState::start(const Dictionary &config)
         api().sb_config_set_auto_download_player_pics(cfg,
                                                       bool(config["auto_download_player_pics"]));
     }
+    const String dataDir = config.get("data_dir", DEFAULT_DATA_DIR);
+    api().sb_config_set_data_dir(cfg, toFsPath(dataDir).get_data());
+    if (config.has("achievement_artwork")) {
+        api().sb_config_set_achievement_artwork(
+                cfg, static_cast<sb_achievement_artwork_t>(int(config["achievement_artwork"])));
+    }
     api().sb_config_set_event_callback(cfg, &onEvent, m_bridge.get());
     api().sb_config_set_save_key_callback(cfg, &onSaveKey, m_bridge.get());
     api().sb_config_set_load_key_callback(cfg, &onLoadKey, m_bridge.get());
@@ -792,6 +822,11 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
         emit_signal("player_picture_ready", event.get("player", 0),
                     event.get("picture", PackedByteArray()));
         break;
+    case SB_EVT_ACHIEVEMENT_UNLOCKED:
+        emit_signal("achievement_unlocked", event.get("key", ""), event.get("player", 0),
+                    event.get("name", ""), event.get("description", ""),
+                    event.get("artwork", PackedByteArray()));
+        break;
     default:
         break;
     }
@@ -865,6 +900,13 @@ void ScorbitGameState::set_mode_completed(const String &mode)
 {
     if (m_handle) {
         api().sb_set_mode_completed(m_handle, mode.utf8().get_data());
+    }
+}
+
+void ScorbitGameState::add_game_event(const String &name, int64_t value)
+{
+    if (m_handle) {
+        api().sb_add_game_event(m_handle, name.utf8().get_data(), value);
     }
 }
 
@@ -1133,6 +1175,8 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_method(D_METHOD("clear_modes"), &ScorbitGameState::clear_modes);
     ClassDB::bind_method(D_METHOD("set_mode_completed", "mode"),
                          &ScorbitGameState::set_mode_completed);
+    ClassDB::bind_method(D_METHOD("add_game_event", "name", "value"),
+                         &ScorbitGameState::add_game_event);
     ClassDB::bind_method(D_METHOD("set_capabilities", "capabilities"),
                          &ScorbitGameState::set_capabilities);
     ClassDB::bind_method(D_METHOD("set_credits_dropped", "credits", "transaction", "success"),
@@ -1217,6 +1261,11 @@ void ScorbitGameState::_bind_methods()
     ADD_SIGNAL(MethodInfo("pricing_received", PropertyInfo(Variant::DICTIONARY, "pricing")));
     ADD_SIGNAL(MethodInfo("player_picture_ready", PropertyInfo(Variant::INT, "player"),
                           PropertyInfo(Variant::PACKED_BYTE_ARRAY, "picture")));
+    ADD_SIGNAL(MethodInfo("achievement_unlocked", PropertyInfo(Variant::STRING, "key"),
+                          PropertyInfo(Variant::INT, "player"),
+                          PropertyInfo(Variant::STRING, "name"),
+                          PropertyInfo(Variant::STRING, "description"),
+                          PropertyInfo(Variant::PACKED_BYTE_ARRAY, "artwork")));
 
     const auto cls = get_class_static();
     ClassDB::bind_integer_constant(cls, "GameStartOrigin", "STARTED_BY_BUTTON",
@@ -1272,6 +1321,14 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_integer_constant(cls, "Event", "EVENT_PRICING_RECEIVED", SB_EVT_PRICING_RECEIVED);
     ClassDB::bind_integer_constant(cls, "Event", "EVENT_PAIRING_STATUS_CHANGED",
                                    SB_EVT_PAIRING_STATUS_CHANGED);
+    ClassDB::bind_integer_constant(cls, "Event", "EVENT_ACHIEVEMENT_UNLOCKED",
+                                   SB_EVT_ACHIEVEMENT_UNLOCKED);
+    ClassDB::bind_integer_constant(cls, "AchievementArtwork", "ACHIEVEMENT_ARTWORK_NONE",
+                                   SB_ACHIEVEMENT_ARTWORK_NONE);
+    ClassDB::bind_integer_constant(cls, "AchievementArtwork", "ACHIEVEMENT_ARTWORK_FRAME",
+                                   SB_ACHIEVEMENT_ARTWORK_FRAME);
+    ClassDB::bind_integer_constant(cls, "AchievementArtwork", "ACHIEVEMENT_ARTWORK_IMAGE",
+                                   SB_ACHIEVEMENT_ARTWORK_IMAGE);
 }
 
 } // namespace scorbit_godot
