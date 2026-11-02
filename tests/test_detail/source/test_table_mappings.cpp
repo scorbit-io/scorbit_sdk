@@ -247,6 +247,8 @@ struct FakeSwitch {
     bool stop {false};
     int postStatus {200};
     std::string postBody {R"({"token":"jwt"})"};
+    /// What the server says the device is on when a switch's outcome is unknown.
+    std::optional<std::string> onServer;
     MachineSwitch::Done pendingDrain;
     MachineSwitch::Done pendingAdopt;
     std::vector<std::pair<sb_switch_machine_result_t, std::string>> results;
@@ -278,6 +280,10 @@ struct FakeSwitch {
             }
         };
         steps.changed = [this](const std::string &target) { calls.push_back("changed " + target); };
+        steps.reconcile = [this](std::function<void(std::optional<std::string>)> done) {
+            calls.push_back("reconcile");
+            done(onServer);
+        };
         steps.refetch = [this] { calls.push_back("refetch"); };
         steps.deliver = [this](MachineSwitch::Done fn) {
             calls.push_back("deliver");
@@ -672,4 +678,112 @@ TEST_CASE("A refresh asked for during a read survives that read's refusal")
 
     CHECK(urls.size() == 2);
     CHECK(v.net->tableMappings().result == SB_TABLE_MAPPINGS_OK);
+}
+
+// ------------------------------------ unknown outcome --------------------------------------
+
+TEST_CASE("scorbitronMachine reads the scorbitron object's machine")
+{
+    CHECK(scorbitronMachine(R"({"machine":{"id":"vm"}})") == std::optional<std::string> {"vm"});
+    CHECK(scorbitronMachine(R"({"machine":null})") == std::optional<std::string> {""});
+    CHECK(scorbitronMachine(R"({"shortcode":"x"})") == std::optional<std::string> {""});
+    CHECK_FALSE(scorbitronMachine(R"({"machine":{"name":"x"}})"));
+    CHECK_FALSE(scorbitronMachine("<html>"));
+}
+
+TEST_CASE("A switch with no answer that the server made is adopted before posts go out")
+{
+    for (const int status : {0, 502}) {
+        FakeSwitch fake;
+        fake.postStatus = status;
+        fake.postBody = "";
+        fake.onServer = TARGET;
+        auto sw = fake.make();
+        sw.start(TARGET, CURRENT, true, fake.callback());
+
+        CHECK(fake.calls
+              == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
+                                           "reconcile", "adopt ", std::string {"changed "} + TARGET,
+                                           "release", "deliver"});
+        REQUIRE(fake.results.size() == 1);
+        CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
+    }
+}
+
+TEST_CASE("A switch with no answer that the server did not make changes nothing")
+{
+    FakeSwitch fake;
+    fake.postStatus = 0;
+    fake.postBody = "";
+    fake.onServer = CURRENT;
+    auto sw = fake.make();
+    sw.start(TARGET, CURRENT, true, fake.callback());
+
+    CHECK(fake.calls
+          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "reconcile",
+                                       "release", "refetch", "deliver"});
+    REQUIRE(fake.results.size() == 1);
+    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
+}
+
+TEST_CASE("A switch whose outcome cannot be confirmed reports NETWORK")
+{
+    FakeSwitch fake;
+    fake.postStatus = 0;
+    fake.postBody = "";
+    auto sw = fake.make(); // onServer stays nullopt: the server cannot be reached
+    sw.start(TARGET, CURRENT, true, fake.callback());
+    REQUIRE(fake.results.size() == 1);
+    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
+    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "adopt ") == fake.calls.end());
+}
+
+TEST_CASE("A 200 without a token that the server made is adopted with a fresh token")
+{
+    FakeSwitch fake;
+    fake.postBody = R"({"channels":[]})";
+    fake.onServer = TARGET;
+    auto sw = fake.make();
+    sw.start(TARGET, CURRENT, true, fake.callback());
+    REQUIRE(fake.results.size() == 1);
+    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
+    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "adopt ") != fake.calls.end());
+}
+
+TEST_CASE("Through Net, a lost switch reply is reconciled from the scorbitron object")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    bool patched = false;
+    NetTestAccess::setVpinTransport(
+            *v.net,
+            {.post = [](const cpr::Url &, const cpr::Body &,
+                        const cpr::Header &) { return response(0); },
+             .patch =
+                     [&](const cpr::Url &url, const cpr::Body &, const cpr::Header &) {
+                         patched = true;
+                         CHECK(url.str().find("/scorbitrons/") != std::string::npos);
+                         return response(200,
+                                         nlohmann::json {{"machine", {{"id", TARGET}}}}.dump());
+                     }});
+
+    std::string adoptedToken = "unset";
+    std::vector<sb_switch_machine_result_t> results;
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET,
+            [&](sb_switch_machine_result_t result, const std::string &) {
+                results.push_back(result);
+            },
+            [&](const std::string &, const std::string &token, MachineSwitch::Done done) {
+                adoptedToken = token;
+                CHECK(NetTestAccess::switchGateHeld(*v.net));
+                done();
+            });
+    v.drain();
+
+    CHECK(patched);
+    CHECK(adoptedToken.empty()); // no token from the lost reply: the reconnect fetches one
+    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
+    CHECK(v.machineChanged == std::vector<std::string> {TARGET});
+    CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
 }

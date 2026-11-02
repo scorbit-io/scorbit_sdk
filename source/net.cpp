@@ -4074,6 +4074,9 @@ MachineSwitch::Steps Net::machineSwitchSteps()
         m_eventManager->push(std::make_shared<MachineChangedEvent>(target));
         emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
     };
+    steps.reconcile = [this](std::function<void(std::optional<std::string>)> done) {
+        m_worker.post(createSwitchReconcileTask(std::move(done)));
+    };
     steps.refetch = [this] {
         fetchTableMappings(false);
         // A failed switch changed nothing here, but the server may have: act on what it said.
@@ -4246,6 +4249,38 @@ task_t Net::createSwitchMachineTask(const std::string &target,
             false, false, false); // the reply carries a token: never logged
 }
 
+task_t Net::createSwitchReconcileTask(std::function<void(std::optional<std::string>)> done)
+{
+    // The scorbitron PATCH every startup sends: its reply is the server's view of the pairing.
+    // Only read here; whatever it says is acted on by the switch, not by this request.
+    return createHttpRequestTask(
+            REST_PATCH,
+            HttpStatusCallback {[done = std::move(done)](Error error, int /*httpStatus*/,
+                                                         const std::string &reply) {
+                if (error != Error::Success) {
+                    done(std::nullopt);
+                    return;
+                }
+                done(scorbitronMachine(reply));
+            }},
+            [this]() {
+                std::string body;
+                {
+                    std::scoped_lock lock(m_scorbitronObjectMutex);
+                    body = m_scorbitronObject.dump();
+                }
+                return make_tuple(url(URL_SCORBITRON_OBJECT), cpr::Body {body});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.patch ? m_vpinTransport.patch(url, body, header)
+                                             : HttpSessionPool::instance().Patch(
+                                                     url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired});
+}
+
 void Net::postSwitchMachine(const std::string &target,
                             std::function<void(int, const std::string &)> reply)
 {
@@ -4264,13 +4299,17 @@ void Net::adoptSwitchedMachine(const std::string &target, const std::string &tok
 void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &token,
                                   MachineSwitch::Done done)
 {
-    // SPEC-0009 REQ-6.2: the reply's token is the new connection; no /socket/ request.
+    // SPEC-0009 REQ-6.2: the reply's token is the new connection; no /socket/ request. Without
+    // one (a switch confirmed after its reply was lost), the reconnect fetches a fresh token.
+    const bool haveToken = !token.empty();
     {
         std::scoped_lock lock(m_cfTokenMutex);
         m_cfToken = token;
         ++m_cfTokenGeneration;
     }
-    scheduleCentrifugoTokenRefresh(token, 0);
+    if (haveToken) {
+        scheduleCentrifugoTokenRefresh(token, 0);
+    }
 
     m_playersManager.clear();
     m_machineInfo.opdbId.clear();
@@ -4295,7 +4334,7 @@ void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &
         notifyAuthStatusChanged();
     }
 
-    restartCentrifugo(false);
+    restartCentrifugo(!haveToken);
 
     // The context initializeConnectionState() fetches. The scorbitron reply queues the machine
     // object behind these, so the last step re-queues itself to land after that too.
@@ -4877,6 +4916,9 @@ void NetTestAccess::runSwitchMachine(
         net.createSwitchMachineTask(target, std::move(reply))();
     };
     steps.adopt = std::move(adopt);
+    steps.reconcile = [&net](std::function<void(std::optional<std::string>)> done) {
+        net.createSwitchReconcileTask(std::move(done))();
+    };
     steps.deliver = [](MachineSwitch::Done fn) { fn(); };
     net.switchMachine(venueMachine, std::move(callback));
 }

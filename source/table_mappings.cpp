@@ -159,6 +159,23 @@ std::string switchMachineToken(const std::string &body)
     return {};
 }
 
+std::optional<std::string> scorbitronMachine(const std::string &body)
+{
+    const auto j = parseObject(body);
+    if (!j) {
+        return std::nullopt;
+    }
+    const auto machine = j->find(JKEY_SOBJ_MACHINE_OBJ);
+    if (machine == j->end() || !machine->is_object()) {
+        return std::string {};
+    }
+    if (const auto id = machine->find(JKEY_SOBJ_MACHINE_UUID);
+        id != machine->end() && id->is_string()) {
+        return id->get<std::string>();
+    }
+    return std::nullopt;
+}
+
 // ---------------------------------------------------------------------------------------------
 
 TableMappingsSnapshot TableMappingsStore::snapshot() const
@@ -269,6 +286,11 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
                 const auto result = switchMachineFailure(status, body);
                 WRN("API switch machine to {} failed: HTTP {}, result {}", target, status,
                     static_cast<int>(result));
+                if (result == SB_SWITCH_MACHINE_NETWORK) {
+                    // No answer, or a server error: the switch may still have been made.
+                    reconcileAndFinish(target, current, result, std::move(callback));
+                    return;
+                }
                 m_steps.gate(false);
                 finish(result, target, std::move(callback), true);
                 return;
@@ -283,22 +305,56 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
 
             const auto token = switchMachineToken(body);
             if (token.empty()) {
+                // The server accepted the switch; only its reply is unusable.
                 ERR("API switch machine to {}: reply carries no token", target);
-                m_steps.gate(false);
-                finish(SB_SWITCH_MACHINE_FAILED, target, std::move(callback), true);
+                reconcileAndFinish(target, current, SB_SWITCH_MACHINE_FAILED, std::move(callback));
                 return;
             }
 
-            m_steps.adopt(target, token, [this, target, callback = std::move(callback)]() mutable {
-                if (m_steps.stopping()) {
-                    return;
-                }
-                INF("API switch machine: now on {}", target);
-                m_steps.changed(target);
-                m_steps.gate(false);
-                finish(SB_SWITCH_MACHINE_OK, target, std::move(callback), false);
-            });
+            adoptAndFinish(target, token, std::move(callback));
         });
+    });
+}
+
+void MachineSwitch::adoptAndFinish(const std::string &target, const std::string &token,
+                                   Callback callback)
+{
+    m_steps.adopt(target, token, [this, target, callback = std::move(callback)]() mutable {
+        if (m_steps.stopping()) {
+            return;
+        }
+        INF("API switch machine: now on {}", target);
+        m_steps.changed(target);
+        m_steps.gate(false);
+        finish(SB_SWITCH_MACHINE_OK, target, std::move(callback), false);
+    });
+}
+
+void MachineSwitch::reconcileAndFinish(const std::string &target, const std::string &current,
+                                       sb_switch_machine_result_t unknownResult, Callback callback)
+{
+    m_steps.reconcile([this, target, current, unknownResult, callback = std::move(callback)](
+                              std::optional<std::string> onServer) mutable {
+        if (m_steps.stopping()) {
+            return;
+        }
+        if (onServer && *onServer == target) {
+            if (!current.empty() && current == target) {
+                m_steps.gate(false);
+                finish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback), false);
+                return;
+            }
+            WRN("API switch machine: the server made the switch to {}; adopting it", target);
+            adoptAndFinish(target, {}, std::move(callback));
+            return;
+        }
+        if (onServer) {
+            INF("API switch machine: the server did not make the switch to {}", target);
+        } else {
+            WRN("API switch machine: could not confirm the switch to {}", target);
+        }
+        m_steps.gate(false);
+        finish(unknownResult, target, std::move(callback), true);
     });
 }
 

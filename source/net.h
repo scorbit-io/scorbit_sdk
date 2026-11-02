@@ -256,6 +256,9 @@ struct NetTestAccess {
     struct VpinTransport {
         std::function<cpr::Response(const cpr::Url &, const cpr::Header &)> get;
         std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)> post;
+        /// The scorbitron PATCH a switch of unknown outcome reconciles with.
+        std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)>
+                patch;
     };
     static void setVpinTransport(Net &net, VpinTransport transport);
     /// The production table-mappings read, run on the calling thread.
@@ -601,6 +604,7 @@ private:
     /// The oldest submitGameData() sequence not yet applied; max() when none is pending.
     std::uint64_t oldestPendingGameData() const;
     void drainSessionPosts(MachineSwitch::Done done);
+    task_t createSwitchReconcileTask(std::function<void(std::optional<std::string>)> done);
     task_t createSwitchMachineTask(const std::string &target,
                                    std::function<void(int, const std::string &)> reply);
     void postSwitchMachine(const std::string &target,

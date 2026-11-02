@@ -61,6 +61,10 @@ sb_switch_machine_result_t switchMachineFailure(int httpStatus, const std::strin
 /// The Centrifugo token in a 200 switch-machine body, or "" when there is none.
 std::string switchMachineToken(const std::string &body);
 
+/// The venue machine in a scorbitron object reply: machine.id, "" when unpaired (no machine),
+/// nullopt when the reply is malformed.
+std::optional<std::string> scorbitronMachine(const std::string &body);
+
 /**
  * The SDK's one copy of the table mappings, and how each read's reply changes it.
  *
@@ -109,8 +113,12 @@ public:
         std::function<void(const std::string &target,
                            std::function<void(int status, const std::string &body)>)>
                 post;
-        /// Adopts @p token and refreshes the machine context; @p done once it is in.
+        /// Adopts @p token and refreshes the machine context; @p done once it is in. An empty
+        /// @p token means the switch reply had none: a fresh one is fetched instead.
         std::function<void(const std::string &target, const std::string &token, Done done)> adopt;
+        /// Asks the server which venue machine the device is on now: its uuid, "" if unpaired, or
+        /// nullopt if the server could not be reached. For a switch whose outcome is unknown.
+        std::function<void(std::function<void(std::optional<std::string>)>)> reconcile;
         /// Raises SB_EVT_MACHINE_CHANGED (and the pairing event if it changed).
         std::function<void(const std::string &target)> changed;
         /// Re-reads the table mappings after a failure.
@@ -140,6 +148,12 @@ public:
 private:
     void finish(sb_switch_machine_result_t result, const std::string &target, Callback callback,
                 bool refetch);
+    /// Adopts the switch (@p token may be empty), raises the event, releases posts, calls back.
+    void adoptAndFinish(const std::string &target, const std::string &token, Callback callback);
+    /// For a switch the server may have made although its reply was lost or unusable: settles
+    /// what the server holds before any held post is released.
+    void reconcileAndFinish(const std::string &target, const std::string &current,
+                            sb_switch_machine_result_t unknownResult, Callback callback);
 
     Steps m_steps;
     std::atomic_bool m_inFlight {false};
