@@ -295,6 +295,8 @@ struct NetTestAccess {
     static std::uint64_t machineGen(const Net &net);
     /// An unpair signal outside any switch.
     static void unpairForTest(Net &net);
+    /// As a scorbitron PATCH reply carrying @p body, at the current generation.
+    static void scorbitronRawReply(Net &net, const std::string &body);
     /// As a scorbitron PATCH that got no usable reply.
     static void scorbitronReplyFailed(Net &net);
     /// The delay the next scorbitron PATCH retry will wait.

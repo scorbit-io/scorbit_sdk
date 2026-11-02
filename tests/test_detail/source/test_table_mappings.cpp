@@ -1021,6 +1021,26 @@ TEST_CASE("A game's reply that outlives a move adds no profiles to the new machi
     CHECK(v.net->playersManager().profile(1));
 }
 
+TEST_CASE("A scorbitron reply whose machine has no id leaves the pairing as it is")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    NetTestAccess::scorbitronRawReply(*v.net, R"({"machine":{"name":"x"}})");
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedPaired);
+    CHECK(v.net->venueMachine() == CURRENT);
+
+    // While the pairing is being checked, it is a failed answer: the retry stays armed.
+    NetTestAccess::setStatus(*v.net, AuthStatus::AuthenticatedCheckingPairing);
+    const auto first = NetTestAccess::scorbitronRetryBackoff(*v.net);
+    NetTestAccess::scorbitronRawReply(*v.net, R"({"machine":{"id":5}})");
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedCheckingPairing);
+    CHECK(NetTestAccess::scorbitronRetryBackoff(*v.net) == first * 2);
+
+    // A null machine is still an authoritative "unpaired".
+    NetTestAccess::scorbitronRawReply(*v.net, R"({"machine":null})");
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedUnpaired);
+}
+
 TEST_CASE("A config reply for a machine since left changes nothing")
 {
     VpinNet v(false);

@@ -3621,7 +3621,8 @@ void Net::commitLatestGameData(int sessionId)
             // While that is still the current machine, the live context carries the details
             // (variant, venue) that may have arrived since.
             const auto live = machine();
-            const auto ctx = stamped && stamped->machineUuid != live.machineUuid ? *stamped : live;
+            const bool moved = stamped && stamped->machineUuid != live.machineUuid;
+            const auto ctx = moved ? *stamped : live;
             const auto modes = json::parse(gameData.modes.jsonStr());
             const auto updatedAt = to_iso8601(chrono::system_clock::now());
             const auto createdAt = to_iso8601(startedSystemTime);
@@ -3629,7 +3630,9 @@ void Net::commitLatestGameData(int sessionId)
             json::array_t scores;
             for (const auto &[playerNum, playerState] : gameData.players) {
                 json playerProfileJson = nullptr;
-                if (const auto playerProfile = m_playersManager.profile(playerNum);
+                // The live profiles are the current machine's: none for a game on one since left.
+                if (const auto playerProfile =
+                            moved ? std::nullopt : m_playersManager.profile(playerNum);
                     playerProfile.has_value() && playerProfile->hasInfo()) {
                     playerProfileJson = {
                             {JKEY_PLAYER_ID, playerProfile->id},
@@ -4629,7 +4632,14 @@ void Net::parseScorbitronObject(Error error, const std::string &reply, std::uint
         }
 
         // "machine"
-        const auto replyMachine = scorbitronMachine(reply).value_or(std::string {});
+        // A machine object without a usable id is no answer: it must not read as "unpaired".
+        const auto parsedMachine = scorbitronMachine(reply);
+        if (!parsedMachine) {
+            ERR("API scorbitron reply has a machine with no id, pairing left as it is");
+            retryScorbitronObjectIfPairingUnresolved();
+            return;
+        }
+        const auto &replyMachine = *parsedMachine;
         const bool isPaired = !replyMachine.empty();
 
         // Stale (an authoritative change came after this request) or a switch is running: the
@@ -5187,6 +5197,11 @@ std::uint64_t NetTestAccess::machineGen(const Net &net)
 void NetTestAccess::unpairForTest(Net &net)
 {
     net.onUnpaired();
+}
+
+void NetTestAccess::scorbitronRawReply(Net &net, const std::string &body)
+{
+    net.parseScorbitronObject(Error::Success, body, net.machineGen());
 }
 
 void NetTestAccess::scorbitronReplyFailed(Net &net)
