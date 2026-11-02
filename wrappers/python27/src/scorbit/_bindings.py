@@ -77,6 +77,12 @@ sb_buffer_callback_t = CFUNCTYPE(None, c_int, POINTER(c_uint8), c_size_t, c_void
 # void (*sb_leaderboard_callback_t)(sb_error_t error, sb_leaderboard_t*, void *user_data)
 sb_leaderboard_callback_t = CFUNCTYPE(None, c_int, sb_leaderboard_t, c_void_p)
 
+# void (*sb_switch_machine_callback_t)(sb_switch_machine_result_t, const char *venuemachine, void*)
+sb_switch_machine_callback_t = CFUNCTYPE(None, c_int, c_char_p, c_void_p)
+
+# struct sb_table_mappings_struct * (opaque, owned by the caller)
+sb_table_mappings_t = c_void_p
+
 # int (*sb_signer_callback_t)(uint8_t signature[72], size_t *signature_len,
 #                              const uint8_t digest[32], void *user_data)
 sb_signer_callback_t = CFUNCTYPE(
@@ -157,6 +163,10 @@ _lib.sb_config_set_serial_number.argtypes = [sb_config_t, c_uint64]
 # void sb_config_set_auto_download_player_pics(sb_config_t, bool)
 _lib.sb_config_set_auto_download_player_pics.restype = None
 _lib.sb_config_set_auto_download_player_pics.argtypes = [sb_config_t, c_bool]
+
+# void sb_config_set_vpin_table_mappings(sb_config_t, bool)
+_lib.sb_config_set_vpin_table_mappings.restype = None
+_lib.sb_config_set_vpin_table_mappings.argtypes = [sb_config_t, c_bool]
 
 # void sb_config_set_threads_priority(sb_config_t, int)
 _lib.sb_config_set_threads_priority.restype = None
@@ -297,6 +307,34 @@ _lib.sb_get_status.argtypes = [sb_game_handle_t]
 # const char* sb_get_machine_uuid(sb_game_handle_t)
 _lib.sb_get_machine_uuid.restype = c_char_p
 _lib.sb_get_machine_uuid.argtypes = [sb_game_handle_t]
+
+# VPIN table mappings and machine switch
+_lib.sb_get_table_mappings.restype = sb_table_mappings_t
+_lib.sb_get_table_mappings.argtypes = [sb_game_handle_t]
+_lib.sb_refresh_table_mappings.restype = None
+_lib.sb_refresh_table_mappings.argtypes = [sb_game_handle_t]
+_lib.sb_get_venue_machine.restype = c_size_t
+_lib.sb_get_venue_machine.argtypes = [sb_game_handle_t, c_char_p, c_size_t]
+_lib.sb_switch_machine.restype = None
+_lib.sb_switch_machine.argtypes = [
+    sb_game_handle_t, c_char_p, sb_switch_machine_callback_t, c_void_p
+]
+_lib.sb_table_mappings_free.restype = None
+_lib.sb_table_mappings_free.argtypes = [sb_table_mappings_t]
+_lib.sb_table_mappings_result.restype = c_int
+_lib.sb_table_mappings_result.argtypes = [sb_table_mappings_t]
+_lib.sb_table_mappings_etag.restype = c_char_p
+_lib.sb_table_mappings_etag.argtypes = [sb_table_mappings_t]
+_lib.sb_table_mappings_server_time.restype = c_char_p
+_lib.sb_table_mappings_server_time.argtypes = [sb_table_mappings_t]
+_lib.sb_table_mappings_count.restype = c_size_t
+_lib.sb_table_mappings_count.argtypes = [sb_table_mappings_t]
+_lib.sb_table_mapping_key_type.restype = c_char_p
+_lib.sb_table_mapping_key_type.argtypes = [sb_table_mappings_t, c_size_t]
+_lib.sb_table_mapping_table_key.restype = c_char_p
+_lib.sb_table_mapping_table_key.argtypes = [sb_table_mappings_t, c_size_t]
+_lib.sb_table_mapping_venuemachine.restype = c_char_p
+_lib.sb_table_mapping_venuemachine.argtypes = [sb_table_mappings_t, c_size_t]
 
 # uint64_t sb_get_machine_serial(sb_game_handle_t)
 _lib.sb_get_machine_serial.restype = c_uint64
@@ -553,6 +591,10 @@ _lib.sb_event_pricing_bundle_sale_price.argtypes = [c_void_p, c_int, POINTER(c_c
 # bool sb_event_pairing_status_changed(const sb_event_t*, bool*)
 _lib.sb_event_pairing_status_changed.restype = c_bool
 _lib.sb_event_pairing_status_changed.argtypes = [c_void_p, POINTER(c_bool)]
+
+# bool sb_event_machine_changed(const sb_event_t*, const char**)
+_lib.sb_event_machine_changed.restype = c_bool
+_lib.sb_event_machine_changed.argtypes = [c_void_p, POINTER(c_char_p)]
 
 # void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
 #                             const char**, size_t, const char*)

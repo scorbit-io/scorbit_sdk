@@ -92,6 +92,19 @@ typedef enum {
      */
     SB_EVT_PAIRING_STATUS_CHANGED,
 
+    /**
+     * @brief The VPIN table mappings, or how their last read ended, have changed.
+     * No payload: call @ref sb_get_table_mappings.
+     */
+    SB_EVT_TABLE_MAPPINGS_UPDATED,
+
+    /**
+     * @brief The device moved to another venue machine through @ref sb_switch_machine.
+     * Use @ref sb_event_machine_changed to get the new VenueMachine uuid. The SDK has forgotten
+     * the old machine's player profiles: reset any player display.
+     */
+    SB_EVT_MACHINE_CHANGED,
+
     // ------------------ OEM providers can ignore the events below ------------------
 
     SB_EVT_NONE = 1000, // This event shoud not be used

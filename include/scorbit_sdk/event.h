@@ -139,6 +139,26 @@ public:
     }
 
     /**
+     * @brief Helper function to process a machine changed event.
+     *
+     * The event type must be @ref scorbit::EventType::MachineChanged, otherwise the function
+     * returns false. @ref scorbit::EventType::TableMappingsUpdated carries no payload: call
+     * @ref GameState::tableMappings instead.
+     *
+     * @param venueMachine [OUT] The new VenueMachine uuid.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getMachineChanged(std::string &venueMachine) const
+    {
+        const char *venueMachineCStr = nullptr;
+        if (!::sb_event_machine_changed(m_event, &venueMachineCStr)) {
+            return false;
+        }
+        venueMachine = venueMachineCStr ? std::string(venueMachineCStr) : std::string {};
+        return true;
+    }
+
+    /**
      * @brief Helper function to process a players updated event.
      *
      * Populates a map of player numbers to @ref PlayerInfo structs from the event data.

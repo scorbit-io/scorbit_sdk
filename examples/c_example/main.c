@@ -365,6 +365,18 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    // VPIN hosts only: these follow sb_config_set_vpin_table_mappings and sb_switch_machine.
+    case SB_EVT_TABLE_MAPPINGS_UPDATED:
+        printf("Table mappings updated, read them with sb_get_table_mappings\n");
+        break;
+
+    case SB_EVT_MACHINE_CHANGED: {
+        const char *venuemachine = NULL;
+        if (sb_event_machine_changed(event, &venuemachine)) {
+            printf("Machine changed: %s\n", venuemachine ? venuemachine : "NULL");
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;

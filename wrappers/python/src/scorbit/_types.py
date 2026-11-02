@@ -251,3 +251,45 @@ class LeaderboardResult(object):
     def __repr__(self):
         # type: () -> str
         return "LeaderboardResult(entries={!r})".format(len(self.entries))
+
+
+class TableMapping(object):
+    """One VPIN table mapping, as the server sent it. ``key_type`` and ``table_key`` are opaque."""
+
+    __slots__ = ("key_type", "table_key", "venue_machine")
+
+    def __init__(self, key_type="", table_key="", venue_machine=""):
+        # type: (str, str, str) -> None
+        self.key_type = key_type
+        self.table_key = table_key
+        self.venue_machine = venue_machine
+
+    def __repr__(self):
+        # type: () -> str
+        return "TableMapping(key_type={!r}, table_key={!r}, venue_machine={!r})".format(
+            self.key_type, self.table_key, self.venue_machine
+        )
+
+
+class TableMappings(object):
+    """A copy of the VPIN table mappings; see :meth:`GameState.table_mappings`."""
+
+    __slots__ = ("result", "etag", "server_time", "mappings")
+
+    def __init__(self, result=0, etag="", server_time="", mappings=None):
+        # type: (int, str, str, list | None) -> None
+        self.result = result
+        self.etag = etag
+        self.server_time = server_time
+        self.mappings = mappings if mappings is not None else []
+
+    def __len__(self):
+        # type: () -> int
+        return len(self.mappings)
+
+    def __iter__(self):
+        return iter(self.mappings)
+
+    def __repr__(self):
+        # type: () -> str
+        return "TableMappings(result={!r}, mappings={!r})".format(self.result, len(self.mappings))

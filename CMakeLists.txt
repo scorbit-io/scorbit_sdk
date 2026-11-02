@@ -183,6 +183,8 @@ target_sources(
         include/scorbit_sdk/scorbit_sdk_c.h
         include/scorbit_sdk/leaderboard.h
         include/scorbit_sdk/leaderboard_c.h
+        include/scorbit_sdk/table_mappings.h
+        include/scorbit_sdk/table_mappings_c.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
@@ -196,6 +198,8 @@ target_sources(
         source/net.h
         source/leaderboard_internal.h
         source/leaderboard_c.cpp
+        source/table_mappings_internal.h
+        source/table_mappings.cpp
         source/player_state.h
         source/player_state.cpp
         source/modes.h

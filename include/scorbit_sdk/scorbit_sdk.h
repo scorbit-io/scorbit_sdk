@@ -23,6 +23,7 @@
 #include "game_state.h"
 #include "game_state_factory.h"
 #include "leaderboard.h"
+#include "table_mappings.h"
 #include "log.h"
 #include "net_types.h"
 #include "event.h"

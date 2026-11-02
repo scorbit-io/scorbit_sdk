@@ -310,6 +310,18 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    // VPIN hosts only: these follow setVpinTableMappings() and switchMachine().
+    case scorbit::EventType::TableMappingsUpdated:
+        cout << "Table mappings updated, read them with tableMappings()" << endl;
+        break;
+
+    case scorbit::EventType::MachineChanged: {
+        std::string venueMachine;
+        if (event.getMachineChanged(venueMachine)) {
+            cout << "Machine changed: " << venueMachine << endl;
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {

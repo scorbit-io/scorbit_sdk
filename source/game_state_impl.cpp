@@ -517,5 +517,27 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     return true;
 }
 
+TableMappingsSnapshot GameStateImpl::tableMappings() const
+{
+    return m_net->tableMappings();
+}
+
+void GameStateImpl::refreshTableMappings()
+{
+    m_net->refreshTableMappings();
+}
+
+void GameStateImpl::switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback)
+{
+    // Checked here, on the thread that runs setGameStarted() and setGameFinished() in order.
+    if (m_data.isGameActive) {
+        if (callback) {
+            callback(SB_SWITCH_MACHINE_GAME_ACTIVE, venueMachine);
+        }
+        return;
+    }
+    m_net->switchMachine(venueMachine, std::move(callback));
+}
+
 } // namespace detail
 } // namespace scorbit

@@ -28,6 +28,7 @@
 #include "player_profiles_manager.h"
 #include "event_classes.h"
 #include "session_flags.h"
+#include "table_mappings_internal.h"
 #include <boost/signals2.hpp>
 #include <cstdint>
 #include <string>
@@ -185,6 +186,20 @@ public:
         (void)firmware;
     }
     virtual void setPbspkcommFirmwareId(const std::string &firmwareId) { (void)firmwareId; }
+
+    /// The VenueMachine uuid the device is on (the scorbitron object's machine.id), "" if none.
+    virtual std::string venueMachine() const { return {}; }
+    /// A copy of the VPIN table mappings (sb_get_table_mappings).
+    virtual TableMappingsSnapshot tableMappings() const { return {}; }
+    /// Re-reads the VPIN table mappings, resuming reads a refusal stopped.
+    virtual void refreshTableMappings() { }
+    /// Starts a switch to @p venueMachine; the game-active refusal is the caller's.
+    virtual void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback)
+    {
+        if (callback) {
+            callback(SB_SWITCH_MACHINE_FAILED, venueMachine);
+        }
+    }
 
     void setNumberOfPlayersRequested(int count) { m_numberOfPlayersRequested = count; }
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }

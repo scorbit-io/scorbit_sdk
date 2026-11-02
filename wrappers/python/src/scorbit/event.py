@@ -165,6 +165,22 @@ class Event(object):
             return bool(is_paired.value)
         return None
 
+    def get_machine_changed(self):
+        """Parse a ``MachineChanged`` event.
+
+        Returns:
+            The new VenueMachine uuid, or ``None`` if the event type does not match.
+            ``TableMappingsUpdated`` carries no payload: call
+            :meth:`GameState.table_mappings` instead.
+        """
+        venuemachine = c_char_p()
+        if _lib.sb_event_machine_changed(self._ptr, byref(venuemachine)):
+            raw = venuemachine.value
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", "replace")
+            return raw or ""
+        return None
+
     # ------------------------------------------------------------------
     # Config
     # ------------------------------------------------------------------
