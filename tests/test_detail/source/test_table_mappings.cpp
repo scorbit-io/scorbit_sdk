@@ -28,6 +28,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -247,14 +248,15 @@ struct FakeSwitch {
     bool stop {false};
     int postStatus {200};
     std::string postBody {R"({"token":"jwt"})"};
-    /// What the server says the device is on when a switch's outcome is unknown.
-    std::optional<std::string> onServer;
+    /// What resolution reports; nullopt passes the outcome's own result through.
+    std::optional<sb_switch_machine_result_t> resolvedAs;
     MachineSwitch::Done pendingDrain;
     MachineSwitch::Done pendingAdopt;
     std::vector<std::pair<sb_switch_machine_result_t, std::string>> results;
 
     MachineSwitch make()
     {
+        using Kind = MachineSwitch::Outcome::Kind;
         MachineSwitch::Steps steps;
         steps.gate = [this](bool hold) { calls.push_back(hold ? "hold" : "release"); };
         steps.drain = [this](MachineSwitch::Done done) {
@@ -279,16 +281,16 @@ struct FakeSwitch {
                 done();
             }
         };
-        steps.changed = [this](const std::string &target) { calls.push_back("changed " + target); };
-        steps.reconcile = [this](std::function<void(std::optional<std::string>)> done) {
-            calls.push_back("reconcile");
-            done(onServer);
+        steps.resolve = [this](const MachineSwitch::Outcome &outcome, const std::string &,
+                               const std::string &, MachineSwitch::Resolved done) {
+            static const std::map<Kind, std::string> names {{Kind::Switched, "switched"},
+                                                            {Kind::AlreadyAttached, "already"},
+                                                            {Kind::Refused, "refused"},
+                                                            {Kind::Unknown, "unknown"}};
+            calls.push_back("resolve " + names.at(outcome.kind));
+            done(resolvedAs.value_or(outcome.result));
         };
         steps.refetch = [this] { calls.push_back("refetch"); };
-        steps.settle = [this](bool onTarget, const std::string &, MachineSwitch::Done done) {
-            calls.push_back(onTarget ? "settle on" : "settle off");
-            done();
-        };
         steps.deliver = [this](MachineSwitch::Done fn) {
             calls.push_back("deliver");
             fn();
@@ -307,7 +309,7 @@ struct FakeSwitch {
 
 } // namespace
 
-TEST_CASE("A switch holds posts, drains, posts, adopts, raises the event, releases, calls back")
+TEST_CASE("A switch holds posts, drains, posts, adopts, resolves, releases, then calls back")
 {
     FakeSwitch fake;
     auto sw = fake.make();
@@ -315,12 +317,45 @@ TEST_CASE("A switch holds posts, drains, posts, adopts, raises the event, releas
 
     CHECK(fake.calls
           == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "adopt jwt",
-                                       std::string {"changed "} + TARGET, "settle on", "release",
-                                       "deliver"});
+                                       "resolve switched", "release", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
     CHECK(fake.results[0].second == TARGET);
     CHECK_FALSE(sw.inFlight());
+}
+
+TEST_CASE("Every way a switch ends goes through one resolution before posts are released")
+{
+    struct Row {
+        int status;
+        std::string body;
+        std::string current;
+        std::string resolve;
+        bool refetch;
+    };
+    for (const auto &row : std::vector<Row> {
+                 {404, errorBody("venuemachine_not_found"), CURRENT, "resolve refused", true},
+                 {0, "", CURRENT, "resolve unknown", true},
+                 {502, "", CURRENT, "resolve unknown", true},
+                 {200, R"({"channels":[]})", CURRENT, "resolve unknown", true},
+                 {200, R"({"token":"jwt"})", TARGET, "resolve already", false},
+         }) {
+        FakeSwitch fake;
+        fake.postStatus = row.status;
+        fake.postBody = row.body;
+        auto sw = fake.make();
+        sw.start(TARGET, row.current, true, fake.callback());
+
+        std::vector<std::string> expected {"hold", "drain", std::string {"post "} + TARGET,
+                                           row.resolve, "release"};
+        if (row.refetch) {
+            expected.push_back("refetch");
+        }
+        expected.push_back("deliver");
+        CHECK(fake.calls == expected);
+        CHECK(fake.results.size() == 1);
+        CHECK_FALSE(sw.inFlight());
+    }
 }
 
 TEST_CASE("A second switch while one is in flight is BUSY and leaves the first alone")
@@ -351,45 +386,6 @@ TEST_CASE("A switch without a session is refused before anything is held")
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NOT_AUTHENTICATED);
     CHECK_FALSE(sw.inFlight());
-}
-
-TEST_CASE("A switch to the machine already attached changes nothing")
-{
-    FakeSwitch fake;
-    auto sw = fake.make();
-    sw.start(TARGET, TARGET, true, fake.callback());
-    CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "settle on",
-                                       "release", "deliver"});
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_ALREADY_ATTACHED);
-}
-
-TEST_CASE("A refused switch releases the posts, re-reads the mappings and reports the code")
-{
-    FakeSwitch fake;
-    fake.postStatus = 404;
-    fake.postBody = errorBody("venuemachine_not_found");
-    auto sw = fake.make();
-    sw.start(TARGET, CURRENT, true, fake.callback());
-    CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
-                                       "settle off", "release", "refetch", "deliver"});
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_TARGET_NOT_FOUND);
-    CHECK_FALSE(sw.inFlight());
-}
-
-TEST_CASE("A 200 without a token is FAILED and adopts nothing")
-{
-    FakeSwitch fake;
-    fake.postBody = R"({"channels":[]})";
-    auto sw = fake.make();
-    sw.start(TARGET, CURRENT, true, fake.callback());
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_FAILED);
-    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "adopt ") == fake.calls.end());
-    CHECK(fake.calls.back() == "deliver");
 }
 
 TEST_CASE("A switch cut short by shutdown never calls back")
@@ -497,9 +493,10 @@ TEST_CASE("A switch through Net posts the target, adopts the token and raises MA
             [&](sb_switch_machine_result_t result, const std::string &) {
                 results.push_back(result);
             },
-            [&](const std::string &, const std::string &token, MachineSwitch::Done done) {
+            [&](const std::string &target, const std::string &token, MachineSwitch::Done done) {
                 adoptedToken = token;
                 CHECK(NetTestAccess::switchGateHeld(*v.net));
+                NetTestAccess::adoptForTest(*v.net, target);
                 done();
             });
     v.drain();
@@ -698,232 +695,159 @@ TEST_CASE("scorbitronMachine reads the scorbitron object's machine")
     CHECK_FALSE(scorbitronMachine("<html>"));
 }
 
-TEST_CASE("A switch with no answer that the server made is adopted before posts go out")
-{
-    for (const int status : {0, 502}) {
-        FakeSwitch fake;
-        fake.postStatus = status;
-        fake.postBody = "";
-        fake.onServer = TARGET;
-        auto sw = fake.make();
-        sw.start(TARGET, CURRENT, true, fake.callback());
-
-        CHECK(fake.calls
-              == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
-                                           "reconcile", "adopt ", std::string {"changed "} + TARGET,
-                                           "settle on", "release", "deliver"});
-        REQUIRE(fake.results.size() == 1);
-        CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
-    }
-}
-
-TEST_CASE("A switch with no answer that the server did not make changes nothing")
-{
-    FakeSwitch fake;
-    fake.postStatus = 0;
-    fake.postBody = "";
-    fake.onServer = CURRENT;
-    auto sw = fake.make();
-    sw.start(TARGET, CURRENT, true, fake.callback());
-
-    CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "reconcile",
-                                       "settle off", "release", "refetch", "deliver"});
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
-}
-
-TEST_CASE("A switch whose outcome cannot be confirmed reports NETWORK")
-{
-    FakeSwitch fake;
-    fake.postStatus = 0;
-    fake.postBody = "";
-    auto sw = fake.make(); // onServer stays nullopt: the server cannot be reached
-    sw.start(TARGET, CURRENT, true, fake.callback());
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
-    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "adopt ") == fake.calls.end());
-}
-
-TEST_CASE("A 200 without a token that the server made is adopted with a fresh token")
-{
-    FakeSwitch fake;
-    fake.postBody = R"({"channels":[]})";
-    fake.onServer = TARGET;
-    auto sw = fake.make();
-    sw.start(TARGET, CURRENT, true, fake.callback());
-    REQUIRE(fake.results.size() == 1);
-    CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
-    CHECK(std::find(fake.calls.begin(), fake.calls.end(), "adopt ") != fake.calls.end());
-}
-
-TEST_CASE("Through Net, a lost switch reply is reconciled from the scorbitron object")
-{
-    VpinNet v(false);
-    NetTestAccess::setMachineUuid(*v.net, CURRENT);
-    bool patched = false;
-    NetTestAccess::setVpinTransport(
-            *v.net,
-            {.post = [](const cpr::Url &, const cpr::Body &,
-                        const cpr::Header &) { return response(0); },
-             .patch =
-                     [&](const cpr::Url &url, const cpr::Body &, const cpr::Header &) {
-                         patched = true;
-                         CHECK(url.str().find("/scorbitrons/") != std::string::npos);
-                         return response(200,
-                                         nlohmann::json {{"machine", {{"id", TARGET}}}}.dump());
-                     }});
-
-    std::string adoptedToken = "unset";
-    std::vector<sb_switch_machine_result_t> results;
-    NetTestAccess::runSwitchMachine(
-            *v.net, TARGET,
-            [&](sb_switch_machine_result_t result, const std::string &) {
-                results.push_back(result);
-            },
-            [&](const std::string &, const std::string &token, MachineSwitch::Done done) {
-                adoptedToken = token;
-                CHECK(NetTestAccess::switchGateHeld(*v.net));
-                done();
-            });
-    v.drain();
-
-    CHECK(patched);
-    CHECK(adoptedToken.empty()); // no token from the lost reply: the reconnect fetches one
-    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
-    CHECK(v.machineChanged == std::vector<std::string> {TARGET});
-    CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
-}
-
-TEST_CASE("A pairing change folded into a failed switch is applied before posts are released")
-{
-    VpinNet v(false);
-    NetTestAccess::setMachineUuid(*v.net, CURRENT);
-    std::optional<AuthStatus> statusWhenSent;
-    NetTestAccess::setVpinTransport(
-            *v.net, {.post = [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
-                // While the switch is on the wire, a game starts (its post is held) and the
-                // owner unpairs the device (the signal is folded into the switch).
-                NetTestAccess::postOrHoldForSwitch(
-                        *v.net, 1, [&] { statusWhenSent = NetTestAccess::status(*v.net); });
-                CHECK(NetTestAccess::foldIntoSwitch(*v.net, false));
-                return response(403, errorBody("venuemachine_not_owned"));
-            }});
-
-    std::vector<sb_switch_machine_result_t> results;
-    NetTestAccess::runSwitchMachine(
-            *v.net, TARGET,
-            [&](sb_switch_machine_result_t result, const std::string &) {
-                results.push_back(result);
-            },
-            [](const std::string &, const std::string &, MachineSwitch::Done) {
-                FAIL("a refused switch adopts nothing");
-            });
-    v.drain();
-
-    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_TARGET_NOT_OWNED});
-    REQUIRE(statusWhenSent);
-    CHECK(*statusWhenSent == AuthStatus::AuthenticatedUnpaired); // the unpair came first
-    CHECK(v.net->venueMachine().empty());
-    CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
-}
+// ------------------------------------- switch resolution table --------------------------------
+// Every outcome x every kind of news racing the switch x every server answer. The invariant:
+// exactly one callback, the gate released, and a game started during the switch stamped with the
+// machine the server ends up with (none if unpaired), never a stale one.
 
 namespace {
 
-/// A switch the server makes, during which the owner unpairs the device and a game starts; the
-/// scorbitron object then reports @p onServer. Returns the status the game's held post saw.
-std::optional<AuthStatus> switchWithUnpairDuringIt(VpinNet &v, nlohmann::json onServer,
-                                                   std::vector<sb_switch_machine_result_t> &results)
+constexpr auto OTHER = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+constexpr auto UNREACHABLE = "<unreachable>";
+
+enum class Race { None, Paired, Unpaired, StaleReply, NewsDuringCheck };
+
+struct ResolutionRow {
+    const char *name;
+    int postStatus;
+    std::string postBody;
+    std::string start;
+    Race race;
+    std::vector<std::string> answers; ///< what each server check returns, in order
+    sb_switch_machine_result_t result;
+    std::string machine; ///< the held game's stamp and the device's machine after
+    int checks;          ///< server checks made
+};
+
+nlohmann::json scorbitronReply(const std::string &machine)
 {
-    std::optional<AuthStatus> statusWhenSent;
-    NetTestAccess::setMachineUuid(*v.net, CURRENT);
-    NetTestAccess::setVpinTransport(
-            *v.net,
-            {.post =
-                     [&v, &statusWhenSent](const cpr::Url &, const cpr::Body &,
-                                           const cpr::Header &) {
-                         NetTestAccess::postOrHoldForSwitch(*v.net, 1, [&] {
-                             statusWhenSent = NetTestAccess::status(*v.net);
-                         });
-                         CHECK(NetTestAccess::foldIntoSwitch(*v.net, false));
-                         return response(200, R"({"token":"jwt"})");
-                     },
-             .patch = [onServer](const cpr::Url &, const cpr::Body &,
-                                 const cpr::Header &) { return response(200, onServer.dump()); }});
-    NetTestAccess::runSwitchMachine(
-            *v.net, TARGET,
-            [&](sb_switch_machine_result_t result, const std::string &) {
-                results.push_back(result);
-            },
-            [&v](const std::string &target, const std::string &, MachineSwitch::Done done) {
-                NetTestAccess::setMachineUuid(*v.net, target);
-                done();
-            });
-    v.drain();
-    return statusWhenSent;
+    if (machine.empty()) {
+        return {{"machine", nullptr}};
+    }
+    return {{"machine", {{"id", machine}}}};
 }
 
 } // namespace
 
-TEST_CASE("An unpair during a successful switch is settled with the server before posts go out")
+TEST_CASE("Switch resolution: every outcome, race and server answer ends on the server's machine")
 {
-    SECTION("the server has ended the pairing: the unpair applies first")
-    {
-        VpinNet v(false);
-        std::vector<sb_switch_machine_result_t> results;
-        const auto seen = switchWithUnpairDuringIt(v, {{"machine", nullptr}}, results);
-        CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
-        REQUIRE(seen);
-        CHECK(*seen == AuthStatus::AuthenticatedUnpaired);
-        CHECK(v.net->venueMachine().empty());
-    }
-    SECTION("the server still has the device on the target: the unpair was the switch's own")
-    {
-        VpinNet v(false);
-        std::vector<sb_switch_machine_result_t> results;
-        const auto seen = switchWithUnpairDuringIt(v, {{"machine", {{"id", TARGET}}}}, results);
-        CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
-        REQUIRE(seen);
-        CHECK(*seen == AuthStatus::AuthenticatedPaired);
-        CHECK(v.net->venueMachine() == TARGET);
+    const std::string ok = R"({"token":"jwt"})";
+    const std::string notOwned = errorBody("venuemachine_not_owned");
+    // clang-format off
+    const std::vector<ResolutionRow> rows {
+        {"switched, clean",                200, ok, CURRENT, Race::None,       {},              SB_SWITCH_MACHINE_OK,                TARGET,  0},
+        {"switched, re-pair, on target",   200, ok, CURRENT, Race::Paired,     {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
+        {"switched, re-pair, elsewhere",   200, ok, CURRENT, Race::Paired,     {OTHER},         SB_SWITCH_MACHINE_FAILED,            OTHER,   1},
+        {"switched, unpair, unpaired",     200, ok, CURRENT, Race::Unpaired,   {""},            SB_SWITCH_MACHINE_FAILED,            "",      1},
+        {"switched, unpair, on target",    200, ok, CURRENT, Race::Unpaired,   {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
+        {"switched, stale reply",          200, ok, CURRENT, Race::StaleReply, {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
+        {"switched, news during check",    200, ok, CURRENT, Race::NewsDuringCheck, {TARGET, OTHER}, SB_SWITCH_MACHINE_FAILED,   OTHER,   2},
+        {"switched, unreachable",          200, ok, CURRENT, Race::Unpaired,   {UNREACHABLE},   SB_SWITCH_MACHINE_FAILED,            "",      1},
+        {"already attached, clean",        200, ok, TARGET,  Race::None,       {},              SB_SWITCH_MACHINE_ALREADY_ATTACHED,  TARGET,  0},
+        {"already attached, re-pair",      200, ok, TARGET,  Race::Paired,     {OTHER},         SB_SWITCH_MACHINE_FAILED,            OTHER,   1},
+        {"refused, clean",                 403, notOwned, CURRENT, Race::None, {},              SB_SWITCH_MACHINE_TARGET_NOT_OWNED,  CURRENT, 0},
+        {"refused, re-pair elsewhere",     403, notOwned, CURRENT, Race::Paired, {OTHER},       SB_SWITCH_MACHINE_TARGET_NOT_OWNED,  OTHER,   1},
+        {"refused, unpair",                403, notOwned, CURRENT, Race::Unpaired, {""},        SB_SWITCH_MACHINE_TARGET_NOT_OWNED,  "",      1},
+        {"no answer, server made it",      502, "", CURRENT, Race::None,       {TARGET},        SB_SWITCH_MACHINE_OK,                TARGET,  1},
+        {"no answer, server did not",      502, "", CURRENT, Race::None,       {CURRENT},       SB_SWITCH_MACHINE_NETWORK,           CURRENT, 1},
+        {"no answer, unreachable",         502, "", CURRENT, Race::None,       {UNREACHABLE},   SB_SWITCH_MACHINE_NETWORK,           "",      1},
+        {"no token, server made it",       200, R"({"channels":[]})", CURRENT, Race::None, {TARGET}, SB_SWITCH_MACHINE_OK,           TARGET,  1},
+    };
+    // clang-format on
+
+    for (const auto &row : rows) {
+        DYNAMIC_SECTION(row.name)
+        {
+            VpinNet v(false);
+            NetTestAccess::setMachineUuid(*v.net, row.start);
+            std::size_t check = 0;
+            NetTestAccess::setVpinTransport(
+                    *v.net,
+                    {.post =
+                             [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                                 // A game starts while the switch is on the wire.
+                                 GameData game;
+                                 game.id = 1;
+                                 v.net->sessionCreate(game, GameStartOrigin::StartButton, {});
+                                 switch (row.race) {
+                                 case Race::Paired:
+                                 case Race::Unpaired:
+                                 case Race::NewsDuringCheck:
+                                     CHECK(NetTestAccess::foldIntoSwitch(*v.net));
+                                     break;
+                                 case Race::StaleReply:
+                                     NetTestAccess::staleScorbitronReply(*v.net, OTHER);
+                                     break;
+                                 case Race::None:
+                                     break;
+                                 }
+                                 return response(row.postStatus, row.postBody);
+                             },
+                     .patch =
+                             [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                                 REQUIRE(check < row.answers.size());
+                                 const auto answer = row.answers[check++];
+                                 if (row.race == Race::NewsDuringCheck && check == 1) {
+                                     CHECK(NetTestAccess::foldIntoSwitch(*v.net)); // more news
+                                 }
+                                 if (answer == UNREACHABLE) {
+                                     return response(503);
+                                 }
+                                 return response(200, scorbitronReply(answer).dump());
+                             }});
+
+            std::vector<sb_switch_machine_result_t> results;
+            NetTestAccess::runSwitchMachine(
+                    *v.net, TARGET,
+                    [&](sb_switch_machine_result_t result, const std::string &) {
+                        results.push_back(result);
+                    },
+                    [&](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                        NetTestAccess::adoptForTest(*v.net, target);
+                        done();
+                    });
+            v.drain();
+
+            CHECK(results == std::vector<sb_switch_machine_result_t> {row.result});
+            CHECK(check == static_cast<std::size_t>(row.checks));
+            CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
+            CHECK(v.net->venueMachine() == row.machine);
+            CHECK(NetTestAccess::sessionMachine(*v.net, 1)
+                  == std::optional<std::string> {row.machine});
+        }
     }
 }
 
-TEST_CASE("A re-pair folded into a failed switch has its machine in place before posts go out")
+TEST_CASE("A game from before a switch keeps its machine after the switch")
 {
-    constexpr auto OTHER = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
     VpinNet v(false);
     NetTestAccess::setMachineUuid(*v.net, CURRENT);
-    std::optional<std::string> machineWhenSent;
+    GameData finished;
+    finished.id = 1;
+    v.net->sessionCreate(finished, GameStartOrigin::StartButton, {});
+    REQUIRE(NetTestAccess::sessionMachine(*v.net, 1) == std::optional<std::string> {CURRENT});
+
     NetTestAccess::setVpinTransport(
-            *v.net,
-            {.post =
-                     [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
-                         // A game starts and the device is re-paired elsewhere while the switch is
-                         // out.
-                         NetTestAccess::postOrHoldForSwitch(
-                                 *v.net, 1, [&] { machineWhenSent = v.net->venueMachine(); });
-                         CHECK(NetTestAccess::foldIntoSwitch(*v.net, true));
-                         return response(403, errorBody("venuemachine_not_owned"));
-                     },
-             .patch =
-                     [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
-                         return response(200, nlohmann::json {{"machine", {{"id", OTHER}}}}.dump());
-                     }});
-
-    std::vector<sb_switch_machine_result_t> results;
+            *v.net, {.post = [](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                return response(200, R"({"token":"jwt"})");
+            }});
     NetTestAccess::runSwitchMachine(
-            *v.net, TARGET,
-            [&](sb_switch_machine_result_t result, const std::string &) {
-                results.push_back(result);
-            },
-            [](const std::string &, const std::string &, MachineSwitch::Done) {
-                FAIL("a refused switch adopts nothing");
+            *v.net, TARGET, [](sb_switch_machine_result_t, const std::string &) {},
+            [&](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                NetTestAccess::adoptForTest(*v.net, target);
+                done();
             });
-    v.drain();
 
-    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_TARGET_NOT_OWNED});
-    REQUIRE(machineWhenSent);
-    CHECK(*machineWhenSent == OTHER);
-    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedPaired);
+    CHECK(v.net->venueMachine() == TARGET);
+    CHECK(NetTestAccess::sessionMachine(*v.net, 1) == std::optional<std::string> {CURRENT});
+}
+
+TEST_CASE("Outside a switch, a scorbitron reply older than an unpair writes nothing")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    const auto gen = NetTestAccess::machineGen(*v.net);
+    NetTestAccess::unpairForTest(*v.net); // authoritative: bumps the generation
+    NetTestAccess::scorbitronReplyAt(*v.net, CURRENT, gen);
+    CHECK(v.net->venueMachine().empty());
 }

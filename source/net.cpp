@@ -91,6 +91,8 @@ constexpr auto TABLE_MAPPINGS_REFRESH_INTERVAL = 15min;
 /// SPEC-0009 REQ-4.2: how long a switch waits for the finished game's posts.
 constexpr auto SWITCH_DRAIN_BOUND = 10s;
 constexpr auto SWITCH_DRAIN_POLL = 20ms;
+/// How many times a switch asks the server while pairing news keeps arriving during the question.
+constexpr int SWITCH_RESOLVE_TRIES = 3;
 /// Whether the SDK flashes its own NFC pad (SB-5759). With it off, NFC is never in
 /// probe_flash_probes, so the API never sends an NFC probe_flash.
 constexpr bool SDK_NFC_FLASH_ROUTINE = true;
@@ -810,8 +812,9 @@ void Net::getConfig()
 
 task_t Net::createGetConfigTask()
 {
+    const auto gen = machineGen();
     return createGetRequestTask(
-            [this](Error error, const std::string &reply) {
+            [this, gen](Error error, const std::string &reply) {
                 if (error != Error::Success) {
                     WRN("API get config error: {}", static_cast<int>(error));
                     return;
@@ -821,22 +824,26 @@ task_t Net::createGetConfigTask()
                 try {
                     json json = json::parse(reply);
 
-                    if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
-                        it != json.end() && it->is_string()) {
-                        m_machineInfo.variantUuid = it->get<std::string>();
-                    }
-
-                    if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
-                        it != json.end() && it->is_string()) {
-                        m_machineInfo.venueUuid = it->get<std::string>();
-                    }
+                    refineMachine(gen, [&json](MachineInfo &m) {
+                        if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
+                            it != json.end() && it->is_string()) {
+                            m.variantUuid = it->get<std::string>();
+                        }
+                        if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
+                            it != json.end() && it->is_string()) {
+                            m.venueUuid = it->get<std::string>();
+                        }
+                        if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+                            configIt != json.end() && configIt->is_object()) {
+                            if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
+                                it != configIt->end() && it->is_string()) {
+                                it->get_to(m.opdbId);
+                            }
+                        }
+                    });
 
                     if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
                         configIt != json.end() && configIt->is_object()) {
-                        if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
-                            it != configIt->end() && it->is_string()) {
-                            it->get_to(m_machineInfo.opdbId);
-                        }
 
                         if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
                             it != configIt->end() && it->is_number_integer()) {
@@ -971,8 +978,9 @@ const DeviceInfo &Net::deviceInfo() const
 
 bool Net::isLeaderboardContextReady(LeaderboardScope scope) const
 {
-    return detail::isLeaderboardContextReady(m_status, scope, m_machineInfo.machineUuid,
-                                             m_machineInfo.variantUuid, m_machineInfo.gameSlug);
+    const auto m = machine();
+    return detail::isLeaderboardContextReady(m_status, scope, m.machineUuid, m.variantUuid,
+                                             m.gameSlug);
 }
 
 std::optional<Error> Net::leaderboardRequestTerminalError() const
@@ -1066,13 +1074,14 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             case LeaderboardScope::Machine:
                 return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
             case LeaderboardScope::Variant:
-                return make_tuple(url(URL_VARIANT_LEADERS,
-                                      fmt::arg(ARG_VARIANT_UUID, *m_machineInfo.variantUuid)),
-                                  std::move(parameters));
-            case LeaderboardScope::Game:
                 return make_tuple(
-                        url(URL_GAME_LEADERS, fmt::arg(ARG_GAME_SLUG, *m_machineInfo.gameSlug)),
+                        url(URL_VARIANT_LEADERS,
+                            fmt::arg(ARG_VARIANT_UUID, machine().variantUuid.value_or(""))),
                         std::move(parameters));
+            case LeaderboardScope::Game:
+                return make_tuple(url(URL_GAME_LEADERS,
+                                      fmt::arg(ARG_GAME_SLUG, machine().gameSlug.value_or(""))),
+                                  std::move(parameters));
             default:
                 return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
             }
@@ -1163,8 +1172,9 @@ void Net::patchScorbitron(std::string body, StringCallback callback,
                           std::vector<AuthStatus> allowedStatuses)
 {
     m_worker.post(createPatchRequestTask(
-            [this, callback = std::move(callback)](Error error, std::string reply) {
-                parseScorbitronObject(error, reply);
+            [this, callback = std::move(callback), gen = machineGen()](Error error,
+                                                                       std::string reply) {
+                parseScorbitronObject(error, reply, gen);
                 callback(error, reply);
             },
             [this, body = std::move(body)]() {
@@ -1318,7 +1328,8 @@ void Net::sendScorbitronUpdate(std::string body, std::string what)
     // Copied into both lambdas, which are built in no fixed order.
     const auto fields = nlohmann::json::parse(body, nullptr, false);
     m_worker.postStartupQueue(createPatchRequestTask(
-            [this, what = std::move(what), fields](Error error, std::string reply) {
+            [this, what = std::move(what), fields, gen = machineGen()](Error error,
+                                                                       std::string reply) {
                 if (error == Error::Success) {
                     INF("API set {}: ok, {}", what, reply);
                 } else {
@@ -1326,7 +1337,7 @@ void Net::sendScorbitronUpdate(std::string body, std::string what)
                         static_cast<int>(error), reply);
                 }
                 scorbitronUpdateDone(fields, error == Error::Success);
-                parseScorbitronObject(error, reply);
+                parseScorbitronObject(error, reply, gen);
             },
             [this, fields]() {
                 // Read when the request runs: one parked on the auth gate can resume after the
@@ -1499,9 +1510,9 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_MACHINE, machine().machineUuid},
+                         {JKEY_SCR_VARIANT, machine().variantUuid},
+                         {JKEY_SCR_VENUE, machine().venueUuid},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
@@ -1514,7 +1525,7 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         INF("API-CF sending credits status: {}", j.dump());
-        publishToMachineChannel("credits status", std::move(j));
+        publishToMachineChannel("credits status", std::move(j), machine().channel);
     });
 }
 
@@ -1552,7 +1563,7 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
     const auto createdAt = to_iso8601(chrono::system_clock::now());
 
     INF("DIAG: received probe trace_id={} sequence={} channel={}", traceId, sequence,
-        m_machineChannel);
+        machine().channel);
 
     // Resolved here, at receipt, so the budget covers the queue wait that follows -- not from
     // inside the worker, where it would restart the clock after the delay it is meant to catch.
@@ -1577,7 +1588,7 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
             WRN("DIAG: deadline passed before publish, dropping trace_id={}", traceId);
             return;
         }
-        if (m_machineChannel.empty()) {
+        if (machine().channel.empty()) {
             WRN("DIAG: machine channel not ready, dropping publish for trace_id={}", traceId);
             return;
         }
@@ -1589,16 +1600,16 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_MACHINE, machine().machineUuid},
+                         {JKEY_SCR_VARIANT, machine().variantUuid},
+                         {JKEY_SCR_VENUE, machine().venueUuid},
                          {JKEY_SCR_SEQUENCE, sequence},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
 
         INF("API-CF sending diag probe: {}", j.dump());
-        publishToMachineChannel("diag probe", std::move(j));
+        publishToMachineChannel("diag probe", std::move(j), machine().channel);
     });
 }
 
@@ -3582,6 +3593,7 @@ void Net::commitLatestGameData(int sessionId)
             INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
                 !sessionUuid.empty(), isConnected);
         } else {
+            std::optional<MachineInfo> stamped;
             {
                 std::scoped_lock lock(m_gameSessionsMutex);
                 const auto it = m_gameSessions.find(sessionId);
@@ -3589,7 +3601,10 @@ void Net::commitLatestGameData(int sessionId)
                     return;
                 }
                 sessionCounter = ++it->second.sessionCounter;
+                stamped = it->second.machine;
             }
+            // The machine this game was let out under; a game from before a switch keeps its own.
+            const auto ctx = stamped ? *stamped : machine();
             const auto modes = json::parse(gameData.modes.jsonStr());
             const auto updatedAt = to_iso8601(chrono::system_clock::now());
             const auto createdAt = to_iso8601(startedSystemTime);
@@ -3642,16 +3657,16 @@ void Net::commitLatestGameData(int sessionId)
                     {JKEY_SCR_METADATA,
                      {
                              {JKEY_SCR_GAME, sessionUuid},
-                             {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                             {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                             {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                             {JKEY_SCR_MACHINE, ctx.machineUuid},
+                             {JKEY_SCR_VARIANT, ctx.variantUuid},
+                             {JKEY_SCR_VENUE, ctx.venueUuid},
                              {JKEY_SCR_SEQUENCE, sessionCounter},
                              {JKEY_SCR_CREATED_AT, createdAt},
                              {JKEY_SCR_UPDATED_AT, updatedAt},
                      }}};
 
-            INF("API sending game data to channel: {}, data: {}", m_machineChannel, j.dump());
-            publishToMachineChannel("game data", std::move(j));
+            INF("API sending game data to channel: {}, data: {}", ctx.channel, j.dump());
+            publishToMachineChannel("game data", std::move(j), ctx.channel);
         }
 
         // Set timer for the next game data send if the game is still active
@@ -3747,7 +3762,7 @@ void Net::sendScorbitronObject()
 task_t Net::createSendScorbitronObjectTask()
 {
     return createPatchRequestTask(
-            [this](Error error, std::string reply) {
+            [this, gen = machineGen()](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API initial Scorbitron object sent: ok, {}", reply);
                 } else {
@@ -3756,7 +3771,7 @@ task_t Net::createSendScorbitronObjectTask()
                         static_cast<int>(error), reply);
                 }
                 scorbitronObjectSendDone(error == Error::Success);
-                parseScorbitronObject(error, reply);
+                parseScorbitronObject(error, reply, gen);
             },
             [this]() {
                 std::string body;
@@ -3818,7 +3833,8 @@ void Net::requestMachineObject()
 
 task_t Net::createRequestMachineObjectTask()
 {
-    auto callback = [this](Error error, std::string reply) {
+    const auto gen = machineGen();
+    auto callback = [this, gen](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API request machine object: ok, {}", reply);
             try {
@@ -3826,20 +3842,20 @@ task_t Net::createRequestMachineObjectTask()
                 const auto name = j.value(JKEY_MOBJ_NAME, std::string {});
                 const auto edition = j.value(JKEY_MOBJ_EDITION, std::string {});
 
-                if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
-                    gameIt != j.end() && gameIt->is_object()) {
-                    if (const auto slugIt = gameIt->find(JKEY_MOBJ_SLUG);
-                        slugIt != gameIt->end() && slugIt->is_string()) {
-                        m_machineInfo.gameSlug = slugIt->get<std::string>();
-                    } else {
-                        m_machineInfo.gameSlug.reset();
+                const bool applied = refineMachine(gen, [&](MachineInfo &m) {
+                    m.gameSlug.reset();
+                    if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
+                        gameIt != j.end() && gameIt->is_object()) {
+                        if (const auto slugIt = gameIt->find(JKEY_MOBJ_SLUG);
+                            slugIt != gameIt->end() && slugIt->is_string()) {
+                            m.gameSlug = slugIt->get<std::string>();
+                        }
                     }
-                } else {
-                    m_machineInfo.gameSlug.reset();
+                    m.title = fmt::format("{} ({})", name, edition);
+                });
+                if (applied) {
+                    updateDiscoveryDescription();
                 }
-
-                m_machineInfo.title = fmt::format("{} ({})", name, edition);
-                updateDiscoveryDescription();
             } catch (const std::exception &e) {
                 ERR("API reuquest machine object parse error: {}, reply: {}", e.what(), reply);
             }
@@ -3943,15 +3959,68 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
 
 std::string Net::venueMachine() const
 {
-    std::scoped_lock lock(m_venueMachineMutex);
-    return m_venueMachine;
+    return machine().machineUuid;
 }
 
-void Net::setVenueMachine(std::string uuid)
+Net::MachineInfo Net::machine() const
 {
-    m_machineInfo.machineUuid = uuid;
-    std::scoped_lock lock(m_venueMachineMutex);
-    m_venueMachine = std::move(uuid);
+    std::scoped_lock lock(m_machineMutex);
+    return m_machineInfo;
+}
+
+std::uint64_t Net::machineGen() const
+{
+    std::scoped_lock lock(m_machineMutex);
+    return m_machineGen;
+}
+
+bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative)
+{
+    bool changed = false;
+    {
+        std::scoped_lock lock(m_machineMutex);
+        if (authoritative) {
+            ++m_machineGen;
+        }
+        changed = venueMachine != m_machineInfo.machineUuid;
+        if (changed || venueMachine.empty()) {
+            m_machineInfo = MachineInfo {};
+            m_machineInfo.machineUuid = venueMachine;
+            if (venueMachine.empty()) {
+                m_machineInfo.title = "not paired";
+            } else {
+                m_machineInfo.channel = fmt::format("machine:{}", venueMachine);
+            }
+        }
+    }
+    updateDiscoveryDescription();
+    return changed;
+}
+
+bool Net::refineMachine(std::uint64_t gen, const std::function<void(MachineInfo &)> &fn)
+{
+    std::scoped_lock lock(m_machineMutex);
+    if (gen != m_machineGen) {
+        return false;
+    }
+    fn(m_machineInfo);
+    return true;
+}
+
+bool Net::acceptPairingReply(std::uint64_t gen, const std::string &replyMachine)
+{
+    {
+        std::scoped_lock lock(m_switchGateMutex);
+        if (m_switchGateHeld) {
+            // Only the switch writes the pairing while it runs. A reply that disagrees with the
+            // machine it has is news it must check with the server before letting posts out.
+            if (replyMachine != venueMachine()) {
+                ++m_switchDirty;
+            }
+            return false;
+        }
+    }
+    return gen == machineGen();
 }
 
 TableMappingsSnapshot Net::tableMappings() const
@@ -4070,16 +4139,10 @@ MachineSwitch::Steps Net::machineSwitchSteps()
                          MachineSwitch::Done done) {
         adoptSwitchedMachine(target, token, std::move(done));
     };
-    steps.changed = [this](const std::string &target) {
-        m_eventManager->push(std::make_shared<MachineChangedEvent>(target));
-        emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
-    };
-    steps.reconcile = [this](std::function<void(std::optional<std::string>)> done) {
-        m_worker.post(createSwitchReconcileTask(std::move(done)));
-    };
     steps.refetch = [this] { fetchTableMappings(false); };
-    steps.settle = [this](bool onTarget, const std::string &target, MachineSwitch::Done done) {
-        settleFoldedSignal(onTarget, target, std::move(done));
+    steps.resolve = [this](const MachineSwitch::Outcome &outcome, const std::string &target,
+                           const std::string &start, MachineSwitch::Resolved done) {
+        resolveSwitch(outcome, target, start, std::move(done));
     };
     // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
     steps.deliver = [this](MachineSwitch::Done fn) {
@@ -4098,11 +4161,27 @@ void Net::postOrHoldForSwitch(int sessionId, task_t post)
     // Posting only queues, so it is done under the lock to keep held and new posts in order.
     // A game from before the switch settles on the old machine; only later games wait.
     std::scoped_lock lock(m_switchGateMutex);
+    // A game's machine is the one current when its first post is let out: for a held game, the
+    // one the switch resolved to.
+    auto stampThenPost = [this, sessionId, post = std::move(post)] {
+        stampSession(sessionId);
+        post();
+    };
     if (m_switchGateHeld && sessionId >= m_switchGateFromSession) {
-        m_switchHeldPosts.push_back(std::move(post));
+        m_switchHeldPosts.push_back(std::move(stampThenPost));
         return;
     }
-    post();
+    stampThenPost();
+}
+
+void Net::stampSession(int sessionId)
+{
+    const auto ctx = machine();
+    std::scoped_lock lock(m_gameSessionsMutex);
+    if (const auto it = m_gameSessions.find(sessionId);
+        it != m_gameSessions.end() && !it->second.machine) {
+        it->second.machine = ctx;
+    }
 }
 
 std::uint64_t Net::lastGameDataSeq() const
@@ -4118,25 +4197,28 @@ std::uint64_t Net::oldestPendingGameData() const
                                      : *m_gameDataPending.begin();
 }
 
-Net::SwallowedSignal Net::takeFoldedSignal()
+bool Net::foldIntoSwitch()
 {
-    SwallowedSignal folded {SwallowedSignal::None};
     std::scoped_lock lock(m_switchGateMutex);
-    std::swap(folded, m_switchSwallowedSignal);
-    return folded;
+    if (!m_switchGateHeld) {
+        return false;
+    }
+    ++m_switchDirty;
+    return true;
 }
 
-void Net::settleFoldedSignal(bool onTarget, const std::string &target, MachineSwitch::Done done)
+void Net::resolveSwitch(const MachineSwitch::Outcome &outcome, const std::string &target,
+                        const std::string &start, MachineSwitch::Resolved done)
 {
-    // On the Centrifugo strand, where pairing signals are handled: the settling and the release
-    // that follows it run with no signal in between. The server check, if one is needed, runs on
-    // the blocking pool and its answer is acted on back on the strand.
-    onCentrifugoStrand([this, onTarget, target, done = std::move(done)]() mutable {
+    // On the Centrifugo strand, where pairing signals are handled, so a signal is either before
+    // the dirty check or after the release, never between. The server is asked from the blocking
+    // pool, and its answer acted on back on the strand.
+    onCentrifugoStrand([this, outcome, target, start, done = std::move(done)]() mutable {
         if (m_stop) {
             return;
         }
-        settleFoldedSignalNow(
-                onTarget, target,
+        resolveSwitchNow(
+                outcome, target, start,
                 [this](std::function<void(std::optional<std::string>)> answer) {
                     m_worker.post(
                             createSwitchReconcileTask([this, answer = std::move(answer)](
@@ -4152,69 +4234,74 @@ void Net::settleFoldedSignal(bool onTarget, const std::string &target, MachineSw
     });
 }
 
-void Net::settleFoldedSignalNow(
-        bool onTarget, const std::string &target,
-        const std::function<void(std::function<void(std::optional<std::string>)>)> &askServer,
-        MachineSwitch::Done done)
+void Net::resolveSwitchNow(
+        const MachineSwitch::Outcome &outcome, const std::string &target, const std::string &start,
+        std::function<void(std::function<void(std::optional<std::string>)>)> askServer,
+        MachineSwitch::Resolved done, int tries)
 {
-    const auto folded = takeFoldedSignal();
+    using Kind = MachineSwitch::Outcome::Kind;
 
-    // Nothing folded, or a re-pair on the target, which is the switch's own: nothing to settle.
-    if (folded == SwallowedSignal::None || (onTarget && folded == SwallowedSignal::Paired)) {
-        done();
-        return;
-    }
-    // An unpair after a failed switch says all there is: clearing the context is synchronous.
-    if (!onTarget && folded == SwallowedSignal::Unpaired) {
-        onUnpaired();
-        done();
-        return;
-    }
-
-    // A re-pair after a failed switch names no machine, and an unpair on the target may be the
-    // switch's own (the old attachment ending) or the owner's, in an order this cannot rely on.
-    // Either way ask the server where the device is, and have that context in place before the
-    // held posts are released.
-    INF("API switch machine: a pairing change arrived during the switch to {}; checking", target);
-    askServer([this, done = std::move(done)](std::optional<std::string> onServer) mutable {
-        takeFoldedSignal(); // the answer below supersedes anything since
-        if (!onServer) {
-            // Unknown: no post goes out under a guessed pairing. Clear it, and ask again; that
-            // reply sets whatever the server holds.
-            onUnpaired();
-            sendScorbitronObject();
-        } else {
-            takeServerPairing(*onServer);
+    const auto conclude = [this, start, done](sb_switch_machine_result_t result) {
+        const auto now = venueMachine();
+        if (!now.empty() && now != start) {
+            m_eventManager->push(std::make_shared<MachineChangedEvent>(now));
         }
-        done();
+        emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
+        done(result);
+    };
+
+    // Nothing raced a clear outcome: it stands as the switch saw it.
+    if (tries == 0 && outcome.kind != Kind::Unknown && m_switchDirty.exchange(0) == 0) {
+        conclude(outcome.result);
+        return;
+    }
+
+    // Otherwise only the server knows where the device is: ask it, and again while news keeps
+    // arriving during the question, up to a bound.
+    const auto before = m_switchDirty.load();
+    askServer([this, outcome, target, start, askServer, done, tries, before,
+               conclude](std::optional<std::string> onServer) mutable {
+        if (m_switchDirty.load() != before && tries + 1 < SWITCH_RESOLVE_TRIES) {
+            resolveSwitchNow(outcome, target, start, std::move(askServer), std::move(done),
+                             tries + 1);
+            return;
+        }
+        m_switchDirty = 0;
+
+        // Already where the server says (as after a switch adopted): nothing to apply.
+        const bool onTarget = onServer && *onServer == target;
+        if (!(onServer && *onServer == venueMachine() && !onServer->empty()
+              && m_status == AuthStatus::AuthenticatedPaired)) {
+            applyServerPairing(onServer);
+        }
+
+        sb_switch_machine_result_t result = outcome.result;
+        if (onTarget) {
+            result = (start == target) ? SB_SWITCH_MACHINE_ALREADY_ATTACHED : SB_SWITCH_MACHINE_OK;
+        } else if (outcome.kind == Kind::Switched || outcome.kind == Kind::AlreadyAttached) {
+            result = SB_SWITCH_MACHINE_FAILED; // the server has moved it elsewhere since
+        }
+        conclude(result);
     });
 }
 
-void Net::takeServerPairing(const std::string &venueMachine)
+void Net::applyServerPairing(const std::optional<std::string> &venueMachine)
 {
-    if (venueMachine.empty()) {
+    if (!venueMachine) {
+        // Unknown: nothing goes out under a guessed pairing. Clear it, and ask again; that
+        // reply sets whatever the server holds.
+        onUnpaired();
+        sendScorbitronObject();
+        return;
+    }
+    if (venueMachine->empty()) {
         onUnpaired();
         return;
     }
-    if (venueMachine == this->venueMachine() && m_status == AuthStatus::AuthenticatedPaired) {
-        return;
-    }
-    // What a held post carries, set now; onPaired() then refreshes the rest (token, config,
-    // machine object) behind it.
-    setVenueMachine(venueMachine);
-    m_machineChannel = fmt::format("machine:{}", venueMachine);
-    updateDiscoveryDescription();
+    // The machine and channel a post carries, in place now; onPaired() refreshes the rest (a
+    // fresh token, config, machine object) behind it.
+    setMachineIdentity(*venueMachine, true);
     onPaired();
-}
-
-bool Net::foldIntoSwitch(bool paired)
-{
-    std::scoped_lock lock(m_switchGateMutex);
-    if (!m_switchGateHeld) {
-        return false;
-    }
-    m_switchSwallowedSignal = paired ? SwallowedSignal::Paired : SwallowedSignal::Unpaired;
-    return true;
 }
 
 void Net::holdSwitchGate(bool hold)
@@ -4233,7 +4320,7 @@ void Net::holdSwitchGate(bool hold)
     if (hold) {
         m_switchGateFromSession = fromSession;
         m_switchGateGameData = gameDataSeq;
-        m_switchSwallowedSignal = SwallowedSignal::None;
+        m_switchDirty = 0;
     }
     if (hold || m_switchHeldPosts.empty()) {
         return;
@@ -4383,14 +4470,7 @@ void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &
     }
 
     m_playersManager.clear();
-    m_machineInfo.opdbId.clear();
-    m_machineInfo.variantUuid.reset();
-    m_machineInfo.gameSlug.reset();
-    m_machineInfo.venueUuid.reset();
-    m_machineInfo.title.clear();
-    setVenueMachine(target);
-    m_machineChannel = fmt::format("machine:{}", target);
-    updateDiscoveryDescription();
+    setMachineIdentity(target, true);
 
     bool nowPaired = false;
     {
@@ -4418,14 +4498,7 @@ void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &
 
 void Net::clearPairedMachineContext()
 {
-    m_machineInfo.opdbId.clear();
-    setVenueMachine({});
-    m_machineInfo.variantUuid.reset();
-    m_machineInfo.gameSlug.reset();
-    m_machineInfo.venueUuid.reset();
-    m_machineInfo.title = fmt::format("not paired");
-    m_machineChannel.clear();
-    updateDiscoveryDescription();
+    setMachineIdentity({}, true);
 }
 
 void Net::emitPairingStatusEventIfChanged(bool isPaired)
@@ -4475,7 +4548,7 @@ void Net::retryScorbitronObjectIfPairingUnresolved()
                                                               SCORBITRON_RETRY_MAX_BACKOFF);
 }
 
-void Net::parseScorbitronObject(Error error, const std::string &reply)
+void Net::parseScorbitronObject(Error error, const std::string &reply, std::uint64_t gen)
 {
     if (error != Error::Success) {
         retryScorbitronObjectIfPairingUnresolved();
@@ -4494,29 +4567,25 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             notifyShortCodeChanged();
         }
 
-        bool isPaired {false};
-
         // "machine"
-        if (const auto it = json.find(JKEY_SOBJ_MACHINE_OBJ); it != json.end()) {
-            isPaired = it->is_object();
+        const auto replyMachine = scorbitronMachine(reply).value_or(std::string {});
+        const bool isPaired = !replyMachine.empty();
+
+        // Stale (an authoritative change came after this request) or a switch is running: the
+        // pairing here is not this reply's to write.
+        const bool accepted = acceptPairingReply(gen, replyMachine);
+        if (accepted) {
             if (isPaired) {
-                if (const auto idIt = it->find(JKEY_SOBJ_MACHINE_UUID);
-                    idIt != it->end() && idIt->is_string()) {
-                    setVenueMachine(idIt->get<std::string>());
-                    m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
-                    requestCreditsStatusIfReady();
-                }
+                setMachineIdentity(replyMachine, false);
+                requestCreditsStatusIfReady();
+                requestMachineObject();
+            } else {
+                setMachineIdentity({}, false);
             }
         }
 
-        AuthStatus status {AuthStatus::AuthenticatedPaired};
-
-        if (!isPaired) {
-            status = AuthStatus::AuthenticatedUnpaired;
-            clearPairedMachineContext();
-        } else {
-            requestMachineObject();
-        }
+        const AuthStatus status =
+                isPaired ? AuthStatus::AuthenticatedPaired : AuthStatus::AuthenticatedUnpaired;
 
         // Get release track url
         if (const auto configIt = json.find(JKEY_SOBJ_RELEASE_TRACK);
@@ -4531,7 +4600,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         m_scorbitronRetryBackoff = SCORBITRON_RETRY_INITIAL_BACKOFF;
 
-        if (m_status != status) {
+        if (accepted && m_status != status) {
             m_status = status;
             notifyAuthStatusChanged();
             emitPairingStatusEventIfChanged(isPaired);
@@ -4941,7 +5010,7 @@ void NetTestAccess::setVpinTransport(Net &net, VpinTransport transport)
 
 void NetTestAccess::setMachineUuid(Net &net, std::string machineUuid)
 {
-    net.setVenueMachine(std::move(machineUuid));
+    net.setMachineIdentity(machineUuid, false);
 }
 
 void NetTestAccess::seedSwitchToken(Net &net, std::string token)
@@ -4958,7 +5027,7 @@ void NetTestAccess::fetchCentrifugoTokenNow(Net &net)
 
 std::string NetTestAccess::machineUuid(const Net &net)
 {
-    return net.m_machineInfo.machineUuid;
+    return net.venueMachine();
 }
 
 void NetTestAccess::fetchTableMappingsNow(Net &net)
@@ -4987,13 +5056,11 @@ void NetTestAccess::runSwitchMachine(
         net.createSwitchMachineTask(target, std::move(reply))();
     };
     steps.adopt = std::move(adopt);
-    steps.reconcile = [&net](std::function<void(std::optional<std::string>)> done) {
-        net.createSwitchReconcileTask(std::move(done))();
-    };
-    // Production's decision, run inline as the steps above are, with the server check inline too.
-    steps.settle = [&net](bool onTarget, const std::string &target, MachineSwitch::Done done) {
-        net.settleFoldedSignalNow(
-                onTarget, target,
+    // Production's resolution, run inline as the steps above are, with the server asked inline.
+    steps.resolve = [&net](const MachineSwitch::Outcome &outcome, const std::string &target,
+                           const std::string &start, MachineSwitch::Resolved done) {
+        net.resolveSwitchNow(
+                outcome, target, start,
                 [&net](std::function<void(std::optional<std::string>)> answer) {
                     net.createSwitchReconcileTask(std::move(answer))();
                 },
@@ -5020,9 +5087,53 @@ void NetTestAccess::postOrHoldForSwitch(Net &net, int sessionId, task_t post)
     net.postOrHoldForSwitch(sessionId, std::move(post));
 }
 
-bool NetTestAccess::foldIntoSwitch(Net &net, bool paired)
+bool NetTestAccess::foldIntoSwitch(Net &net)
 {
-    return net.foldIntoSwitch(paired);
+    return net.foldIntoSwitch();
+}
+
+void NetTestAccess::staleScorbitronReply(Net &net, const std::string &venueMachine)
+{
+    const json reply =
+            venueMachine.empty()
+                    ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
+                    : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
+    net.parseScorbitronObject(Error::Success, reply.dump(), net.machineGen());
+}
+
+std::optional<std::string> NetTestAccess::sessionMachine(Net &net, int sessionId)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    const auto it = net.m_gameSessions.find(sessionId);
+    if (it == net.m_gameSessions.end() || !it->second.machine) {
+        return std::nullopt;
+    }
+    return it->second.machine->machineUuid;
+}
+
+std::uint64_t NetTestAccess::machineGen(const Net &net)
+{
+    return net.machineGen();
+}
+
+void NetTestAccess::unpairForTest(Net &net)
+{
+    net.onUnpaired();
+}
+
+void NetTestAccess::scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen)
+{
+    const json reply =
+            venueMachine.empty()
+                    ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
+                    : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
+    net.parseScorbitronObject(Error::Success, reply.dump(), gen);
+}
+
+void NetTestAccess::adoptForTest(Net &net, const std::string &target)
+{
+    net.setMachineIdentity(target, true);
+    net.m_status = AuthStatus::AuthenticatedPaired;
 }
 
 void NetTestAccess::holdSwitchGate(Net &net)
@@ -5679,7 +5790,7 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     }
 
     // Process players profiles
-    if (auto changedProfiles = m_playersManager.setProfiles(val, m_machineInfo.machineUuid)) {
+    if (auto changedProfiles = m_playersManager.setProfiles(val, machine().machineUuid)) {
         m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
     }
 
@@ -6065,7 +6176,7 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                         } else if (method == JVAL_METHOD_SIGNAL
                                    && (name == JVAL_ACTION_SCORBITRON_PAIRED
                                        || name == JVAL_ACTION_SCORBITRON_UNPAIRED)
-                                   && foldIntoSwitch(name == JVAL_ACTION_SCORBITRON_PAIRED)) {
+                                   && foldIntoSwitch()) {
                             // Most likely the switch's own re-pair, whose context it adopts
                             // itself; kept so a failed switch can still act on it.
                             INF("API-CF {} signal folded into the machine switch", name);
@@ -6124,16 +6235,17 @@ void Net::centrifugoDisconnect()
     });
 }
 
-void Net::publishToMachineChannel(std::string what, nlohmann::json payload)
+void Net::publishToMachineChannel(std::string what, nlohmann::json payload, std::string channel)
 {
     // The payload is built by the caller, off the strand, so only the publish itself lands on the
     // io_context.
-    onCentrifugoStrand([this, what = std::move(what), payload = std::move(payload)] {
+    onCentrifugoStrand([this, what = std::move(what), payload = std::move(payload),
+                        channel = std::move(channel)] {
         if (m_stop || !m_centrifugo) {
             return;
         }
 
-        if (const auto r = m_centrifugo->publish(m_machineChannel, payload); !r) {
+        if (const auto r = m_centrifugo->publish(channel, payload); !r) {
             WRN("API-CF failed to send {}: code:{}, error: {}", what, r.error().ec.value(),
                 r.error().message);
         }
@@ -6335,7 +6447,7 @@ void Net::setNfcTag()
     if (nonce.empty()) {
         return;
     }
-    const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
+    const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", machine().machineUuid),
                                  fmt::arg("nonce", nonce));
 
     // The probe stores the URI length in a single byte, so a longer URI is truncated on the
@@ -6385,7 +6497,7 @@ void Net::requestCreditsStatusEvent()
 
 void Net::requestCreditsStatusIfReady()
 {
-    if (m_stop || m_machineChannel.empty()) {
+    if (m_stop || machine().channel.empty()) {
         return;
     }
     if (m_cfState != centrifugo::ConnectionState::Connected) {
@@ -6458,10 +6570,11 @@ void Net::updateDiscoveryDescription()
         return fmt::format("{} {}", m_deviceInfo.provider, m_deviceInfo.gameCodeVersion);
     });
 
-    if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, m_machineInfo.title,
-                                                 providerVersion, m_deviceInfo.machineTitle)) {
-        INF("Discovery description updated machine: {}, provider: {}, extra info: {}",
-            m_machineInfo.title, providerVersion, m_deviceInfo.machineTitle);
+    const auto title = machine().title;
+    if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, title, providerVersion,
+                                                 m_deviceInfo.machineTitle)) {
+        INF("Discovery description updated machine: {}, provider: {}, extra info: {}", title,
+            providerVersion, m_deviceInfo.machineTitle);
     }
 }
 

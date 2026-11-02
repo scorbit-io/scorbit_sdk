@@ -104,6 +104,19 @@ public:
     using Done = std::function<void()>;
     using Callback = std::function<void(sb_switch_machine_result_t, const std::string &)>;
 
+    /// How the switch request itself ended, before anything that raced it is settled.
+    struct Outcome {
+        enum class Kind {
+            Switched,        ///< the server switched; the reply's context was adopted
+            AlreadyAttached, ///< the device was already on the target
+            Refused,         ///< the server refused; nothing changed there
+            Unknown,         ///< no answer, a server error, or an unusable reply
+        } kind;
+        sb_switch_machine_result_t result;
+    };
+    /// Receives the switch's final result once the machine context is settled.
+    using Resolved = std::function<void(sb_switch_machine_result_t)>;
+
     struct Steps {
         /// Holds (true) or releases (false) new session and game-data posts.
         std::function<void(bool hold)> gate;
@@ -116,19 +129,15 @@ public:
         /// Adopts @p token and refreshes the machine context; @p done once it is in. An empty
         /// @p token means the switch reply had none: a fresh one is fetched instead.
         std::function<void(const std::string &target, const std::string &token, Done done)> adopt;
-        /// Asks the server which venue machine the device is on now: its uuid, "" if unpaired, or
-        /// nullopt if the server could not be reached. For a switch whose outcome is unknown.
-        std::function<void(std::function<void(std::optional<std::string>)>)> reconcile;
-        /// Raises SB_EVT_MACHINE_CHANGED (and the pairing event if it changed).
-        std::function<void(const std::string &target)> changed;
         /// Re-reads the table mappings after a failure.
         std::function<void()> refetch;
-        /// Settles any pairing signal the switch folded in, then runs @p done; both where pairing
-        /// signals are handled, so none can slip in between. Every outcome passes here before
-        /// held posts are released. @p onTarget: the device is now on @p target (switched or
-        /// already attached), so a folded re-pair is the switch's own and a folded unpair is
-        /// checked with the server; otherwise (failed) a folded signal is acted on as it came.
-        std::function<void(bool onTarget, const std::string &target, Done done)> settle;
+        /// Settles the machine context after @p outcome and reports the final result. The only
+        /// way a switch ends once posts are held: whatever raced it (a pairing signal, a reply
+        /// naming another machine) or an unknown outcome is resolved with the server first,
+        /// and MACHINE_CHANGED is raised if the device ends on another machine than @p start.
+        std::function<void(const Outcome &, const std::string &target, const std::string &start,
+                           Resolved)>
+                resolve;
         /// Runs @p fn after every event pushed so far has been delivered.
         std::function<void(Done fn)> deliver;
         /// True once the SDK is shutting down: nothing more is called back.
@@ -154,16 +163,9 @@ public:
 private:
     void finish(sb_switch_machine_result_t result, const std::string &target, Callback callback,
                 bool refetch);
-    /// The only way out once posts are held: settles folded pairing signals, releases the held
-    /// posts, then calls back with @p result.
-    void settleAndFinish(sb_switch_machine_result_t result, const std::string &target,
-                         Callback callback);
-    /// Adopts the switch (@p token may be empty), raises the event, releases posts, calls back.
-    void adoptAndFinish(const std::string &target, const std::string &token, Callback callback);
-    /// For a switch the server may have made although its reply was lost or unusable: settles
-    /// what the server holds before any held post is released.
-    void reconcileAndFinish(const std::string &target, const std::string &current,
-                            sb_switch_machine_result_t unknownResult, Callback callback);
+    /// The only way out once posts are held: resolves the context, releases the posts, calls back.
+    void resolveAndFinish(const Outcome &outcome, const std::string &target,
+                          const std::string &start, Callback callback);
 
     Steps m_steps;
     std::atomic_bool m_inFlight {false};

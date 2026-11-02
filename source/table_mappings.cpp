@@ -282,22 +282,22 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
                 return;
             }
 
+            using Kind = Outcome::Kind;
             if (status < HTTP_OK_FIRST || status > HTTP_OK_LAST) {
                 const auto result = switchMachineFailure(status, body);
                 WRN("API switch machine to {} failed: HTTP {}, result {}", target, status,
                     static_cast<int>(result));
-                if (result == SB_SWITCH_MACHINE_NETWORK) {
-                    // No answer, or a server error: the switch may still have been made.
-                    reconcileAndFinish(target, current, result, std::move(callback));
-                    return;
-                }
-                settleAndFinish(result, target, std::move(callback));
+                // No answer or a server error: the switch may still have been made.
+                const auto kind =
+                        result == SB_SWITCH_MACHINE_NETWORK ? Kind::Unknown : Kind::Refused;
+                resolveAndFinish({kind, result}, target, current, std::move(callback));
                 return;
             }
 
             if (!current.empty() && current == target) {
                 INF("API switch machine: already on {}", target);
-                settleAndFinish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback));
+                resolveAndFinish({Kind::AlreadyAttached, SB_SWITCH_MACHINE_ALREADY_ATTACHED},
+                                 target, current, std::move(callback));
                 return;
             }
 
@@ -305,69 +305,38 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
             if (token.empty()) {
                 // The server accepted the switch; only its reply is unusable.
                 ERR("API switch machine to {}: reply carries no token", target);
-                reconcileAndFinish(target, current, SB_SWITCH_MACHINE_FAILED, std::move(callback));
+                resolveAndFinish({Kind::Unknown, SB_SWITCH_MACHINE_FAILED}, target, current,
+                                 std::move(callback));
                 return;
             }
 
-            adoptAndFinish(target, token, std::move(callback));
+            m_steps.adopt(target, token,
+                          [this, target, current, callback = std::move(callback)]() mutable {
+                              if (m_steps.stopping()) {
+                                  return;
+                              }
+                              INF("API switch machine: now on {}", target);
+                              resolveAndFinish({Kind::Switched, SB_SWITCH_MACHINE_OK}, target,
+                                               current, std::move(callback));
+                          });
         });
     });
 }
 
-void MachineSwitch::adoptAndFinish(const std::string &target, const std::string &token,
-                                   Callback callback)
+void MachineSwitch::resolveAndFinish(const Outcome &outcome, const std::string &target,
+                                     const std::string &start, Callback callback)
 {
-    m_steps.adopt(target, token, [this, target, callback = std::move(callback)]() mutable {
-        if (m_steps.stopping()) {
-            return;
-        }
-        INF("API switch machine: now on {}", target);
-        m_steps.changed(target);
-        settleAndFinish(SB_SWITCH_MACHINE_OK, target, std::move(callback));
-    });
-}
-
-void MachineSwitch::reconcileAndFinish(const std::string &target, const std::string &current,
-                                       sb_switch_machine_result_t unknownResult, Callback callback)
-{
-    m_steps.reconcile([this, target, current, unknownResult, callback = std::move(callback)](
-                              std::optional<std::string> onServer) mutable {
-        if (m_steps.stopping()) {
-            return;
-        }
-        if (onServer && *onServer == target) {
-            if (!current.empty() && current == target) {
-                settleAndFinish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback));
-                return;
-            }
-            WRN("API switch machine: the server made the switch to {}; adopting it", target);
-            adoptAndFinish(target, {}, std::move(callback));
-            return;
-        }
-        if (onServer) {
-            INF("API switch machine: the server did not make the switch to {}", target);
-        } else {
-            WRN("API switch machine: could not confirm the switch to {}", target);
-        }
-        settleAndFinish(unknownResult, target, std::move(callback));
-    });
-}
-
-void MachineSwitch::settleAndFinish(sb_switch_machine_result_t result, const std::string &target,
-                                    Callback callback)
-{
-    // A pairing change the server sent meanwhile is settled before any held post goes out, so
-    // none is sent with a machine context the server has already replaced, whatever the outcome.
-    const bool onTarget =
-            result == SB_SWITCH_MACHINE_OK || result == SB_SWITCH_MACHINE_ALREADY_ATTACHED;
-    m_steps.settle(onTarget, target,
-                   [this, result, target, onTarget, callback = std::move(callback)]() mutable {
-                       if (m_steps.stopping()) {
-                           return;
-                       }
-                       m_steps.gate(false);
-                       finish(result, target, std::move(callback), !onTarget);
-                   });
+    m_steps.resolve(outcome, target, start,
+                    [this, target,
+                     callback = std::move(callback)](sb_switch_machine_result_t result) mutable {
+                        if (m_steps.stopping()) {
+                            return;
+                        }
+                        m_steps.gate(false);
+                        const bool onTarget = result == SB_SWITCH_MACHINE_OK
+                                           || result == SB_SWITCH_MACHINE_ALREADY_ATTACHED;
+                        finish(result, target, std::move(callback), !onTarget);
+                    });
 }
 
 } // namespace detail
