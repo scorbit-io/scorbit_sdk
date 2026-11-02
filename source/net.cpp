@@ -749,10 +749,12 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
     // Counted so a machine switch can wait for the finished game's last data (see drain).
-    ++m_pendingGameData;
+    ++m_gameDataSubmitted;
     m_worker.post([this, data, flags]() {
-        const auto applied = std::unique_ptr<void, std::function<void(void *)>> {
-                this, [this](void *) { --m_pendingGameData; }};
+        struct Applied {
+            std::atomic<std::uint64_t> &count;
+            ~Applied() { ++count; }
+        } applied {m_gameDataApplied};
         applyGameData(data, flags);
     });
 }
@@ -3972,16 +3974,22 @@ task_t Net::createTableMappingsTask()
     auto etag = std::make_shared<std::string>(); // the reply's ETag, set by the transport below
 
     auto reply = [this, etag](Error /*error*/, int httpStatus, const std::string &body) {
+        struct Done {
+            Net &net;
+            ~Done()
+            {
+                net.m_tableMappingsFetchInFlight = false;
+                net.armTableMappingsRefresh();
+                if (net.m_tableMappingsFetchAgain.exchange(false)) {
+                    net.fetchTableMappings(false);
+                }
+            }
+        } done {*this};
         if (m_tableMappings.apply(httpStatus, *etag, body)) {
             const auto snapshot = m_tableMappings.snapshot();
             INF("API table mappings updated: result {}, {} mappings",
                 static_cast<int>(snapshot.result), snapshot.rows.size());
             m_eventManager->push(std::make_shared<TableMappingsUpdatedEvent>());
-        }
-        m_tableMappingsFetchInFlight = false;
-        armTableMappingsRefresh();
-        if (m_tableMappingsFetchAgain.exchange(false)) {
-            fetchTableMappings(false);
         }
     };
 
@@ -4037,7 +4045,7 @@ MachineSwitch::Steps Net::machineSwitchSteps()
     };
     steps.changed = [this](const std::string &target) {
         m_eventManager->push(std::make_shared<MachineChangedEvent>(target));
-        emitPairingStatusEventIfChanged(true);
+        emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
     };
     steps.refetch = [this] {
         fetchTableMappings(false);
@@ -4102,6 +4110,7 @@ void Net::holdSwitchGate(bool hold)
     m_switchGateHeld = hold;
     if (hold) {
         m_switchGateFromSession = fromSession;
+        m_switchGateGameData = m_gameDataSubmitted.load();
         m_switchSwallowedSignal = SwallowedSignal::None;
     }
     if (hold || m_switchHeldPosts.empty()) {
@@ -4146,8 +4155,14 @@ void Net::drainSessionPosts(MachineSwitch::Done done)
         }
     };
     const auto deadline = steady_clock::now() + SWITCH_DRAIN_BOUND;
-    m_worker.post([this, drain, marker, deadline] {
-        while (m_pendingGameData > 0 && !m_stop && !drain->fired
+    std::uint64_t submittedBeforeGate = 0;
+    {
+        std::scoped_lock lock(m_switchGateMutex);
+        submittedBeforeGate = m_switchGateGameData;
+    }
+    // Only data submitted before the gate: a game started since must not keep the drain waiting.
+    m_worker.post([this, drain, marker, deadline, submittedBeforeGate] {
+        while (m_gameDataApplied < submittedBeforeGate && !m_stop && !drain->fired
                && steady_clock::now() < deadline) {
             std::this_thread::sleep_for(SWITCH_DRAIN_POLL);
         }
@@ -4202,6 +4217,7 @@ void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &
     {
         std::scoped_lock lock(m_cfTokenMutex);
         m_cfToken = token;
+        ++m_cfTokenGeneration;
     }
     scheduleCentrifugoTokenRefresh(token, 0);
 
@@ -4765,6 +4781,18 @@ void NetTestAccess::setVpinTransport(Net &net, VpinTransport transport)
 void NetTestAccess::setMachineUuid(Net &net, std::string machineUuid)
 {
     net.setVenueMachine(std::move(machineUuid));
+}
+
+void NetTestAccess::seedSwitchToken(Net &net, std::string token)
+{
+    std::scoped_lock lock(net.m_cfTokenMutex);
+    net.m_cfToken = std::move(token);
+    ++net.m_cfTokenGeneration;
+}
+
+void NetTestAccess::fetchCentrifugoTokenNow(Net &net)
+{
+    net.fetchCentrifugoTokenNow();
 }
 
 std::string NetTestAccess::machineUuid(const Net &net)
@@ -5538,6 +5566,7 @@ void Net::fetchCentrifugoTokenNow()
         std::shared_lock lock(m_tokenMutex);
         authToken = m_stoken;
     }
+    const auto generation = m_cfTokenGeneration.load();
 
     std::string token;
     std::int64_t serverNow = 0;
@@ -5550,6 +5579,10 @@ void Net::fetchCentrifugoTokenNow()
 
     {
         std::scoped_lock lock(m_cfTokenMutex);
+        // A machine switch seeded a newer token while this one was fetched: keep it.
+        if (m_cfTokenGeneration != generation) {
+            return;
+        }
         m_cfToken = token;
     }
 

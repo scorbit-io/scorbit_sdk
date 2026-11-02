@@ -100,7 +100,8 @@ typedef enum {
 
     /**
      * @brief The device moved to another venue machine through @ref sb_switch_machine.
-     * Use @ref sb_event_machine_changed to get the new VenueMachine uuid.
+     * Use @ref sb_event_machine_changed to get the new VenueMachine uuid. The SDK has forgotten
+     * the old machine's player profiles: reset any player display.
      */
     SB_EVT_MACHINE_CHANGED,
 

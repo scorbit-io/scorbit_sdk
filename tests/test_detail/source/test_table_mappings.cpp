@@ -618,3 +618,30 @@ TEST_CASE("sb_event_machine_changed reads the new venue machine only from its ow
     CHECK(updated.type() == EventType::TableMappingsUpdated);
     CHECK_FALSE(sb_event_machine_changed(&updated, &uuid));
 }
+
+TEST_CASE("A token fetch begun before a switch does not overwrite the switch's token")
+{
+    VpinNet v(false);
+    NetTestAccess::startTokenRefresh(*v.net, AuthStatus::AuthenticatedPaired, "api-token");
+    NetTestAccess::setAuthTransport(*v.net,
+                                    {.centrifugoToken =
+                                             [&](const std::string &, const std::string &) {
+                                                 // The switch adopts its token while this fetch is
+                                                 // on the wire.
+                                                 NetTestAccess::seedSwitchToken(*v.net,
+                                                                                "switch-token");
+                                                 return std::string {"stale-socket-token"};
+                                             }},
+                                    {});
+    NetTestAccess::fetchCentrifugoTokenNow(*v.net);
+    CHECK(NetTestAccess::cachedCentrifugoToken(*v.net) == "switch-token");
+
+    // A fetch with no switch meanwhile still lands.
+    NetTestAccess::setAuthTransport(
+            *v.net,
+            {.centrifugoToken = [](const std::string &,
+                                   const std::string &) { return std::string {"fresh"}; }},
+            {});
+    NetTestAccess::fetchCentrifugoTokenNow(*v.net);
+    CHECK(NetTestAccess::cachedCentrifugoToken(*v.net) == "fresh");
+}

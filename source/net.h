@@ -272,6 +272,9 @@ struct NetTestAccess {
     static void releaseSwitchGate(Net &net);
     static void holdSwitchGate(Net &net);
     static void setMachineUuid(Net &net, std::string machineUuid);
+    /// Seeds the Centrifugo token as a machine switch does.
+    static void seedSwitchToken(Net &net, std::string token);
+    static void fetchCentrifugoTokenNow(Net &net);
     static std::string machineUuid(const Net &net);
 
 private:
@@ -870,6 +873,8 @@ private:
     mutable std::mutex m_cfTokenMutex;
     std::string m_cfToken;
     std::atomic_bool m_cfTokenFetchInFlight {false};
+    /// Bumped when a machine switch seeds m_cfToken, so an older fetch does not overwrite it.
+    std::atomic<std::uint64_t> m_cfTokenGeneration {0};
     /// The delay the last Centrifugo token refresh was armed with; read by tests only.
     std::optional<std::chrono::seconds> m_cfTokenRefreshDelay;
 
@@ -1018,8 +1023,10 @@ private:
     /// A pairing signal a switch folded in; replayed if the switch fails. Under the gate mutex.
     enum class SwallowedSignal { None, Paired, Unpaired };
     SwallowedSignal m_switchSwallowedSignal {SwallowedSignal::None};
-    /// submitGameData() posts not yet applied.
-    std::atomic<int> m_pendingGameData {0};
+    /// submitGameData() posts made and applied; the drain waits for those made before the gate.
+    std::atomic<std::uint64_t> m_gameDataSubmitted {0};
+    std::atomic<std::uint64_t> m_gameDataApplied {0};
+    std::uint64_t m_switchGateGameData {0}; ///< m_gameDataSubmitted when the gate closed
     std::vector<task_t> m_switchHeldPosts;
     /// Fetch the next Centrifugo client's token (false: a switch seeded it); see restartCentrifugo.
     std::atomic_bool m_restartFetchFreshToken {true};
