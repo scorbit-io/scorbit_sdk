@@ -1502,6 +1502,8 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         const auto createdAt = to_iso8601(chrono::system_clock::now());
+        // One snapshot: a switch must not mix two machines within one packet.
+        const auto ctx = machine();
 
         json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
                 {JKEY_CHN_PAYLOAD,
@@ -1510,9 +1512,9 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, machine().machineUuid},
-                         {JKEY_SCR_VARIANT, machine().variantUuid},
-                         {JKEY_SCR_VENUE, machine().venueUuid},
+                         {JKEY_SCR_MACHINE, ctx.machineUuid},
+                         {JKEY_SCR_VARIANT, ctx.variantUuid},
+                         {JKEY_SCR_VENUE, ctx.venueUuid},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
@@ -1525,7 +1527,7 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         INF("API-CF sending credits status: {}", j.dump());
-        publishToMachineChannel("credits status", std::move(j), machine().channel);
+        publishToMachineChannel("credits status", std::move(j), ctx.channel);
     });
 }
 
@@ -1588,7 +1590,9 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
             WRN("DIAG: deadline passed before publish, dropping trace_id={}", traceId);
             return;
         }
-        if (machine().channel.empty()) {
+        // One snapshot: a switch must not mix two machines within one packet.
+        const auto ctx = machine();
+        if (ctx.channel.empty()) {
             WRN("DIAG: machine channel not ready, dropping publish for trace_id={}", traceId);
             return;
         }
@@ -1600,16 +1604,16 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, machine().machineUuid},
-                         {JKEY_SCR_VARIANT, machine().variantUuid},
-                         {JKEY_SCR_VENUE, machine().venueUuid},
+                         {JKEY_SCR_MACHINE, ctx.machineUuid},
+                         {JKEY_SCR_VARIANT, ctx.variantUuid},
+                         {JKEY_SCR_VENUE, ctx.venueUuid},
                          {JKEY_SCR_SEQUENCE, sequence},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
 
         INF("API-CF sending diag probe: {}", j.dump());
-        publishToMachineChannel("diag probe", std::move(j), machine().channel);
+        publishToMachineChannel("diag probe", std::move(j), ctx.channel);
     });
 }
 
