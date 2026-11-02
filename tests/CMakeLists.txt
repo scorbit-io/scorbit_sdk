@@ -39,6 +39,12 @@ if(NOT MSVC)
     add_subdirectory(test_interface_c)
 endif()
 
+# The VBScript binding: its parity with GameState wherever Python 3 runs, its cscript test on Windows.
+add_subdirectory(
+    ${CMAKE_CURRENT_SOURCE_DIR}/../wrappers/vbscript
+    ${CMAKE_CURRENT_BINARY_DIR}/vbscript
+)
+
 # The Python wrappers' ctypes declarations against the C prototypes, and every C function's use by
 # the C++ and Python APIs (SB-6151). Both read from source and need no SDK build, so they run
 # wherever a Python 3 interpreter is found.
