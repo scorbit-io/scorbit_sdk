@@ -382,8 +382,7 @@ public:
     void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback) override;
     void fetchAchievementProgress(std::string userId, ApiReplyCallback callback) override;
     void postAchievementReport(std::string body, ApiReplyCallback callback) override;
-    void downloadAchievementFrame(std::string url, std::string filename,
-                                  ApiReplyCallback callback) override;
+    void downloadAchievementArtwork(std::string url, VectorCallback callback) override;
     void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn) override;
     void scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,

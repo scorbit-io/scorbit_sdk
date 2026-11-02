@@ -202,20 +202,29 @@ class Config(object):
         _lib.sb_config_set_auto_download_player_pics(self._handle, enable)
         return self
 
+    def set_data_dir(self, path):
+        """Set a writable, persistent directory for SDK data.
+
+        The achievements cache (the last definitions) is kept there across
+        reboots. Defaults to a temporary directory.
+        """
+        _lib.sb_config_set_data_dir(self._handle, _encode(path))
+        return self
+
+    def set_achievement_artwork(self, artwork):
+        """Choose the artwork handed over with ``AchievementUnlocked``.
+
+        The SDK downloads it for every achievement and keeps it in memory,
+        so an unlock can be presented with it at once. Nothing is downloaded
+        with the default, ``AchievementArtwork.None_``.
+        """
+        _lib.sb_config_set_achievement_artwork(self._handle, int(artwork))
+        return self
+
     def set_threads_priority(self, priority):
         # type: (int) -> Config
         """Nice / QOS for SDK background threads; ``0`` leaves scheduling unchanged (default)."""
         _lib.sb_config_set_threads_priority(self._handle, priority)
-        return self
-
-    def set_data_dir(self, path):
-        # type: (str) -> Config
-        """Set a writable, persistent directory for SDK data.
-
-        The achievements cache (definitions and DMD frames) is kept
-        there across reboots. Defaults to a temporary directory.
-        """
-        _lib.sb_config_set_data_dir(self._handle, _encode(path))
         return self
 
     def set_worker_thread_count(self, count):

@@ -222,12 +222,10 @@ public:
         (void)callback;
     }
 
-    /** Downloads one achievement's DMD frame from its `frame` @p url to @p filename. */
-    virtual void downloadAchievementFrame(std::string url, std::string filename,
-                                          ApiReplyCallback callback)
+    /** Downloads one achievement's artwork (its `frame` or `icon_url`) from @p url to memory. */
+    virtual void downloadAchievementArtwork(std::string url, VectorCallback callback)
     {
         (void)url;
-        (void)filename;
         (void)callback;
     }
 

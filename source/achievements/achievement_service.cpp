@@ -24,7 +24,6 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
-#include <cstdio>
 #include <sstream>
 #include <utility>
 
@@ -105,11 +104,13 @@ int64_t systemWallClock()
 }
 
 AchievementService::AchievementService(NetBase &net, AchievementStorage storage, Poster poster,
-                                       NotificationSink sink, WallClock wallClock)
+                                       UnlockSink sink, ArtworkKind artworkKind,
+                                       WallClock wallClock)
     : m_net {net}
     , m_storage {std::move(storage)}
     , m_poster {std::move(poster)}
     , m_sink {std::move(sink)}
+    , m_artworkKind {artworkKind}
     , m_wallClock {std::move(wallClock)}
 {
     if (const auto cached = m_storage.loadDefinitions();
@@ -159,7 +160,7 @@ void AchievementService::onDefinitions(ApiReply reply)
         return;
     }
     scheduleRevalidation();
-    refreshFrames();
+    refreshArtwork();
 }
 
 void AchievementService::scheduleRevalidation()
@@ -213,72 +214,130 @@ bool AchievementService::applyDefinitions(const CachedDefinitions &response, boo
     return true;
 }
 
-// ---- Frames ------------------------------------------------------------------------------------
+// ---- Artwork ----------------------------------------------------------------------------------
 
-void AchievementService::refreshFrames()
+std::pair<std::string, std::string>
+AchievementService::artworkSource(const Definition &definition) const
 {
-    for (const auto &[key, version] : m_storage.frameVersions()) {
-        const auto *definition = m_feed->definitions.find(key);
-        if (!definition || definition->frameUrl.empty()) {
-            INF("Achievements: removing frame of '{}'", key);
-            m_storage.removeFrame(key);
-        }
+    switch (m_artworkKind) {
+    case ArtworkKind::Frame:
+        return {definition.frameUrl, std::to_string(definition.frameVersion)};
+    case ArtworkKind::Image:
+        return {definition.iconUrl, definition.iconUrl};
+    case ArtworkKind::None:
+        break;
     }
-
-    m_frameFailures.clear();
-    downloadNextFrame();
+    return {};
 }
 
-void AchievementService::downloadNextFrame()
+bool AchievementService::needsArtwork(const Definition &definition) const
 {
-    if (m_downloadingFrames) {
+    const auto [url, version] = artworkSource(definition);
+    if (url.empty()) {
+        return false;
+    }
+    const auto it = m_artwork.find(definition.key);
+    return it == m_artwork.end() || it->second.version != version;
+}
+
+void AchievementService::refreshArtwork()
+{
+    // Artwork no longer delivered, or no longer of the kind kept, is dropped
+    std::erase_if(m_artwork, [this](const auto &entry) {
+        const auto *definition = m_feed->definitions.find(entry.first);
+        return !definition || artworkSource(*definition).first.empty();
+    });
+
+    m_artworkToDownload.clear();
+    for (const auto &definition : m_feed->definitions.all()) {
+        if (needsArtwork(definition)) {
+            m_artworkToDownload.insert(definition.key);
+        }
+    }
+    downloadNextArtwork();
+}
+
+void AchievementService::downloadNextArtwork()
+{
+    if (m_downloadingArtwork) {
         return;
     }
 
-    const auto installed = m_storage.frameVersions();
     const auto &definitions = m_feed->definitions.all();
-    const auto next = std::ranges::find_if(definitions, [&](const Definition &definition) {
-        if (definition.frameUrl.empty() || m_frameFailures.contains(definition.key)) {
-            return false;
-        }
-        const auto it = installed.find(definition.key);
-        return it == installed.end() || it->second != definition.frameVersion;
+    const auto next = std::ranges::find_if(definitions, [this](const Definition &definition) {
+        return m_artworkToDownload.contains(definition.key);
     });
     if (next == definitions.end()) {
         return;
     }
 
-    m_downloadingFrames = true;
+    m_downloadingArtwork = true;
     const auto key = next->key;
-    const auto version = next->frameVersion;
-    const auto extension = frameExtension(next->frameUrl);
-    const auto path = m_storage.frameDownloadPath(key);
-    m_net.downloadAchievementFrame(
-            next->frameUrl, path,
-            [this, alive = std::weak_ptr(m_alive), key, version, extension, path](ApiReply reply) {
-                m_poster([this, alive, key, version, extension, path, reply = std::move(reply)] {
+    auto [url, version] = artworkSource(*next);
+    m_net.downloadAchievementArtwork(
+            url, [this, alive = std::weak_ptr(m_alive), key,
+                  version = std::move(version)](Error error, const std::vector<uint8_t> &data) {
+                m_poster([this, alive, key, version, error, data] {
                     if (alive.expired()) {
                         return;
                     }
-                    m_downloadingFrames = false;
-                    if (reply.error != Error::Success) {
-                        WRN("Achievements: can't download frame of '{}' v{}", key, version);
-                        std::remove(path.c_str());
-                        m_frameFailures.insert(key);
-                    } else if (m_storage.installFrame(key, path, extension, version)) {
-                        INF("Achievements: frame of '{}' v{} installed", key, version);
+                    m_downloadingArtwork = false;
+                    if (error == Error::Success) {
+                        INF("Achievements: artwork of '{}' ({} bytes) ready", key, data.size());
+                        m_artwork[key] = {version, data};
                     } else {
-                        std::remove(path.c_str());
-                        m_frameFailures.insert(key);
+                        WRN("Achievements: can't download artwork of '{}'", key);
                     }
-                    downloadNextFrame();
+
+                    // Downloaded again if a refresh meanwhile delivered a newer version
+                    const auto *definition = m_feed->definitions.find(key);
+                    if (error != Error::Success || !definition || !needsArtwork(*definition)) {
+                        m_artworkToDownload.erase(key);
+                    }
+                    releaseUnlocks(key);
+                    downloadNextArtwork();
                 });
             });
 }
 
-std::optional<std::vector<uint8_t>> AchievementService::frame(const std::string &key) const
+std::optional<std::vector<uint8_t>> AchievementService::artwork(const std::string &key) const
 {
-    return m_storage.frame(key);
+    const auto it = m_artwork.find(key);
+    if (it == m_artwork.end()) {
+        return std::nullopt;
+    }
+    return it->second.data;
+}
+
+void AchievementService::deliver(AchievementUnlock unlock)
+{
+    // Held while its artwork is to be downloaded, so the game can present both together
+    if (m_artworkToDownload.contains(unlock.key)) {
+        m_heldUnlocks[unlock.key].push_back(std::move(unlock));
+        return;
+    }
+
+    if (const auto it = m_artwork.find(unlock.key); it != m_artwork.end()) {
+        unlock.artwork = it->second.data;
+    }
+    INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
+    if (m_sink) {
+        m_sink(std::move(unlock));
+    }
+}
+
+void AchievementService::releaseUnlocks(const std::string &key)
+{
+    if (m_artworkToDownload.contains(key)) {
+        return;
+    }
+    const auto node = m_heldUnlocks.extract(key);
+    if (!node) {
+        return;
+    }
+    for (auto &unlock : node.mapped()) {
+        deliver(std::move(unlock));
+    }
 }
 
 // ---- Session -----------------------------------------------------------------------------------
@@ -479,11 +538,20 @@ void AchievementService::publish(Session &session, PlayerNumber player, Claim &c
     session.outbox->add(claim.userId, claim.tracker->takeClaims());
     pump(session.outbox);
 
+    // Game code hears of an achievement once the server granted it: what the machine decided
+    // alone may still be refused, and a trophy is the server's call anyway (§7.2)
     for (auto &update : claim.tracker->takeUpdates()) {
-        if (m_sink) {
-            m_sink(AchievementNotification {std::move(update.key), player, claim.userId,
-                                            update.status, std::move(update.rules)});
+        if (update.status != AchievementStatus::Confirmed) {
+            continue;
         }
+        AchievementUnlock unlock;
+        unlock.key = std::move(update.key);
+        unlock.player = player;
+        if (const auto *definition = session.definitions().find(unlock.key)) {
+            unlock.name = definition->name;
+            unlock.description = definition->description;
+        }
+        deliver(std::move(unlock));
     }
 }
 

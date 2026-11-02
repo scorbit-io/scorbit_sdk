@@ -21,18 +21,7 @@ The object supports the context-manager protocol for automatic cleanup::
 import json
 import traceback
 import warnings
-from ctypes import (
-    POINTER,
-    byref,
-    c_bool,
-    c_char_p,
-    c_int,
-    c_int64,
-    c_size_t,
-    c_uint8,
-    c_uint64,
-    string_at,
-)
+from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
 
 from ._bindings import (
     _lib,
@@ -40,17 +29,9 @@ from ._bindings import (
     sb_http_header_t,
     sb_http_status_callback_t,
     sb_leaderboard_callback_t,
-    sb_achievement_progress_t,
-    sb_achievement_rule_progress_t,
-    sb_achievement_rule_t,
-    sb_achievement_t,
     sb_string_callback_t,
 )
 from ._enums import (
-    AchievementComparison,
-    AchievementEvaluation,
-    AchievementRuleType,
-    AchievementScope,
     AuthStatus,
     Error,
     GameStartOrigin,
@@ -60,15 +41,7 @@ from ._enums import (
 )
 from . import config as _config_mod
 from .config import Config, _encode
-from ._types import (
-    Achievement,
-    AchievementProgress,
-    AchievementRule,
-    AchievementRuleProgress,
-    LeaderboardEntry,
-    LeaderboardPlayer,
-    LeaderboardResult,
-)
+from ._types import LeaderboardEntry, LeaderboardPlayer, LeaderboardResult
 
 
 def _header_array(headers):
@@ -257,21 +230,22 @@ class GameState(object):
         """
         _lib.sb_set_mode_completed(self._handle, _encode(mode))
 
-    def add_event(self, name, value):
+    def add_game_event(self, name, value):
         # type: (str, int) -> None
-        """Add *value* to the named event register.
+        """Add *value* to the named game event register.
 
-        An event is a named 64-bit counter the game accumulates (spinner
-        spins, ramps, ...), matched against achievement conditions.  Like a
-        completed mode it is one-shot: it is recorded only in the history
-        row produced by the next :meth:`commit`.
+        A game event is a named 64-bit counter the game accumulates:
+        spinner spins, ramps, targets hit.  Game events are matched against
+        achievement conditions (e.g. "10,000 spins, for life").  Like
+        :meth:`set_mode_completed` it is one-shot: recorded in the update
+        which follows the call only.
 
         Args:
-            name: e.g. ``"spins"``.  Must not be empty or contain ``;``,
-                ``=``, ``,``, ``"`` or a newline; such a call is ignored.
-            value: amount to add; may be negative.
+            name: e.g. ``"spins"``. It must not be empty and must not contain
+                ``;``, ``=``, ``,``, ``"`` or a newline; such a call is ignored.
+            value: The amount to add; it may be negative.
         """
-        _lib.sb_add_event(self._handle, _encode(name), value)
+        _lib.sb_add_game_event(self._handle, _encode(name), value)
 
     def remove_mode(self, mode):
         # type: (str) -> None
@@ -515,140 +489,6 @@ class GameState(object):
         """
         cb = self._make_string_cb(callback)
         _lib.sb_request_unpair(self._handle, cb, None)
-
-    # ------------------------------------------------------------------
-    # Achievements
-    # ------------------------------------------------------------------
-
-    def _achievement_from_c(self, c):
-        # type: (...) -> Achievement
-        decode = self._decode_c_string
-        a = Achievement()
-        a.key = decode(c.key)
-        a.name = decode(c.name)
-        a.description = decode(c.description)
-        a.scope = AchievementScope(c.scope)
-        a.evaluation = AchievementEvaluation(c.evaluation)
-        a.is_trophy = bool(c.is_trophy)
-        a.is_badge = bool(c.is_badge)
-        a.visible = bool(c.visible)
-        a.obscure = bool(c.obscure)
-        a.notify_when_achieved = bool(c.notify_when_achieved)
-        a.icon_url = decode(c.icon_url)
-        a.obscure_image_url = decode(c.obscure_image_url)
-        if c.has_group:
-            a.group_id = int(c.group_id)
-            a.level = int(c.level)
-            a.display_position = int(c.display_position)
-
-        # Copied first: the next call may invalidate the definition's strings
-        key = _encode(a.key)
-        for i in range(int(c.rules_count)):
-            rule = sb_achievement_rule_t()
-            if _lib.sb_achievement_rule_at(self._handle, key, i, byref(rule)):
-                a.rules.append(
-                    AchievementRule(
-                        AchievementRuleType(rule.type),
-                        AchievementComparison(rule.comparison),
-                        int(rule.target),
-                        decode(rule.reference),
-                    )
-                )
-        return a
-
-    def get_achievements(self):
-        # type: () -> list
-        """Every achievement definition cached for this machine.
-
-        Achievements are evaluated automatically on every :meth:`commit`
-        and reported through the event callback as
-        ``EventType.AchievementUpdated``.
-        """
-        result = []
-        for i in range(_lib.sb_achievements_count(self._handle)):
-            c = sb_achievement_t()
-            if _lib.sb_achievement_at(self._handle, i, byref(c)):
-                result.append(self._achievement_from_c(c))
-        return result
-
-    def find_achievement(self, key):
-        # type: (str) -> Achievement | None
-        """The achievement definition with *key*, or ``None``."""
-        c = sb_achievement_t()
-        if not _lib.sb_achievement_find(self._handle, _encode(key), byref(c)):
-            return None
-        return self._achievement_from_c(c)
-
-    def get_achievement_progress(self, player, key):
-        # type: (int, str) -> AchievementProgress | None
-        """*player*'s progress on achievement *key* during the current game.
-
-        Returns ``None`` when the slot is not claimed or the achievement is
-        not tracked for the player.
-        """
-        definition = sb_achievement_t()
-        progress = sb_achievement_progress_t()
-        encoded = _encode(key)
-        if not _lib.sb_achievement_find(self._handle, encoded, byref(definition)):
-            return None
-        if not _lib.sb_achievement_player_progress(self._handle, player, encoded, byref(progress)):
-            return None
-
-        rules = []
-        for i in range(int(definition.rules_count)):
-            rule = sb_achievement_rule_progress_t()
-            if _lib.sb_achievement_player_rule_progress(
-                self._handle, player, encoded, i, byref(rule)
-            ):
-                rules.append(
-                    AchievementRuleProgress(
-                        bool(rule.judged), int(rule.value), int(rule.target), bool(rule.satisfied)
-                    )
-                )
-            else:
-                rules.append(AchievementRuleProgress())
-        return AchievementProgress(
-            bool(progress.held), bool(progress.all_satisfied), bool(progress.confirmed), rules
-        )
-
-    def refresh_achievements(self):
-        # type: () -> None
-        """Revalidate the cached achievement definitions now.
-
-        Normally done at boot and with every token refresh. Definitions received
-        during a game apply from the next game.
-        """
-        _lib.sb_refresh_achievements(self._handle)
-
-    def fetch_player_achievements(self, user_id, callback):
-        # type: (str, ...) -> None
-        """Fetch a player's stored achievements state as JSON.
-
-        Args:
-            user_id: The player's user id.
-            callback: ``(error: Error, reply: str) -> None``.
-        """
-        cb = self._make_string_cb(callback)
-        _lib.sb_fetch_player_achievements(self._handle, _encode(user_id), cb, None)
-
-    def flush_achievement_reports(self):
-        # type: () -> None
-        """Report changed achievement progress now instead of at ball end."""
-        _lib.sb_flush_achievement_reports(self._handle)
-
-    def download_achievement_frames(self):
-        # type: () -> None
-        """Download the achievement DMD frames that changed on the server."""
-        _lib.sb_download_achievement_frames(self._handle)
-
-    def get_achievement_frame(self, key):
-        # type: (str) -> bytes | None
-        """The DMD frame of achievement *key*, or ``None``."""
-        data = POINTER(c_uint8)()
-        size = c_size_t(0)
-        if not _lib.sb_achievement_frame(self._handle, _encode(key), byref(data), byref(size)):
-            return None
-        return string_at(data, size.value)
 
     # ------------------------------------------------------------------
     # Capabilities / Credits

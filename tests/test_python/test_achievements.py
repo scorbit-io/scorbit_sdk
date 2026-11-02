@@ -17,31 +17,16 @@ def _signer(digest):
 
 class TestAchievementsExports(unittest.TestCase):
     def test_enums_match_c_values(self):
-        self.assertEqual(scorbit.EventType.AchievementUpdated, 10)
-        self.assertEqual(scorbit.AchievementStatus.UnlockedLocally, 1)
-        self.assertEqual(scorbit.AchievementStatus.Retracted, 4)
-        self.assertEqual(scorbit.AchievementRuleType.Achievement, 11)
-        self.assertEqual(scorbit.AchievementRuleType.ModeScore, 12)
-        self.assertEqual(scorbit.AchievementRuleType.Calendar, 13)
-        self.assertEqual(scorbit.AchievementComparison.Ne, 3)
-        self.assertEqual(scorbit.AchievementEvaluation.Unlimited, 1)
-        self.assertEqual(scorbit.AchievementScope.Global, 3)
+        self.assertEqual(scorbit.EventType.AchievementUnlocked, 10)
+        self.assertEqual(scorbit.AchievementArtwork.None_, 0)
+        self.assertEqual(scorbit.AchievementArtwork.Frame, 1)
+        self.assertEqual(scorbit.AchievementArtwork.Image, 2)
 
-    def test_types_exported(self):
-        for name in (
-            "Achievement",
-            "AchievementRule",
-            "AchievementProgress",
-            "AchievementRuleProgress",
-            "AchievementUpdate",
-        ):
-            self.assertTrue(hasattr(scorbit, name), name)
-
-    def test_achievement_fields(self):
-        achievement = scorbit.Achievement()
-        self.assertFalse(achievement.is_badge)
-        self.assertIsNone(achievement.level)
-        self.assertIsNone(achievement.group_id)
+    def test_unlock_fields(self):
+        unlock = scorbit.AchievementUnlock()
+        self.assertEqual(unlock.key, "")
+        self.assertEqual(unlock.player, 0)
+        self.assertEqual(unlock.artwork, b"")
 
 
 class TestAchievementsGameState(unittest.TestCase):
@@ -53,25 +38,17 @@ class TestAchievementsGameState(unittest.TestCase):
         config.set_game_code_version("0.1.0")
         config.set_signer(_signer)
         config.set_data_dir(self.data_dir)
+        config.set_achievement_artwork(scorbit.AchievementArtwork.Frame)
         self.gs = scorbit.create_game_state(config)
 
     def tearDown(self):
         self.gs.destroy()
 
-    def test_empty_cache(self):
-        self.assertEqual(self.gs.get_achievements(), [])
-        self.assertIsNone(self.gs.find_achievement("game-cv-boom"))
-        self.assertIsNone(self.gs.get_achievement_progress(1, "game-cv-boom"))
-        self.assertIsNone(self.gs.get_achievement_frame("game-cv-boom"))
-
-    def test_events_and_network_calls(self):
+    def test_game_events(self):
         self.gs.set_game_started(scorbit.GameStartOrigin.StartButton)
-        self.gs.add_event("spins", 3)
-        self.gs.add_event("spins", -1)
+        self.gs.add_game_event("spins", 3)
+        self.gs.add_game_event("spins", -1)
         self.gs.commit()
-        self.gs.flush_achievement_reports()
-        self.gs.refresh_achievements()
-        self.gs.download_achievement_frames()
         self.gs.set_game_finished()
 
 

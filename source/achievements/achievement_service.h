@@ -34,6 +34,7 @@
 #include <random>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace scorbit {
@@ -43,13 +44,22 @@ namespace achievements {
 /** The system clock, in UTC epoch milliseconds. */
 int64_t systemWallClock();
 
-/** An @ref AchievementUpdate for a particular player, as delivered to game code. */
-struct AchievementNotification {
+/** Which artwork the service keeps in memory, to hand over with an unlock. */
+enum class ArtworkKind {
+    None,
+    Frame, ///< The DMD frame (`frame`, versioned by `frame_version`)
+    Image, ///< The icon (`icon_url`, which has no version: a new URL is a new image)
+};
+
+/** An achievement the server granted a claimed player, as delivered to game code. */
+struct AchievementUnlock {
     std::string key;
     PlayerNumber player {0};
-    std::string userId;
-    AchievementStatus status {AchievementStatus::Progress};
-    RuleProgressMap rules;
+    std::string name;
+    std::string description;
+
+    /** The artwork of the configured kind; empty when there is none. */
+    std::vector<uint8_t> artwork;
 };
 
 /** Read-only snapshot of the achievements state, safe to read from any thread. */
@@ -76,14 +86,15 @@ public:
     /** Runs a function on the service's thread. */
     using Poster = std::function<void(std::function<void()>)>;
 
-    /** Receives every notification for game code. */
-    using NotificationSink = std::function<void(AchievementNotification)>;
+    /** Receives every unlock for game code. */
+    using UnlockSink = std::function<void(AchievementUnlock)>;
 
     /** The wall clock, in UTC epoch milliseconds. */
     using WallClock = std::function<int64_t()>;
 
-    AchievementService(NetBase &net, AchievementStorage storage, Poster poster,
-                       NotificationSink sink, WallClock wallClock = systemWallClock);
+    AchievementService(NetBase &net, AchievementStorage storage, Poster poster, UnlockSink sink,
+                       ArtworkKind artworkKind = ArtworkKind::None,
+                       WallClock wallClock = systemWallClock);
     ~AchievementService();
 
     AchievementService(const AchievementService &) = delete;
@@ -120,13 +131,14 @@ public:
     void flushReports();
 
     /**
-     * Brings the installed DMD frames in line with the definitions: downloads each frame whose
-     * `frame_version` changed, one at a time, and removes those no longer delivered.
+     * Brings the artwork held in memory in line with the definitions: downloads, one at a time,
+     * each whose version changed or that isn't held yet, and drops those no longer delivered. An
+     * artwork that fails is not retried until the next refresh.
      */
-    void refreshFrames();
+    void refreshArtwork();
 
-    /** The frame for achievement @p key, if one is installed. */
-    std::optional<std::vector<uint8_t>> frame(const std::string &key) const;
+    /** The artwork held for achievement @p key, if any. */
+    std::optional<std::vector<uint8_t>> artwork(const std::string &key) const;
 
     std::shared_ptr<const AchievementsView> view() const;
 
@@ -163,7 +175,15 @@ private:
 
     /** Puts @p response in force if it parses, and caches it when @p persist. */
     bool applyDefinitions(const CachedDefinitions &response, bool persist);
-    void downloadNextFrame();
+    /** The artwork URL of @p definition and the version it is held at, for the kind kept. */
+    std::pair<std::string, std::string> artworkSource(const Definition &definition) const;
+    bool needsArtwork(const Definition &definition) const;
+    void downloadNextArtwork();
+
+    /** Hands @p unlock to game code, or holds it while its artwork is still to be downloaded. */
+    void deliver(AchievementUnlock unlock);
+    void releaseUnlocks(const std::string &key);
+
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
@@ -186,7 +206,8 @@ private:
     NetBase &m_net;
     AchievementStorage m_storage;
     Poster m_poster;
-    NotificationSink m_sink;
+    UnlockSink m_sink;
+    ArtworkKind m_artworkKind;
 
     /** The definitions in force, from the last response that parsed. */
     std::shared_ptr<const DefinitionFeed> m_feed = std::make_shared<DefinitionFeed>();
@@ -207,10 +228,24 @@ private:
 
     /** Spreads the machines of one time zone over the minutes after midnight. */
     std::mt19937 m_random {std::random_device {}()};
-    bool m_downloadingFrames {false};
 
-    /** Frames that failed since the last @ref refreshFrames, so they aren't retried in a loop. */
-    std::set<std::string> m_frameFailures;
+    struct Artwork {
+        std::string version;
+        std::vector<uint8_t> data;
+    };
+
+    /** The artwork of the kind kept, by achievement key. */
+    std::map<std::string, Artwork> m_artwork;
+
+    /**
+     * Keys whose artwork this refresh still has to download, or is downloading. One that fails
+     * leaves it, so it isn't retried in a loop.
+     */
+    std::set<std::string> m_artworkToDownload;
+    bool m_downloadingArtwork {false};
+
+    /** Unlocks waiting for their artwork, by achievement key, in the order they happened. */
+    std::map<std::string, std::vector<AchievementUnlock>> m_heldUnlocks;
 
     /** Guards the service against replies arriving after it was destroyed. */
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);

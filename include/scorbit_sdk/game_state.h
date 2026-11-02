@@ -215,21 +215,23 @@ public:
     }
 
     /**
-     * @brief Add a value to a named event register.
+     * @brief Add a value to a named game event register.
      *
-     * An event is a named 64-bit counter that the game accumulates: spinner spins, ramps, targets
-     * hit. Events are matched against achievement conditions (e.g. "10,000 spins, for life").
+     * A game event is a named 64-bit counter that the game accumulates: spinner spins, ramps,
+     * targets hit. Game events are matched against achievement conditions (e.g. "10,000 spins, for
+     * life").
      *
-     * @note Event operations are one-shot, like completed modes: each call is recorded only in the
-     * history row produced by the next @ref commit. Adding an event makes the game state changed.
+     * @note Game event operations are one-shot, like completed modes: each call is recorded only
+     * in the history row produced by the next @ref commit. Adding a game event makes the game state
+     * changed.
      *
      * @param name The event name (e.g., "spins"). It must not be empty and must not contain `;`,
      * `=`, `,`, `"` or a newline; such a call is ignored. Names are case-sensitive.
      * @param value The amount to add; it may be negative to reduce the register.
      */
-    void addEvent(const std::string &name, int64_t value)
+    void addGameEvent(const std::string &name, int64_t value)
     {
-        sb_add_event(m_handle.get(), name.c_str(), value);
+        sb_add_game_event(m_handle.get(), name.c_str(), value);
     }
 
     /**
@@ -652,113 +654,6 @@ public:
         auto cbPair = prepareBufferCallback(std::move(callback));
         sb_download_buffer(m_handle.get(), url.c_str(), reserveBufferSize, cHeaders.data(),
                            cHeaders.size(), cbPair.first, cbPair.second);
-    }
-
-    // -------------------------- Achievements --------------------------------------------------
-
-    /**
-     * @brief Every achievement definition cached for this machine, with full rule sets.
-     *
-     * Achievements are evaluated automatically on every @ref commit and reported through the event
-     * callback as @ref EventType::AchievementUpdated; see @ref sb_achievements_count.
-     */
-    std::vector<Achievement> getAchievements() const
-    {
-        std::vector<Achievement> rv;
-        const size_t count = sb_achievements_count(m_handle.get());
-        for (size_t i = 0; i < count; ++i) {
-            sb_achievement_t c;
-            if (sb_achievement_at(m_handle.get(), i, &c)) {
-                rv.push_back(achievements_detail::fromC(m_handle.get(), c));
-            }
-        }
-        return rv;
-    }
-
-    /**
-     * @brief Finds the achievement definition with @p key.
-     * @return false if there is none.
-     */
-    bool findAchievement(const std::string &key, Achievement &achievement) const
-    {
-        sb_achievement_t c;
-        if (!sb_achievement_find(m_handle.get(), key.c_str(), &c)) {
-            return false;
-        }
-        achievement = achievements_detail::fromC(m_handle.get(), c);
-        return true;
-    }
-
-    /**
-     * @brief Reads @p player's progress on achievement @p key during the current game.
-     * @return false when the slot is not claimed or the achievement is not tracked for them.
-     */
-    bool getAchievementProgress(sb_player_t player, const std::string &key,
-                                AchievementProgress &progress) const
-    {
-        sb_achievement_t definition;
-        sb_achievement_progress_t c;
-        if (!sb_achievement_find(m_handle.get(), key.c_str(), &definition)
-            || !sb_achievement_player_progress(m_handle.get(), player, key.c_str(), &c)) {
-            return false;
-        }
-
-        progress.held = c.held;
-        progress.allSatisfied = c.all_satisfied;
-        progress.confirmed = c.confirmed;
-        progress.rules.clear();
-        const size_t count = definition.rules_count;
-        for (size_t i = 0; i < count; ++i) {
-            sb_achievement_rule_progress_t rule;
-            AchievementRuleProgress r;
-            if (sb_achievement_player_rule_progress(m_handle.get(), player, key.c_str(), i,
-                                                    &rule)) {
-                r.judged = rule.judged;
-                r.value = rule.value;
-                r.target = rule.target;
-                r.satisfied = rule.satisfied;
-            }
-            progress.rules.push_back(r);
-        }
-        return true;
-    }
-
-    /**
-     * @brief Revalidates the cached definitions now; normally done at boot and with every token
-     * refresh. Definitions received during a game apply from the next game
-     * (see @ref sb_refresh_achievements).
-     */
-    void refreshAchievements() { sb_refresh_achievements(m_handle.get()); }
-
-    /**
-     * @brief Fetches a player's stored achievements state as JSON (see @ref
-     * sb_fetch_player_achievements).
-     */
-    void fetchPlayerAchievements(const std::string &userId, StringCallback callback)
-    {
-        auto cbPair = prepareStringCallback(std::move(callback));
-        sb_fetch_player_achievements(m_handle.get(), userId.c_str(), cbPair.first, cbPair.second);
-    }
-
-    /** @brief Reports changed progress now (see @ref sb_flush_achievement_reports). */
-    void flushAchievementReports() { sb_flush_achievement_reports(m_handle.get()); }
-
-    /** @brief Downloads changed DMD frames (see @ref sb_download_achievement_frames). */
-    void downloadAchievementFrames() { sb_download_achievement_frames(m_handle.get()); }
-
-    /**
-     * @brief Reads the locally stored DMD frame of achievement @p key.
-     * @return false if no frame is stored for @p key.
-     */
-    bool getAchievementFrame(const std::string &key, std::vector<uint8_t> &frame) const
-    {
-        const uint8_t *data = nullptr;
-        size_t size = 0;
-        if (!sb_achievement_frame(m_handle.get(), key.c_str(), &data, &size)) {
-            return false;
-        }
-        frame.assign(data, data + size);
-        return true;
     }
 
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------

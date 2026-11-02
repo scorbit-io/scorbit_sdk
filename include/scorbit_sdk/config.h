@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "achievements.h"
 #include "config_c.h"
 #include "event.h"
 #include "net_types.h"
@@ -202,6 +203,17 @@ public:
     Config &setDataDir(const std::string &path)
     {
         sb_config_set_data_dir(m_handle.get(), path.c_str());
+        return *this;
+    }
+
+    /**
+     * @brief Choose the artwork handed over with @ref EventType::AchievementUnlocked (see @ref
+     *        sb_config_set_achievement_artwork).
+     */
+    Config &setAchievementArtwork(AchievementArtwork artwork)
+    {
+        sb_config_set_achievement_artwork(m_handle.get(),
+                                          static_cast<sb_achievement_artwork_t>(artwork));
         return *this;
     }
 

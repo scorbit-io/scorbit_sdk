@@ -24,7 +24,6 @@
 #include <scorbit_sdk/game_state_factory.h>
 #include "device_info.h"
 #include "game_state_impl.h"
-#include "game_state_c_internal.h"
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "net.h"
@@ -607,7 +606,7 @@ void sb_set_mode_completed(sb_game_handle_t handle, const char *mode)
     handle->postApiJob(JobSetModeCompleted {handle, copyCStr(mode)});
 }
 
-void sb_add_event(sb_game_handle_t handle, const char *name, int64_t value)
+void sb_add_game_event(sb_game_handle_t handle, const char *name, int64_t value)
 {
     handle->postApiJob(JobAddEvent {handle, copyCStr(name), value});
 }
@@ -816,19 +815,3 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
     handle->postApiJob(JobSubmitProbeFlashResult {handle, copyCStr(run_id), copyCStr(result_json),
                                                   callback, user_data});
 }
-
-namespace scorbit {
-namespace detail {
-
-GameStateImpl &gameStateOf(sb_game_handle_t handle)
-{
-    return handle->gameState;
-}
-
-void postToGameState(sb_game_handle_t handle, std::function<void()> fn)
-{
-    handle->postApiJob(scorbit_c_api_queue::JobRunOnDispatcher {std::move(fn)});
-}
-
-} // namespace detail
-} // namespace scorbit

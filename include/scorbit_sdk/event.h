@@ -144,34 +144,35 @@ public:
     // ------------------------------------------------------------------
 
     /**
-     * @brief Helper function to process an achievement updated event.
+     * @brief Helper function to process an achievement unlocked event.
      *
-     * The event type must be @ref scorbit::EventType::AchievementUpdated, otherwise the function
-     * returns false. See @ref sb_event_achievement_updated.
+     * The event type must be @ref scorbit::EventType::AchievementUnlocked, otherwise the function
+     * returns false. See @ref sb_event_achievement_unlocked.
      *
-     * @param update [OUT] The achievement, player, status and judged rules.
+     * @param unlock [OUT] The achievement, the player it was granted to, and its artwork.
      * @return Returns true on success, or false if the event type does not match.
      */
-    bool getAchievementUpdated(AchievementUpdate &update) const
+    bool getAchievementUnlocked(AchievementUnlock &unlock) const
     {
         const char *key = nullptr;
-        const char *userId = nullptr;
-        sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
-        if (!::sb_event_achievement_updated(m_event, &key, &update.player, &userId, &status)) {
+        if (!::sb_event_achievement_unlocked(m_event, &key, &unlock.player)) {
             return false;
         }
 
-        update.key = key ? key : "";
-        update.userId = userId ? userId : "";
-        update.status = static_cast<AchievementStatus>(status);
-        update.rules.clear();
-        const size_t count = ::sb_event_achievement_rules_count(m_event);
-        for (size_t i = 0; i < count; ++i) {
-            AchievementUpdate::Rule rule;
-            if (::sb_event_achievement_rule(m_event, i, &rule.index, &rule.value,
-                                            &rule.satisfied)) {
-                update.rules.push_back(rule);
-            }
+        const char *name = nullptr;
+        const char *description = nullptr;
+        ::sb_event_achievement_name(m_event, &name);
+        ::sb_event_achievement_description(m_event, &description);
+        unlock.key = key ? key : "";
+        unlock.name = name ? name : "";
+        unlock.description = description ? description : "";
+
+        const uint8_t *data = nullptr;
+        size_t size = 0;
+        if (::sb_event_achievement_artwork(m_event, &data, &size) && data) {
+            unlock.artwork.assign(data, data + size);
+        } else {
+            unlock.artwork.clear();
         }
         return true;
     }

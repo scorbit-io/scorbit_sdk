@@ -87,36 +87,18 @@ std::string achievementsDataDir(const scorbit::DeviceInfo &deviceInfo)
     return dir.string();
 }
 
-scorbit::detail::EventPtr toEvent(scorbit::detail::achievements::AchievementNotification n)
+scorbit::detail::achievements::ArtworkKind artworkKind(sb_achievement_artwork_t artwork)
 {
-    using scorbit::detail::achievements::AchievementStatus;
-
-    sb_achievement_status_t status = SB_ACHIEVEMENT_PROGRESS;
-    switch (n.status) {
-    case AchievementStatus::Progress:
-        status = SB_ACHIEVEMENT_PROGRESS;
-        break;
-    case AchievementStatus::UnlockedLocally:
-        status = SB_ACHIEVEMENT_UNLOCKED_LOCALLY;
-        break;
-    case AchievementStatus::Confirmed:
-        status = SB_ACHIEVEMENT_CONFIRMED;
-        break;
-    case AchievementStatus::AlreadyHeld:
-        status = SB_ACHIEVEMENT_ALREADY_HELD;
-        break;
-    case AchievementStatus::Retracted:
-        status = SB_ACHIEVEMENT_RETRACTED;
+    using scorbit::detail::achievements::ArtworkKind;
+    switch (artwork) {
+    case SB_ACHIEVEMENT_ARTWORK_FRAME:
+        return ArtworkKind::Frame;
+    case SB_ACHIEVEMENT_ARTWORK_IMAGE:
+        return ArtworkKind::Image;
+    case SB_ACHIEVEMENT_ARTWORK_NONE:
         break;
     }
-
-    std::vector<scorbit::detail::AchievementUpdatedEvent::Rule> rules;
-    for (const auto &[index, progress] : n.rules) {
-        rules.push_back({index, progress.value, progress.satisfied});
-    }
-
-    return std::make_shared<scorbit::detail::AchievementUpdatedEvent>(
-            std::move(n.key), n.player, std::move(n.userId), status, std::move(rules));
+    return ArtworkKind::None;
 }
 
 } // namespace
@@ -138,9 +120,12 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_achievements = std::make_unique<achievements::AchievementService>(
             *m_net, achievements::AchievementStorage {achievementsDataDir(m_net->deviceInfo())},
             [this](std::function<void()> fn) { post(std::move(fn)); },
-            [this](achievements::AchievementNotification notification) {
-                m_net->publishEvent(toEvent(std::move(notification)));
-            });
+            [this](achievements::AchievementUnlock unlock) {
+                m_net->publishEvent(std::make_shared<AchievementUnlockedEvent>(
+                        std::move(unlock.key), unlock.player, std::move(unlock.name),
+                        std::move(unlock.description), std::move(unlock.artwork)));
+            },
+            artworkKind(m_net->deviceInfo().achievementArtwork));
     m_net->setPlayersChangedCallback([this](const std::vector<PlayerProfile> &) {
         post([this] { m_achievements->onPlayersChanged(); });
     });
@@ -509,15 +494,6 @@ void GameStateImpl::submitProbeFlashResult(const std::string &runId, const std::
                                            HttpStatusCallback callback)
 {
     m_net->submitProbeFlashResult(runId, resultJson, std::move(callback));
-}
-
-void GameStateImpl::fetchPlayerAchievements(const std::string &userId, StringCallback callback)
-{
-    m_net->fetchAchievementProgress(userId, [callback = std::move(callback)](ApiReply reply) {
-        if (callback) {
-            callback(reply.error, reply.body);
-        }
-    });
 }
 
 void GameStateImpl::addNewPlayer(sb_player_t player)

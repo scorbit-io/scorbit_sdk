@@ -104,6 +104,9 @@ struct DeviceInfo {
     /// Writable, persistent directory for SDK data (achievements cache); empty = temp directory.
     std::string dataDir;
 
+    /// The artwork handed over with an achievement unlock, kept in memory.
+    sb_achievement_artwork_t achievementArtwork {SB_ACHIEVEMENT_ARTWORK_NONE};
+
     // Authentication - one of these must be set
     std::string encryptedKey;
     sb_signer_callback_t signerCallback {nullptr};
