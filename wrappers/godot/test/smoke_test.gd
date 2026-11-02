@@ -4,12 +4,15 @@
 extends SceneTree
 
 const FRAMES := 30
-const MAX_FRAMES := 600  # log lines arrive asynchronously; give the SDK's worker time to report
+# Log lines arrive asynchronously, from a low-priority SDK thread a busy machine may hold back:
+# wait by the clock, not by frames, which headless Godot runs as fast as it can.
+const MAX_WAIT_MS := 20000
 
 var _expect_native := false
 var _expect_logs := false  # a native build with the callback logger backend
 var _scorbit: Node
 var _frame := 0
+var _started_ms := 0
 var _failures := 0
 var _logs := 0
 var _skipped: PackedStringArray  # the SDK's "file does not exist, skipping" log lines
@@ -20,10 +23,14 @@ var _uploads: Array[int] = []  # ids of the chained uploads, in request order
 var _answered: Array[int] = []  # diagnostics_uploaded ids, in arrival order
 var _quitter  # a logging node whose handler turns logging off on its first line
 var _quitter_lines := 0
+var _sdk_copy := "fresh"  # the SDK copy in the user folder: fresh, corrupt, blocked or missing
 
 
 func _initialize() -> void:
-	_expect_native = OS.get_cmdline_user_args() == PackedStringArray(["true"])
+	var args := OS.get_cmdline_user_args()
+	_expect_native = args.size() > 0 and args[0] == "true"
+	if args.size() > 1:
+		_sdk_copy = args[1]
 	_scorbit = load("res://addons/scorbit/scorbit.gd").new()
 	root.add_child(_scorbit)
 	# _ready runs once the main loop starts, so the session begins on the first frame.
@@ -31,7 +38,10 @@ func _initialize() -> void:
 
 func _process(_delta: float) -> bool:
 	_frame += 1
-	if _frame > MAX_FRAMES + 60:  # a script error below would otherwise keep the test running forever
+	if _frame == 1:
+		_started_ms = Time.get_ticks_msec()
+	var elapsed := Time.get_ticks_msec() - _started_ms
+	if elapsed > MAX_WAIT_MS + 5000:  # a script error below would otherwise keep the test running forever
 		printerr("smoke_test FAILED: did not finish")
 		quit(1)
 		return true
@@ -43,7 +53,7 @@ func _process(_delta: float) -> bool:
 		_scorbit.commit()
 	var waiting := _expect_native and _answered.size() < 2
 	waiting = waiting or (_expect_logs and not _reported("missing.log"))
-	if _frame < FRAMES or (waiting and _frame < MAX_FRAMES):
+	if _frame < FRAMES or (waiting and elapsed < MAX_WAIT_MS):
 		return false
 
 	# The SDK logs as it starts, so a working log bridge has delivered lines by now.
@@ -81,6 +91,22 @@ func _process(_delta: float) -> bool:
 
 func _begin() -> void:
 	_check(ClassDB.class_exists("ScorbitGameState") == _expect_native, "native class loaded")
+	if _expect_native:
+		_prepare_sdk_copy()  # before is_available(), which loads the SDK
+	if _sdk_copy == "missing" or _sdk_copy == "blocked":
+		# The extension loads, but without a usable SDK nothing can work, and every call does
+		# nothing. The shipped SDK is never run in place instead.
+		_check(not _scorbit.is_available(), "is_available() is false without a usable SDK")
+		var error: String = _scorbit.get_sdk_error()
+		_check(error.begins_with("Scorbit can't start"), "get_sdk_error() says why: " + error)
+		if _sdk_copy == "blocked":
+			_check("can be written" in error, "get_sdk_error() names the folder to fix")
+			_unblock_sdk_copy()
+		_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234,
+				"game_code_version": "1.0.0", "encrypted_key": "dummy_encrypted_key"}),
+				"start() fails without the SDK library")
+		_expect_native = false  # the rest of the session must then do nothing, as without the extension
+		return
 	_check(_scorbit.is_available() == _expect_native, "is_available()")
 
 	_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234}),
@@ -98,6 +124,8 @@ func _begin() -> void:
 	})
 	_check(started == _expect_native, "start()")
 	_check(_scorbit.is_started() == _expect_native, "is_started() after start()")
+	if _expect_native:
+		_check_sdk_copy()
 
 	if _expect_native:
 		_check(_scorbit.CAPABILITY_START_GAME == ClassDB.class_get_integer_constant(
@@ -175,6 +203,41 @@ func _on_log(message: String, _level: int, _file: String, _line: int, _timestamp
 
 func _on_listener_log(message: String, _level: int, _file: String, _line: int, _time: int) -> void:
 	_listener_lines.append(message)
+
+
+# The SDK loads on first use, so the copy in the user folder is set up before start().
+func _prepare_sdk_copy() -> void:
+	var paths: Dictionary = _scorbit._native._sdk_paths()
+	DirAccess.remove_absolute(paths.copy)
+	DirAccess.remove_absolute(paths.sidecar)
+	DirAccess.make_dir_recursive_absolute(paths.copy.get_base_dir())
+	if _sdk_copy == "corrupt":
+		# Claims to be current, so only failing to load it can reveal it.
+		FileAccess.open(paths.copy, FileAccess.WRITE).store_string("not a library")
+		FileAccess.open(paths.sidecar, FileAccess.WRITE).store_string(
+				FileAccess.get_sha256(paths.bundled))
+	elif _sdk_copy == "blocked":
+		# A folder where the copy should go, with a file in it: no copy can be installed.
+		DirAccess.make_dir_recursive_absolute(paths.copy)
+		FileAccess.open(paths.copy.path_join("keep"), FileAccess.WRITE).store_string("x")
+
+
+# Clean up after the blocked case, so a later run of it starts the same way.
+func _unblock_sdk_copy() -> void:
+	var paths: Dictionary = _scorbit._native._sdk_paths()
+	_check(paths.loaded == "", "the SDK shipped with the game is not run in place")
+	DirAccess.remove_absolute(paths.copy.path_join("keep"))
+	DirAccess.remove_absolute(paths.copy)
+
+
+func _check_sdk_copy() -> void:
+	var paths: Dictionary = _scorbit._native._sdk_paths()
+	var bundled_sha := FileAccess.get_sha256(paths.bundled)
+	# A broken copy is replaced and loaded, not skipped: only the copy may update itself.
+	_check(paths.loaded == paths.copy, "the SDK loads from the copy in the user folder")
+	_check(FileAccess.get_sha256(paths.copy) == bundled_sha, "the copy matches the bundled SDK")
+	_check(FileAccess.get_file_as_string(paths.sidecar) == bundled_sha,
+			"the sidecar records the bundled SDK's hash")
 
 
 func _on_quitter_log(_message: String, _level: int, _file: String, _line: int, _time: int) -> void:
