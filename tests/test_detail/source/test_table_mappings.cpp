@@ -82,12 +82,12 @@ TEST_CASE("apiErrorCode reads errors[0].code, then a top-level code")
 
 TEST_CASE("parseTableMappings keeps the server's rows in order")
 {
-    const auto parsed = parseTableMappings(nlohmann::json {
-            {"server_time", "t"},
-            {"mappings",
-             {{{"key_type", "a"}, {"table_key", "1"}, {"venuemachine", "u1"}},
-              {{"key_type", "b"}, {"table_key", "2"}, {"venuemachine", "u2"}}}}}
-                                                   .dump());
+    const auto parsed = parseTableMappings(
+            nlohmann::json {{"server_time", "t"},
+                            {"mappings",
+                             {{{"key_type", "a"}, {"table_key", "1"}, {"venuemachine", "u1"}},
+                              {{"key_type", "b"}, {"table_key", "2"}, {"venuemachine", "u2"}}}}}
+                    .dump());
     REQUIRE(parsed);
     CHECK(parsed->serverTime == "t");
     REQUIRE(parsed->rows.size() == 2);
@@ -166,12 +166,16 @@ TEST_CASE("The table-mappings store reports a change only when the list or resul
     CHECK_FALSE(store.apply(200, "\"e1\"", mappingsBody()));
     CHECK_FALSE(store.apply(304, "\"e1\"", ""));
 
+    // A new ETag over the same list is kept for the next read, but is not news.
+    CHECK_FALSE(store.apply(200, "\"e1b\"", mappingsBody()));
+    CHECK(store.etag() == "\"e1b\"");
+
     // A failed read keeps the last good list, and reports the result change once.
     CHECK(store.apply(503, "", ""));
     snap = store.snapshot();
     CHECK(snap.result == SB_TABLE_MAPPINGS_UNAVAILABLE);
     CHECK(snap.rows.size() == 1);
-    CHECK(snap.etag == "\"e1\"");
+    CHECK(snap.etag == "\"e1b\"");
     CHECK_FALSE(store.apply(0, "", ""));
 
     // The list is still current: back to OK, without a new list.
@@ -300,9 +304,8 @@ TEST_CASE("A switch holds posts, drains, posts, adopts, raises the event, releas
     sw.start(TARGET, CURRENT, true, fake.callback());
 
     CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
-                                       "adopt jwt", std::string {"changed "} + TARGET, "release",
-                                       "deliver"});
+          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "adopt jwt",
+                                       std::string {"changed "} + TARGET, "release", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
     CHECK(fake.results[0].second == TARGET);
@@ -417,14 +420,14 @@ struct VpinNet {
         info.vpinTableMappings = tableMappings;
         net = std::make_unique<Net>(std::move(info), std::vector<std::unique_ptr<IKeyResolver>> {});
         NetTestAccess::setEventManager(
-                *net, std::make_shared<EventManager>(boost::asio::make_strand(io),
-                                                     [this](const EventBase &event) {
-                                                         events.push_back(event.type());
-                                                         std::string uuid;
-                                                         if (Event(&event).getMachineChanged(uuid)) {
-                                                             machineChanged.push_back(uuid);
-                                                         }
-                                                     }));
+                *net, std::make_shared<EventManager>(
+                              boost::asio::make_strand(io), [this](const EventBase &event) {
+                                  events.push_back(event.type());
+                                  std::string uuid;
+                                  if (Event(&event).getMachineChanged(uuid)) {
+                                      machineChanged.push_back(uuid);
+                                  }
+                              }));
         NetTestAccess::setStatus(*net, AuthStatus::AuthenticatedPaired);
     }
 
@@ -444,11 +447,11 @@ TEST_CASE("The mappings read sends the last ETag back and raises one event per c
     std::size_t next = 0;
     NetTestAccess::setVpinTransport(
             *v.net, {.get = [&](const cpr::Url &url, const cpr::Header &header) {
-                         CHECK(url.str().find("/table-mappings/") != std::string::npos);
-                         const auto it = header.find("If-None-Match");
-                         sentEtags.push_back(it == header.end() ? "" : it->second);
-                         return replies.at(next++);
-                     }});
+                CHECK(url.str().find("/table-mappings/") != std::string::npos);
+                const auto it = header.find("If-None-Match");
+                sentEtags.push_back(it == header.end() ? "" : it->second);
+                return replies.at(next++);
+            }});
 
     NetTestAccess::fetchTableMappingsNow(*v.net);
     NetTestAccess::fetchTableMappingsNow(*v.net);
@@ -468,8 +471,7 @@ TEST_CASE("A switch through Net posts the target, adopts the token and raises MA
     std::string postedUrl;
     nlohmann::json postedBody;
     NetTestAccess::setVpinTransport(
-            *v.net,
-            {.post = [&](const cpr::Url &url, const cpr::Body &body, const cpr::Header &) {
+            *v.net, {.post = [&](const cpr::Url &url, const cpr::Body &body, const cpr::Header &) {
                 postedUrl = url.str();
                 postedBody = nlohmann::json::parse(body.str());
                 return response(200, R"({"token":"jwt","channels":["machine:x"]})");
@@ -644,4 +646,30 @@ TEST_CASE("A token fetch begun before a switch does not overwrite the switch's t
             {});
     NetTestAccess::fetchCentrifugoTokenNow(*v.net);
     CHECK(NetTestAccess::cachedCentrifugoToken(*v.net) == "fresh");
+}
+
+TEST_CASE("A refresh asked for during a read survives that read's refusal")
+{
+    VpinNet v;
+    std::vector<std::string> urls;
+    std::size_t next = 0;
+    std::vector<cpr::Response> replies {response(403, errorBody("no_owner")),
+                                        response(200, mappingsBody(), {{"ETag", "\"e1\""}})};
+    NetTestAccess::setVpinTransport(*v.net, {.get = [&](const cpr::Url &url, const cpr::Header &) {
+        urls.push_back(url.str());
+        if (next == 0) {
+            // The host asks for a refresh while this read is on the wire.
+            v.net->refreshTableMappings();
+        }
+        return replies.at(next++);
+    }});
+
+    NetTestAccess::fetchTableMappingsNow(*v.net);
+    // The queued re-read went to the (unstarted) worker; run it as the worker would.
+    REQUIRE(NetTestAccess::tableMappingsFetchQueued(*v.net));
+    NetTestAccess::fetchTableMappingsNow(*v.net);
+    v.drain();
+
+    CHECK(urls.size() == 2);
+    CHECK(v.net->tableMappings().result == SB_TABLE_MAPPINGS_OK);
 }

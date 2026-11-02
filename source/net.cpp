@@ -55,6 +55,9 @@
 #include <ranges>
 #include <fstream>
 #include <optional>
+#include <limits>
+#include <set>
+#include <utility>
 #include <future>
 #include <random>
 
@@ -749,12 +752,22 @@ void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
     // Counted so a machine switch can wait for the finished game's last data (see drain).
-    ++m_gameDataSubmitted;
-    m_worker.post([this, data, flags]() {
+    std::uint64_t seq = 0;
+    {
+        std::scoped_lock lock(m_gameDataMutex);
+        seq = ++m_gameDataSeq;
+        m_gameDataPending.insert(seq);
+    }
+    m_worker.post([this, data, flags, seq]() {
         struct Applied {
-            std::atomic<std::uint64_t> &count;
-            ~Applied() { ++count; }
-        } applied {m_gameDataApplied};
+            Net &net;
+            std::uint64_t seq;
+            ~Applied()
+            {
+                std::scoped_lock lock(net.m_gameDataMutex);
+                net.m_gameDataPending.erase(seq);
+            }
+        } applied {*this, seq};
         applyGameData(data, flags);
     });
 }
@@ -3956,15 +3969,22 @@ void Net::fetchTableMappings(bool resume)
     if (m_stop || !m_deviceInfo.vpinTableMappings) {
         return;
     }
-    if (resume) {
-        m_tableMappings.resume();
-    } else if (m_tableMappings.suspended()) {
-        return;
-    }
-    // One read at a time; a trigger during it gets one more read after it.
-    if (m_tableMappingsFetchInFlight.exchange(true)) {
-        m_tableMappingsFetchAgain = true;
-        return;
+    {
+        // With completion's reset under the same lock, a trigger is never lost between the two.
+        std::scoped_lock lock(m_tableMappingsFetchMutex);
+        if (resume) {
+            m_tableMappings.resume();
+        } else if (m_tableMappings.suspended()) {
+            return;
+        }
+        // One read at a time; a trigger during it gets one more read after it. That read's
+        // refusal may suspend reads again, so a resume asked for meanwhile is carried over.
+        if (m_tableMappingsFetchInFlight) {
+            m_tableMappingsFetchAgain = true;
+            m_tableMappingsResumeAgain = m_tableMappingsResumeAgain || resume;
+            return;
+        }
+        m_tableMappingsFetchInFlight = true;
     }
     m_worker.postQueue(createTableMappingsTask());
 }
@@ -3978,10 +3998,17 @@ task_t Net::createTableMappingsTask()
             Net &net;
             ~Done()
             {
-                net.m_tableMappingsFetchInFlight = false;
+                bool again = false;
+                bool resume = false;
+                {
+                    std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+                    net.m_tableMappingsFetchInFlight = false;
+                    again = std::exchange(net.m_tableMappingsFetchAgain, false);
+                    resume = std::exchange(net.m_tableMappingsResumeAgain, false);
+                }
                 net.armTableMappingsRefresh();
-                if (net.m_tableMappingsFetchAgain.exchange(false)) {
-                    net.fetchTableMappings(false);
+                if (again) {
+                    net.fetchTableMappings(resume);
                 }
             }
         } done {*this};
@@ -4071,7 +4098,11 @@ MachineSwitch::Steps Net::machineSwitchSteps()
     };
     // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
     steps.deliver = [this](MachineSwitch::Done fn) {
-        boost::asio::post(m_worker.eventsStrand(), std::move(fn));
+        boost::asio::post(m_worker.eventsStrand(), [this, fn = std::move(fn)] {
+            if (!m_stop) {
+                fn();
+            }
+        });
     };
     steps.stopping = [this] { return m_stop.load(); };
     return steps;
@@ -4089,6 +4120,19 @@ void Net::postOrHoldForSwitch(int sessionId, task_t post)
     post();
 }
 
+std::uint64_t Net::lastGameDataSeq() const
+{
+    std::scoped_lock lock(m_gameDataMutex);
+    return m_gameDataSeq;
+}
+
+std::uint64_t Net::oldestPendingGameData() const
+{
+    std::scoped_lock lock(m_gameDataMutex);
+    return m_gameDataPending.empty() ? std::numeric_limits<std::uint64_t>::max()
+                                     : *m_gameDataPending.begin();
+}
+
 bool Net::foldIntoSwitch(bool paired)
 {
     std::scoped_lock lock(m_switchGateMutex);
@@ -4102,15 +4146,19 @@ bool Net::foldIntoSwitch(bool paired)
 void Net::holdSwitchGate(bool hold)
 {
     int fromSession = 0;
+    std::uint64_t gameDataSeq = 0;
     if (hold) {
-        std::scoped_lock lock(m_gameSessionsMutex);
-        fromSession = m_gameSessions.empty() ? 0 : m_gameSessions.rbegin()->first + 1;
+        {
+            std::scoped_lock lock(m_gameSessionsMutex);
+            fromSession = m_gameSessions.empty() ? 0 : m_gameSessions.rbegin()->first + 1;
+        }
+        gameDataSeq = lastGameDataSeq();
     }
     std::scoped_lock lock(m_switchGateMutex);
     m_switchGateHeld = hold;
     if (hold) {
         m_switchGateFromSession = fromSession;
-        m_switchGateGameData = m_gameDataSubmitted.load();
+        m_switchGateGameData = gameDataSeq;
         m_switchSwallowedSignal = SwallowedSignal::None;
     }
     if (hold || m_switchHeldPosts.empty()) {
@@ -4162,12 +4210,15 @@ void Net::drainSessionPosts(MachineSwitch::Done done)
     }
     // Only data submitted before the gate: a game started since must not keep the drain waiting.
     m_worker.post([this, drain, marker, deadline, submittedBeforeGate] {
-        while (m_gameDataApplied < submittedBeforeGate && !m_stop && !drain->fired
+        // The pool runs submissions in any order, so a later one finishing proves nothing.
+        while (oldestPendingGameData() <= submittedBeforeGate && !m_stop && !drain->fired
                && steady_clock::now() < deadline) {
             std::this_thread::sleep_for(SWITCH_DRAIN_POLL);
         }
         m_worker.postSessionQueue(marker);
-        m_worker.postCommitTask(marker);
+        // A commit's publish runs on the Centrifugo strand, after the commit strand is done
+        // with it, and reads the machine channel there: drained only once that is through too.
+        m_worker.postCommitTask([this, marker] { onCentrifugoStrand(marker); });
     });
 }
 
@@ -4802,8 +4853,17 @@ std::string NetTestAccess::machineUuid(const Net &net)
 
 void NetTestAccess::fetchTableMappingsNow(Net &net)
 {
-    net.m_tableMappingsFetchInFlight = true;
+    {
+        std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+        net.m_tableMappingsFetchInFlight = true;
+    }
     net.createTableMappingsTask()();
+}
+
+bool NetTestAccess::tableMappingsFetchQueued(Net &net)
+{
+    std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+    return net.m_tableMappingsFetchInFlight;
 }
 
 void NetTestAccess::runSwitchMachine(

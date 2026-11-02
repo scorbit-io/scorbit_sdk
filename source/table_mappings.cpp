@@ -176,9 +176,9 @@ std::string TableMappingsStore::etag() const
 bool TableMappingsStore::set(TableMappingsSnapshot next)
 {
     std::scoped_lock lock(m_mutex);
-    // server_time moves on every reply; only the list and the outcome are news to the host.
-    const bool changed = next.result != m_snapshot.result || next.etag != m_snapshot.etag
-                      || next.rows != m_snapshot.rows;
+    // server_time and the ETag may move with nothing else; only the list and the outcome are
+    // news to the host. The new ETag is still kept, for the next If-None-Match.
+    const bool changed = next.result != m_snapshot.result || next.rows != m_snapshot.rows;
     m_snapshot = std::move(next);
     return changed;
 }

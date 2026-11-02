@@ -46,6 +46,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <set>
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -259,6 +260,8 @@ struct NetTestAccess {
     static void setVpinTransport(Net &net, VpinTransport transport);
     /// The production table-mappings read, run on the calling thread.
     static void fetchTableMappingsNow(Net &net);
+    /// Whether a mappings read is in flight or queued (the re-read a reply started).
+    static bool tableMappingsFetchQueued(Net &net);
     /// Wires @p net's switch steps up to its own production code, except @p adopt, which stands in
     /// for adopting the token and refreshing the context.
     static void runSwitchMachine(
@@ -594,6 +597,9 @@ private:
     void holdSwitchGate(bool hold);
     /// Records a pairing signal for the switch holding the gate; false if none is.
     bool foldIntoSwitch(bool paired);
+    std::uint64_t lastGameDataSeq() const;
+    /// The oldest submitGameData() sequence not yet applied; max() when none is pending.
+    std::uint64_t oldestPendingGameData() const;
     void drainSessionPosts(MachineSwitch::Done done);
     task_t createSwitchMachineTask(const std::string &target,
                                    std::function<void(int, const std::string &)> reply);
@@ -1013,8 +1019,11 @@ private:
     mutable std::mutex m_venueMachineMutex;
     std::string m_venueMachine; ///< m_machineInfo.machineUuid, readable from any thread
     TableMappingsStore m_tableMappings;
-    std::atomic_bool m_tableMappingsFetchInFlight {false};
-    std::atomic_bool m_tableMappingsFetchAgain {false};
+    /// Guards the three below and the store's suspension: a read's trigger and its completion.
+    std::mutex m_tableMappingsFetchMutex;
+    bool m_tableMappingsFetchInFlight {false};
+    bool m_tableMappingsFetchAgain {false};
+    bool m_tableMappingsResumeAgain {false};      ///< the queued re-read resumes reads
     NetTestAccess::VpinTransport m_vpinTransport; // test seam; empty in production
     /// Guards the two below: session posts held while a switch runs, released in order.
     std::mutex m_switchGateMutex;
@@ -1023,10 +1032,12 @@ private:
     /// A pairing signal a switch folded in; replayed if the switch fails. Under the gate mutex.
     enum class SwallowedSignal { None, Paired, Unpaired };
     SwallowedSignal m_switchSwallowedSignal {SwallowedSignal::None};
-    /// submitGameData() posts made and applied; the drain waits for those made before the gate.
-    std::atomic<std::uint64_t> m_gameDataSubmitted {0};
-    std::atomic<std::uint64_t> m_gameDataApplied {0};
-    std::uint64_t m_switchGateGameData {0}; ///< m_gameDataSubmitted when the gate closed
+    /// submitGameData() posts by sequence, and those not yet applied; the drain waits for every
+    /// one made before the gate closed.
+    mutable std::mutex m_gameDataMutex;
+    std::uint64_t m_gameDataSeq {0};
+    std::set<std::uint64_t> m_gameDataPending;
+    std::uint64_t m_switchGateGameData {0}; ///< m_gameDataSeq when the gate closed
     std::vector<task_t> m_switchHeldPosts;
     /// Fetch the next Centrifugo client's token (false: a switch seeded it); see restartCentrifugo.
     std::atomic_bool m_restartFetchFreshToken {true};

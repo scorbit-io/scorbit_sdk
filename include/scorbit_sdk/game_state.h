@@ -31,6 +31,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
+#include <list>
+#include <mutex>
 #include <functional>
 #include <string>
 #include <memory>
@@ -304,7 +307,7 @@ public:
     {
         std::string uuid(sb_get_venue_machine(m_handle.get(), nullptr, 0), '\0');
         if (!uuid.empty()) {
-            const auto n = sb_get_venue_machine(m_handle.get(), uuid.data(), uuid.size() + 1);
+            const auto n = sb_get_venue_machine(m_handle.get(), &uuid[0], uuid.size() + 1);
             uuid.resize(std::min(n, uuid.size()));
         }
         return uuid;
@@ -315,13 +318,22 @@ public:
      * @ref sb_switch_machine for the sequence and the refusals.
      *
      * @note The callback runs at most once, on an SDK thread, after @ref EventType::MachineChanged;
-     * not at all if the game state is destroyed first.
+     * not at all if the game state is destroyed first, which then releases it.
      */
     void switchMachine(const std::string &venueMachineUuid, SwitchMachineCallback callback)
     {
-        auto *userData = new SwitchMachineCallback(std::move(callback));
+        // Owned here rather than by the callback, which shutdown may cut short.
+        PendingSwitch *pending = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingSwitches->mutex);
+            m_pendingSwitches->list.emplace_back();
+            pending = &m_pendingSwitches->list.back();
+            pending->owner = m_pendingSwitches.get();
+            pending->self = std::prev(m_pendingSwitches->list.end());
+            pending->callback = std::move(callback);
+        }
         sb_switch_machine(m_handle.get(), venueMachineUuid.c_str(),
-                          &GameState::switch_machine_callback_c, userData);
+                          &GameState::switch_machine_callback_c, pending);
     }
 
     /**
@@ -688,15 +700,33 @@ public:
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
 private:
+    struct PendingSwitches;
+    struct PendingSwitch {
+        PendingSwitches *owner {nullptr};
+        std::list<PendingSwitch>::iterator self;
+        SwitchMachineCallback callback;
+    };
+    /// Switch callbacks not yet answered; whatever shutdown leaves here is freed with this object.
+    struct PendingSwitches {
+        std::mutex mutex;
+        std::list<PendingSwitch> list;
+    };
+
     static void switch_machine_callback_c(sb_switch_machine_result_t result,
                                           const char *venuemachine, void *user_data)
     {
-        auto *cb = static_cast<SwitchMachineCallback *>(user_data);
-        if (*cb) {
-            (*cb)(static_cast<SwitchMachineResult>(result),
-                  venuemachine ? std::string(venuemachine) : std::string {});
+        auto *pending = static_cast<PendingSwitch *>(user_data);
+        auto *owner = pending->owner;
+        SwitchMachineCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            callback = std::move(pending->callback);
+            owner->list.erase(pending->self);
         }
-        delete cb;
+        if (callback) {
+            callback(static_cast<SwitchMachineResult>(result),
+                     venuemachine ? std::string(venuemachine) : std::string {});
+        }
     }
 
 private:
@@ -814,6 +844,7 @@ private:
     std::unique_ptr<std::function<void(const Event &)>> m_eventCallbackStorage;
     std::unique_ptr<SaveKeyCallback> m_saveKeyCallbackStorage;
     std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
+    std::unique_ptr<PendingSwitches> m_pendingSwitches {new PendingSwitches};
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;
