@@ -285,6 +285,10 @@ struct FakeSwitch {
             done(onServer);
         };
         steps.refetch = [this] { calls.push_back("refetch"); };
+        steps.replayFolded = [this](MachineSwitch::Done done) {
+            calls.push_back("replay");
+            done();
+        };
         steps.deliver = [this](MachineSwitch::Done fn) {
             calls.push_back("deliver");
             fn();
@@ -368,8 +372,8 @@ TEST_CASE("A refused switch releases the posts, re-reads the mappings and report
     auto sw = fake.make();
     sw.start(TARGET, CURRENT, true, fake.callback());
     CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "release",
-                                       "refetch", "deliver"});
+          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "replay",
+                                       "release", "refetch", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_TARGET_NOT_FOUND);
     CHECK_FALSE(sw.inFlight());
@@ -435,6 +439,8 @@ struct VpinNet {
                                   }
                               }));
         NetTestAccess::setStatus(*net, AuthStatus::AuthenticatedPaired);
+        // As GameState always installs one; this one has no device and finds none.
+        NetTestAccess::setProbesManager(*net, std::make_shared<nfc::ProbesManager>(nullptr));
     }
 
     void drain() { io.run_for(std::chrono::milliseconds(50)); }
@@ -721,7 +727,7 @@ TEST_CASE("A switch with no answer that the server did not make changes nothing"
 
     CHECK(fake.calls
           == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "reconcile",
-                                       "release", "refetch", "deliver"});
+                                       "replay", "release", "refetch", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
 }
@@ -785,5 +791,38 @@ TEST_CASE("Through Net, a lost switch reply is reconciled from the scorbitron ob
     CHECK(adoptedToken.empty()); // no token from the lost reply: the reconnect fetches one
     CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
     CHECK(v.machineChanged == std::vector<std::string> {TARGET});
+    CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
+}
+
+TEST_CASE("A pairing change folded into a failed switch is applied before posts are released")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    std::optional<AuthStatus> statusWhenSent;
+    NetTestAccess::setVpinTransport(
+            *v.net, {.post = [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                // While the switch is on the wire, a game starts (its post is held) and the
+                // owner unpairs the device (the signal is folded into the switch).
+                NetTestAccess::postOrHoldForSwitch(
+                        *v.net, 1, [&] { statusWhenSent = NetTestAccess::status(*v.net); });
+                CHECK(NetTestAccess::foldIntoSwitch(*v.net, false));
+                return response(403, errorBody("venuemachine_not_owned"));
+            }});
+
+    std::vector<sb_switch_machine_result_t> results;
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET,
+            [&](sb_switch_machine_result_t result, const std::string &) {
+                results.push_back(result);
+            },
+            [](const std::string &, const std::string &, MachineSwitch::Done) {
+                FAIL("a refused switch adopts nothing");
+            });
+    v.drain();
+
+    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_TARGET_NOT_OWNED});
+    REQUIRE(statusWhenSent);
+    CHECK(*statusWhenSent == AuthStatus::AuthenticatedUnpaired); // the unpair came first
+    CHECK(v.net->venueMachine().empty());
     CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
 }

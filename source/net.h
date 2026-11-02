@@ -277,6 +277,8 @@ struct NetTestAccess {
     static void postOrHoldForSwitch(Net &net, int sessionId, task_t post);
     static void releaseSwitchGate(Net &net);
     static void holdSwitchGate(Net &net);
+    /// As a pairing signal arriving during a switch: true if the switch folded it in.
+    static bool foldIntoSwitch(Net &net, bool paired);
     static void setMachineUuid(Net &net, std::string machineUuid);
     /// Seeds the Centrifugo token as a machine switch does.
     static void seedSwitchToken(Net &net, std::string token);
@@ -600,6 +602,8 @@ private:
     void holdSwitchGate(bool hold);
     /// Records a pairing signal for the switch holding the gate; false if none is.
     bool foldIntoSwitch(bool paired);
+    /// Acts on, and forgets, the pairing signal a switch folded in, if any.
+    void replayFoldedSignal();
     std::uint64_t lastGameDataSeq() const;
     /// The oldest submitGameData() sequence not yet applied; max() when none is pending.
     std::uint64_t oldestPendingGameData() const;

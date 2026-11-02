@@ -291,8 +291,7 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
                     reconcileAndFinish(target, current, result, std::move(callback));
                     return;
                 }
-                m_steps.gate(false);
-                finish(result, target, std::move(callback), true);
+                failAndFinish(result, target, std::move(callback));
                 return;
             }
 
@@ -353,8 +352,21 @@ void MachineSwitch::reconcileAndFinish(const std::string &target, const std::str
         } else {
             WRN("API switch machine: could not confirm the switch to {}", target);
         }
+        failAndFinish(unknownResult, target, std::move(callback));
+    });
+}
+
+void MachineSwitch::failAndFinish(sb_switch_machine_result_t result, const std::string &target,
+                                  Callback callback)
+{
+    // A pairing change the server sent meanwhile is applied before any held post goes out, so
+    // none is sent with a machine context the server has already replaced.
+    m_steps.replayFolded([this, result, target, callback = std::move(callback)]() mutable {
+        if (m_steps.stopping()) {
+            return;
+        }
         m_steps.gate(false);
-        finish(unknownResult, target, std::move(callback), true);
+        finish(result, target, std::move(callback), true);
     });
 }
 

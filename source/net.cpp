@@ -4077,27 +4077,17 @@ MachineSwitch::Steps Net::machineSwitchSteps()
     steps.reconcile = [this](std::function<void(std::optional<std::string>)> done) {
         m_worker.post(createSwitchReconcileTask(std::move(done)));
     };
-    steps.refetch = [this] {
-        fetchTableMappings(false);
-        // A failed switch changed nothing here, but the server may have: act on what it said.
-        SwallowedSignal replay {SwallowedSignal::None};
-        {
-            std::scoped_lock lock(m_switchGateMutex);
-            std::swap(replay, m_switchSwallowedSignal);
-        }
-        if (replay != SwallowedSignal::None) {
-            // Where the signal handler would have run it.
-            onCentrifugoStrand([this, replay] {
-                if (m_stop) {
-                    return;
-                }
-                if (replay == SwallowedSignal::Paired) {
-                    onPaired();
-                } else {
-                    onUnpaired();
-                }
-            });
-        }
+    steps.refetch = [this] { fetchTableMappings(false); };
+    // On the Centrifugo strand, where pairing signals are handled: the replay and the release
+    // that follows it run with no signal in between.
+    steps.replayFolded = [this](MachineSwitch::Done done) {
+        onCentrifugoStrand([this, done = std::move(done)] {
+            if (m_stop) {
+                return;
+            }
+            replayFoldedSignal();
+            done();
+        });
     };
     // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
     steps.deliver = [this](MachineSwitch::Done fn) {
@@ -4134,6 +4124,21 @@ std::uint64_t Net::oldestPendingGameData() const
     std::scoped_lock lock(m_gameDataMutex);
     return m_gameDataPending.empty() ? std::numeric_limits<std::uint64_t>::max()
                                      : *m_gameDataPending.begin();
+}
+
+void Net::replayFoldedSignal()
+{
+    // A failed switch changed nothing here, but the server may have: act on what it said.
+    SwallowedSignal replay {SwallowedSignal::None};
+    {
+        std::scoped_lock lock(m_switchGateMutex);
+        std::swap(replay, m_switchSwallowedSignal);
+    }
+    if (replay == SwallowedSignal::Paired) {
+        onPaired();
+    } else if (replay == SwallowedSignal::Unpaired) {
+        onUnpaired();
+    }
 }
 
 bool Net::foldIntoSwitch(bool paired)
@@ -4919,6 +4924,10 @@ void NetTestAccess::runSwitchMachine(
     steps.reconcile = [&net](std::function<void(std::optional<std::string>)> done) {
         net.createSwitchReconcileTask(std::move(done))();
     };
+    steps.replayFolded = [&net](MachineSwitch::Done done) {
+        net.replayFoldedSignal();
+        done();
+    };
     steps.deliver = [](MachineSwitch::Done fn) { fn(); };
     net.switchMachine(venueMachine, std::move(callback));
 }
@@ -4938,6 +4947,11 @@ std::size_t NetTestAccess::switchHeldPosts(Net &net)
 void NetTestAccess::postOrHoldForSwitch(Net &net, int sessionId, task_t post)
 {
     net.postOrHoldForSwitch(sessionId, std::move(post));
+}
+
+bool NetTestAccess::foldIntoSwitch(Net &net, bool paired)
+{
+    return net.foldIntoSwitch(paired);
 }
 
 void NetTestAccess::holdSwitchGate(Net &net)
