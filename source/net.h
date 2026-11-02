@@ -602,8 +602,17 @@ private:
     void holdSwitchGate(bool hold);
     /// Records a pairing signal for the switch holding the gate; false if none is.
     bool foldIntoSwitch(bool paired);
-    /// Acts on, and forgets, the pairing signal a switch folded in, if any.
-    void replayFoldedSignal();
+    /// The pairing signal a switch folded in, forgotten as it is taken.
+    enum class SwallowedSignal;
+    SwallowedSignal takeFoldedSignal();
+    /// MachineSwitch::Steps::settle: settleFoldedSignalNow() on the Centrifugo strand.
+    void settleFoldedSignal(bool onTarget, const std::string &target, MachineSwitch::Done done);
+    /// The settling itself. @p askServer reports which venue machine the server has the device
+    /// on (see createSwitchReconcileTask), for an unpair folded into a switch that succeeded.
+    void settleFoldedSignalNow(
+            bool onTarget, const std::string &target,
+            const std::function<void(std::function<void(std::optional<std::string>)>)> &askServer,
+            MachineSwitch::Done done);
     std::uint64_t lastGameDataSeq() const;
     /// The oldest submitGameData() sequence not yet applied; max() when none is pending.
     std::uint64_t oldestPendingGameData() const;

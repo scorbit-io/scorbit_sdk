@@ -291,14 +291,13 @@ void MachineSwitch::start(const std::string &target, const std::string &current,
                     reconcileAndFinish(target, current, result, std::move(callback));
                     return;
                 }
-                failAndFinish(result, target, std::move(callback));
+                settleAndFinish(result, target, std::move(callback));
                 return;
             }
 
             if (!current.empty() && current == target) {
                 INF("API switch machine: already on {}", target);
-                m_steps.gate(false);
-                finish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback), false);
+                settleAndFinish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback));
                 return;
             }
 
@@ -324,8 +323,7 @@ void MachineSwitch::adoptAndFinish(const std::string &target, const std::string 
         }
         INF("API switch machine: now on {}", target);
         m_steps.changed(target);
-        m_steps.gate(false);
-        finish(SB_SWITCH_MACHINE_OK, target, std::move(callback), false);
+        settleAndFinish(SB_SWITCH_MACHINE_OK, target, std::move(callback));
     });
 }
 
@@ -339,8 +337,7 @@ void MachineSwitch::reconcileAndFinish(const std::string &target, const std::str
         }
         if (onServer && *onServer == target) {
             if (!current.empty() && current == target) {
-                m_steps.gate(false);
-                finish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback), false);
+                settleAndFinish(SB_SWITCH_MACHINE_ALREADY_ATTACHED, target, std::move(callback));
                 return;
             }
             WRN("API switch machine: the server made the switch to {}; adopting it", target);
@@ -352,22 +349,25 @@ void MachineSwitch::reconcileAndFinish(const std::string &target, const std::str
         } else {
             WRN("API switch machine: could not confirm the switch to {}", target);
         }
-        failAndFinish(unknownResult, target, std::move(callback));
+        settleAndFinish(unknownResult, target, std::move(callback));
     });
 }
 
-void MachineSwitch::failAndFinish(sb_switch_machine_result_t result, const std::string &target,
-                                  Callback callback)
+void MachineSwitch::settleAndFinish(sb_switch_machine_result_t result, const std::string &target,
+                                    Callback callback)
 {
-    // A pairing change the server sent meanwhile is applied before any held post goes out, so
-    // none is sent with a machine context the server has already replaced.
-    m_steps.replayFolded([this, result, target, callback = std::move(callback)]() mutable {
-        if (m_steps.stopping()) {
-            return;
-        }
-        m_steps.gate(false);
-        finish(result, target, std::move(callback), true);
-    });
+    // A pairing change the server sent meanwhile is settled before any held post goes out, so
+    // none is sent with a machine context the server has already replaced, whatever the outcome.
+    const bool onTarget =
+            result == SB_SWITCH_MACHINE_OK || result == SB_SWITCH_MACHINE_ALREADY_ATTACHED;
+    m_steps.settle(onTarget, target,
+                   [this, result, target, onTarget, callback = std::move(callback)]() mutable {
+                       if (m_steps.stopping()) {
+                           return;
+                       }
+                       m_steps.gate(false);
+                       finish(result, target, std::move(callback), !onTarget);
+                   });
 }
 
 } // namespace detail

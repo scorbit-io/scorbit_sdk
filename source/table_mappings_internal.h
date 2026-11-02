@@ -123,9 +123,12 @@ public:
         std::function<void(const std::string &target)> changed;
         /// Re-reads the table mappings after a failure.
         std::function<void()> refetch;
-        /// Acts on a pairing signal the switch folded in, then runs @p done; both where pairing
-        /// signals are handled, so none can slip in between. For a switch that failed.
-        std::function<void(Done done)> replayFolded;
+        /// Settles any pairing signal the switch folded in, then runs @p done; both where pairing
+        /// signals are handled, so none can slip in between. Every outcome passes here before
+        /// held posts are released. @p onTarget: the device is now on @p target (switched or
+        /// already attached), so a folded re-pair is the switch's own and a folded unpair is
+        /// checked with the server; otherwise (failed) a folded signal is acted on as it came.
+        std::function<void(bool onTarget, const std::string &target, Done done)> settle;
         /// Runs @p fn after every event pushed so far has been delivered.
         std::function<void(Done fn)> deliver;
         /// True once the SDK is shutting down: nothing more is called back.
@@ -151,9 +154,10 @@ public:
 private:
     void finish(sb_switch_machine_result_t result, const std::string &target, Callback callback,
                 bool refetch);
-    /// A failed switch: acts on any folded pairing signal before releasing posts, then calls back.
-    void failAndFinish(sb_switch_machine_result_t result, const std::string &target,
-                       Callback callback);
+    /// The only way out once posts are held: settles folded pairing signals, releases the held
+    /// posts, then calls back with @p result.
+    void settleAndFinish(sb_switch_machine_result_t result, const std::string &target,
+                         Callback callback);
     /// Adopts the switch (@p token may be empty), raises the event, releases posts, calls back.
     void adoptAndFinish(const std::string &target, const std::string &token, Callback callback);
     /// For a switch the server may have made although its reply was lost or unusable: settles

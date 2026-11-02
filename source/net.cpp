@@ -4078,16 +4078,8 @@ MachineSwitch::Steps Net::machineSwitchSteps()
         m_worker.post(createSwitchReconcileTask(std::move(done)));
     };
     steps.refetch = [this] { fetchTableMappings(false); };
-    // On the Centrifugo strand, where pairing signals are handled: the replay and the release
-    // that follows it run with no signal in between.
-    steps.replayFolded = [this](MachineSwitch::Done done) {
-        onCentrifugoStrand([this, done = std::move(done)] {
-            if (m_stop) {
-                return;
-            }
-            replayFoldedSignal();
-            done();
-        });
+    steps.settle = [this](bool onTarget, const std::string &target, MachineSwitch::Done done) {
+        settleFoldedSignal(onTarget, target, std::move(done));
     };
     // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
     steps.deliver = [this](MachineSwitch::Done fn) {
@@ -4126,19 +4118,77 @@ std::uint64_t Net::oldestPendingGameData() const
                                      : *m_gameDataPending.begin();
 }
 
-void Net::replayFoldedSignal()
+Net::SwallowedSignal Net::takeFoldedSignal()
 {
-    // A failed switch changed nothing here, but the server may have: act on what it said.
-    SwallowedSignal replay {SwallowedSignal::None};
-    {
-        std::scoped_lock lock(m_switchGateMutex);
-        std::swap(replay, m_switchSwallowedSignal);
+    SwallowedSignal folded {SwallowedSignal::None};
+    std::scoped_lock lock(m_switchGateMutex);
+    std::swap(folded, m_switchSwallowedSignal);
+    return folded;
+}
+
+void Net::settleFoldedSignal(bool onTarget, const std::string &target, MachineSwitch::Done done)
+{
+    // On the Centrifugo strand, where pairing signals are handled: the settling and the release
+    // that follows it run with no signal in between. The server check, if one is needed, runs on
+    // the blocking pool and its answer is acted on back on the strand.
+    onCentrifugoStrand([this, onTarget, target, done = std::move(done)]() mutable {
+        if (m_stop) {
+            return;
+        }
+        settleFoldedSignalNow(
+                onTarget, target,
+                [this](std::function<void(std::optional<std::string>)> answer) {
+                    m_worker.post(
+                            createSwitchReconcileTask([this, answer = std::move(answer)](
+                                                              std::optional<std::string> onServer) {
+                                onCentrifugoStrand([this, answer, onServer] {
+                                    if (!m_stop) {
+                                        answer(onServer);
+                                    }
+                                });
+                            }));
+                },
+                std::move(done));
+    });
+}
+
+void Net::settleFoldedSignalNow(
+        bool onTarget, const std::string &target,
+        const std::function<void(std::function<void(std::optional<std::string>)>)> &askServer,
+        MachineSwitch::Done done)
+{
+    const auto folded = takeFoldedSignal();
+
+    if (!onTarget) {
+        // A failed switch changed nothing here, but the server may have: act on what it said.
+        if (folded == SwallowedSignal::Paired) {
+            onPaired();
+        } else if (folded == SwallowedSignal::Unpaired) {
+            onUnpaired();
+        }
+        done();
+        return;
     }
-    if (replay == SwallowedSignal::Paired) {
-        onPaired();
-    } else if (replay == SwallowedSignal::Unpaired) {
-        onUnpaired();
+
+    // On the target, a re-pair is the switch's own. An unpair may be too (the old attachment
+    // ending) or may be the owner's, and the order the server sends them in is not one this can
+    // rely on: ask the server where the device is, and follow that.
+    if (folded != SwallowedSignal::Unpaired) {
+        done();
+        return;
     }
+    INF("API switch machine: an unpair arrived during the switch to {}; checking", target);
+    askServer([this, target, done = std::move(done)](std::optional<std::string> onServer) mutable {
+        takeFoldedSignal(); // the answer below supersedes anything since
+        if (!onServer || onServer->empty()) {
+            // Unpaired, or unknown: the server's last word was an unpair, and no post goes out
+            // under a pairing it may have ended.
+            onUnpaired();
+        } else if (*onServer != target) {
+            onPaired(); // on another machine: take on its whole context
+        }
+        done();
+    });
 }
 
 bool Net::foldIntoSwitch(bool paired)
@@ -4924,9 +4974,14 @@ void NetTestAccess::runSwitchMachine(
     steps.reconcile = [&net](std::function<void(std::optional<std::string>)> done) {
         net.createSwitchReconcileTask(std::move(done))();
     };
-    steps.replayFolded = [&net](MachineSwitch::Done done) {
-        net.replayFoldedSignal();
-        done();
+    // Production's decision, run inline as the steps above are, with the server check inline too.
+    steps.settle = [&net](bool onTarget, const std::string &target, MachineSwitch::Done done) {
+        net.settleFoldedSignalNow(
+                onTarget, target,
+                [&net](std::function<void(std::optional<std::string>)> answer) {
+                    net.createSwitchReconcileTask(std::move(answer))();
+                },
+                std::move(done));
     };
     steps.deliver = [](MachineSwitch::Done fn) { fn(); };
     net.switchMachine(venueMachine, std::move(callback));

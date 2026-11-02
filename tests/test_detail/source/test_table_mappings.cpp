@@ -285,8 +285,8 @@ struct FakeSwitch {
             done(onServer);
         };
         steps.refetch = [this] { calls.push_back("refetch"); };
-        steps.replayFolded = [this](MachineSwitch::Done done) {
-            calls.push_back("replay");
+        steps.settle = [this](bool onTarget, const std::string &, MachineSwitch::Done done) {
+            calls.push_back(onTarget ? "settle on" : "settle off");
             done();
         };
         steps.deliver = [this](MachineSwitch::Done fn) {
@@ -315,7 +315,8 @@ TEST_CASE("A switch holds posts, drains, posts, adopts, raises the event, releas
 
     CHECK(fake.calls
           == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "adopt jwt",
-                                       std::string {"changed "} + TARGET, "release", "deliver"});
+                                       std::string {"changed "} + TARGET, "settle on", "release",
+                                       "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
     CHECK(fake.results[0].second == TARGET);
@@ -358,8 +359,8 @@ TEST_CASE("A switch to the machine already attached changes nothing")
     auto sw = fake.make();
     sw.start(TARGET, TARGET, true, fake.callback());
     CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "release",
-                                       "deliver"});
+          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "settle on",
+                                       "release", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_ALREADY_ATTACHED);
 }
@@ -372,8 +373,8 @@ TEST_CASE("A refused switch releases the posts, re-reads the mappings and report
     auto sw = fake.make();
     sw.start(TARGET, CURRENT, true, fake.callback());
     CHECK(fake.calls
-          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "replay",
-                                       "release", "refetch", "deliver"});
+          == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
+                                       "settle off", "release", "refetch", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_TARGET_NOT_FOUND);
     CHECK_FALSE(sw.inFlight());
@@ -710,7 +711,7 @@ TEST_CASE("A switch with no answer that the server made is adopted before posts 
         CHECK(fake.calls
               == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET,
                                            "reconcile", "adopt ", std::string {"changed "} + TARGET,
-                                           "release", "deliver"});
+                                           "settle on", "release", "deliver"});
         REQUIRE(fake.results.size() == 1);
         CHECK(fake.results[0].first == SB_SWITCH_MACHINE_OK);
     }
@@ -727,7 +728,7 @@ TEST_CASE("A switch with no answer that the server did not make changes nothing"
 
     CHECK(fake.calls
           == std::vector<std::string> {"hold", "drain", std::string {"post "} + TARGET, "reconcile",
-                                       "replay", "release", "refetch", "deliver"});
+                                       "settle off", "release", "refetch", "deliver"});
     REQUIRE(fake.results.size() == 1);
     CHECK(fake.results[0].first == SB_SWITCH_MACHINE_NETWORK);
 }
@@ -825,4 +826,65 @@ TEST_CASE("A pairing change folded into a failed switch is applied before posts 
     CHECK(*statusWhenSent == AuthStatus::AuthenticatedUnpaired); // the unpair came first
     CHECK(v.net->venueMachine().empty());
     CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
+}
+
+namespace {
+
+/// A switch the server makes, during which the owner unpairs the device and a game starts; the
+/// scorbitron object then reports @p onServer. Returns the status the game's held post saw.
+std::optional<AuthStatus> switchWithUnpairDuringIt(VpinNet &v, nlohmann::json onServer,
+                                                   std::vector<sb_switch_machine_result_t> &results)
+{
+    std::optional<AuthStatus> statusWhenSent;
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    NetTestAccess::setVpinTransport(
+            *v.net,
+            {.post =
+                     [&v, &statusWhenSent](const cpr::Url &, const cpr::Body &,
+                                           const cpr::Header &) {
+                         NetTestAccess::postOrHoldForSwitch(*v.net, 1, [&] {
+                             statusWhenSent = NetTestAccess::status(*v.net);
+                         });
+                         CHECK(NetTestAccess::foldIntoSwitch(*v.net, false));
+                         return response(200, R"({"token":"jwt"})");
+                     },
+             .patch = [onServer](const cpr::Url &, const cpr::Body &,
+                                 const cpr::Header &) { return response(200, onServer.dump()); }});
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET,
+            [&](sb_switch_machine_result_t result, const std::string &) {
+                results.push_back(result);
+            },
+            [&v](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                NetTestAccess::setMachineUuid(*v.net, target);
+                done();
+            });
+    v.drain();
+    return statusWhenSent;
+}
+
+} // namespace
+
+TEST_CASE("An unpair during a successful switch is settled with the server before posts go out")
+{
+    SECTION("the server has ended the pairing: the unpair applies first")
+    {
+        VpinNet v(false);
+        std::vector<sb_switch_machine_result_t> results;
+        const auto seen = switchWithUnpairDuringIt(v, {{"machine", nullptr}}, results);
+        CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
+        REQUIRE(seen);
+        CHECK(*seen == AuthStatus::AuthenticatedUnpaired);
+        CHECK(v.net->venueMachine().empty());
+    }
+    SECTION("the server still has the device on the target: the unpair was the switch's own")
+    {
+        VpinNet v(false);
+        std::vector<sb_switch_machine_result_t> results;
+        const auto seen = switchWithUnpairDuringIt(v, {{"machine", {{"id", TARGET}}}}, results);
+        CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_OK});
+        REQUIRE(seen);
+        CHECK(*seen == AuthStatus::AuthenticatedPaired);
+        CHECK(v.net->venueMachine() == TARGET);
+    }
 }
