@@ -20,6 +20,7 @@
 #include "scorbit_game_state.h"
 
 #include "key_store.h"
+#include "sdk_loader.h"
 
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -61,59 +62,59 @@ String toString(const char *str)
 Dictionary readEvent(const sb_event_t *event)
 {
     Dictionary data;
-    const auto type = sb_event_type(event);
+    const auto type = api().sb_event_type(event);
     data["type"] = static_cast<int>(type);
 
     switch (type) {
     case SB_EVT_PAIRING_STATUS_CHANGED: {
         bool isPaired = false;
-        if (sb_event_pairing_status_changed(event, &isPaired)) {
+        if (api().sb_event_pairing_status_changed(event, &isPaired)) {
             data["is_paired"] = isPaired;
         }
         break;
     }
     case SB_EVT_GAME_START_REQUESTED: {
         int players = 0;
-        if (sb_event_game_start_requested(event, &players)) {
+        if (api().sb_event_game_start_requested(event, &players)) {
             data["players"] = players;
         }
         break;
     }
     case SB_EVT_CONFIG_RECEIVED: {
         const char *json = nullptr;
-        if (sb_event_config_received(event, &json)) {
+        if (api().sb_event_config_received(event, &json)) {
             data["config_json"] = toString(json);
         }
         break;
     }
     case SB_EVT_PLAYERS_UPDATED: {
         int count = 0;
-        if (!sb_event_players_updated(event, &count)) {
+        if (!api().sb_event_players_updated(event, &count)) {
             break;
         }
         Dictionary players;
         for (sb_player_t p = 1; p <= static_cast<sb_player_t>(count); ++p) {
             Dictionary info;
             bool hasInfo = false;
-            sb_event_player_has_info(event, p, &hasInfo);
+            api().sb_event_player_has_info(event, p, &hasInfo);
             info["has_info"] = hasInfo;
             const char *str = nullptr;
-            if (sb_event_player_id(event, p, &str)) {
+            if (api().sb_event_player_id(event, p, &str)) {
                 info["id"] = toString(str);
             }
-            if (sb_event_player_preferred_name(event, p, &str)) {
+            if (api().sb_event_player_preferred_name(event, p, &str)) {
                 info["preferred_name"] = toString(str);
             }
-            if (sb_event_player_name(event, p, &str)) {
+            if (api().sb_event_player_name(event, p, &str)) {
                 info["name"] = toString(str);
             }
-            if (sb_event_player_initials(event, p, &str)) {
+            if (api().sb_event_player_initials(event, p, &str)) {
                 info["initials"] = toString(str);
             }
-            if (sb_event_player_picture_url(event, p, &str)) {
+            if (api().sb_event_player_picture_url(event, p, &str)) {
                 info["picture_url"] = toString(str);
             }
-            if (sb_event_player_claim_deeplink(event, p, &str)) {
+            if (api().sb_event_player_claim_deeplink(event, p, &str)) {
                 info["claim_deeplink"] = toString(str);
             }
             players[static_cast<int>(p)] = info;
@@ -124,7 +125,7 @@ Dictionary readEvent(const sb_event_t *event)
     case SB_EVT_CREDITS_ADD_REQUESTED: {
         int credits = 0;
         const char *transaction = nullptr;
-        if (sb_event_credits_add_requested(event, &credits, &transaction)) {
+        if (api().sb_event_credits_add_requested(event, &credits, &transaction)) {
             data["credits"] = credits;
             data["transaction"] = toString(transaction);
         }
@@ -132,38 +133,38 @@ Dictionary readEvent(const sb_event_t *event)
     }
     case SB_EVT_PRICING_RECEIVED: {
         bool flag = false;
-        if (sb_event_pricing_free_play(event, &flag)) {
+        if (api().sb_event_pricing_free_play(event, &flag)) {
             data["free_play"] = flag;
         }
-        if (sb_event_pricing_payments_enabled(event, &flag)) {
+        if (api().sb_event_pricing_payments_enabled(event, &flag)) {
             data["payments_enabled"] = flag;
         }
         const char *str = nullptr;
-        if (sb_event_pricing_credit_price(event, &str)) {
+        if (api().sb_event_pricing_credit_price(event, &str)) {
             data["credit_price"] = toString(str);
         }
-        if (sb_event_pricing_credit_regular_price(event, &str)) {
+        if (api().sb_event_pricing_credit_regular_price(event, &str)) {
             data["credit_regular_price"] = toString(str);
         }
-        if (sb_event_pricing_credit_sale_price(event, &str)) {
+        if (api().sb_event_pricing_credit_sale_price(event, &str)) {
             data["credit_sale_price"] = toString(str);
         }
         int count = 0;
-        sb_event_pricing_bundles_count(event, &count);
+        api().sb_event_pricing_bundles_count(event, &count);
         Array bundles;
         for (int i = 0; i < count; ++i) {
             Dictionary bundle;
             int credits = 0;
-            if (sb_event_pricing_bundle_credits(event, i, &credits)) {
+            if (api().sb_event_pricing_bundle_credits(event, i, &credits)) {
                 bundle["credits"] = credits;
             }
-            if (sb_event_pricing_bundle_price(event, i, &str)) {
+            if (api().sb_event_pricing_bundle_price(event, i, &str)) {
                 bundle["price"] = toString(str);
             }
-            if (sb_event_pricing_bundle_regular_price(event, i, &str)) {
+            if (api().sb_event_pricing_bundle_regular_price(event, i, &str)) {
                 bundle["regular_price"] = toString(str);
             }
-            if (sb_event_pricing_bundle_sale_price(event, i, &str)) {
+            if (api().sb_event_pricing_bundle_sale_price(event, i, &str)) {
                 bundle["sale_price"] = toString(str);
             }
             bundles.push_back(bundle);
@@ -173,14 +174,14 @@ Dictionary readEvent(const sb_event_t *event)
     }
     case SB_EVT_DIAGNOSTICS_UPLOAD_REQUESTED: {
         bool includeRecordings = false;
-        if (sb_event_diagnostics_upload_requested(event, &includeRecordings)) {
+        if (api().sb_event_diagnostics_upload_requested(event, &includeRecordings)) {
             data["include_recordings"] = includeRecordings;
         }
         break;
     }
     case SB_EVT_DIAGNOSTICS_UPLOADED: {
         bool success = false;
-        if (sb_event_diagnostics_uploaded(event, &success)) {
+        if (api().sb_event_diagnostics_uploaded(event, &success)) {
             data["success"] = success;
         }
         break;
@@ -189,7 +190,7 @@ Dictionary readEvent(const sb_event_t *event)
         sb_player_t player = 0;
         const uint8_t *bytes = nullptr;
         size_t size = 0;
-        if (sb_event_player_picture_ready(event, &player, &bytes, &size)) {
+        if (api().sb_event_player_picture_ready(event, &player, &bytes, &size)) {
             PackedByteArray picture;
             picture.resize(static_cast<int64_t>(size));
             if (size > 0 && bytes) {
@@ -210,114 +211,114 @@ Dictionary readEvent(const sb_event_t *event)
 Array readLeaderboard(const sb_leaderboard_t *leaderboard)
 {
     Array entries;
-    const size_t count = sb_leaderboard_entries_count(leaderboard);
+    const size_t count = api().sb_leaderboard_entries_count(leaderboard);
     for (size_t i = 0; i < count; ++i) {
         Dictionary entry;
         {
             uint64_t v {0};
-            if (sb_leaderboard_entry_id(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_id(leaderboard, i, &v)) {
                 entry["id"] = static_cast<int64_t>(v);
             }
         }
         {
             int v {0};
-            if (sb_leaderboard_entry_rank(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_rank(leaderboard, i, &v)) {
                 entry["rank"] = v;
             }
         }
         {
             sb_score_t v {0};
-            if (sb_leaderboard_entry_high_score(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_high_score(leaderboard, i, &v)) {
                 entry["high_score"] = static_cast<int64_t>(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_image(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_image(leaderboard, i, &v)) {
                 entry["image"] = toString(v);
             }
         }
         {
             int v {0};
-            if (sb_leaderboard_entry_reaction_count(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_reaction_count(leaderboard, i, &v)) {
                 entry["reaction_count"] = v;
             }
         }
         {
             int v {0};
-            if (sb_leaderboard_entry_score_count(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_score_count(leaderboard, i, &v)) {
                 entry["score_count"] = v;
             }
         }
         {
             bool v {false};
-            if (sb_leaderboard_entry_is_nfc_verified(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_is_nfc_verified(leaderboard, i, &v)) {
                 entry["is_nfc_verified"] = v;
             }
         }
         {
             bool v {false};
-            if (sb_leaderboard_entry_is_verified(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_is_verified(leaderboard, i, &v)) {
                 entry["is_verified"] = v;
             }
         }
         {
             bool v {false};
-            if (sb_leaderboard_entry_is_vpin(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_is_vpin(leaderboard, i, &v)) {
                 entry["is_vpin"] = v;
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_created(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_created(leaderboard, i, &v)) {
                 entry["created"] = toString(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_id(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_id(leaderboard, i, &v)) {
                 entry["player_id"] = toString(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_username(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_username(leaderboard, i, &v)) {
                 entry["player_username"] = toString(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_display_name(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_display_name(leaderboard, i, &v)) {
                 entry["player_display_name"] = toString(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_initials(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_initials(leaderboard, i, &v)) {
                 entry["player_initials"] = toString(v);
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_avatar(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_avatar(leaderboard, i, &v)) {
                 entry["player_avatar"] = toString(v);
             }
         }
         {
             int v {0};
-            if (sb_leaderboard_entry_player_follower_count(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_follower_count(leaderboard, i, &v)) {
                 entry["player_follower_count"] = v;
             }
         }
         {
             int v {0};
-            if (sb_leaderboard_entry_player_following_count(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_following_count(leaderboard, i, &v)) {
                 entry["player_following_count"] = v;
             }
         }
         {
             const char *v {nullptr};
-            if (sb_leaderboard_entry_player_last_login(leaderboard, i, &v)) {
+            if (api().sb_leaderboard_entry_player_last_login(leaderboard, i, &v)) {
                 entry["player_last_login"] = toString(v);
             }
         }
@@ -596,62 +597,70 @@ bool ScorbitGameState::start(const Dictionary &config)
     const String keyPath = config.get("key_path", DEFAULT_KEY_PATH);
     m_bridge->keyPath = toFsPath(keyPath).get_data();
 
-    sb_config_t cfg = sb_config_create();
-    sb_config_set_provider(cfg, String(config["provider"]).utf8().get_data());
-    sb_config_set_machine_id(cfg, static_cast<int32_t>(int64_t(config["machine_id"])));
-    sb_config_set_game_code_version(cfg, String(config["game_code_version"]).utf8().get_data());
-    if (config.has("hostname")) {
-        sb_config_set_hostname(cfg, String(config["hostname"]).utf8().get_data());
+    if (!loadSdk()) {
+        return false; // the reason is already pushed as an error
     }
-    sb_config_set_encrypted_key(cfg, String(config["encrypted_key"]).utf8().get_data());
+    sb_config_t cfg = api().sb_config_create();
+    api().sb_config_set_provider(cfg, String(config["provider"]).utf8().get_data());
+    api().sb_config_set_machine_id(cfg, static_cast<int32_t>(int64_t(config["machine_id"])));
+    api().sb_config_set_game_code_version(cfg,
+                                          String(config["game_code_version"]).utf8().get_data());
+    if (config.has("hostname")) {
+        api().sb_config_set_hostname(cfg, String(config["hostname"]).utf8().get_data());
+    }
+    api().sb_config_set_encrypted_key(cfg, String(config["encrypted_key"]).utf8().get_data());
     if (config.has("score_features")) {
         const auto features = toUtf8(PackedStringArray(config["score_features"]));
         auto pointers = toPointers(features);
-        sb_config_set_score_features(cfg, pointers.data(), pointers.size(),
-                                     int(config.get("score_features_version", 1)));
+        api().sb_config_set_score_features(cfg, pointers.data(), pointers.size(),
+                                           int(config.get("score_features_version", 1)));
     }
     if (config.has("threads_priority")) {
-        sb_config_set_threads_priority(cfg, int(config["threads_priority"]));
+        api().sb_config_set_threads_priority(cfg, int(config["threads_priority"]));
     }
     if (config.has("worker_thread_count")) {
-        sb_config_set_worker_thread_count(cfg, int(config["worker_thread_count"]));
+        api().sb_config_set_worker_thread_count(cfg, int(config["worker_thread_count"]));
     }
     if (config.has("machine_title")) {
-        sb_config_set_machine_title(cfg, String(config["machine_title"]).utf8().get_data());
+        api().sb_config_set_machine_title(cfg, String(config["machine_title"]).utf8().get_data());
     }
     if (config.has("game_firmware")) {
         const Dictionary fw = config["game_firmware"];
-        sb_config_set_game_firmware(cfg, String(fw.get("id", "")).utf8().get_data(),
-                                    String(fw.get("version", "")).utf8().get_data(),
-                                    String(fw.get("serial", "")).utf8().get_data());
+        api().sb_config_set_game_firmware(cfg, String(fw.get("id", "")).utf8().get_data(),
+                                          String(fw.get("version", "")).utf8().get_data(),
+                                          String(fw.get("serial", "")).utf8().get_data());
     }
     if (config.has("uuid")) {
-        sb_config_set_uuid(cfg, String(config["uuid"]).utf8().get_data());
+        api().sb_config_set_uuid(cfg, String(config["uuid"]).utf8().get_data());
     }
     if (config.has("serial_number")) {
-        sb_config_set_serial_number(cfg, static_cast<uint64_t>(int64_t(config["serial_number"])));
+        api().sb_config_set_serial_number(cfg,
+                                          static_cast<uint64_t>(int64_t(config["serial_number"])));
     }
     if (config.has("extra_fingerprint")) {
-        sb_config_set_extra_fingerprint(cfg, String(config["extra_fingerprint"]).utf8().get_data());
+        api().sb_config_set_extra_fingerprint(
+                cfg, String(config["extra_fingerprint"]).utf8().get_data());
     }
     if (config.has("cf_hostname")) {
-        sb_config_set_cf_hostname(cfg, String(config["cf_hostname"]).utf8().get_data());
+        api().sb_config_set_cf_hostname(cfg, String(config["cf_hostname"]).utf8().get_data());
     }
     if (config.has("heartbeat_host")) {
-        sb_config_set_heartbeat_host(cfg, String(config["heartbeat_host"]).utf8().get_data());
+        api().sb_config_set_heartbeat_host(cfg, String(config["heartbeat_host"]).utf8().get_data());
     }
     if (config.has("heartbeat_port")) {
-        sb_config_set_heartbeat_port(cfg, static_cast<uint16_t>(int(config["heartbeat_port"])));
+        api().sb_config_set_heartbeat_port(cfg,
+                                           static_cast<uint16_t>(int(config["heartbeat_port"])));
     }
     if (config.has("auto_download_player_pics")) {
-        sb_config_set_auto_download_player_pics(cfg, bool(config["auto_download_player_pics"]));
+        api().sb_config_set_auto_download_player_pics(cfg,
+                                                      bool(config["auto_download_player_pics"]));
     }
-    sb_config_set_event_callback(cfg, &onEvent, m_bridge.get());
-    sb_config_set_save_key_callback(cfg, &onSaveKey, m_bridge.get());
-    sb_config_set_load_key_callback(cfg, &onLoadKey, m_bridge.get());
+    api().sb_config_set_event_callback(cfg, &onEvent, m_bridge.get());
+    api().sb_config_set_save_key_callback(cfg, &onSaveKey, m_bridge.get());
+    api().sb_config_set_load_key_callback(cfg, &onLoadKey, m_bridge.get());
 
-    m_handle = sb_create_game_state(cfg);
-    sb_config_destroy(cfg);
+    m_handle = api().sb_create_game_state(cfg);
+    api().sb_config_destroy(cfg);
     if (!m_handle) {
         UtilityFunctions::push_error(
                 "Scorbit: could not create the game state (is encrypted_key set?)");
@@ -667,7 +676,7 @@ void ScorbitGameState::stop()
         return;
     }
     // Stops the SDK's threads, so no callback reaches the bridge afterwards.
-    sb_destroy_game_state(m_handle);
+    api().sb_destroy_game_state(m_handle);
     m_handle = nullptr;
     updateProcessing();
     m_uploads.clear(); // their answers died with the SDK's threads
@@ -791,84 +800,85 @@ void ScorbitGameState::emitEvent(const Dictionary &event)
 void ScorbitGameState::set_game_started(int origin)
 {
     if (m_handle) {
-        sb_set_game_started(m_handle, static_cast<sb_game_start_origin_t>(origin));
+        api().sb_set_game_started(m_handle, static_cast<sb_game_start_origin_t>(origin));
     }
 }
 
 void ScorbitGameState::set_game_finished()
 {
     if (m_handle) {
-        sb_set_game_finished(m_handle);
+        api().sb_set_game_finished(m_handle);
     }
 }
 
 void ScorbitGameState::set_current_ball(int ball)
 {
     if (m_handle) {
-        sb_set_current_ball(m_handle, static_cast<sb_ball_t>(ball));
+        api().sb_set_current_ball(m_handle, static_cast<sb_ball_t>(ball));
     }
 }
 
 void ScorbitGameState::set_active_player(int player)
 {
     if (m_handle) {
-        sb_set_active_player(m_handle, static_cast<sb_player_t>(player));
+        api().sb_set_active_player(m_handle, static_cast<sb_player_t>(player));
     }
 }
 
 void ScorbitGameState::set_score(int player, int64_t score, int feature)
 {
     if (m_handle) {
-        sb_set_score(m_handle, static_cast<sb_player_t>(player), score, feature);
+        api().sb_set_score(m_handle, static_cast<sb_player_t>(player), score, feature);
     }
 }
 
 void ScorbitGameState::add_mode(const String &mode)
 {
     if (m_handle) {
-        sb_add_mode(m_handle, mode.utf8().get_data());
+        api().sb_add_mode(m_handle, mode.utf8().get_data());
     }
 }
 
 void ScorbitGameState::add_mode_expiring(const String &mode, int seconds)
 {
     if (m_handle) {
-        sb_add_mode_expiring(m_handle, mode.utf8().get_data(), static_cast<uint32_t>(seconds));
+        api().sb_add_mode_expiring(m_handle, mode.utf8().get_data(),
+                                   static_cast<uint32_t>(seconds));
     }
 }
 
 void ScorbitGameState::remove_mode(const String &mode)
 {
     if (m_handle) {
-        sb_remove_mode(m_handle, mode.utf8().get_data());
+        api().sb_remove_mode(m_handle, mode.utf8().get_data());
     }
 }
 
 void ScorbitGameState::clear_modes()
 {
     if (m_handle) {
-        sb_clear_modes(m_handle);
+        api().sb_clear_modes(m_handle);
     }
 }
 
 void ScorbitGameState::set_mode_completed(const String &mode)
 {
     if (m_handle) {
-        sb_set_mode_completed(m_handle, mode.utf8().get_data());
+        api().sb_set_mode_completed(m_handle, mode.utf8().get_data());
     }
 }
 
 void ScorbitGameState::set_capabilities(int capabilities)
 {
     if (m_handle) {
-        sb_set_capabilities(m_handle, static_cast<sb_capabilities_t>(capabilities));
+        api().sb_set_capabilities(m_handle, static_cast<sb_capabilities_t>(capabilities));
     }
 }
 
 void ScorbitGameState::set_credits_dropped(int credits, const String &transaction, bool success)
 {
     if (m_handle) {
-        sb_set_credits_dropped(m_handle, credits, transaction.utf8().get_data(), success);
+        api().sb_set_credits_dropped(m_handle, credits, transaction.utf8().get_data(), success);
     }
 }
 
@@ -876,7 +886,8 @@ void ScorbitGameState::set_credits_status(bool freePlay, int credits, int maxCre
                                           const String &pricing)
 {
     if (m_handle) {
-        sb_set_credits_status(m_handle, freePlay, credits, maxCredits, pricing.utf8().get_data());
+        api().sb_set_credits_status(m_handle, freePlay, credits, maxCredits,
+                                    pricing.utf8().get_data());
     }
 }
 
@@ -886,7 +897,7 @@ int64_t ScorbitGameState::request_pair_code()
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_request_pair_code(m_handle, &onPairCode, newContext(*m_bridge, id));
+    api().sb_request_pair_code(m_handle, &onPairCode, newContext(*m_bridge, id));
     return id;
 }
 
@@ -896,7 +907,7 @@ int64_t ScorbitGameState::request_unpair()
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_request_unpair(m_handle, &onUnpair, newContext(*m_bridge, id));
+    api().sb_request_unpair(m_handle, &onUnpair, newContext(*m_bridge, id));
     return id;
 }
 
@@ -906,9 +917,9 @@ int64_t ScorbitGameState::request_pair_machine(const String &machineUuid, const 
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
-                                 ownerUuid.utf8().get_data(), &onPairMachine,
-                                 newContext(*m_bridge, id));
+    api().sb_game_request_pair_machine(m_handle, machineUuid.utf8().get_data(),
+                                       ownerUuid.utf8().get_data(), &onPairMachine,
+                                       newContext(*m_bridge, id));
     return id;
 }
 
@@ -920,11 +931,11 @@ int64_t ScorbitGameState::request_top_scores(int scope, int period, const String
     }
     const int64_t id = ++m_lastRequest;
     const auto sinceUtf8 = since.utf8();
-    sb_request_top_scores(m_handle, static_cast<sb_leaderboard_scope_t>(scope),
-                          static_cast<sb_leaderboard_period_t>(period),
-                          since.is_empty() ? nullptr : sinceUtf8.get_data(),
-                          static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
-                          newContext(*m_bridge, id));
+    api().sb_request_top_scores(m_handle, static_cast<sb_leaderboard_scope_t>(scope),
+                                static_cast<sb_leaderboard_period_t>(period),
+                                since.is_empty() ? nullptr : sinceUtf8.get_data(),
+                                static_cast<sb_leaderboard_vpin_filter_t>(vpinFilter), &onTopScores,
+                                newContext(*m_bridge, id));
     return id;
 }
 
@@ -936,8 +947,9 @@ int64_t ScorbitGameState::download(const String &url, const String &filename,
     }
     const int64_t id = ++m_lastRequest;
     const auto h = toHeaders(headers);
-    sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(), h.array.data(),
-                h.array.size(), &onDownload, newContext(*m_bridge, id, url, filename));
+    api().sb_download(m_handle, url.utf8().get_data(), toFsPath(filename).get_data(),
+                      h.array.data(), h.array.size(), &onDownload,
+                      newContext(*m_bridge, id, url, filename));
     return id;
 }
 
@@ -954,9 +966,9 @@ int64_t ScorbitGameState::download_buffer(const String &url, int reserveSize,
     }
     const int64_t id = ++m_lastRequest;
     const auto h = toHeaders(headers);
-    sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
-                       h.array.data(), h.array.size(), &onDownloadBuffer,
-                       newContext(*m_bridge, id, url));
+    api().sb_download_buffer(m_handle, url.utf8().get_data(), static_cast<size_t>(reserveSize),
+                             h.array.data(), h.array.size(), &onDownloadBuffer,
+                             newContext(*m_bridge, id, url));
     return id;
 }
 
@@ -982,10 +994,11 @@ void ScorbitGameState::sendUpload(const Upload &upload)
     auto logPtrs = toPointers(logs);
     auto recordingPtrs = toPointers(recordings);
     const uint64_t generation = static_cast<uint64_t>(upload.requestGeneration);
-    sb_upload_diagnostics_ex(m_handle, logPtrs.empty() ? nullptr : logPtrs.data(), logPtrs.size(),
-                             recordingPtrs.empty() ? nullptr : recordingPtrs.data(),
-                             recordingPtrs.size(), upload.logString.utf8().get_data(),
-                             upload.requestGeneration < 0 ? nullptr : &generation);
+    api().sb_upload_diagnostics_ex(m_handle, logPtrs.empty() ? nullptr : logPtrs.data(),
+                                   logPtrs.size(),
+                                   recordingPtrs.empty() ? nullptr : recordingPtrs.data(),
+                                   recordingPtrs.size(), upload.logString.utf8().get_data(),
+                                   upload.requestGeneration < 0 ? nullptr : &generation);
 }
 
 int64_t ScorbitGameState::report_device_state(const String &type, const String &version,
@@ -995,15 +1008,16 @@ int64_t ScorbitGameState::report_device_state(const String &type, const String &
         return 0;
     }
     const int64_t id = ++m_lastRequest;
-    sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(), installed,
-                           log.is_empty() ? nullptr : log.utf8().get_data(), &onDeviceState,
-                           newContext(*m_bridge, id, String(), String(), type));
+    api().sb_report_device_state(m_handle, type.utf8().get_data(), version.utf8().get_data(),
+                                 installed, log.is_empty() ? nullptr : log.utf8().get_data(),
+                                 &onDeviceState,
+                                 newContext(*m_bridge, id, String(), String(), type));
     return id;
 }
 
 bool ScorbitGameState::logger_callbacks_supported() const
 {
-    return sb_logger_callbacks_supported();
+    return loadSdk() && api().sb_logger_callbacks_supported();
 }
 
 void ScorbitGameState::enable_log_messages(int maxLength)
@@ -1012,7 +1026,7 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         UtilityFunctions::push_error("Scorbit: enable_log_messages() max_length must be positive");
         return;
     }
-    if (m_logs) {
+    if (m_logs || !loadSdk()) {
         return;
     }
     m_logs = std::make_shared<LogSink>();
@@ -1025,7 +1039,7 @@ void ScorbitGameState::enable_log_messages(int maxLength)
         router.sinks.push_back(m_logs);
     }
     if (first) { // one SDK registration serves every node
-        sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(MAX_LOG_LENGTH));
+        api().sb_add_logger_callback(&onLog, nullptr, static_cast<size_t>(MAX_LOG_LENGTH));
     }
     updateProcessing();
 }
@@ -1046,9 +1060,14 @@ void ScorbitGameState::disable_log_messages()
     m_logs.reset();
     // Outside the router's lock: the reset waits for a running onLog, which takes that lock.
     if (last) {
-        sb_reset_logger();
+        api().sb_reset_logger();
     }
     updateProcessing();
+}
+
+Dictionary ScorbitGameState::_sdk_paths() const
+{
+    return sdkPaths();
 }
 
 int64_t ScorbitGameState::_pending_request_count() const
@@ -1059,29 +1078,29 @@ int64_t ScorbitGameState::_pending_request_count() const
 
 int64_t ScorbitGameState::get_machine_serial() const
 {
-    return m_handle ? static_cast<int64_t>(sb_get_machine_serial(m_handle)) : 0;
+    return m_handle ? static_cast<int64_t>(api().sb_get_machine_serial(m_handle)) : 0;
 }
 
 void ScorbitGameState::commit()
 {
     if (m_handle) {
-        sb_commit(m_handle);
+        api().sb_commit(m_handle);
     }
 }
 
 int ScorbitGameState::get_status() const
 {
-    return m_handle ? static_cast<int>(sb_get_status(m_handle)) : SB_NET_NOT_AUTHENTICATED;
+    return m_handle ? static_cast<int>(api().sb_get_status(m_handle)) : SB_NET_NOT_AUTHENTICATED;
 }
 
 String ScorbitGameState::get_machine_uuid() const
 {
-    return m_handle ? toString(sb_get_machine_uuid(m_handle)) : String();
+    return m_handle ? toString(api().sb_get_machine_uuid(m_handle)) : String();
 }
 
 String ScorbitGameState::get_pair_deeplink() const
 {
-    return m_handle ? toString(sb_get_pair_deeplink(m_handle)) : String();
+    return m_handle ? toString(api().sb_get_pair_deeplink(m_handle)) : String();
 }
 
 void ScorbitGameState::_bind_methods()
@@ -1137,6 +1156,7 @@ void ScorbitGameState::_bind_methods()
                          &ScorbitGameState::enable_log_messages, DEFVAL(512));
     ClassDB::bind_method(D_METHOD("disable_log_messages"), &ScorbitGameState::disable_log_messages);
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
+    ClassDB::bind_method(D_METHOD("_sdk_paths"), &ScorbitGameState::_sdk_paths);
     ClassDB::bind_method(D_METHOD("_pending_request_count"),
                          &ScorbitGameState::_pending_request_count);
     ClassDB::bind_method(D_METHOD("get_status"), &ScorbitGameState::get_status);

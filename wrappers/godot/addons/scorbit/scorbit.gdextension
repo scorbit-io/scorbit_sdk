@@ -1,5 +1,6 @@
 ; Scorbit SDK for Godot 4. Built against the 4.3 API: loads in 4.3 and later 4.x.
-; The SDK library is a dependency, not linked in, so a released add-on can update it in place.
+; The SDK library is a dependency, not linked in: the extension loads a copy of it from the game's
+; user folder, which the SDK can update.
 
 [configuration]
 

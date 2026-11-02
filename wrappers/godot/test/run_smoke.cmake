@@ -10,6 +10,8 @@
 # Runs smoke_test.gd in a fresh Godot project holding the staged add-on.
 #   -DGODOT=<godot binary> -DPROJECT_DIR=<scratch dir> -DADDON_DIR=<staged addons/scorbit>
 #   -DSOURCE_DIR=<this dir> [-DWITHOUT_NATIVE=ON: drop the native libraries first]
+#   [-DSDK_COPY=fresh|corrupt: how smoke_test.gd prepares the SDK copy in the user folder]
+#   -DCASE=<name>: the project's name, so each case has a user folder of its own
 
 file(REMOVE_RECURSE ${PROJECT_DIR})
 file(MAKE_DIRECTORY ${PROJECT_DIR}/addons)
@@ -23,7 +25,7 @@ endif()
 file(COPY ${SOURCE_DIR}/smoke_test.gd DESTINATION ${PROJECT_DIR})
 file(
     WRITE ${PROJECT_DIR}/project.godot
-    "config_version=5\n\n[application]\n\nconfig/name=\"scorbit_smoke\"\n"
+    "config_version=5\n\n[application]\n\nconfig/name=\"scorbit_smoke_${CASE}\"\n"
 )
 
 # A project loads the extensions listed in .godot/extension_list.cfg, which the editor writes on
@@ -45,6 +47,7 @@ endif()
 
 execute_process(
     COMMAND ${GODOT} --headless --path ${PROJECT_DIR} -s res://smoke_test.gd -- ${_expect_native}
+            ${SDK_COPY}
     RESULT_VARIABLE _result
 )
 if(NOT _result EQUAL 0)

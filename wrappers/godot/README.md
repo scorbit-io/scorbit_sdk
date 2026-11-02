@@ -86,10 +86,15 @@ are emitted on the main thread, and every node that enabled `log_message` gets e
 ## Notes
 
 - The SDK library ships beside the extension (`bin/`), and exports copy it next to the game, or
-  into `Contents/Frameworks` on macOS. In a released add-on it updates itself in place, as on
-  other hosts, so the game's install folder must be writable by the user that runs the game.
+  into `Contents/Frameworks` on macOS. The extension doesn't link it: on first use it copies it to
+  `scorbit/sdk/` in the game's user data folder and loads that copy. The SDK updates that copy
+  itself, so updates need no write access to the game's install folder and never touch a signed
+  macOS app. A game that ships a different SDK replaces the copy. If the copy won't load, the
+  extension loads the one shipped with the game and copies it again.
 - An add-on built from source with the commands above does **not** update itself: it isn't a
   production build and has no ABI tag, so the SDK's updater refuses it. Use it for development.
+- A macOS export signed with a real identity needs **Disable Library Validation** in its export
+  preset to load any extension, this one included.
 - The device key is stored at `user://scorbit/device_key` unless `key_path` says otherwise. Keep
   it between runs: a new key means a new device to pair.
 
