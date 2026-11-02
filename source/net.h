@@ -288,6 +288,10 @@ struct NetTestAccess {
     static void adoptForTest(Net &net, const std::string &target);
     /// Whether sendScorbitronObject() has been called since the Net was made.
     static bool scorbitronObjectQueued(const Net &net);
+    static int machineObjectRequests(const Net &net);
+    static int creditsStatusRequests(const Net &net);
+    static void configReplyAt(Net &net, const std::string &reply, std::uint64_t gen);
+    static std::int32_t deviceMachineId(const Net &net);
     static std::uint64_t machineGen(const Net &net);
     /// An unpair signal outside any switch.
     static void unpairForTest(Net &net);
@@ -483,6 +487,8 @@ private:
 
     void requestReleaseTrackInfo();
     void requestMachineObject();
+    /// The config GET's reply, for a request made at machine generation @p gen.
+    void onConfigReply(std::uint64_t gen, Error error, const std::string &reply);
 
     void requestSessionData(const std::string &sessionUuid);
 
@@ -1091,6 +1097,8 @@ private:
     /// a switch held the gate. Signals carry no machine, so any is a reason to ask the server.
     std::atomic<std::uint64_t> m_switchDirty {0};
     std::atomic<int> m_scorbitronObjectSends {0}; ///< sendScorbitronObject() calls; tests only
+    std::atomic<int> m_machineObjectRequests {0}; ///< requestMachineObject() calls; tests only
+    std::atomic<int> m_creditsStatusRequests {0}; ///< requestCreditsStatusIfReady(); tests only
     /// submitGameData() posts by sequence, and those not yet applied; the drain waits for every
     /// one made before the gate closed.
     mutable std::mutex m_gameDataMutex;

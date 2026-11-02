@@ -810,62 +810,67 @@ void Net::getConfig()
     m_worker.post(createGetConfigTask());
 }
 
+void Net::onConfigReply(std::uint64_t gen, Error error, const std::string &reply)
+{
+    if (error != Error::Success) {
+        WRN("API get config error: {}", static_cast<int>(error));
+        return;
+    }
+    INF("API get config: {}", reply);
+
+    try {
+        json json = json::parse(reply);
+
+        // A reply for a machine the device has since left is stale as a whole: its
+        // machine id, config and pricing all belong to that machine.
+        if (!refineMachine(gen, [&json](MachineInfo &m) {
+                if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
+                    it != json.end() && it->is_string()) {
+                    m.variantUuid = it->get<std::string>();
+                }
+                if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
+                    it != json.end() && it->is_string()) {
+                    m.venueUuid = it->get<std::string>();
+                }
+                if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+                    configIt != json.end() && configIt->is_object()) {
+                    if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
+                        it != configIt->end() && it->is_string()) {
+                        it->get_to(m.opdbId);
+                    }
+                }
+            })) {
+            WRN("API get config: reply for a machine since left, discarded");
+            return;
+        }
+
+        if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+            configIt != json.end() && configIt->is_object()) {
+
+            if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
+                it != configIt->end() && it->is_number_integer()) {
+                it->get_to(m_deviceInfo.machineId);
+            }
+        }
+
+        m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
+
+        if (const auto pricingIt = json.find(JKEY_SCFG_PRICING);
+            pricingIt != json.end() && pricingIt->is_object()) {
+            m_eventManager->push(std::make_shared<PricingReceivedEvent>(*pricingIt));
+        }
+
+    } catch (const std::exception &e) {
+        ERR("API error parsing config reply: {}", e.what());
+    }
+}
+
 task_t Net::createGetConfigTask()
 {
     const auto gen = machineGen();
     return createGetRequestTask(
             [this, gen](Error error, const std::string &reply) {
-                if (error != Error::Success) {
-                    WRN("API get config error: {}", static_cast<int>(error));
-                    return;
-                }
-                INF("API get config: {}", reply);
-
-                try {
-                    json json = json::parse(reply);
-
-                    // A reply for a machine the device has since left is stale as a whole: its
-                    // machine id, config and pricing all belong to that machine.
-                    if (!refineMachine(gen, [&json](MachineInfo &m) {
-                            if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
-                                it != json.end() && it->is_string()) {
-                                m.variantUuid = it->get<std::string>();
-                            }
-                            if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
-                                it != json.end() && it->is_string()) {
-                                m.venueUuid = it->get<std::string>();
-                            }
-                            if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
-                                configIt != json.end() && configIt->is_object()) {
-                                if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
-                                    it != configIt->end() && it->is_string()) {
-                                    it->get_to(m.opdbId);
-                                }
-                            }
-                        })) {
-                        WRN("API get config: reply for a machine since left, discarded");
-                        return;
-                    }
-
-                    if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
-                        configIt != json.end() && configIt->is_object()) {
-
-                        if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
-                            it != configIt->end() && it->is_number_integer()) {
-                            it->get_to(m_deviceInfo.machineId);
-                        }
-                    }
-
-                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
-
-                    if (const auto pricingIt = json.find(JKEY_SCFG_PRICING);
-                        pricingIt != json.end() && pricingIt->is_object()) {
-                        m_eventManager->push(std::make_shared<PricingReceivedEvent>(*pricingIt));
-                    }
-
-                } catch (const std::exception &e) {
-                    ERR("API error parsing config reply: {}", e.what());
-                }
+                onConfigReply(gen, error, reply);
             },
             [this]() {
                 INF("API get config");
@@ -3841,6 +3846,7 @@ task_t Net::createRequestReleaseTrackInfoTask()
 
 void Net::requestMachineObject()
 {
+    ++m_machineObjectRequests; // observed by tests only
     m_worker.postStartupQueue(createRequestMachineObjectTask());
 }
 
@@ -4278,7 +4284,10 @@ void Net::resolveSwitchNow(
         if (!now.empty() && now != start) {
             m_eventManager->push(std::make_shared<MachineChangedEvent>(now));
         }
-        emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
+        // Only a settled status: "checking" is neither, and the re-ask below settles it.
+        if (m_status != AuthStatus::AuthenticatedCheckingPairing) {
+            emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
+        }
         // A re-authentication during the switch left the pairing to a reply the switch held
         // back: ask for it again once the gate opens, or nothing resolves it.
         const bool unresolved = m_status == AuthStatus::AuthenticatedCheckingPairing;
@@ -5182,6 +5191,26 @@ void NetTestAccess::scorbitronReplyAt(Net &net, const std::string &venueMachine,
                     ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
                     : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
     net.parseScorbitronObject(Error::Success, reply.dump(), gen);
+}
+
+int NetTestAccess::machineObjectRequests(const Net &net)
+{
+    return net.m_machineObjectRequests;
+}
+
+int NetTestAccess::creditsStatusRequests(const Net &net)
+{
+    return net.m_creditsStatusRequests;
+}
+
+void NetTestAccess::configReplyAt(Net &net, const std::string &reply, std::uint64_t gen)
+{
+    net.onConfigReply(gen, Error::Success, reply);
+}
+
+std::int32_t NetTestAccess::deviceMachineId(const Net &net)
+{
+    return net.m_deviceInfo.machineId;
 }
 
 bool NetTestAccess::scorbitronObjectQueued(const Net &net)
@@ -6556,6 +6585,7 @@ void Net::requestCreditsStatusEvent()
 
 void Net::requestCreditsStatusIfReady()
 {
+    ++m_creditsStatusRequests; // observed by tests only
     if (m_stop || machine().channel.empty()) {
         return;
     }

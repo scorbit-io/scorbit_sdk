@@ -440,7 +440,11 @@ struct VpinNet {
         NetTestAccess::setProbesManager(*net, std::make_shared<nfc::ProbesManager>(nullptr));
     }
 
-    void drain() { io.run_for(std::chrono::milliseconds(50)); }
+    void drain()
+    {
+        io.restart(); // a run that found no work stops the context; later drains need it again
+        io.run_for(std::chrono::milliseconds(50));
+    }
 };
 
 } // namespace
@@ -884,4 +888,75 @@ TEST_CASE("A switch that ends with the pairing unresolved asks for it again")
             });
     CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
     CHECK(NetTestAccess::scorbitronObjectQueued(*v.net)); // the pairing is asked for again
+}
+
+// ----------------------------- side effects of a machine change ---------------------------
+
+TEST_CASE("Any change of machine clears the player profiles")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    const nlohmann::json profiles = nlohmann::json::array({{{JKEY_SCR_POSITION, 1},
+                                                            {JKEY_SCR_PLAYER,
+                                                             {{JKEY_PLAYER_ID, "p1"},
+                                                              {JKEY_PLAYER_USERNAME, "u"},
+                                                              {JKEY_PLAYER_DISPLAY_NAME, "n"},
+                                                              {JKEY_PLAYER_INITIALS, "N"},
+                                                              {JKEY_PLAYER_URL, "x"}}}}});
+    auto &players = v.net->playersManager();
+    REQUIRE(players.setProfiles(profiles, CURRENT));
+    REQUIRE(players.profile(1));
+
+    NetTestAccess::setMachineUuid(*v.net, CURRENT); // the same machine: kept
+    CHECK(players.profile(1));
+    NetTestAccess::setMachineUuid(*v.net, TARGET); // another machine: gone
+    CHECK_FALSE(players.profile(1));
+
+    REQUIRE(players.setProfiles(profiles, TARGET));
+    NetTestAccess::unpairForTest(*v.net); // unpaired: gone too
+    CHECK_FALSE(players.profile(1));
+}
+
+TEST_CASE("A config reply for a machine since left changes nothing")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    const auto staleGen = NetTestAccess::machineGen(*v.net);
+    NetTestAccess::adoptForTest(*v.net, TARGET); // authoritative: a newer generation
+    const auto idBefore = NetTestAccess::deviceMachineId(*v.net);
+    const nlohmann::json reply {{JKEY_SCFG_VARIANT_ID, "old-variant"},
+                                {JKEY_SCFG_CONFIG, {{JKEY_SCFG_MACHINE_ID, idBefore + 7}}},
+                                {JKEY_SCFG_PRICING, {{"free_play", true}}}};
+
+    NetTestAccess::configReplyAt(*v.net, reply.dump(), staleGen);
+    v.drain();
+
+    CHECK(NetTestAccess::deviceMachineId(*v.net) == idBefore);
+    CHECK(v.events.empty()); // no ConfigReceived, no PricingReceived
+
+    // The same reply at the current generation is applied.
+    NetTestAccess::configReplyAt(*v.net, reply.dump(), NetTestAccess::machineGen(*v.net));
+    v.drain();
+    CHECK(NetTestAccess::deviceMachineId(*v.net) == idBefore + 7);
+    CHECK_FALSE(v.events.empty());
+}
+
+TEST_CASE("While a switch holds the gate, an agreeing reply still fetches the machine object")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, TARGET);
+    NetTestAccess::holdSwitchGate(*v.net);
+    const auto objects = NetTestAccess::machineObjectRequests(*v.net);
+    const auto credits = NetTestAccess::creditsStatusRequests(*v.net);
+
+    NetTestAccess::scorbitronReplyAt(*v.net, TARGET, NetTestAccess::machineGen(*v.net));
+    CHECK(NetTestAccess::machineObjectRequests(*v.net) == objects + 1);
+    CHECK(NetTestAccess::creditsStatusRequests(*v.net) == credits + 1);
+    CHECK(v.net->venueMachine() == TARGET);
+
+    // One naming another machine is news for the switch, and fetches nothing.
+    NetTestAccess::scorbitronReplyAt(*v.net, OTHER, NetTestAccess::machineGen(*v.net));
+    CHECK(NetTestAccess::machineObjectRequests(*v.net) == objects + 1);
+    CHECK(v.net->venueMachine() == TARGET);
+    NetTestAccess::releaseSwitchGate(*v.net);
 }
