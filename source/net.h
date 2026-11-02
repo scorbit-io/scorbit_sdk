@@ -605,6 +605,9 @@ private:
     /// The pairing signal a switch folded in, forgotten as it is taken.
     enum class SwallowedSignal;
     SwallowedSignal takeFoldedSignal();
+    /// Puts the device on @p venueMachine as the server reports it ("" for unpaired): the machine
+    /// and channel a post carries at once, the rest of the context by onPaired().
+    void takeServerPairing(const std::string &venueMachine);
     /// MachineSwitch::Steps::settle: settleFoldedSignalNow() on the Centrifugo strand.
     void settleFoldedSignal(bool onTarget, const std::string &target, MachineSwitch::Done done);
     /// The settling itself. @p askServer reports which venue machine the server has the device

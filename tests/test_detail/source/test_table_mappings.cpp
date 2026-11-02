@@ -888,3 +888,42 @@ TEST_CASE("An unpair during a successful switch is settled with the server befor
         CHECK(v.net->venueMachine() == TARGET);
     }
 }
+
+TEST_CASE("A re-pair folded into a failed switch has its machine in place before posts go out")
+{
+    constexpr auto OTHER = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    std::optional<std::string> machineWhenSent;
+    NetTestAccess::setVpinTransport(
+            *v.net,
+            {.post =
+                     [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                         // A game starts and the device is re-paired elsewhere while the switch is
+                         // out.
+                         NetTestAccess::postOrHoldForSwitch(
+                                 *v.net, 1, [&] { machineWhenSent = v.net->venueMachine(); });
+                         CHECK(NetTestAccess::foldIntoSwitch(*v.net, true));
+                         return response(403, errorBody("venuemachine_not_owned"));
+                     },
+             .patch =
+                     [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                         return response(200, nlohmann::json {{"machine", {{"id", OTHER}}}}.dump());
+                     }});
+
+    std::vector<sb_switch_machine_result_t> results;
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET,
+            [&](sb_switch_machine_result_t result, const std::string &) {
+                results.push_back(result);
+            },
+            [](const std::string &, const std::string &, MachineSwitch::Done) {
+                FAIL("a refused switch adopts nothing");
+            });
+    v.drain();
+
+    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_TARGET_NOT_OWNED});
+    REQUIRE(machineWhenSent);
+    CHECK(*machineWhenSent == OTHER);
+    CHECK(NetTestAccess::status(*v.net) == AuthStatus::AuthenticatedPaired);
+}

@@ -4159,36 +4159,52 @@ void Net::settleFoldedSignalNow(
 {
     const auto folded = takeFoldedSignal();
 
-    if (!onTarget) {
-        // A failed switch changed nothing here, but the server may have: act on what it said.
-        if (folded == SwallowedSignal::Paired) {
-            onPaired();
-        } else if (folded == SwallowedSignal::Unpaired) {
-            onUnpaired();
-        }
+    // Nothing folded, or a re-pair on the target, which is the switch's own: nothing to settle.
+    if (folded == SwallowedSignal::None || (onTarget && folded == SwallowedSignal::Paired)) {
+        done();
+        return;
+    }
+    // An unpair after a failed switch says all there is: clearing the context is synchronous.
+    if (!onTarget && folded == SwallowedSignal::Unpaired) {
+        onUnpaired();
         done();
         return;
     }
 
-    // On the target, a re-pair is the switch's own. An unpair may be too (the old attachment
-    // ending) or may be the owner's, and the order the server sends them in is not one this can
-    // rely on: ask the server where the device is, and follow that.
-    if (folded != SwallowedSignal::Unpaired) {
-        done();
-        return;
-    }
-    INF("API switch machine: an unpair arrived during the switch to {}; checking", target);
-    askServer([this, target, done = std::move(done)](std::optional<std::string> onServer) mutable {
+    // A re-pair after a failed switch names no machine, and an unpair on the target may be the
+    // switch's own (the old attachment ending) or the owner's, in an order this cannot rely on.
+    // Either way ask the server where the device is, and have that context in place before the
+    // held posts are released.
+    INF("API switch machine: a pairing change arrived during the switch to {}; checking", target);
+    askServer([this, done = std::move(done)](std::optional<std::string> onServer) mutable {
         takeFoldedSignal(); // the answer below supersedes anything since
-        if (!onServer || onServer->empty()) {
-            // Unpaired, or unknown: the server's last word was an unpair, and no post goes out
-            // under a pairing it may have ended.
+        if (!onServer) {
+            // Unknown: no post goes out under a guessed pairing. Clear it, and ask again; that
+            // reply sets whatever the server holds.
             onUnpaired();
-        } else if (*onServer != target) {
-            onPaired(); // on another machine: take on its whole context
+            sendScorbitronObject();
+        } else {
+            takeServerPairing(*onServer);
         }
         done();
     });
+}
+
+void Net::takeServerPairing(const std::string &venueMachine)
+{
+    if (venueMachine.empty()) {
+        onUnpaired();
+        return;
+    }
+    if (venueMachine == this->venueMachine() && m_status == AuthStatus::AuthenticatedPaired) {
+        return;
+    }
+    // What a held post carries, set now; onPaired() then refreshes the rest (token, config,
+    // machine object) behind it.
+    setVenueMachine(venueMachine);
+    m_machineChannel = fmt::format("machine:{}", venueMachine);
+    updateDiscoveryDescription();
+    onPaired();
 }
 
 bool Net::foldIntoSwitch(bool paired)
