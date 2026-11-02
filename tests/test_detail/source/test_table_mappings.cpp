@@ -989,6 +989,38 @@ TEST_CASE("Any change of machine clears the player profiles")
     CHECK_FALSE(players.profile(1));
 }
 
+TEST_CASE("A game's reply that outlives a move adds no profiles to the new machine")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    const nlohmann::json scores = nlohmann::json::array({{{JKEY_SCR_POSITION, 1},
+                                                          {JKEY_SCR_PLAYER,
+                                                           {{JKEY_PLAYER_ID, "p1"},
+                                                            {JKEY_PLAYER_USERNAME, "u"},
+                                                            {JKEY_PLAYER_DISPLAY_NAME, "n"},
+                                                            {JKEY_PLAYER_INITIALS, "N"},
+                                                            {JKEY_PLAYER_URL, "x"}}}}});
+    GameData game;
+    game.id = 1;
+    v.net->sessionCreate(game, GameStartOrigin::StartButton, {});
+    REQUIRE(NetTestAccess::sessionMachine(*v.net, 1) == std::optional<std::string> {CURRENT});
+
+    // The device moves while the game's reply is still on the wire (past the drain bound).
+    NetTestAccess::adoptForTest(*v.net, TARGET);
+    NetTestAccess::processScores(*v.net, 1, scores);
+    v.drain();
+    CHECK_FALSE(v.net->playersManager().profile(1));
+    CHECK(std::count(v.events.begin(), v.events.end(), EventType::PlayersUpdated) == 0);
+
+    // A game on the machine the device is on still brings its players.
+    GameData next;
+    next.id = 2;
+    v.net->sessionCreate(next, GameStartOrigin::StartButton, {});
+    NetTestAccess::processScores(*v.net, 2, scores);
+    v.drain();
+    CHECK(v.net->playersManager().profile(1));
+}
+
 TEST_CASE("A config reply for a machine since left changes nothing")
 {
     VpinNet v(false);

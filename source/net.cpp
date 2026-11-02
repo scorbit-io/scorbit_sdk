@@ -5892,8 +5892,13 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
         ERR("Error parsing player score: {}", e.what());
     }
 
-    // Process players profiles
-    if (auto changedProfiles = m_playersManager.setProfiles(val, machine().machineUuid)) {
+    // Process players profiles. They belong to the machine this game ran on: a reply that outlives
+    // a move (as past a switch's drain bound) adds none to the machine the device is on now.
+    const auto live = machine().machineUuid;
+    if (gameSession.machine && gameSession.machine->machineUuid != live) {
+        return;
+    }
+    if (auto changedProfiles = m_playersManager.setProfiles(val, live)) {
         m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
     }
 
