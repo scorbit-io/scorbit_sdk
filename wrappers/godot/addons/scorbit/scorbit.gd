@@ -114,9 +114,16 @@ func _exit_tree() -> void:
 	stop()
 
 
-## Whether the native SDK is loaded. When false, every other call does nothing.
+## Whether the native SDK is loaded. When false, every other call does nothing. The first call
+## loads the SDK.
 func is_available() -> bool:
-	return _native != null
+	return _native != null and _native.load_sdk()
+
+
+## Why the SDK couldn't load, worded for whoever runs the game (e.g. a folder that must be
+## writable); empty when it loaded or the native library isn't present.
+func get_sdk_error() -> String:
+	return _native.get_sdk_error() if _native else ""
 
 
 ## Creates the game state. config keys: provider, machine_id, game_code_version and encrypted_key

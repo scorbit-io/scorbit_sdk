@@ -18,6 +18,7 @@
  */
 
 #include "scorbit_game_state.h"
+#include "sdk_loader.h"
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
@@ -37,7 +38,10 @@ void initializeModule(ModuleInitializationLevel level)
 void uninitializeModule(ModuleInitializationLevel level)
 {
     if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-        sb_reset_logger(); // the SDK must not call back into this library once it is unloaded
+        if (scorbit_godot::sdkLoaded()) {
+            // The SDK must not call back into this library once it is unloaded.
+            scorbit_godot::api().sb_reset_logger();
+        }
     }
 }
 
