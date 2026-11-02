@@ -38,7 +38,9 @@
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <algorithm>
 #include <exception>
+#include <new>
 #include <optional>
 #include <thread>
 #include <utility>
@@ -166,6 +168,13 @@ struct JobPairMachine {
     void *user_data;
 };
 
+struct JobSwitchMachine {
+    sb_game_state_struct *h;
+    std::string venuemachine;
+    sb_switch_machine_callback_t callback;
+    void *user_data;
+};
+
 struct JobSetProbeFirmware {
     sb_game_state_struct *h;
     std::string probe;
@@ -257,15 +266,14 @@ struct JobSubmitProbeFlashResult {
     void *user_data;
 };
 
-using ApiQueueItem =
-        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
-                     JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
-                     JobSetModeCompleted, JobTickModeExpiries, JobRemoveMode, JobClearModes,
-                     JobCommit, JobRequestTopScores, JobRequestPairCode, JobRequestUnpair,
-                     JobSetCapabilities, JobPairMachine, JobCreditsDropped, JobCreditsStatus,
-                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
-                     JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
-                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
+using ApiQueueItem = std::variant<
+        Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall, JobSetActivePlayer,
+        JobSetScore, JobAddMode, JobAddModeExpiring, JobSetModeCompleted, JobTickModeExpiries,
+        JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores, JobRequestPairCode,
+        JobRequestUnpair, JobSetCapabilities, JobPairMachine, JobSwitchMachine, JobCreditsDropped,
+        JobCreditsStatus, JobDownload, JobDownloadBuffer, JobUploadDiagnostics,
+        JobReportDeviceState, JobSubmitHardwareProbeResult, JobSetProbeFirmware,
+        JobSetPbspkcommFirmwareId, JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -386,6 +394,16 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.requestPairMachine(
                                 std::move(j.machine_uuid), std::move(j.owner_uuid),
                                 makeCStringReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSwitchMachine &&j) {
+                        j.h->gameState.switchMachine(j.venuemachine,
+                                                     [cb = j.callback, ud = j.user_data](
+                                                             sb_switch_machine_result_t result,
+                                                             const std::string &venuemachine) {
+                                                         if (cb) {
+                                                             cb(result, venuemachine.c_str(), ud);
+                                                         }
+                                                     });
                     },
                     [](JobCreditsDropped &&j) {
                         j.h->gameState.setCreditsDropped(j.credits, j.transaction, j.success);
@@ -648,6 +666,43 @@ void sb_game_request_pair_machine(sb_game_handle_t handle, const char *machine_u
 {
     handle->postApiJob(JobPairMachine {handle, copyCStr(machine_uuid), copyCStr(owner_uuid),
                                        callback, user_data});
+}
+
+sb_table_mappings_t sb_get_table_mappings(sb_game_handle_t handle)
+{
+    try {
+        if (handle) {
+            return new sb_table_mappings_struct(handle->gameState.tableMappings());
+        }
+        return new sb_table_mappings_struct();
+    } catch (const std::exception &e) {
+        ERR("sb_get_table_mappings failed: {}", e.what());
+        return new (std::nothrow) sb_table_mappings_struct();
+    }
+}
+
+size_t sb_get_venue_machine(sb_game_handle_t handle, char *buffer, size_t buffer_size)
+{
+    const auto uuid = handle ? handle->gameState.venueMachine() : std::string {};
+    if (buffer && buffer_size > 0) {
+        const auto n = std::min(uuid.size(), buffer_size - 1);
+        std::copy_n(uuid.data(), n, buffer);
+        buffer[n] = '\0';
+    }
+    return uuid.size();
+}
+
+void sb_refresh_table_mappings(sb_game_handle_t handle)
+{
+    if (handle) {
+        handle->gameState.refreshTableMappings();
+    }
+}
+
+void sb_switch_machine(sb_game_handle_t handle, const char *venuemachine_uuid,
+                       sb_switch_machine_callback_t callback, void *user_data)
+{
+    handle->postApiJob(JobSwitchMachine {handle, copyCStr(venuemachine_uuid), callback, user_data});
 }
 
 void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool present,

@@ -55,6 +55,8 @@ public:
         PairCode,
         ProbeFlashResultRetry,
         NfcReattach,
+        TableMappingsRefresh,
+        SwitchDrain,
 
         // IMPORTANT! This must be last entry!
         Count,

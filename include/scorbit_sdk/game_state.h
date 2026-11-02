@@ -23,11 +23,13 @@
 #include "common_types_c.h"
 
 #include "leaderboard.h"
+#include "table_mappings.h"
 #include "net_types.h"
 #include "game_state_c.h"
 #include "event.h"
 #include "config.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -273,6 +275,54 @@ public:
      * @return The serial number (see @ref sb_get_machine_serial).
      */
     std::uint64_t getMachineSerial() const { return sb_get_machine_serial(m_handle.get()); }
+
+    // -------------------------- VPIN table mappings and machine switch ---------------------
+
+    /// Receives the outcome of @ref switchMachine and the target as passed.
+    using SwitchMachineCallback =
+            std::function<void(SwitchMachineResult result, const std::string &venueMachine)>;
+
+    /// A copy of the VPIN table mappings; see @ref sb_get_table_mappings.
+    TableMappings tableMappings() const
+    {
+        auto *m = sb_get_table_mappings(m_handle.get());
+        auto out = TableMappings::fromC(m);
+        sb_table_mappings_free(m);
+        return out;
+    }
+
+    /// Re-read the VPIN table mappings now; see @ref sb_refresh_table_mappings.
+    void refreshTableMappings() { sb_refresh_table_mappings(m_handle.get()); }
+
+    /**
+     * @brief The current VenueMachine uuid, "" when unpaired.
+     *
+     * A host may skip @ref switchMachine when this equals the target; the server treats that as
+     * a no-op too.
+     */
+    std::string venueMachine() const
+    {
+        std::string uuid(sb_get_venue_machine(m_handle.get(), nullptr, 0), '\0');
+        if (!uuid.empty()) {
+            const auto n = sb_get_venue_machine(m_handle.get(), uuid.data(), uuid.size() + 1);
+            uuid.resize(std::min(n, uuid.size()));
+        }
+        return uuid;
+    }
+
+    /**
+     * @brief Move this VPIN device to another of its owner's VPIN machines; see
+     * @ref sb_switch_machine for the sequence and the refusals.
+     *
+     * @note The callback runs at most once, on an SDK thread, after @ref EventType::MachineChanged;
+     * not at all if the game state is destroyed first.
+     */
+    void switchMachine(const std::string &venueMachineUuid, SwitchMachineCallback callback)
+    {
+        auto *userData = new SwitchMachineCallback(std::move(callback));
+        sb_switch_machine(m_handle.get(), venueMachineUuid.c_str(),
+                          &GameState::switch_machine_callback_c, userData);
+    }
 
     /**
      * @brief Retrieve the pairing deeplink.
@@ -636,6 +686,18 @@ public:
     }
 
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
+
+private:
+    static void switch_machine_callback_c(sb_switch_machine_result_t result,
+                                          const char *venuemachine, void *user_data)
+    {
+        auto *cb = static_cast<SwitchMachineCallback *>(user_data);
+        if (*cb) {
+            (*cb)(static_cast<SwitchMachineResult>(result),
+                  venuemachine ? std::string(venuemachine) : std::string {});
+        }
+        delete cb;
+    }
 
 private:
     static void leaderboard_callback_c(sb_error_t error, sb_leaderboard_t *leaderboard,

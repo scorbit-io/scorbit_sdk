@@ -197,6 +197,15 @@ class Config(object):
         _lib.sb_config_set_auto_download_player_pics(self._handle, enable)
         return self
 
+    def set_vpin_table_mappings(self, enabled):
+        # type: (bool) -> Config
+        """Enable or disable reading the VPIN table mappings (default disabled).
+
+        See :meth:`GameState.table_mappings`. :meth:`GameState.switch_machine` works either way.
+        """
+        _lib.sb_config_set_vpin_table_mappings(self._handle, enabled)
+        return self
+
     def set_threads_priority(self, priority):
         # type: (int) -> Config
         """Nice / QOS for SDK background threads; ``0`` leaves scheduling unchanged (default)."""

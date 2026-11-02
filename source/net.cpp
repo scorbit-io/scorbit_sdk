@@ -83,6 +83,11 @@ constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto NUM_RETRIES = 3;
+/// SPEC-0031 REQ-8: the floor on how often the device re-reads its table mappings.
+constexpr auto TABLE_MAPPINGS_REFRESH_INTERVAL = 15min;
+/// SPEC-0009 REQ-4.2: how long a switch waits for the finished game's posts.
+constexpr auto SWITCH_DRAIN_BOUND = 10s;
+constexpr auto SWITCH_DRAIN_POLL = 20ms;
 /// Whether the SDK flashes its own NFC pad (SB-5759). With it off, NFC is never in
 /// probe_flash_probes, so the API never sends an NFC probe_flash.
 constexpr bool SDK_NFC_FLASH_ROUTINE = true;
@@ -734,13 +739,22 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
     stopCentrifugoIdleTimer();
 
     INF("API post create session, id: {}", data.id);
-    m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
+    postOrHoldForSwitch(data.id, [this, task = createSessionCreateTask(
+                                                data.id, origin, std::move(onCreated))]() mutable {
+        m_worker.postSessionQueue(std::move(task));
+    });
 }
 
 void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
-    m_worker.post([this, data, flags]() { applyGameData(data, flags); });
+    // Counted so a machine switch can wait for the finished game's last data (see drain).
+    ++m_pendingGameData;
+    m_worker.post([this, data, flags]() {
+        const auto applied = std::unique_ptr<void, std::function<void(void *)>> {
+                this, [this](void *) { --m_pendingGameData; }};
+        applyGameData(data, flags);
+    });
 }
 
 void Net::applyGameData(const GameData &data, SessionFlags flags)
@@ -2969,6 +2983,7 @@ task_t Net::createAuthenticateTask()
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
                         initializeConnectionState();
+                        fetchTableMappings(false); // parks until the pairing is resolved
                     } else {
                         INF("API token refreshed successful!");
                         requestReleaseTrackInfo();
@@ -3476,7 +3491,10 @@ void Net::sessionUpdate(int sessionId, SessionFlags flags)
 
     INF("API post update session, id: {}, upload history logs: {}, player add: {}", sessionId,
         flags.has(SessionFlag::UploadHistoryLogs), flags.has(SessionFlag::PlayersAdd));
-    m_worker.postSessionQueue(createSessionUpdateTask(sessionId, flags));
+    postOrHoldForSwitch(sessionId,
+                        [this, task = createSessionUpdateTask(sessionId, flags)]() mutable {
+                            m_worker.postSessionQueue(std::move(task));
+                        });
 }
 
 void Net::startTokenRefreshTimer(std::chrono::seconds timeUntilExpiration)
@@ -3503,6 +3521,11 @@ void Net::stopTokenRefreshTimer()
 }
 
 void Net::sendLatestGameData(int sessionId)
+{
+    postOrHoldForSwitch(sessionId, [this, sessionId] { commitLatestGameData(sessionId); });
+}
+
+void Net::commitLatestGameData(int sessionId)
 {
     m_worker.postCommitTask([this, sessionId]() {
         // Cancel timer if any
@@ -3899,10 +3922,327 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
     return createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
+// ---------------------------- VPIN table mappings and machine switch ----------------------------
+// Governing: SPEC-0031 REQ-8 (device read, ETag), REQ-9 (change signal), REQ-10 (error codes);
+// SPEC-0009 REQ-4..6 (settle, re-pair, one round-trip context).
+
+std::string Net::venueMachine() const
+{
+    std::scoped_lock lock(m_venueMachineMutex);
+    return m_venueMachine;
+}
+
+void Net::setVenueMachine(std::string uuid)
+{
+    m_machineInfo.machineUuid = uuid;
+    std::scoped_lock lock(m_venueMachineMutex);
+    m_venueMachine = std::move(uuid);
+}
+
+TableMappingsSnapshot Net::tableMappings() const
+{
+    return m_tableMappings.snapshot();
+}
+
+void Net::refreshTableMappings()
+{
+    fetchTableMappings(true);
+}
+
+void Net::fetchTableMappings(bool resume)
+{
+    if (m_stop || !m_deviceInfo.vpinTableMappings) {
+        return;
+    }
+    if (resume) {
+        m_tableMappings.resume();
+    } else if (m_tableMappings.suspended()) {
+        return;
+    }
+    // One read at a time; a trigger during it gets one more read after it.
+    if (m_tableMappingsFetchInFlight.exchange(true)) {
+        m_tableMappingsFetchAgain = true;
+        return;
+    }
+    m_worker.postQueue(createTableMappingsTask());
+}
+
+task_t Net::createTableMappingsTask()
+{
+    auto etag = std::make_shared<std::string>(); // the reply's ETag, set by the transport below
+
+    auto reply = [this, etag](Error /*error*/, int httpStatus, const std::string &body) {
+        if (m_tableMappings.apply(httpStatus, *etag, body)) {
+            const auto snapshot = m_tableMappings.snapshot();
+            INF("API table mappings updated: result {}, {} mappings",
+                static_cast<int>(snapshot.result), snapshot.rows.size());
+            m_eventManager->push(std::make_shared<TableMappingsUpdatedEvent>());
+        }
+        m_tableMappingsFetchInFlight = false;
+        armTableMappingsRefresh();
+        if (m_tableMappingsFetchAgain.exchange(false)) {
+            fetchTableMappings(false);
+        }
+    };
+
+    return createHttpRequestTask(
+            REST_GET, HttpStatusCallback {std::move(reply)},
+            [this] { return make_tuple(url(URL_SCORBITRON_TABLE_MAPPINGS), cpr::Parameters {}); },
+            [this, etag](const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
+                         const cpr::Timeout &timeout, bool /*resilient*/) {
+                if (const auto last = m_tableMappings.etag(); !last.empty()) {
+                    header[HDR_KEY_IF_NONE_MATCH] = last;
+                }
+                auto r = m_vpinTransport.get ? m_vpinTransport.get(url, header)
+                                             : HttpSessionPool::instance().Get(
+                                                     url, params, header, timeout, sslOptions());
+                if (const auto it = r.header.find(HDR_KEY_ETAG); it != r.header.end()) {
+                    *etag = it->second;
+                }
+                return r;
+            },
+            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired});
+}
+
+void Net::armTableMappingsRefresh()
+{
+    if (m_stop || !m_deviceInfo.vpinTableMappings) {
+        return;
+    }
+    m_worker.startTimer(Worker::Timer::TableMappingsRefresh, TABLE_MAPPINGS_REFRESH_INTERVAL,
+                        [this] { fetchTableMappings(false); });
+}
+
+void Net::switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback)
+{
+    const auto status = m_status.load();
+    // Not while pairing is unresolved: the scorbitron reply still on its way would undo the switch.
+    const bool authenticated = status == AuthStatus::AuthenticatedPaired
+                            || status == AuthStatus::AuthenticatedUnpaired;
+    m_machineSwitch.start(venueMachine, this->venueMachine(), authenticated, std::move(callback));
+}
+
+MachineSwitch::Steps Net::machineSwitchSteps()
+{
+    MachineSwitch::Steps steps;
+    steps.gate = [this](bool hold) { holdSwitchGate(hold); };
+    steps.drain = [this](MachineSwitch::Done done) { drainSessionPosts(std::move(done)); };
+    steps.post = [this](const std::string &target,
+                        std::function<void(int, const std::string &)> reply) {
+        postSwitchMachine(target, std::move(reply));
+    };
+    steps.adopt = [this](const std::string &target, const std::string &token,
+                         MachineSwitch::Done done) {
+        adoptSwitchedMachine(target, token, std::move(done));
+    };
+    steps.changed = [this](const std::string &target) {
+        m_eventManager->push(std::make_shared<MachineChangedEvent>(target));
+        emitPairingStatusEventIfChanged(true);
+    };
+    steps.refetch = [this] {
+        fetchTableMappings(false);
+        // A failed switch changed nothing here, but the server may have: act on what it said.
+        SwallowedSignal replay {SwallowedSignal::None};
+        {
+            std::scoped_lock lock(m_switchGateMutex);
+            std::swap(replay, m_switchSwallowedSignal);
+        }
+        if (replay != SwallowedSignal::None) {
+            // Where the signal handler would have run it.
+            onCentrifugoStrand([this, replay] {
+                if (m_stop) {
+                    return;
+                }
+                if (replay == SwallowedSignal::Paired) {
+                    onPaired();
+                } else {
+                    onUnpaired();
+                }
+            });
+        }
+    };
+    // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
+    steps.deliver = [this](MachineSwitch::Done fn) {
+        boost::asio::post(m_worker.eventsStrand(), std::move(fn));
+    };
+    steps.stopping = [this] { return m_stop.load(); };
+    return steps;
+}
+
+void Net::postOrHoldForSwitch(int sessionId, task_t post)
+{
+    // Posting only queues, so it is done under the lock to keep held and new posts in order.
+    // A game from before the switch settles on the old machine; only later games wait.
+    std::scoped_lock lock(m_switchGateMutex);
+    if (m_switchGateHeld && sessionId >= m_switchGateFromSession) {
+        m_switchHeldPosts.push_back(std::move(post));
+        return;
+    }
+    post();
+}
+
+bool Net::foldIntoSwitch(bool paired)
+{
+    std::scoped_lock lock(m_switchGateMutex);
+    if (!m_switchGateHeld) {
+        return false;
+    }
+    m_switchSwallowedSignal = paired ? SwallowedSignal::Paired : SwallowedSignal::Unpaired;
+    return true;
+}
+
+void Net::holdSwitchGate(bool hold)
+{
+    int fromSession = 0;
+    if (hold) {
+        std::scoped_lock lock(m_gameSessionsMutex);
+        fromSession = m_gameSessions.empty() ? 0 : m_gameSessions.rbegin()->first + 1;
+    }
+    std::scoped_lock lock(m_switchGateMutex);
+    m_switchGateHeld = hold;
+    if (hold) {
+        m_switchGateFromSession = fromSession;
+        m_switchSwallowedSignal = SwallowedSignal::None;
+    }
+    if (hold || m_switchHeldPosts.empty()) {
+        return;
+    }
+    INF("API switch machine: releasing {} held session posts", m_switchHeldPosts.size());
+    for (auto &post : m_switchHeldPosts) {
+        post();
+    }
+    m_switchHeldPosts.clear();
+}
+
+void Net::drainSessionPosts(MachineSwitch::Done done)
+{
+    struct Drain {
+        std::atomic<int> left {2};
+        std::atomic_bool fired {false};
+        MachineSwitch::Done done;
+    };
+    auto drain = std::make_shared<Drain>();
+    drain->done = std::move(done);
+
+    auto fire = [this, drain](bool timedOut) {
+        if (drain->fired.exchange(true)) {
+            return;
+        }
+        if (timedOut) {
+            WRN("API switch machine: session posts still pending after {}, going on",
+                SWITCH_DRAIN_BOUND);
+        } else {
+            m_worker.stopTimer(Worker::Timer::SwitchDrain);
+        }
+        drain->done();
+    };
+
+    m_worker.startTimer(Worker::Timer::SwitchDrain, SWITCH_DRAIN_BOUND, [fire] { fire(true); });
+    // Each strand runs its marker after every post queued on it before the switch. The finished
+    // game's last data may still be on its way to those strands, so wait for it first.
+    auto marker = [drain, fire] {
+        if (--drain->left == 0) {
+            fire(false);
+        }
+    };
+    const auto deadline = steady_clock::now() + SWITCH_DRAIN_BOUND;
+    m_worker.post([this, drain, marker, deadline] {
+        while (m_pendingGameData > 0 && !m_stop && !drain->fired
+               && steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(SWITCH_DRAIN_POLL);
+        }
+        m_worker.postSessionQueue(marker);
+        m_worker.postCommitTask(marker);
+    });
+}
+
+task_t Net::createSwitchMachineTask(const std::string &target,
+                                    std::function<void(int, const std::string &)> reply)
+{
+    return createHttpRequestTask(
+            REST_POST,
+            HttpStatusCallback {[reply = std::move(reply)](Error /*error*/, int httpStatus,
+                                                           const std::string &body) {
+                reply(httpStatus, body);
+            }},
+            [this, target] {
+                const json body {{JKEY_SWITCH_VENUEMACHINE, target}};
+                return make_tuple(url(URL_SCORBITRON_SWITCH_MACHINE), cpr::Body {body.dump()});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.post ? m_vpinTransport.post(url, body, header)
+                                            : HttpSessionPool::instance().Post(
+                                                    url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired},
+            false, false, false); // the reply carries a token: never logged
+}
+
+void Net::postSwitchMachine(const std::string &target,
+                            std::function<void(int, const std::string &)> reply)
+{
+    m_worker.post(createSwitchMachineTask(target, std::move(reply)));
+}
+
+void Net::adoptSwitchedMachine(const std::string &target, const std::string &token,
+                               MachineSwitch::Done done)
+{
+    // On the startup strand, where the scorbitron reply writes the same machine context.
+    m_worker.postStartupQueue([this, target, token, done = std::move(done)]() mutable {
+        adoptSwitchedMachineNow(target, token, std::move(done));
+    });
+}
+
+void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &token,
+                                  MachineSwitch::Done done)
+{
+    // SPEC-0009 REQ-6.2: the reply's token is the new connection; no /socket/ request.
+    {
+        std::scoped_lock lock(m_cfTokenMutex);
+        m_cfToken = token;
+    }
+    scheduleCentrifugoTokenRefresh(token, 0);
+
+    m_playersManager.clear();
+    m_machineInfo.opdbId.clear();
+    m_machineInfo.variantUuid.reset();
+    m_machineInfo.gameSlug.reset();
+    m_machineInfo.venueUuid.reset();
+    m_machineInfo.title.clear();
+    setVenueMachine(target);
+    m_machineChannel = fmt::format("machine:{}", target);
+    updateDiscoveryDescription();
+
+    bool nowPaired = false;
+    {
+        // As a 401 resets the status: never over a re-authentication that began meanwhile.
+        std::scoped_lock lock(m_authMutex);
+        if (m_status == AuthStatus::AuthenticatedUnpaired) {
+            m_status = AuthStatus::AuthenticatedPaired;
+            nowPaired = true;
+        }
+    }
+    if (nowPaired) {
+        notifyAuthStatusChanged();
+    }
+
+    restartCentrifugo(false);
+
+    // The context initializeConnectionState() fetches. The scorbitron reply queues the machine
+    // object behind these, so the last step re-queues itself to land after that too.
+    m_worker.postStartupQueue(createSendScorbitronObjectTask());
+    m_worker.postStartupQueue(createGetConfigTask());
+    m_worker.postStartupQueue([this, done = std::move(done)]() mutable {
+        m_worker.postStartupQueue(std::move(done));
+    });
+}
+
 void Net::clearPairedMachineContext()
 {
     m_machineInfo.opdbId.clear();
-    m_machineInfo.machineUuid.clear();
+    setVenueMachine({});
     m_machineInfo.variantUuid.reset();
     m_machineInfo.gameSlug.reset();
     m_machineInfo.venueUuid.reset();
@@ -3926,6 +4266,7 @@ void Net::onPaired()
     notifyAuthStatusChanged();
     initializeConnectionState();
     emitPairingStatusEventIfChanged(true);
+    fetchTableMappings(true); // a pairing change lifts a refusal's stop
 }
 
 void Net::onUnpaired()
@@ -3935,6 +4276,7 @@ void Net::onUnpaired()
     notifyAuthStatusChanged();
     emitPairingStatusEventIfChanged(false);
     restartCentrifugo();
+    fetchTableMappings(true);
 }
 
 void Net::retryScorbitronObjectIfPairingUnresolved()
@@ -3983,7 +4325,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             if (isPaired) {
                 if (const auto idIt = it->find(JKEY_SOBJ_MACHINE_UUID);
                     idIt != it->end() && idIt->is_string()) {
-                    idIt->get_to(m_machineInfo.machineUuid);
+                    setVenueMachine(idIt->get<std::string>());
                     m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
                     requestCreditsStatusIfReady();
                 }
@@ -4016,6 +4358,7 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             m_status = status;
             notifyAuthStatusChanged();
             emitPairingStatusEventIfChanged(isPaired);
+            fetchTableMappings(true); // a pairing change; a parked read may have given up
         }
 
     } catch (const std::exception &e) {
@@ -4029,7 +4372,8 @@ template<typename DeferredSetupT, typename HttpMethodT, typename CallbackT>
 task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
                                   std::vector<AuthStatus> allowedStatuses,
-                                  bool includeFingerprintHash, bool resilientTransferTimeouts)
+                                  bool includeFingerprintHash, bool resilientTransferTimeouts,
+                                  bool logReply)
 {
     // A request that arrives before the status allows it is parked rather than run, and needs to
     // re-enter itself when the gate opens. The weak capture keeps the lambda from owning the
@@ -4040,7 +4384,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
     *run = [this, weakRun, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
             allowedStatuses = std::move(allowedStatuses), includeFingerprintHash,
-            resilientTransferTimeouts]() {
+            resilientTransferTimeouts, logReply]() {
         switch (authGate(m_status, allowedStatuses, m_stop)) {
         case AuthGate::Ready:
             break;
@@ -4092,8 +4436,10 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             reply = std::move(r.text);
             httpStatus = r.status_code;
 
-            if (r.status_code >= 200 && r.status_code < 300) {
-                DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
+            // 304 answers only a conditional GET (the table mappings), which asked for it.
+            if ((r.status_code >= 200 && r.status_code < 300) || r.status_code == 304) {
+                DBG("API {} request to {} OK, {}", requestType, url.str(),
+                    logReply ? reply : std::string {"(reply not logged)"});
                 error = Error::Success;
                 noteRestSuccess(r.header);
                 break;
@@ -4409,6 +4755,69 @@ bool NetTestAccess::noteKeyResolutionDeferred(Net &net, std::chrono::steady_cloc
 AuthStatus NetTestAccess::status(const Net &net)
 {
     return net.m_status;
+}
+
+void NetTestAccess::setVpinTransport(Net &net, VpinTransport transport)
+{
+    net.m_vpinTransport = std::move(transport);
+}
+
+void NetTestAccess::setMachineUuid(Net &net, std::string machineUuid)
+{
+    net.setVenueMachine(std::move(machineUuid));
+}
+
+std::string NetTestAccess::machineUuid(const Net &net)
+{
+    return net.m_machineInfo.machineUuid;
+}
+
+void NetTestAccess::fetchTableMappingsNow(Net &net)
+{
+    net.m_tableMappingsFetchInFlight = true;
+    net.createTableMappingsTask()();
+}
+
+void NetTestAccess::runSwitchMachine(
+        Net &net, const std::string &venueMachine, MachineSwitch::Callback callback,
+        std::function<void(const std::string &, const std::string &, MachineSwitch::Done)> adopt)
+{
+    auto &steps = net.m_machineSwitch.steps();
+    steps.drain = [](MachineSwitch::Done done) { done(); };
+    steps.post = [&net](const std::string &target,
+                        std::function<void(int, const std::string &)> reply) {
+        net.createSwitchMachineTask(target, std::move(reply))();
+    };
+    steps.adopt = std::move(adopt);
+    steps.deliver = [](MachineSwitch::Done fn) { fn(); };
+    net.switchMachine(venueMachine, std::move(callback));
+}
+
+bool NetTestAccess::switchGateHeld(Net &net)
+{
+    std::scoped_lock lock(net.m_switchGateMutex);
+    return net.m_switchGateHeld;
+}
+
+std::size_t NetTestAccess::switchHeldPosts(Net &net)
+{
+    std::scoped_lock lock(net.m_switchGateMutex);
+    return net.m_switchHeldPosts.size();
+}
+
+void NetTestAccess::postOrHoldForSwitch(Net &net, int sessionId, task_t post)
+{
+    net.postOrHoldForSwitch(sessionId, std::move(post));
+}
+
+void NetTestAccess::holdSwitchGate(Net &net)
+{
+    net.holdSwitchGate(true);
+}
+
+void NetTestAccess::releaseSwitchGate(Net &net)
+{
+    net.holdSwitchGate(false);
 }
 
 void NetTestAccess::setEventManager(Net &net, std::shared_ptr<EventManager> eventManager)
@@ -5310,14 +5719,16 @@ void Net::centrifugoSetup(bool fetchFreshToken)
             retireCentrifugoClient();
             // Timers fire on an io_context thread, not on this strand, so the check on the client
             // has to be made after hopping back onto it.
-            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this] {
-                onCentrifugoStrand([this] {
-                    if (m_stop || m_centrifugo) {
-                        return;
-                    }
-                    setupAndConnectCentrifugo(true);
-                });
-            });
+            const bool fetchFreshToken = m_restartFetchFreshToken.exchange(true);
+            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY,
+                                [this, fetchFreshToken] {
+                                    onCentrifugoStrand([this, fetchFreshToken] {
+                                        if (m_stop || m_centrifugo) {
+                                            return;
+                                        }
+                                        setupAndConnectCentrifugo(fetchFreshToken);
+                                    });
+                                });
             return;
         }
 
@@ -5432,6 +5843,13 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                             m_eventManager->push(
                                     std::make_shared<DiagnosticsUploadRequestedEvent>(false));
                         } else if (method == JVAL_METHOD_SIGNAL
+                                   && (name == JVAL_ACTION_SCORBITRON_PAIRED
+                                       || name == JVAL_ACTION_SCORBITRON_UNPAIRED)
+                                   && foldIntoSwitch(name == JVAL_ACTION_SCORBITRON_PAIRED)) {
+                            // Most likely the switch's own re-pair, whose context it adopts
+                            // itself; kept so a failed switch can still act on it.
+                            INF("API-CF {} signal folded into the machine switch", name);
+                        } else if (method == JVAL_METHOD_SIGNAL
                                    && name == JVAL_ACTION_SCORBITRON_PAIRED) {
                             INF("API-CF Scorbitron paired signal received");
                             onPaired();
@@ -5439,6 +5857,10 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                                    && name == JVAL_ACTION_SCORBITRON_UNPAIRED) {
                             INF("API-CF Scorbitron unpaired signal received");
                             onUnpaired();
+                        } else if (method == JVAL_METHOD_SIGNAL
+                                   && name == JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED) {
+                            INF("API-CF table mappings changed signal received");
+                            fetchTableMappings(false);
                         } else if (method == JVAL_METHOD_GET
                                    && name == JVAL_ACTION_CONFIG_REFRESH) {
                             INF("API-CF Config refresh requested via control channel");
@@ -5590,24 +6012,25 @@ void Net::stopCentrifugoIdleTimer()
     m_worker.stopTimer(Worker::Timer::CentrifugoIdleDisconnect);
 }
 
-void Net::restartCentrifugo()
+void Net::restartCentrifugo(bool fetchFreshToken)
 {
-    onCentrifugoStrand([this] {
+    onCentrifugoStrand([this, fetchFreshToken] {
         m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
 
         if (!m_centrifugo) {
             m_restartCentrifugoPending = false;
-            setupAndConnectCentrifugo(true);
+            setupAndConnectCentrifugo(fetchFreshToken);
             return;
         }
 
         if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
             m_restartCentrifugoPending = false;
             retireCentrifugoClient();
-            setupAndConnectCentrifugo(true);
+            setupAndConnectCentrifugo(fetchFreshToken);
             return;
         }
 
+        m_restartFetchFreshToken = fetchFreshToken;
         m_restartCentrifugoPending = true;
         m_centrifugo->disconnect();
     });

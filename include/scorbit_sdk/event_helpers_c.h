@@ -332,6 +332,17 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
 SCORBIT_SDK_EXPORT
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired);
 
+/**
+ * @brief Helper function to process a @ref SB_EVT_MACHINE_CHANGED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] venuemachine Receives the new VenueMachine uuid; valid only during the event
+ * callback.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_machine_changed(const sb_event_t *event, const char **venuemachine);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT

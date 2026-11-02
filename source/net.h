@@ -251,6 +251,29 @@ struct NetTestAccess {
     /// The tournament session @p sessionId has cached for @p player's score.
     static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
 
+    /// Stands in for the table-mappings GET and the switch-machine POST.
+    struct VpinTransport {
+        std::function<cpr::Response(const cpr::Url &, const cpr::Header &)> get;
+        std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)> post;
+    };
+    static void setVpinTransport(Net &net, VpinTransport transport);
+    /// The production table-mappings read, run on the calling thread.
+    static void fetchTableMappingsNow(Net &net);
+    /// Wires @p net's switch steps up to its own production code, except @p adopt, which stands in
+    /// for adopting the token and refreshing the context.
+    static void runSwitchMachine(
+            Net &net, const std::string &venueMachine, MachineSwitch::Callback callback,
+            std::function<void(const std::string &, const std::string &, MachineSwitch::Done)>
+                    adopt);
+    /// Whether session posts are held for a switch, and how many are held.
+    static bool switchGateHeld(Net &net);
+    static std::size_t switchHeldPosts(Net &net);
+    static void postOrHoldForSwitch(Net &net, int sessionId, task_t post);
+    static void releaseSwitchGate(Net &net);
+    static void holdSwitchGate(Net &net);
+    static void setMachineUuid(Net &net, std::string machineUuid);
+    static std::string machineUuid(const Net &net);
+
 private:
     template<typename CallbackT>
     static task_t make(Net &net, CallbackT callback, TestTransport transport, std::string payload);
@@ -376,6 +399,11 @@ public:
                                    HttpStatusCallback callback = {}) override;
     void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
                                HttpStatusCallback callback = {}) override;
+
+    std::string venueMachine() const override;
+    TableMappingsSnapshot tableMappings() const override;
+    void refreshTableMappings() override;
+    void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback) override;
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback = {}) override;
 
@@ -399,6 +427,8 @@ private:
     void stopTokenRefreshTimer();
 
     void sendLatestGameData(int sessionId);
+    /// sendLatestGameData()'s post once the switch gate lets it through.
+    void commitLatestGameData(int sessionId);
 
     void initializeConnectionState();
     void initScorbitronObject();
@@ -458,7 +488,8 @@ private:
             const char *requestType, CallbackT replyCallback, DeferredSetupT deferredSetup,
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
-            bool includeFingerprintHash = false, bool resilientTransferTimeouts = false);
+            bool includeFingerprintHash = false, bool resilientTransferTimeouts = false,
+            bool logReply = true);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -542,9 +573,33 @@ private:
     void resetCentrifugoIdleTimerIfArmed();
     void stopCentrifugoIdleTimer();
     void setupAndConnectCentrifugo(bool fetchFreshToken = false);
-    void restartCentrifugo();
+    /// @p fetchFreshToken false keeps the cached token, which a switch has just seeded.
+    void restartCentrifugo(bool fetchFreshToken = true);
 
     void clearPairedMachineContext();
+
+    // VPIN table mappings and machine switch
+    /// Reads the mappings unless disabled, suspended (and not @p resume) or already in flight.
+    void fetchTableMappings(bool resume);
+    /// Sets m_machineInfo.machineUuid and the locked copy venueMachine() reads.
+    void setVenueMachine(std::string uuid);
+    task_t createTableMappingsTask();
+    void armTableMappingsRefresh();
+    MachineSwitch::Steps machineSwitchSteps();
+    /// Runs @p post now, or holds it while a switch holds posts for sessions from @p sessionId on.
+    void postOrHoldForSwitch(int sessionId, task_t post);
+    void holdSwitchGate(bool hold);
+    /// Records a pairing signal for the switch holding the gate; false if none is.
+    bool foldIntoSwitch(bool paired);
+    void drainSessionPosts(MachineSwitch::Done done);
+    task_t createSwitchMachineTask(const std::string &target,
+                                   std::function<void(int, const std::string &)> reply);
+    void postSwitchMachine(const std::string &target,
+                           std::function<void(int, const std::string &)> reply);
+    void adoptSwitchedMachine(const std::string &target, const std::string &token,
+                              MachineSwitch::Done done);
+    void adoptSwitchedMachineNow(const std::string &target, const std::string &token,
+                                 MachineSwitch::Done done);
     void emitPairingStatusEventIfChanged(bool isPaired);
     void onPaired();
     void onUnpaired();
@@ -949,6 +1004,27 @@ private:
     std::atomic_bool m_isCentrifugoIdleTimerArmed {false};
 
     std::optional<bool> m_lastEmittedPairingState;
+
+    mutable std::mutex m_venueMachineMutex;
+    std::string m_venueMachine; ///< m_machineInfo.machineUuid, readable from any thread
+    TableMappingsStore m_tableMappings;
+    std::atomic_bool m_tableMappingsFetchInFlight {false};
+    std::atomic_bool m_tableMappingsFetchAgain {false};
+    NetTestAccess::VpinTransport m_vpinTransport; // test seam; empty in production
+    /// Guards the two below: session posts held while a switch runs, released in order.
+    std::mutex m_switchGateMutex;
+    bool m_switchGateHeld {false};
+    int m_switchGateFromSession {0}; ///< sessions from this id on are held
+    /// A pairing signal a switch folded in; replayed if the switch fails. Under the gate mutex.
+    enum class SwallowedSignal { None, Paired, Unpaired };
+    SwallowedSignal m_switchSwallowedSignal {SwallowedSignal::None};
+    /// submitGameData() posts not yet applied.
+    std::atomic<int> m_pendingGameData {0};
+    std::vector<task_t> m_switchHeldPosts;
+    /// Fetch the next Centrifugo client's token (false: a switch seeded it); see restartCentrifugo.
+    std::atomic_bool m_restartFetchFreshToken {true};
+    /// Its steps only capture this; none runs before the worker starts.
+    MachineSwitch m_machineSwitch {machineSwitchSteps()};
 
     std::shared_ptr<EventManager> m_eventManager;
 };

@@ -429,5 +429,33 @@ private:
     bool m_isPaired;
 };
 
+// ---------------- TableMappingsUpdated implementation ----------------
+
+class TableMappingsUpdatedEvent : public EventBase
+{
+public:
+    TableMappingsUpdatedEvent()
+        : EventBase(EventType::TableMappingsUpdated, EventPriority::Normal)
+    {
+    }
+};
+
+// ---------------- MachineChanged implementation ----------------
+
+class MachineChangedEvent : public EventBase
+{
+public:
+    explicit MachineChangedEvent(std::string venueMachine)
+        : EventBase(EventType::MachineChanged, EventPriority::High)
+        , m_venueMachine {std::move(venueMachine)}
+    {
+    }
+
+    auto venueMachine() const -> const std::string & { return m_venueMachine; }
+
+private:
+    std::string m_venueMachine;
+};
+
 } // namespace detail
 } // namespace scorbit

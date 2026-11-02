@@ -35,6 +35,8 @@ enum class EventType {
     DiagnosticsUploaded = SB_EVT_DIAGNOSTICS_UPLOADED,
     PricingReceived = SB_EVT_PRICING_RECEIVED,
     PairingStatusChanged = SB_EVT_PAIRING_STATUS_CHANGED,
+    TableMappingsUpdated = SB_EVT_TABLE_MAPPINGS_UPDATED,
+    MachineChanged = SB_EVT_MACHINE_CHANGED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 
