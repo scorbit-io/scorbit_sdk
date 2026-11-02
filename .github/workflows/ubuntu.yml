@@ -69,7 +69,9 @@ jobs:
       - name: Build VBScript binding
         run: |
           cmake -S wrappers/vbscript -B build/vbscript
-          cp "build/vbscript/scorbit-${VERSION}.vbs" "build/dist/${VERSION}/"
+          # Parity with the tagged headers; a binding that drifted is not published.
+          ctest --test-dir build/vbscript --output-on-failure --no-tests=error
+          cp"build/vbscript/scorbit-${VERSION}.vbs" "build/dist/${VERSION}/"
           cd "build/dist/${VERSION}"
           sha256sum "scorbit-${VERSION}.vbs" > "scorbit-${VERSION}.vbs.sha256"
           cat "scorbit-${VERSION}.vbs.sha256"

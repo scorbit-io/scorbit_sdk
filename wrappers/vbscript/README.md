@@ -18,6 +18,12 @@ On Error Goto 0
 ScorbitInit "<machine uuid>"
 ```
 
+Each [SDK release](https://github.com/scorbit-io/scorbit_sdk/releases) carries the file and a
+`scorbit-<version>.vbs.sha256` beside it. To check a download, run `sha256sum -c` on Linux,
+`shasum -a 256 -c` on macOS, or `Get-FileHash scorbit-x.y.z.vbs` in PowerShell on Windows and compare
+the hash with the one in the `.sha256` file. A local `cmake -S wrappers/vbscript -B <dir>` of the
+release tag builds the same file.
+
 **Ship that file beside the table.** VPX finds it there. Without the file none of the `Scorbit` names
 exist, so the table's first call to one stops it. With the file, the table runs on a VPX without the
 Scorbit plugin too: every routine is then a silent no-op, and every function returns its "none"
