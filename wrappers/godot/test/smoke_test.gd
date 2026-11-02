@@ -93,9 +93,15 @@ func _begin() -> void:
 	_check(ClassDB.class_exists("ScorbitGameState") == _expect_native, "native class loaded")
 	if _expect_native:
 		_prepare_sdk_copy()  # before is_available(), which loads the SDK
-	if _sdk_copy == "missing":
-		# The extension loads, but without its SDK nothing can work, and every call does nothing.
-		_check(not _scorbit.is_available(), "is_available() is false without the SDK library")
+	if _sdk_copy == "missing" or _sdk_copy == "blocked":
+		# The extension loads, but without a usable SDK nothing can work, and every call does
+		# nothing. The shipped SDK is never run in place instead.
+		_check(not _scorbit.is_available(), "is_available() is false without a usable SDK")
+		var error: String = _scorbit.get_sdk_error()
+		_check(error.begins_with("Scorbit can't start"), "get_sdk_error() says why: " + error)
+		if _sdk_copy == "blocked":
+			_check("can be written" in error, "get_sdk_error() names the folder to fix")
+			_unblock_sdk_copy()
 		_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234,
 				"game_code_version": "1.0.0", "encrypted_key": "dummy_encrypted_key"}),
 				"start() fails without the SDK library")
@@ -216,15 +222,17 @@ func _prepare_sdk_copy() -> void:
 		FileAccess.open(paths.copy.path_join("keep"), FileAccess.WRITE).store_string("x")
 
 
+# Clean up after the blocked case, so a later run of it starts the same way.
+func _unblock_sdk_copy() -> void:
+	var paths: Dictionary = _scorbit._native._sdk_paths()
+	_check(paths.loaded == "", "the SDK shipped with the game is not run in place")
+	DirAccess.remove_absolute(paths.copy.path_join("keep"))
+	DirAccess.remove_absolute(paths.copy)
+
+
 func _check_sdk_copy() -> void:
 	var paths: Dictionary = _scorbit._native._sdk_paths()
 	var bundled_sha := FileAccess.get_sha256(paths.bundled)
-	if _sdk_copy == "blocked":
-		_check(paths.loaded == paths.bundled, "with no copy possible, the bundled SDK loads")
-		# Clean up, so a later run of this case starts the same way.
-		DirAccess.remove_absolute(paths.copy.path_join("keep"))
-		DirAccess.remove_absolute(paths.copy)
-		return
 	# A broken copy is replaced and loaded, not skipped: only the copy may update itself.
 	_check(paths.loaded == paths.copy, "the SDK loads from the copy in the user folder")
 	_check(FileAccess.get_sha256(paths.copy) == bundled_sha, "the copy matches the bundled SDK")

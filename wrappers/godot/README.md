@@ -89,8 +89,10 @@ are emitted on the main thread, and every node that enabled `log_message` gets e
   into `Contents/Frameworks` on macOS. The extension doesn't link it: on first use it copies it to
   `scorbit/sdk/` in the game's user data folder and loads that copy. The SDK updates that copy
   itself, so updates need no write access to the game's install folder and never touch a signed
-  macOS app. A game that ships a different SDK replaces the copy. If the copy won't load, the
-  extension loads the one shipped with the game and copies it again.
+  macOS app. A game that ships a different SDK replaces the copy, and a damaged copy is copied
+  again. The SDK shipped with the game is never run in place. If no working copy can be made,
+  `is_available()` is false and `get_sdk_error()` says why (e.g. the folder isn't writable), for
+  the game to show.
 - An add-on built from source with the commands above does **not** update itself: it isn't a
   production build and has no ABI tag, so the SDK's updater refuses it. Use it for development.
 - A macOS export signed with a real identity needs **Disable Library Validation** in its export

@@ -46,6 +46,7 @@ SdkApi g_api;
 bool g_tried = false;
 bool g_loaded = false;
 std::string g_loadedPath; // UTF-8: a godot::String global would be built before Godot is ready
+std::string g_error;      // why the SDK didn't load, UTF-8 as above
 
 #ifdef _WIN32
 using Handle = HMODULE;
@@ -227,42 +228,52 @@ bool loadSdk()
     }
     g_tried = true;
 
+    const auto fail = [](const String &message) {
+        g_error = message.utf8().get_data();
+        UtilityFunctions::push_error(message);
+        return false;
+    };
+
+    // Only the copy in the user folder is ever run: the SDK updates the library it runs from, and
+    // the one shipped with the game may sit in a read-only or signed install. If the copy can't be
+    // made or loaded, Scorbit stays off and says why, so the folder can be fixed.
     const Paths p = paths();
     if (!FileAccess::file_exists(p.bundled)) {
-        UtilityFunctions::push_error("Scorbit: the SDK library is missing: " + p.bundled);
-        return false;
+        return fail("Scorbit can't start: its SDK library is missing from the game: " + p.bundled);
     }
     const String bundledHash = FileAccess::get_sha256(p.bundled);
-    // Only a copy made from this game's bundled SDK, or since updated from it, is used: a stale one
-    // the folder won't let us replace must not win over the bundled SDK.
-    bool copyUsable = FileAccess::file_exists(p.copy) && readSidecar(p.sidecar) == bundledHash;
-    if (!copyUsable) {
-        copyUsable = installCopy(p, bundledHash);
+    // A copy made from another bundled SDK is stale: the game shipped a different one.
+    const bool copyCurrent =
+            FileAccess::file_exists(p.copy) && readSidecar(p.sidecar) == bundledHash;
+    const String cantCopy = "Scorbit can't start: it can't copy its SDK library into "
+                          + p.copy.get_base_dir()
+                          + ". Make sure that folder can be written by the user running the game.";
+    if (!copyCurrent && !installCopy(p, bundledHash)) {
+        return fail(cantCopy);
     }
 
     String why;
-    if (copyUsable) {
-        if (tryLoad(p.copy, why)) {
-            g_loaded = true;
-            return true;
-        }
-        // Replaced with the bundled SDK and tried once more: the copy is the only one the SDK
-        // may update, so the game should run it whenever it can.
-        UtilityFunctions::push_warning("Scorbit: can't load the SDK at " + p.copy + " (" + why
-                                       + "), copying it again");
-        if (installCopy(p, bundledHash) && tryLoad(p.copy, why)) {
-            g_loaded = true;
-            return true;
-        }
+    if (tryLoad(p.copy, why)) {
+        g_loaded = true;
+        return true;
     }
-    UtilityFunctions::push_warning("Scorbit: can't use a copy of the SDK in "
-                                   + p.copy.get_base_dir()
-                                   + ", using the one shipped with the game");
-    g_loaded = tryLoad(p.bundled, why);
-    if (!g_loaded) {
-        UtilityFunctions::push_error("Scorbit: can't load the SDK at " + p.bundled + ": " + why);
+    // A damaged copy is replaced from the game and tried once more.
+    UtilityFunctions::push_warning("Scorbit: can't load the SDK at " + p.copy + " (" + why
+                                   + "), copying it again");
+    if (!installCopy(p, bundledHash)) {
+        return fail(cantCopy);
     }
-    return g_loaded;
+    if (!tryLoad(p.copy, why)) {
+        return fail("Scorbit can't start: it can't load its SDK library from " + p.copy + " (" + why
+                    + ").");
+    }
+    g_loaded = true;
+    return true;
+}
+
+String sdkError()
+{
+    return String::utf8(g_error.c_str());
 }
 
 bool sdkLoaded()

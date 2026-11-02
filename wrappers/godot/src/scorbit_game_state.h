@@ -97,6 +97,7 @@ public:
     int64_t request_top_scores(int scope, int period, const godot::String &since, int vpinFilter);
     int64_t get_machine_serial() const;
     bool load_sdk();
+    godot::String get_sdk_error() const;
     int64_t _pending_request_count() const; // for tests
     godot::Dictionary _sdk_paths() const;   // for tests
     int64_t download(const godot::String &url, const godot::String &filename,

@@ -22,9 +22,10 @@
 #include <scorbit_sdk/scorbit_sdk_c.h>
 
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/string.hpp>
 
 // The add-on loads the SDK itself instead of linking it, so it can load the copy in the game's
-// user folder, which the SDK's updater can replace, and fall back to the copy shipped beside it.
+// user folder, which the SDK's updater can replace. The SDK shipped beside it is only copied.
 
 // Every SDK function the add-on calls. A call goes through the table: api().sb_name(...).
 #define SCORBIT_GODOT_SDK_FUNCTIONS(X)                                                             \
@@ -141,6 +142,9 @@ bool loadSdk();
 
 /// Whether loadSdk() succeeded.
 bool sdkLoaded();
+
+/// Why loadSdk() failed, for the game to show; empty if it succeeded or wasn't called.
+godot::String sdkError();
 
 /// The loaded SDK's functions. Only after loadSdk() returned true.
 const SdkApi &api();

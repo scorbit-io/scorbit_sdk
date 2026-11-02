@@ -1070,6 +1070,11 @@ bool ScorbitGameState::load_sdk()
     return loadSdk();
 }
 
+String ScorbitGameState::get_sdk_error() const
+{
+    return sdkError();
+}
+
 Dictionary ScorbitGameState::_sdk_paths() const
 {
     return sdkPaths();
@@ -1162,6 +1167,7 @@ void ScorbitGameState::_bind_methods()
     ClassDB::bind_method(D_METHOD("disable_log_messages"), &ScorbitGameState::disable_log_messages);
     ClassDB::bind_method(D_METHOD("commit"), &ScorbitGameState::commit);
     ClassDB::bind_method(D_METHOD("load_sdk"), &ScorbitGameState::load_sdk);
+    ClassDB::bind_method(D_METHOD("get_sdk_error"), &ScorbitGameState::get_sdk_error);
     ClassDB::bind_method(D_METHOD("_sdk_paths"), &ScorbitGameState::_sdk_paths);
     ClassDB::bind_method(D_METHOD("_pending_request_count"),
                          &ScorbitGameState::_pending_request_count);
