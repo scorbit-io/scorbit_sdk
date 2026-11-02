@@ -143,14 +143,26 @@ add_test(NAME key_store COMMAND test_key_store)
 find_program(GODOT_EXECUTABLE NAMES godot godot4 Godot)
 if(GODOT_EXECUTABLE AND SCORBIT_GODOT_TARGET STREQUAL "template_debug")
     # The same session with the native library, and without it: every call must then do nothing.
-    # With the native library, once with no SDK copy in the user folder, and once with a broken one.
-    foreach(_case native native_corrupt_copy without_native)
+    # With the native library: no SDK copy in the user folder yet, a broken one, one that can't be
+    # written, and no SDK shipped at all.
+    foreach(
+        _case
+        native
+        native_corrupt_copy
+        native_blocked_copy
+        native_missing_sdk
+        without_native
+    )
         set(_without OFF)
         set(_copy fresh)
         if(_case STREQUAL "without_native")
             set(_without ON)
         elseif(_case STREQUAL "native_corrupt_copy")
             set(_copy corrupt)
+        elseif(_case STREQUAL "native_blocked_copy")
+            set(_copy blocked)
+        elseif(_case STREQUAL "native_missing_sdk")
+            set(_copy missing)
         endif()
         add_test(
             NAME godot_smoke_${_case}

@@ -23,7 +23,7 @@ var _uploads: Array[int] = []  # ids of the chained uploads, in request order
 var _answered: Array[int] = []  # diagnostics_uploaded ids, in arrival order
 var _quitter  # a logging node whose handler turns logging off on its first line
 var _quitter_lines := 0
-var _sdk_copy := "fresh"  # how the SDK copy in the user folder is prepared: fresh or corrupt
+var _sdk_copy := "fresh"  # the SDK copy in the user folder: fresh, corrupt, blocked or missing
 
 
 func _initialize() -> void:
@@ -91,9 +91,17 @@ func _process(_delta: float) -> bool:
 
 func _begin() -> void:
 	_check(ClassDB.class_exists("ScorbitGameState") == _expect_native, "native class loaded")
-	_check(_scorbit.is_available() == _expect_native, "is_available()")
 	if _expect_native:
-		_prepare_sdk_copy()
+		_prepare_sdk_copy()  # before is_available(), which loads the SDK
+	if _sdk_copy == "missing":
+		# The extension loads, but without its SDK nothing can work, and every call does nothing.
+		_check(not _scorbit.is_available(), "is_available() is false without the SDK library")
+		_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234,
+				"game_code_version": "1.0.0", "encrypted_key": "dummy_encrypted_key"}),
+				"start() fails without the SDK library")
+		_expect_native = false  # the rest of the session must then do nothing, as without the extension
+		return
+	_check(_scorbit.is_available() == _expect_native, "is_available()")
 
 	_check(not _scorbit.start({"provider": "testprovider", "machine_id": 1234}),
 			"start() refuses a config without game_code_version and encrypted_key")
@@ -196,21 +204,29 @@ func _prepare_sdk_copy() -> void:
 	var paths: Dictionary = _scorbit._native._sdk_paths()
 	DirAccess.remove_absolute(paths.copy)
 	DirAccess.remove_absolute(paths.sidecar)
+	DirAccess.make_dir_recursive_absolute(paths.copy.get_base_dir())
 	if _sdk_copy == "corrupt":
 		# Claims to be current, so only failing to load it can reveal it.
-		DirAccess.make_dir_recursive_absolute(paths.copy.get_base_dir())
 		FileAccess.open(paths.copy, FileAccess.WRITE).store_string("not a library")
 		FileAccess.open(paths.sidecar, FileAccess.WRITE).store_string(
 				FileAccess.get_sha256(paths.bundled))
+	elif _sdk_copy == "blocked":
+		# A folder where the copy should go, with a file in it: no copy can be installed.
+		DirAccess.make_dir_recursive_absolute(paths.copy)
+		FileAccess.open(paths.copy.path_join("keep"), FileAccess.WRITE).store_string("x")
 
 
 func _check_sdk_copy() -> void:
 	var paths: Dictionary = _scorbit._native._sdk_paths()
 	var bundled_sha := FileAccess.get_sha256(paths.bundled)
-	if _sdk_copy == "corrupt":
-		_check(paths.loaded == paths.bundled, "a copy that won't load falls back to the bundled SDK")
-	else:
-		_check(paths.loaded == paths.copy, "the SDK loads from the copy in the user folder")
+	if _sdk_copy == "blocked":
+		_check(paths.loaded == paths.bundled, "with no copy possible, the bundled SDK loads")
+		# Clean up, so a later run of this case starts the same way.
+		DirAccess.remove_absolute(paths.copy.path_join("keep"))
+		DirAccess.remove_absolute(paths.copy)
+		return
+	# A broken copy is replaced and loaded, not skipped: only the copy may update itself.
+	_check(paths.loaded == paths.copy, "the SDK loads from the copy in the user folder")
 	_check(FileAccess.get_sha256(paths.copy) == bundled_sha, "the copy matches the bundled SDK")
 	_check(FileAccess.get_file_as_string(paths.sidecar) == bundled_sha,
 			"the sidecar records the bundled SDK's hash")

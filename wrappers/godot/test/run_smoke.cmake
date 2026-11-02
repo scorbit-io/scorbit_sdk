@@ -10,7 +10,8 @@
 # Runs smoke_test.gd in a fresh Godot project holding the staged add-on.
 #   -DGODOT=<godot binary> -DPROJECT_DIR=<scratch dir> -DADDON_DIR=<staged addons/scorbit>
 #   -DSOURCE_DIR=<this dir> [-DWITHOUT_NATIVE=ON: drop the native libraries first]
-#   [-DSDK_COPY=fresh|corrupt: how smoke_test.gd prepares the SDK copy in the user folder]
+#   [-DSDK_COPY=fresh|corrupt|blocked|missing: how smoke_test.gd prepares the SDK copy in the
+#    user folder; missing ships the add-on without its SDK library]
 #   -DCASE=<name>: the project's name, so each case has a user folder of its own
 
 file(REMOVE_RECURSE ${PROJECT_DIR})
@@ -21,6 +22,10 @@ if(WITHOUT_NATIVE)
     set(_expect_native false)
 else()
     set(_expect_native true)
+endif()
+if(SDK_COPY STREQUAL "missing")
+    file(GLOB _sdk ${PROJECT_DIR}/addons/scorbit/bin/*scorbit_sdk*)
+    file(REMOVE ${_sdk})
 endif()
 file(COPY ${SOURCE_DIR}/smoke_test.gd DESTINATION ${PROJECT_DIR})
 file(
@@ -46,8 +51,9 @@ if(NOT _import_result EQUAL 0)
 endif()
 
 execute_process(
-    COMMAND ${GODOT} --headless --path ${PROJECT_DIR} -s res://smoke_test.gd -- ${_expect_native}
-            ${SDK_COPY}
+    COMMAND
+        ${GODOT} --headless --path ${PROJECT_DIR} -s res://smoke_test.gd -- ${_expect_native}
+        ${SDK_COPY}
     RESULT_VARIABLE _result
 )
 if(NOT _result EQUAL 0)

@@ -175,29 +175,45 @@ String readSidecar(const String &path)
     return file.is_valid() ? file->get_as_text().strip_edges() : String();
 }
 
-// Replaces the copy with the bundled file: a temporary file renamed over it, so the copy is never
-// half written. False if the user folder can't take it.
+// Moves @p temp over @p target in one step, so readers see the old file or the new one.
+bool replaceFile(const String &temp, const String &target)
+{
+    if (DirAccess::rename_absolute(temp, target) == OK) {
+        return true;
+    }
+    // Where a rename can't replace a file, remove it first.
+    if (DirAccess::remove_absolute(target) == OK
+        && DirAccess::rename_absolute(temp, target) == OK) {
+        return true;
+    }
+    DirAccess::remove_absolute(temp);
+    return false;
+}
+
+// Replaces the copy with the bundled file, then records which bundled file it came from. Staged
+// under a name of this process's own, so two instances of the game never write the same file.
+// False if the user folder can't take it.
 bool installCopy(const Paths &p, const String &bundledHash)
 {
-    const String temp = p.copy + String(".new");
+    const String suffix = ".new-" + String::num_int64(OS::get_singleton()->get_process_id());
+    const String copyTemp = p.copy + suffix;
+    const String sidecarTemp = p.sidecar + suffix;
     if (DirAccess::make_dir_recursive_absolute(p.copy.get_base_dir()) != OK
-        || DirAccess::copy_absolute(p.bundled, temp) != OK) {
+        || DirAccess::copy_absolute(p.bundled, copyTemp) != OK) {
+        DirAccess::remove_absolute(copyTemp);
         return false;
     }
-    if (DirAccess::rename_absolute(temp, p.copy) != OK) {
-        // Where a rename can't replace a file, remove it first.
-        if (DirAccess::remove_absolute(p.copy) != OK
-            || DirAccess::rename_absolute(temp, p.copy) != OK) {
-            DirAccess::remove_absolute(temp);
+    if (!replaceFile(copyTemp, p.copy)) {
+        return false;
+    }
+    {
+        const auto sidecar = FileAccess::open(sidecarTemp, FileAccess::WRITE);
+        if (sidecar.is_null()) {
             return false;
         }
-    }
-    const auto sidecar = FileAccess::open(p.sidecar, FileAccess::WRITE);
-    if (sidecar.is_null()) {
-        return false;
-    }
-    sidecar->store_string(bundledHash);
-    return true;
+        sidecar->store_string(bundledHash);
+    } // closed before the rename
+    return replaceFile(sidecarTemp, p.sidecar);
 }
 
 } // namespace
@@ -217,23 +233,31 @@ bool loadSdk()
         return false;
     }
     const String bundledHash = FileAccess::get_sha256(p.bundled);
-    const bool copyCurrent =
-            FileAccess::file_exists(p.copy) && readSidecar(p.sidecar) == bundledHash;
-    if (!copyCurrent && !installCopy(p, bundledHash)) {
-        UtilityFunctions::push_warning("Scorbit: can't copy the SDK to " + p.copy
-                                       + ", so it can't update itself");
+    // Only a copy made from this game's bundled SDK, or since updated from it, is used: a stale one
+    // the folder won't let us replace must not win over the bundled SDK.
+    bool copyUsable = FileAccess::file_exists(p.copy) && readSidecar(p.sidecar) == bundledHash;
+    if (!copyUsable) {
+        copyUsable = installCopy(p, bundledHash);
     }
 
     String why;
-    if (FileAccess::file_exists(p.copy)) {
+    if (copyUsable) {
         if (tryLoad(p.copy, why)) {
             g_loaded = true;
             return true;
         }
+        // Replaced with the bundled SDK and tried once more: the copy is the only one the SDK
+        // may update, so the game should run it whenever it can.
         UtilityFunctions::push_warning("Scorbit: can't load the SDK at " + p.copy + " (" + why
-                                       + "), using the one shipped with the game");
-        installCopy(p, bundledHash); // a working copy for the next run
+                                       + "), copying it again");
+        if (installCopy(p, bundledHash) && tryLoad(p.copy, why)) {
+            g_loaded = true;
+            return true;
+        }
     }
+    UtilityFunctions::push_warning("Scorbit: can't use a copy of the SDK in "
+                                   + p.copy.get_base_dir()
+                                   + ", using the one shipped with the game");
     g_loaded = tryLoad(p.bundled, why);
     if (!g_loaded) {
         UtilityFunctions::push_error("Scorbit: can't load the SDK at " + p.bundled + ": " + why);
