@@ -38,9 +38,10 @@ CPMAddPackage(
         "GODOTCPP_TARGET ${SCORBIT_GODOT_TARGET}"
 )
 
-# The SDK stays its own shared library beside the extension, so a release build of the add-on can
-# update it in place as on other hosts. This local build can't: it is not a production build and
-# has no ABI tag, so the SDK's updater refuses it.
+# The SDK stays its own shared library, shipped beside the extension. The extension loads it at run
+# time from a copy in the game's user folder, which the SDK's updater can replace (src/sdk_loader).
+# This local build still can't update itself: it is not a production build and has no ABI tag, so
+# the SDK's updater refuses it.
 CPMAddPackage(NAME scorbit_sdk SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 add_library(
@@ -49,9 +50,20 @@ add_library(
     src/register_types.cpp
     src/scorbit_game_state.cpp
     src/key_store.cpp
+    src/sdk_loader.cpp
 )
 target_compile_features(scorbit_godot PRIVATE cxx_std_17)
-target_link_libraries(scorbit_godot PRIVATE godot-cpp scorbit_sdk::scorbit_sdk)
+# The SDK's headers only: its library is loaded at run time, never linked.
+target_link_libraries(scorbit_godot PRIVATE godot-cpp ${CMAKE_DL_LIBS})
+target_include_directories(
+    scorbit_godot
+    PRIVATE $<TARGET_PROPERTY:scorbit_sdk,INTERFACE_INCLUDE_DIRECTORIES>
+)
+target_compile_definitions(
+    scorbit_godot
+    PRIVATE $<TARGET_PROPERTY:scorbit_sdk,INTERFACE_COMPILE_DEFINITIONS>
+)
+add_dependencies(scorbit_godot scorbit_sdk)
 
 # No absolute paths in the binaries (godot-cpp's error macros embed __FILE__), as for the SDK.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -91,28 +103,19 @@ set_target_properties(
         CXX_VISIBILITY_PRESET hidden
 )
 
-# Find the SDK beside the extension in the editor, and where an export puts it: next to the game
-# on Windows and Linux, in Contents/Frameworks on macOS.
-# Only these: CMake's default build-tree rpath would put an absolute local path into the library.
-if(APPLE)
-    set(_rpath "@loader_path;@executable_path/../Frameworks")
-else()
-    set(_rpath "$ORIGIN")
-endif()
-set_target_properties(
-    scorbit_godot
-    PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "${_rpath}"
-)
-
 # Stage the add-on: the GDScript side from source, the two native libraries built here. A target
 # of its own that runs on every build, so edits to the GDScript side are always picked up.
 set(SCORBIT_GODOT_ADDON_DIR ${CMAKE_BINARY_DIR}/addons/scorbit)
 if(WIN32)
     # A DLL has no soname.
     set(_sdk_runtime $<TARGET_FILE:scorbit_sdk>)
+    set(_sdk_file_name $<TARGET_FILE_NAME:scorbit_sdk>)
 else()
     set(_sdk_runtime $<TARGET_SONAME_FILE:scorbit_sdk>)
+    set(_sdk_file_name $<TARGET_SONAME_FILE_NAME:scorbit_sdk>)
 endif()
+# The name the SDK is shipped under, beside the extension and in the game's user folder.
+target_compile_definitions(scorbit_godot PRIVATE "SCORBIT_GODOT_SDK_FILE=\"${_sdk_file_name}\"")
 add_custom_target(
     scorbit_godot_addon
     ALL
@@ -127,7 +130,7 @@ add_custom_target(
     COMMENT "Staging the Scorbit add-on in ${SCORBIT_GODOT_ADDON_DIR}"
     VERBATIM
 )
-add_dependencies(scorbit_godot_addon scorbit_godot)
+add_dependencies(scorbit_godot_addon scorbit_godot scorbit_sdk)
 
 # The device key store on its own, without Godot, so it runs in every build.
 enable_testing()
@@ -140,10 +143,14 @@ add_test(NAME key_store COMMAND test_key_store)
 find_program(GODOT_EXECUTABLE NAMES godot godot4 Godot)
 if(GODOT_EXECUTABLE AND SCORBIT_GODOT_TARGET STREQUAL "template_debug")
     # The same session with the native library, and without it: every call must then do nothing.
-    foreach(_case native without_native)
+    # With the native library, once with no SDK copy in the user folder, and once with a broken one.
+    foreach(_case native native_corrupt_copy without_native)
         set(_without OFF)
+        set(_copy fresh)
         if(_case STREQUAL "without_native")
             set(_without ON)
+        elseif(_case STREQUAL "native_corrupt_copy")
+            set(_copy corrupt)
         endif()
         add_test(
             NAME godot_smoke_${_case}
@@ -151,7 +158,8 @@ if(GODOT_EXECUTABLE AND SCORBIT_GODOT_TARGET STREQUAL "template_debug")
                 ${CMAKE_COMMAND} -DGODOT=${GODOT_EXECUTABLE}
                 -DPROJECT_DIR=${CMAKE_BINARY_DIR}/test_project_${_case}
                 -DADDON_DIR=${SCORBIT_GODOT_ADDON_DIR} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/test
-                -DWITHOUT_NATIVE=${_without} -P ${CMAKE_CURRENT_SOURCE_DIR}/test/run_smoke.cmake
+                -DWITHOUT_NATIVE=${_without} -DSDK_COPY=${_copy} -DCASE=${_case} -P
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/run_smoke.cmake
         )
     endforeach()
 endif()
