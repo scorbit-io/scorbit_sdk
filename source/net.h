@@ -286,6 +286,8 @@ struct NetTestAccess {
     static std::optional<std::string> sessionMachine(Net &net, int sessionId);
     /// A switch's adoption as production does it, without the requests it queues.
     static void adoptForTest(Net &net, const std::string &target);
+    /// Whether sendScorbitronObject() has been called since the Net was made.
+    static bool scorbitronObjectQueued(const Net &net);
     static std::uint64_t machineGen(const Net &net);
     /// An unpair signal outside any switch.
     static void unpairForTest(Net &net);
@@ -613,8 +615,10 @@ private:
     std::uint64_t machineGen() const;
     /// Sets which machine the device is on ("" for none): its uuid and channel, clearing the
     /// rest when it changes. @p authoritative (a switch, its resolution, an unpair) bumps the
-    /// generation, making replies to earlier requests stale. Returns whether the uuid changed.
-    bool setMachineIdentity(const std::string &venueMachine, bool authoritative);
+    /// generation, making replies to earlier requests stale. Returns false only when
+    /// @p expectedGen is stale and nothing was written.
+    bool setMachineIdentity(const std::string &venueMachine, bool authoritative,
+                            std::optional<std::uint64_t> expectedGen = std::nullopt);
     /// Applies @p fn (variant, venue, slug, title...) unless the identity changed since @p gen.
     bool refineMachine(std::uint64_t gen, const std::function<void(MachineInfo &)> &fn);
     /// Whether a scorbitron reply to a request made at @p gen, naming @p replyMachine, may write
@@ -631,6 +635,7 @@ private:
     void holdSwitchGate(bool hold);
     /// A pairing signal while a switch holds the gate: marks it dirty. False if none is.
     bool foldIntoSwitch();
+    bool switchGateHeld() const;
     /// MachineSwitch::Steps::resolve: resolveSwitchNow() on the Centrifugo strand.
     void resolveSwitch(const MachineSwitch::Outcome &outcome, const std::string &target,
                        const std::string &start, MachineSwitch::Resolved done);
@@ -1079,12 +1084,13 @@ private:
     bool m_tableMappingsResumeAgain {false};      ///< the queued re-read resumes reads
     NetTestAccess::VpinTransport m_vpinTransport; // test seam; empty in production
     /// Guards the two below: session posts held while a switch runs, released in order.
-    std::mutex m_switchGateMutex;
+    mutable std::mutex m_switchGateMutex;
     bool m_switchGateHeld {false};
     int m_switchGateFromSession {0}; ///< sessions from this id on are held
     /// Pairing news (a signal, or a scorbitron reply naming another machine) that arrived while
     /// a switch held the gate. Signals carry no machine, so any is a reason to ask the server.
     std::atomic<std::uint64_t> m_switchDirty {0};
+    std::atomic<int> m_scorbitronObjectSends {0}; ///< sendScorbitronObject() calls; tests only
     /// submitGameData() posts by sequence, and those not yet applied; the drain waits for every
     /// one made before the gate closed.
     mutable std::mutex m_gameDataMutex;

@@ -3604,7 +3604,10 @@ void Net::commitLatestGameData(int sessionId)
                 stamped = it->second.machine;
             }
             // The machine this game was let out under; a game from before a switch keeps its own.
-            const auto ctx = stamped ? *stamped : machine();
+            // While that is still the current machine, the live context carries the details
+            // (variant, venue) that may have arrived since.
+            const auto live = machine();
+            const auto ctx = stamped && stamped->machineUuid != live.machineUuid ? *stamped : live;
             const auto modes = json::parse(gameData.modes.jsonStr());
             const auto updatedAt = to_iso8601(chrono::system_clock::now());
             const auto createdAt = to_iso8601(startedSystemTime);
@@ -3756,6 +3759,7 @@ void Net::initScorbitronObject()
 
 void Net::sendScorbitronObject()
 {
+    ++m_scorbitronObjectSends; // observed by tests only
     m_worker.postStartupQueue(createSendScorbitronObjectTask());
 }
 
@@ -3974,11 +3978,17 @@ std::uint64_t Net::machineGen() const
     return m_machineGen;
 }
 
-bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative)
+bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative,
+                             std::optional<std::uint64_t> expectedGen)
 {
     bool changed = false;
+    bool written = false;
     {
         std::scoped_lock lock(m_machineMutex);
+        if (expectedGen && *expectedGen != m_machineGen) {
+            return false; // an authoritative change landed since the reply was accepted
+        }
+        written = true;
         if (authoritative) {
             ++m_machineGen;
         }
@@ -3994,7 +4004,8 @@ bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative
         }
     }
     updateDiscoveryDescription();
-    return changed;
+    (void)changed;
+    return written;
 }
 
 bool Net::refineMachine(std::uint64_t gen, const std::function<void(MachineInfo &)> &fn)
@@ -4177,6 +4188,9 @@ void Net::postOrHoldForSwitch(int sessionId, task_t post)
 void Net::stampSession(int sessionId)
 {
     const auto ctx = machine();
+    if (ctx.machineUuid.empty()) {
+        return; // no machine yet: the game publishes under whatever the pairing becomes
+    }
     std::scoped_lock lock(m_gameSessionsMutex);
     if (const auto it = m_gameSessions.find(sessionId);
         it != m_gameSessions.end() && !it->second.machine) {
@@ -4197,6 +4211,12 @@ std::uint64_t Net::oldestPendingGameData() const
                                      : *m_gameDataPending.begin();
 }
 
+bool Net::switchGateHeld() const
+{
+    std::scoped_lock lock(m_switchGateMutex);
+    return m_switchGateHeld;
+}
+
 bool Net::foldIntoSwitch()
 {
     std::scoped_lock lock(m_switchGateMutex);
@@ -4215,7 +4235,7 @@ void Net::resolveSwitch(const MachineSwitch::Outcome &outcome, const std::string
     // pool, and its answer acted on back on the strand.
     onCentrifugoStrand([this, outcome, target, start, done = std::move(done)]() mutable {
         if (m_stop) {
-            return;
+            return; // shutting down: no callback, and held posts go with the worker
         }
         resolveSwitchNow(
                 outcome, target, start,
@@ -4247,7 +4267,13 @@ void Net::resolveSwitchNow(
             m_eventManager->push(std::make_shared<MachineChangedEvent>(now));
         }
         emitPairingStatusEventIfChanged(m_status == AuthStatus::AuthenticatedPaired);
+        // A re-authentication during the switch left the pairing to a reply the switch held
+        // back: ask for it again once the gate opens, or nothing resolves it.
+        const bool unresolved = m_status == AuthStatus::AuthenticatedCheckingPairing;
         done(result);
+        if (unresolved) {
+            sendScorbitronObject();
+        }
     };
 
     // Nothing raced a clear outcome: it stands as the switch saw it.
@@ -4287,6 +4313,15 @@ void Net::resolveSwitchNow(
 
 void Net::applyServerPairing(const std::optional<std::string> &venueMachine)
 {
+    // A re-authentication that began meanwhile settles the pairing itself; onPaired() and
+    // onUnpaired() must not overwrite its status. Read without m_authMutex, which authentication
+    // holds across network I/O and this strand must never wait on.
+    if (const auto status = m_status.load();
+        status != AuthStatus::AuthenticatedPaired && status != AuthStatus::AuthenticatedUnpaired
+        && status != AuthStatus::AuthenticatedCheckingPairing) {
+        setMachineIdentity(venueMachine.value_or(std::string {}), true);
+        return;
+    }
     if (!venueMachine) {
         // Unknown: nothing goes out under a guessed pairing. Clear it, and ask again; that
         // reply sets whatever the server holds.
@@ -4573,15 +4608,18 @@ void Net::parseScorbitronObject(Error error, const std::string &reply, std::uint
 
         // Stale (an authoritative change came after this request) or a switch is running: the
         // pairing here is not this reply's to write.
-        const bool accepted = acceptPairingReply(gen, replyMachine);
+        // Accepted, and still current when written: an authoritative change in between refuses it.
+        const bool accepted = acceptPairingReply(gen, replyMachine)
+                           && setMachineIdentity(replyMachine, false, gen);
         if (accepted) {
             if (isPaired) {
-                setMachineIdentity(replyMachine, false);
                 requestCreditsStatusIfReady();
                 requestMachineObject();
-            } else {
-                setMachineIdentity({}, false);
             }
+        } else if (m_status == AuthStatus::AuthenticatedCheckingPairing && !switchGateHeld()) {
+            // This reply would have settled the pairing; a newer change made it stale. Ask again,
+            // or every request waiting on the pairing waits out its deadline.
+            sendScorbitronObject();
         }
 
         const AuthStatus status =
@@ -5128,6 +5166,11 @@ void NetTestAccess::scorbitronReplyAt(Net &net, const std::string &venueMachine,
                     ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
                     : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
     net.parseScorbitronObject(Error::Success, reply.dump(), gen);
+}
+
+bool NetTestAccess::scorbitronObjectQueued(const Net &net)
+{
+    return net.m_scorbitronObjectSends > 0;
 }
 
 void NetTestAccess::adoptForTest(Net &net, const std::string &target)

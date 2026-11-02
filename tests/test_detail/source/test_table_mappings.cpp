@@ -812,8 +812,11 @@ TEST_CASE("Switch resolution: every outcome, race and server answer ends on the 
             CHECK(check == static_cast<std::size_t>(row.checks));
             CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
             CHECK(v.net->venueMachine() == row.machine);
-            CHECK(NetTestAccess::sessionMachine(*v.net, 1)
-                  == std::optional<std::string> {row.machine});
+            // A game is stamped only with a real machine; without one it publishes live.
+            const auto expectedStamp = row.machine.empty()
+                                             ? std::optional<std::string> {}
+                                             : std::optional<std::string> {row.machine};
+            CHECK(NetTestAccess::sessionMachine(*v.net, 1) == expectedStamp);
         }
     }
 }
@@ -850,4 +853,34 @@ TEST_CASE("Outside a switch, a scorbitron reply older than an unpair writes noth
     NetTestAccess::unpairForTest(*v.net); // authoritative: bumps the generation
     NetTestAccess::scorbitronReplyAt(*v.net, CURRENT, gen);
     CHECK(v.net->venueMachine().empty());
+}
+
+TEST_CASE("A switch that ends with the pairing unresolved asks for it again")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    int patches = 0;
+    NetTestAccess::setVpinTransport(
+            *v.net, {.post =
+                             [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                                 // A re-authentication during the switch: pairing is being checked
+                                 // again.
+                                 NetTestAccess::setStatus(*v.net,
+                                                          AuthStatus::AuthenticatedCheckingPairing);
+                                 return response(200, R"({"token":"jwt"})");
+                             },
+                     .patch =
+                             [&](const cpr::Url &, const cpr::Body &, const cpr::Header &) {
+                                 ++patches;
+                                 return response(200, scorbitronReply(TARGET).dump());
+                             }});
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET, [](sb_switch_machine_result_t, const std::string &) {},
+            [&](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                NetTestAccess::adoptForTest(*v.net, target);
+                NetTestAccess::setStatus(*v.net, AuthStatus::AuthenticatedCheckingPairing);
+                done();
+            });
+    CHECK_FALSE(NetTestAccess::switchGateHeld(*v.net));
+    CHECK(NetTestAccess::scorbitronObjectQueued(*v.net)); // the pairing is asked for again
 }
