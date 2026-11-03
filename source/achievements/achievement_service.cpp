@@ -24,6 +24,8 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
+#include <functional>
+#include <iterator>
 #include <sstream>
 #include <utility>
 
@@ -296,6 +298,7 @@ void AchievementService::onRow(const TimelineRow &row)
         reportBallEnd(*session, *ballEndedFor);
     }
 
+    prefetchIcons(*session);
     updateView();
 }
 
@@ -421,6 +424,7 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
 
     claim.tracker = std::make_unique<PlayerTracker>(userId, std::move(*baselines));
     evaluate(*session, player, claim);
+    prefetchIcons(*session);
     updateView();
 }
 
@@ -455,6 +459,32 @@ void AchievementService::publish(Session &session, PlayerNumber player, Claim &c
         }
         deliver(std::move(unlock), iconUrl);
     }
+}
+
+void AchievementService::prefetchIcons(const Session &session)
+{
+    if (m_artwork.kind() != ArtworkKind::Image) {
+        return;
+    }
+
+    // The closest first, across every claimed player
+    std::vector<std::pair<std::string, UnlockProximity>> near;
+    for (const auto &[player, claim] : session.claims) {
+        if (claim.tracker) {
+            std::ranges::move(claim.tracker->nearUnlocks(session.definitions()),
+                              std::back_inserter(near));
+        }
+    }
+    std::ranges::stable_sort(near, std::greater {},
+                             [](const auto &entry) { return entry.second.score; });
+
+    std::vector<std::pair<std::string, std::string>> icons;
+    for (auto &[key, proximity] : near) {
+        if (const auto *definition = session.definitions().find(key)) {
+            icons.emplace_back(std::move(key), definition->iconUrl);
+        }
+    }
+    m_artwork.prefetch(std::move(icons));
 }
 
 void AchievementService::reportBallEnd(Session &session, PlayerNumber player)

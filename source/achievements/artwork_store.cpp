@@ -98,14 +98,44 @@ void ArtworkStore::whenReady(const std::string &key, const std::string &iconUrl,
 {
     m_waiting[key].push_back(std::move(ready));
 
-    if (m_kind == ArtworkKind::Image && !iconUrl.empty() && !pending(key)) {
-        const auto it = m_artwork.find(key);
-        if (it == m_artwork.end() || it->second.version != iconUrl) {
-            m_iconsToDownload.emplace_back(key, iconUrl);
-            downloadNext();
-        }
+    if (m_kind == ArtworkKind::Image && !iconUrl.empty() && !pending(key)
+        && !holdsIcon(key, iconUrl)) {
+        // Asked for now, so no longer merely ahead
+        std::erase_if(m_iconsToPrefetch, [&](const auto &icon) { return icon.first == key; });
+        m_iconsToDownload.emplace_back(key, iconUrl);
+        downloadNext();
     }
     release(key);
+}
+
+void ArtworkStore::prefetch(std::vector<std::pair<std::string, std::string>> icons)
+{
+    if (m_kind != ArtworkKind::Image) {
+        return;
+    }
+
+    auto waiting = static_cast<size_t>(std::ranges::count_if(
+            m_artwork, [](const auto &entry) { return entry.second.prefetched; }));
+    if (m_downloading && m_downloading->prefetch) {
+        ++waiting;
+    }
+
+    m_iconsToPrefetch.clear();
+    for (auto &[key, url] : icons) {
+        if (waiting + m_iconsToPrefetch.size() >= PREFETCH_LIMIT) {
+            break;
+        }
+        if (!url.empty() && !pending(key) && !holdsIcon(key, url)) {
+            m_iconsToPrefetch.emplace_back(std::move(key), std::move(url));
+        }
+    }
+    downloadNext();
+}
+
+bool ArtworkStore::holdsIcon(const std::string &key, const std::string &url) const
+{
+    const auto it = m_artwork.find(key);
+    return it != m_artwork.end() && it->second.version == url;
 }
 
 void ArtworkStore::setReportsInFlight(bool inFlight)
@@ -135,6 +165,12 @@ std::optional<ArtworkStore::Download> ArtworkStore::nextDownload() const
             return Download {definition.key, std::move(url), std::move(version)};
         }
     }
+
+    // Last: icons merely fetched ahead
+    if (!m_iconsToPrefetch.empty()) {
+        const auto &[key, url] = m_iconsToPrefetch.front();
+        return Download {key, url, url, true};
+    }
     return std::nullopt;
 }
 
@@ -147,8 +183,9 @@ void ArtworkStore::downloadNext()
     if (!m_downloading) {
         return;
     }
-    if (!m_iconsToDownload.empty() && m_iconsToDownload.front().first == m_downloading->key) {
-        m_iconsToDownload.erase(m_iconsToDownload.begin());
+    auto &queue = m_downloading->prefetch ? m_iconsToPrefetch : m_iconsToDownload;
+    if (!queue.empty() && queue.front().first == m_downloading->key) {
+        queue.erase(queue.begin());
     }
 
     m_net.downloadAchievementArtwork(
@@ -169,7 +206,7 @@ void ArtworkStore::onDownloaded(const Download &download, Error error, std::vect
     if (error == Error::Success) {
         INF("Achievements: artwork of '{}' ({} bytes) ready", key, data.size());
         if (m_kind == ArtworkKind::Image) {
-            keepIcon(key, download.version, std::move(data));
+            keepIcon(key, download.version, std::move(data), download.prefetch);
         } else {
             m_artwork[key] = {download.version, std::move(data)};
         }
@@ -187,9 +224,9 @@ void ArtworkStore::onDownloaded(const Download &download, Error error, std::vect
 }
 
 void ArtworkStore::keepIcon(const std::string &key, const std::string &url,
-                            std::vector<uint8_t> data)
+                            std::vector<uint8_t> data, bool prefetched)
 {
-    m_artwork[key] = {url, std::move(data), ++m_useClock};
+    m_artwork[key] = {url, std::move(data), ++m_useClock, prefetched};
 
     // An icon a caller still waits for is kept, whatever its age
     while (m_artwork.size() > ICON_CACHE_SIZE) {
@@ -220,6 +257,7 @@ void ArtworkStore::release(const std::string &key)
     std::vector<uint8_t> data;
     if (const auto it = m_artwork.find(key); it != m_artwork.end()) {
         it->second.lastUse = ++m_useClock;
+        it->second.prefetched = false;
         data = it->second.data;
     }
     for (const auto &ready : node.mapped()) {

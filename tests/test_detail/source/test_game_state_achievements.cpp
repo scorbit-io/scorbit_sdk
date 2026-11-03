@@ -1023,6 +1023,39 @@ TEST_CASE("Icons asked for are fetched once, and the last eight kept", "[achieve
         CHECK(f.holds("new"));
     }
 
+    SECTION("Icons fetched ahead come last, and only a few wait unused")
+    {
+        std::vector<std::pair<std::string, std::string>> ahead;
+        for (const auto *key : {"p1", "p2", "p3", "p4", "p5", "p6"}) {
+            ahead.emplace_back(key, std::string("https://cdn.example/icons/") + key + ".png");
+        }
+        f.store.prefetch(ahead);
+        REQUIRE(f.net.artworks.size() == 1);
+        CHECK(f.net.artworks.front().url == "https://cdn.example/icons/p1.png");
+
+        std::optional<std::string> asked;
+        f.ask("a", asked); // jumps the queue once p1 is done
+        f.answer("P1");
+        REQUIRE(f.net.artworks.size() == 1);
+        CHECK(f.net.artworks.front().url == "https://cdn.example/icons/a.png");
+        f.answer("A");
+        CHECK(asked == "A");
+
+        while (!f.net.artworks.empty()) {
+            f.answer("icon");
+        }
+        CHECK(f.holds("p4"));
+        CHECK_FALSE(f.holds("p5"));
+
+        // Each one handed over frees a place
+        std::optional<std::string> used;
+        f.ask("p1", used);
+        CHECK(used == "P1");
+        f.store.prefetch(ahead);
+        REQUIRE(f.net.artworks.size() == 1);
+        CHECK(f.net.artworks.front().url == "https://cdn.example/icons/p5.png");
+    }
+
     SECTION("Nothing is fetched while a report is in flight")
     {
         f.store.setReportsInFlight(true);
@@ -1035,6 +1068,50 @@ TEST_CASE("Icons asked for are fetched once, and the last eight kept", "[achieve
         f.answer("A");
         CHECK(result == "A");
     }
+}
+
+TEST_CASE("The icon of an achievement about to be unlocked is fetched ahead", "[achievements]")
+{
+    json results = json::array();
+    results.push_back({{"key", "game-cv-spinner"},
+                       {"name", "Spinner"},
+                       {"scope", "game"},
+                       {"is_single_session", true},
+                       {"icon", "https://cdn.example/icons/spinner.png"},
+                       {"frame", nullptr},
+                       {"frame_version", 0},
+                       {"rules", json::array({{{"type", "EVENT"},
+                                               {"comparison", ">="},
+                                               {"target", 10},
+                                               {"reference", "spins"}}})}});
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_IMAGE, feed(results));
+    f.game->setGameStarted(GameStartOrigin::StartButton);
+    f.net->claim(1, "3f1c");
+    f.net->sessionCreated("9ab2");
+    f.game->runPendingPosts();
+    f.net->progressReply(ApiReply {Error::Success, 200, "[]"});
+    f.game->runPendingPosts();
+
+    f.game->addEvent("spins", 7);
+    f.game->commit();
+    CHECK(f.net->artworks.empty()); // not close yet
+
+    f.game->addEvent("spins", 1);
+    f.game->commit();
+    REQUIRE(f.net->artworks.size() == 1);
+    CHECK(f.net->artworks.front().url == "https://cdn.example/icons/spinner.png");
+    f.answer("SPIN");
+
+    // The grant finds the icon already held
+    f.game->addEvent("spins", 2);
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(outcome("game-cv-spinner", "unlocked"));
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+    CHECK(f.net->artworks.empty());
+    REQUIRE(f.net->unlocks.size() == 1);
+    CHECK(f.net->unlocks.front().artwork == "SPIN");
 }
 
 TEST_CASE("Without artwork chosen nothing is downloaded", "[achievements]")

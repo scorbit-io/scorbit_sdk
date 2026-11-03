@@ -47,8 +47,8 @@ enum class ArtworkKind {
  *
  * - **DMD frames** are small, so all of them are fetched ahead, and again when a `frame_version`
  *   changes. One that fails is not retried until the next refresh.
- * - **Icons** are large, so none is fetched ahead: an icon is fetched when an unlock asks for it,
- *   and the last @ref ICON_CACHE_SIZE are kept.
+ * - **Icons** are large, so they are not preloaded: an icon is fetched when an unlock asks for it,
+ *   or ahead for an achievement about to be unlocked, and the last @ref ICON_CACHE_SIZE are kept.
  *
  * Downloads run one at a time, so they share one connection to the CDN, and none starts while a
  * report is in flight, so artwork never delays a report.
@@ -61,6 +61,9 @@ class ArtworkStore
 public:
     /** How many icons are kept in memory, the least recently used dropped first. */
     static constexpr size_t ICON_CACHE_SIZE = 8;
+
+    /** How many icons fetched ahead may wait, unused, for their unlock. */
+    static constexpr size_t PREFETCH_LIMIT = ICON_CACHE_SIZE / 2;
 
     /** Runs a function on the owner's thread. */
     using Poster = std::function<void(std::function<void()>)>;
@@ -93,6 +96,13 @@ public:
      */
     void whenReady(const std::string &key, const std::string &iconUrl, Ready ready);
 
+    /**
+     * Icons to fetch ahead, most wanted first, as achievement key → URL: those of achievements a
+     * player is about to unlock. Replaces the previous list. They are downloaded after everything
+     * else, and no more than @ref PREFETCH_LIMIT wait unused at a time.
+     */
+    void prefetch(std::vector<std::pair<std::string, std::string>> icons);
+
     /** Whether a report is in flight: no download starts until none is. */
     void setReportsInFlight(bool inFlight);
 
@@ -102,6 +112,7 @@ private:
         std::string url;
         /** The version the artwork is held at once downloaded: `frame_version`, or the URL. */
         std::string version;
+        bool prefetch {false};
     };
 
     /** The frame URL of @p definition and its version. */
@@ -112,7 +123,10 @@ private:
     std::optional<Download> nextDownload() const;
     void downloadNext();
     void onDownloaded(const Download &download, Error error, std::vector<uint8_t> data);
-    void keepIcon(const std::string &key, const std::string &url, std::vector<uint8_t> data);
+    void keepIcon(const std::string &key, const std::string &url, std::vector<uint8_t> data,
+                  bool prefetched);
+    /** Whether @p key's icon is held at @p url. */
+    bool holdsIcon(const std::string &key, const std::string &url) const;
     void release(const std::string &key);
 
     NetBase &m_net;
@@ -126,6 +140,8 @@ private:
         std::vector<uint8_t> data;
         /** For an icon, when it was last used, to drop the least recently used first. */
         uint64_t lastUse {0};
+        /** For an icon, fetched ahead and not handed over yet. */
+        bool prefetched {false};
     };
 
     /** The artwork held, by achievement key. */
@@ -140,6 +156,9 @@ private:
 
     /** Icons asked for and not held yet, in the order asked: key → URL. */
     std::vector<std::pair<std::string, std::string>> m_iconsToDownload;
+
+    /** Icons to fetch ahead, most wanted first: key → URL. */
+    std::vector<std::pair<std::string, std::string>> m_iconsToPrefetch;
 
     std::optional<Download> m_downloading;
     bool m_reportsInFlight {false};
