@@ -305,7 +305,8 @@ struct NetTestAccess {
     static void scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen);
     /// Seeds the Centrifugo token as a machine switch does.
     static void seedSwitchToken(Net &net, std::string token);
-    static void fetchCentrifugoTokenNow(Net &net);
+    static void fetchCentrifugoTokenNow(Net &net, std::optional<std::uint64_t> asOf = std::nullopt);
+    static std::uint64_t centrifugoTokenGeneration(const Net &net);
     /// As a Centrifugo restart does; the connect itself is queued, and runs only with a worker.
     static void setupAndConnectCentrifugo(Net &net, bool fetchFreshToken);
     static std::string machineUuid(const Net &net);
@@ -600,7 +601,8 @@ private:
     std::string cachedCentrifugoToken() const;
     /// Fetch a Centrifugo JWT and store it in the cache. Blocks; call only on the blocking
     /// executor, never on the Centrifugo strand.
-    void fetchCentrifugoTokenNow();
+    /// @p asOf: the token generation the fetch answers for; a newer one makes it write nothing.
+    void fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf = std::nullopt);
     /// Ask for a cache refresh without blocking the caller. At most one fetch is in flight.
     void refreshCentrifugoToken();
     /// Arm the next refresh from the token's own expiry, staying ahead of the client's request.
