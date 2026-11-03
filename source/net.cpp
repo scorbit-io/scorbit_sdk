@@ -5937,7 +5937,9 @@ task_t Net::createDownloadBufferTask(VectorCallback replyCallback, std::string u
         for (int i = 0; i < NUM_RETRIES; ++i) {
             INF("API Download buffer: {}", elidedUrl);
 
-            auto r = cpr::Get(
+            // Pooled, so consecutive downloads from one origin (e.g. achievement artwork from the
+            // CDN) share a connection instead of each paying a TLS handshake
+            auto r = HttpSessionPool::instance().Get(
                     fullUrl, headers, cpr::Timeout {NET_TRANSFER_TOTAL_TIMEOUT},
                     cpr::ConnectTimeout {NET_CONNECT_TIMEOUT},
                     cpr::LowSpeed {NET_TRANSFER_LOW_SPEED_BPS, NET_TRANSFER_LOW_SPEED_STALL_TIME},
