@@ -306,6 +306,8 @@ struct NetTestAccess {
     /// Seeds the Centrifugo token as a machine switch does.
     static void seedSwitchToken(Net &net, std::string token);
     static void fetchCentrifugoTokenNow(Net &net);
+    /// As a Centrifugo restart does; the connect itself is queued, and runs only with a worker.
+    static void setupAndConnectCentrifugo(Net &net, bool fetchFreshToken);
     static std::string machineUuid(const Net &net);
 
 private:

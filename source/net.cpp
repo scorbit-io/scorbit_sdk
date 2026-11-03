@@ -5115,6 +5115,11 @@ void NetTestAccess::fetchCentrifugoTokenNow(Net &net)
     net.fetchCentrifugoTokenNow();
 }
 
+void NetTestAccess::setupAndConnectCentrifugo(Net &net, bool fetchFreshToken)
+{
+    net.setupAndConnectCentrifugo(fetchFreshToken);
+}
+
 std::string NetTestAccess::machineUuid(const Net &net)
 {
     return net.venueMachine();
@@ -6389,10 +6394,33 @@ void Net::publishToMachineChannel(std::string what, nlohmann::json payload, std:
 
 void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
 {
-    onCentrifugoStrand([this, fetchFreshToken] {
-        pruneRetiredCentrifugoClients();
-        centrifugoSetup(fetchFreshToken);
-        centrifugoConnect();
+    const auto connect = [this] {
+        onCentrifugoStrand([this] {
+            if (m_stop) {
+                return;
+            }
+            retireCentrifugoClient(); // the one being replaced, as setup would otherwise destroy it
+            pruneRetiredCentrifugoClients();
+            centrifugoSetup(false);
+            centrifugoConnect();
+        });
+    };
+    if (!fetchFreshToken) {
+        connect();
+        return;
+    }
+    // The server subscribes the channels the token names: connecting with the cached one, issued
+    // for the pairing as it was, keeps the old set until the next reconnect. Drop it,
+    // outdate any fetch already in flight, and connect once the fresh one is in. A failed fetch
+    // leaves none, and the client's getToken falls back on its reconnect backoff.
+    {
+        std::scoped_lock lock(m_cfTokenMutex);
+        m_cfToken.clear();
+        ++m_cfTokenGeneration;
+    }
+    m_worker.post([this, connect] {
+        fetchCentrifugoTokenNow();
+        connect();
     });
 }
 
