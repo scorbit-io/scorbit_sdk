@@ -38,7 +38,8 @@ namespace achievements {
  *   latest item per player and achievement supersedes an older one still waiting.
  * - One request is in flight per session. `sequence` is shared by every player of the session
  *   (§10.1), so a retry is never replayed with a stale sequence: a failed request's items go back
- *   to the queue and are sent again in a fresh request with a higher sequence.
+ *   to the queue and are sent again in a fresh request with a higher sequence, marked
+ *   @ref ReportItem::resent since the server may have applied the failed one.
  * - Retries back off exponentially, from @ref INITIAL_BACKOFF up to @ref MAX_BACKOFF.
  * - Nothing is sent until the server has assigned the session its uuid.
  */

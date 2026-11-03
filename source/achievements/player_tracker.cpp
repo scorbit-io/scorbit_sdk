@@ -261,7 +261,13 @@ void PlayerTracker::applyOutcome(const ReportItem &sent, const ReportOutcome &ou
     case ReportStatus::AlreadyHeld:
         m_held.insert(sent.key);
         if (record.unlockedLocally && !record.confirmed) {
-            m_updates.push_back({sent.key, AchievementStatus::AlreadyHeld, record.rules});
+            // A lost reply: the claim was granted by the earlier request, which this retry
+            // repeats (§7.2)
+            const bool grantedEarlier = sent.resent && sent.achieved == true;
+            m_updates.push_back(
+                    {sent.key,
+                     grantedEarlier ? AchievementStatus::Confirmed : AchievementStatus::AlreadyHeld,
+                     record.rules});
         }
         record.confirmed = true;
         break;

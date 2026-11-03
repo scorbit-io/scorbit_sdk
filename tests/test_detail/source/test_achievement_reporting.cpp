@@ -128,6 +128,8 @@ TEST_CASE("Outbox retries a failed request with a fresh sequence and backoff", "
     CHECK(retry->sequence == first->sequence + 1);
     REQUIRE(retry->items.size() == 1);
     CHECK(retry->items[0].rules.at(0).value == 2); // the newer value won
+    CHECK_FALSE(first->items[0].resent);
+    CHECK(retry->items[0].resent); // the failed request may have been applied
 
     CHECK(outbox.failed(true) == 2 * ReportOutbox::INITIAL_BACKOFF);
     outbox.retryReady();
