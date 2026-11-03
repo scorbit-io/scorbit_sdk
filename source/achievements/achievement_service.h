@@ -20,6 +20,7 @@
 #pragma once
 
 #include "achievement_storage.h"
+#include "artwork_store.h"
 #include "definition.h"
 #include "player_facts.h"
 #include "player_tracker.h"
@@ -43,13 +44,6 @@ namespace achievements {
 
 /** The system clock, in UTC epoch milliseconds. */
 int64_t systemWallClock();
-
-/** Which artwork the service keeps in memory, to hand over with an unlock. */
-enum class ArtworkKind {
-    None,
-    Frame, ///< The DMD frame (`frame`, versioned by `frame_version`)
-    Image, ///< The icon (`icon_url`, which has no version: a new URL is a new image)
-};
 
 /** An achievement the server granted a claimed player, as delivered to game code. */
 struct AchievementUnlock {
@@ -130,11 +124,7 @@ public:
     /** Reports every changed record now instead of waiting for the ball to end. */
     void flushReports();
 
-    /**
-     * Brings the artwork held in memory in line with the definitions: downloads, one at a time,
-     * each whose version changed or that isn't held yet, and drops those no longer delivered. An
-     * artwork that fails is not retried until the next refresh.
-     */
+    /** Brings the artwork held in memory in line with the definitions in force. */
     void refreshArtwork();
 
     /** The artwork held for achievement @p key, if any. */
@@ -175,14 +165,9 @@ private:
 
     /** Puts @p response in force if it parses, and caches it when @p persist. */
     bool applyDefinitions(const CachedDefinitions &response, bool persist);
-    /** The artwork URL of @p definition and the version it is held at, for the kind kept. */
-    std::pair<std::string, std::string> artworkSource(const Definition &definition) const;
-    bool needsArtwork(const Definition &definition) const;
-    void downloadNextArtwork();
 
-    /** Hands @p unlock to game code, or holds it while its artwork is still to be downloaded. */
+    /** Hands @p unlock to game code once its artwork is settled. */
     void deliver(AchievementUnlock unlock);
-    void releaseUnlocks(const std::string &key);
 
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
@@ -207,7 +192,7 @@ private:
     AchievementStorage m_storage;
     Poster m_poster;
     UnlockSink m_sink;
-    ArtworkKind m_artworkKind;
+    ArtworkStore m_artwork;
 
     /** The definitions in force, from the last response that parsed. */
     std::shared_ptr<const DefinitionFeed> m_feed = std::make_shared<DefinitionFeed>();
@@ -228,24 +213,6 @@ private:
 
     /** Spreads the machines of one time zone over the minutes after midnight. */
     std::mt19937 m_random {std::random_device {}()};
-
-    struct Artwork {
-        std::string version;
-        std::vector<uint8_t> data;
-    };
-
-    /** The artwork of the kind kept, by achievement key. */
-    std::map<std::string, Artwork> m_artwork;
-
-    /**
-     * Keys whose artwork this refresh still has to download, or is downloading. One that fails
-     * leaves it, so it isn't retried in a loop.
-     */
-    std::set<std::string> m_artworkToDownload;
-    bool m_downloadingArtwork {false};
-
-    /** Unlocks waiting for their artwork, by achievement key, in the order they happened. */
-    std::map<std::string, std::vector<AchievementUnlock>> m_heldUnlocks;
 
     /** Guards the service against replies arriving after it was destroyed. */
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
