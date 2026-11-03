@@ -42,9 +42,13 @@ extern "C" {
 /**
  * @brief The artwork the SDK keeps ready to hand over with @ref SB_EVT_ACHIEVEMENT_UNLOCKED.
  *
- * The SDK downloads the chosen kind for every achievement when it starts, and again only what
- * changed when the definitions do, and keeps it in memory. An unlock whose artwork is still being
- * downloaded is raised once the download ends.
+ * - DMD frames are small: the SDK downloads every achievement's frame when it starts, and again
+ *   only what changed when the definitions do, and keeps them in memory.
+ * - Icons are large: the SDK downloads an icon only when its unlock is granted, and keeps the last
+ *   few in memory.
+ *
+ * An unlock whose artwork is still being downloaded is raised once the download ends. One whose
+ * artwork can't be downloaded, e.g. while offline, is raised without it.
  */
 typedef enum {
     SB_ACHIEVEMENT_ARTWORK_NONE = 0,  ///< No artwork (the default): nothing is downloaded

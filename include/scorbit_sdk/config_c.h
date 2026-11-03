@@ -203,8 +203,8 @@ void sb_config_set_data_dir(sb_config_t config, const char *path);
 /**
  * @brief Choose the artwork handed over with @ref SB_EVT_ACHIEVEMENT_UNLOCKED.
  *
- * The SDK downloads that artwork for every achievement and keeps it in memory, so an unlock can be
- * presented with it at once; see @ref sb_achievement_artwork_t. Nothing is downloaded with the
+ * The SDK downloads that artwork and hands it over with the unlock; see
+ * @ref sb_achievement_artwork_t for when each kind is downloaded. Nothing is downloaded with the
  * default, @ref SB_ACHIEVEMENT_ARTWORK_NONE.
  *
  * @param config The configuration handle.

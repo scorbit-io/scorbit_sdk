@@ -226,12 +226,12 @@ std::optional<std::vector<uint8_t>> AchievementService::artwork(const std::strin
     return m_artwork.cached(key);
 }
 
-void AchievementService::deliver(AchievementUnlock unlock)
+void AchievementService::deliver(AchievementUnlock unlock, const std::string &iconUrl)
 {
     // Held while its artwork is still downloading, so the game can present both together
     auto key = unlock.key;
     m_artwork.whenReady(
-            key, [this, unlock = std::move(unlock)](std::vector<uint8_t> artwork) mutable {
+            key, iconUrl, [this, unlock = std::move(unlock)](std::vector<uint8_t> artwork) mutable {
                 unlock.artwork = std::move(artwork);
                 INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
                 if (m_sink) {
@@ -447,11 +447,13 @@ void AchievementService::publish(Session &session, PlayerNumber player, Claim &c
         AchievementUnlock unlock;
         unlock.key = std::move(update.key);
         unlock.player = player;
+        std::string iconUrl;
         if (const auto *definition = session.definitions().find(unlock.key)) {
             unlock.name = definition->name;
             unlock.description = definition->description;
+            iconUrl = definition->iconUrl;
         }
-        deliver(std::move(unlock));
+        deliver(std::move(unlock), iconUrl);
     }
 }
 
@@ -491,6 +493,7 @@ void AchievementService::pump(const std::shared_ptr<ReportOutbox> &outbox)
 {
     auto request = outbox->next();
     if (!request) {
+        syncReportsInFlight();
         return;
     }
 
@@ -510,6 +513,14 @@ void AchievementService::pump(const std::shared_ptr<ReportOutbox> &outbox)
                     }
                 });
             });
+    syncReportsInFlight();
+}
+
+void AchievementService::syncReportsInFlight()
+{
+    // Artwork waits while a report is out, so it never delays one (§3.9)
+    m_artwork.setReportsInFlight(std::ranges::any_of(
+            m_sessions, [](const auto &session) { return session->outbox->hasInFlight(); }));
 }
 
 void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outbox,
@@ -526,6 +537,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
         if (retryable) {
             WRN("Achievements: report failed (status {}), retrying in {} ms", reply.httpStatus,
                 delay.count());
+            syncReportsInFlight();
             m_net.scheduleAchievementRetry(delay, [this, alive = std::weak_ptr(m_alive)] {
                 m_poster([this, alive] {
                     if (!alive.expired()) {

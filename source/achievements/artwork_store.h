@@ -45,8 +45,13 @@ enum class ArtworkKind {
 /**
  * The artwork of the kind the host chose, held in memory to hand over with an unlock (§3.9).
  *
- * Downloads run one at a time, so they share one connection to the CDN. An artwork that fails is
- * not retried until the next refresh.
+ * - **DMD frames** are small, so all of them are fetched ahead, and again when a `frame_version`
+ *   changes. One that fails is not retried until the next refresh.
+ * - **Icons** are large, so none is fetched ahead: an icon is fetched when an unlock asks for it,
+ *   and the last @ref ICON_CACHE_SIZE are kept.
+ *
+ * Downloads run one at a time, so they share one connection to the CDN, and none starts while a
+ * report is in flight, so artwork never delays a report.
  *
  * Threading: every method runs on the owner's thread; download replies are brought back to it
  * through the poster given at construction.
@@ -54,6 +59,9 @@ enum class ArtworkKind {
 class ArtworkStore
 {
 public:
+    /** How many icons are kept in memory, the least recently used dropped first. */
+    static constexpr size_t ICON_CACHE_SIZE = 8;
+
     /** Runs a function on the owner's thread. */
     using Poster = std::function<void(std::function<void()>)>;
 
@@ -69,8 +77,9 @@ public:
     ArtworkKind kind() const { return m_kind; }
 
     /**
-     * Brings the artwork held in line with @p definitions: downloads each whose version changed or
-     * that isn't held yet, and drops those no longer delivered.
+     * Brings the artwork held in line with @p definitions: downloads each frame whose version
+     * changed or that isn't held yet, and drops the artwork of achievements no longer delivered,
+     * or whose icon changed.
      */
     void refresh(std::shared_ptr<const DefinitionSet> definitions);
 
@@ -79,17 +88,31 @@ public:
 
     /**
      * Calls @p ready with the artwork of @p key once no download of it is outstanding: at once
-     * when none is. Calls for one key are answered in the order they were made.
+     * when none is. An icon not held yet is downloaded from @p iconUrl first. Calls for one key
+     * are answered in the order they were made.
      */
-    void whenReady(const std::string &key, Ready ready);
+    void whenReady(const std::string &key, const std::string &iconUrl, Ready ready);
+
+    /** Whether a report is in flight: no download starts until none is. */
+    void setReportsInFlight(bool inFlight);
 
 private:
-    /** The artwork URL of @p definition and the version it is held at. */
-    std::pair<std::string, std::string> source(const Definition &definition) const;
-    bool needsDownload(const Definition &definition) const;
+    struct Download {
+        std::string key;
+        std::string url;
+        /** The version the artwork is held at once downloaded: `frame_version`, or the URL. */
+        std::string version;
+    };
+
+    /** The frame URL of @p definition and its version. */
+    std::pair<std::string, std::string> frameSource(const Definition &definition) const;
+    bool needsFrame(const Definition &definition) const;
+    /** Whether a download of @p key's artwork is queued or in flight. */
+    bool pending(const std::string &key) const;
+    std::optional<Download> nextDownload() const;
     void downloadNext();
-    void onDownloaded(const std::string &key, const std::string &version, Error error,
-                      std::vector<uint8_t> data);
+    void onDownloaded(const Download &download, Error error, std::vector<uint8_t> data);
+    void keepIcon(const std::string &key, const std::string &url, std::vector<uint8_t> data);
     void release(const std::string &key);
 
     NetBase &m_net;
@@ -101,17 +124,25 @@ private:
     struct Artwork {
         std::string version;
         std::vector<uint8_t> data;
+        /** For an icon, when it was last used, to drop the least recently used first. */
+        uint64_t lastUse {0};
     };
 
     /** The artwork held, by achievement key. */
     std::map<std::string, Artwork> m_artwork;
+    uint64_t m_useClock {0};
 
     /**
-     * Keys whose artwork this refresh still has to download, or is downloading. One that fails
+     * Keys whose frame this refresh still has to download, or is downloading. One that fails
      * leaves it, so it isn't retried in a loop.
      */
-    std::set<std::string> m_toDownload;
-    bool m_downloading {false};
+    std::set<std::string> m_framesToDownload;
+
+    /** Icons asked for and not held yet, in the order asked: key → URL. */
+    std::vector<std::pair<std::string, std::string>> m_iconsToDownload;
+
+    std::optional<Download> m_downloading;
+    bool m_reportsInFlight {false};
 
     /** Callers waiting for an artwork, by achievement key, in the order they asked. */
     std::map<std::string, std::vector<Ready>> m_waiting;
