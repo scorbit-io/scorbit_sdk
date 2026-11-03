@@ -1177,6 +1177,47 @@ TEST_CASE("An unlock carries its artwork, and waits for it", "[achievements]")
     }
 }
 
+TEST_CASE("One unlock event is raised per grant", "[achievements]")
+{
+    TempDir dir;
+    FakeNet net {dir.str()};
+    achievements::ArtworkStore artwork {net, [](std::function<void()> fn) { fn(); },
+                                        achievements::ArtworkKind::None};
+    std::vector<achievements::AchievementUnlock> raised;
+    achievements::UnlockPresenter presenter {
+            artwork, [&](achievements::AchievementUnlock unlock) { raised.push_back(unlock); }};
+
+    const achievements::GrantId grant {1, "3f1c", "game-cv-top-spinner"};
+    const auto unlock = [](sb_player_t player) {
+        return achievements::AchievementUnlock {"game-cv-top-spinner", player, "Top", "", {}};
+    };
+
+    presenter.granted(grant, unlock(1), {});
+    presenter.granted(grant, unlock(1), {}); // the same grant, signalled twice
+    CHECK(raised.size() == 1);
+
+    SECTION("A grant revoked and granted again is a new grant")
+    {
+        presenter.revoked(grant);
+        presenter.granted(grant, unlock(1), {});
+        CHECK(raised.size() == 2);
+    }
+
+    SECTION("Grants of other players and sessions are separate")
+    {
+        presenter.granted({1, "77aa", grant.key}, unlock(2), {});
+        presenter.granted({2, grant.userId, grant.key}, unlock(1), {});
+        CHECK(raised.size() == 3);
+    }
+
+    SECTION("A session forgotten keeps nothing")
+    {
+        presenter.forgetSession(1);
+        presenter.granted(grant, unlock(1), {});
+        CHECK(raised.size() == 2);
+    }
+}
+
 TEST_CASE("Definitions are revalidated at least daily, and after local midnight", "[achievements]")
 {
     using namespace std::chrono;
