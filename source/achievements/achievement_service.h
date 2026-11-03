@@ -166,8 +166,11 @@ private:
     /** Puts @p response in force if it parses, and caches it when @p persist. */
     bool applyDefinitions(const CachedDefinitions &response, bool persist);
 
-    /** Hands @p unlock to game code once its artwork is settled. */
-    void deliver(AchievementUnlock unlock);
+    /**
+     * Hands @p unlock to game code once its artwork is settled: an icon not held yet is fetched
+     * from @p iconUrl first.
+     */
+    void deliver(AchievementUnlock unlock, const std::string &iconUrl);
 
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
@@ -179,6 +182,8 @@ private:
     void reportBallEnd(Session &session, PlayerNumber player);
 
     void pump(const std::shared_ptr<ReportOutbox> &outbox);
+    /** Tells the artwork store whether any report is in flight. */
+    void syncReportsInFlight();
     void onReportReply(const std::shared_ptr<ReportOutbox> &outbox, const ReportRequest &request,
                        ApiReply reply);
     void onRetryTimer();

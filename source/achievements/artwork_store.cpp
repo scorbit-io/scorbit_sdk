@@ -37,22 +37,17 @@ ArtworkStore::~ArtworkStore()
     *m_alive = false;
 }
 
-std::pair<std::string, std::string> ArtworkStore::source(const Definition &definition) const
+std::pair<std::string, std::string> ArtworkStore::frameSource(const Definition &definition) const
 {
-    switch (m_kind) {
-    case ArtworkKind::Frame:
-        return {definition.frameUrl, std::to_string(definition.frameVersion)};
-    case ArtworkKind::Image:
-        return {definition.iconUrl, definition.iconUrl};
-    case ArtworkKind::None:
-        break;
+    if (m_kind != ArtworkKind::Frame) {
+        return {};
     }
-    return {};
+    return {definition.frameUrl, std::to_string(definition.frameVersion)};
 }
 
-bool ArtworkStore::needsDownload(const Definition &definition) const
+bool ArtworkStore::needsFrame(const Definition &definition) const
 {
-    const auto [url, version] = source(definition);
+    const auto [url, version] = frameSource(definition);
     if (url.empty()) {
         return false;
     }
@@ -64,16 +59,21 @@ void ArtworkStore::refresh(std::shared_ptr<const DefinitionSet> definitions)
 {
     m_definitions = std::move(definitions);
 
-    // Artwork no longer delivered, or no longer of the kind kept, is dropped
+    // Artwork no longer delivered, or no longer what the definition names, is dropped
     std::erase_if(m_artwork, [this](const auto &entry) {
         const auto *definition = m_definitions->find(entry.first);
-        return !definition || source(*definition).first.empty();
+        if (!definition) {
+            return true;
+        }
+        return m_kind == ArtworkKind::Image ? definition->iconUrl != entry.second.version
+                                            : frameSource(*definition).first.empty();
     });
 
-    m_toDownload.clear();
+    // Frames are fetched ahead; icons only when an unlock asks for one
+    m_framesToDownload.clear();
     for (const auto &definition : m_definitions->all()) {
-        if (needsDownload(definition)) {
-            m_toDownload.insert(definition.key);
+        if (needsFrame(definition)) {
+            m_framesToDownload.insert(definition.key);
         }
     }
 
@@ -82,54 +82,6 @@ void ArtworkStore::refresh(std::shared_ptr<const DefinitionSet> definitions)
         const auto key = (it++)->first;
         release(key);
     }
-    downloadNext();
-}
-
-void ArtworkStore::downloadNext()
-{
-    if (m_downloading) {
-        return;
-    }
-
-    const auto &definitions = m_definitions->all();
-    const auto next = std::ranges::find_if(definitions, [this](const Definition &definition) {
-        return m_toDownload.contains(definition.key);
-    });
-    if (next == definitions.end()) {
-        return;
-    }
-
-    m_downloading = true;
-    auto [url, version] = source(*next);
-    m_net.downloadAchievementArtwork(
-            std::move(url),
-            [this, alive = std::weak_ptr(m_alive), key = next->key,
-             version = std::move(version)](Error error, const std::vector<uint8_t> &data) {
-                m_poster([this, alive, key, version, error, data]() mutable {
-                    if (!alive.expired()) {
-                        onDownloaded(key, version, error, std::move(data));
-                    }
-                });
-            });
-}
-
-void ArtworkStore::onDownloaded(const std::string &key, const std::string &version, Error error,
-                                std::vector<uint8_t> data)
-{
-    m_downloading = false;
-    if (error == Error::Success) {
-        INF("Achievements: artwork of '{}' ({} bytes) ready", key, data.size());
-        m_artwork[key] = {version, std::move(data)};
-    } else {
-        WRN("Achievements: can't download artwork of '{}'", key);
-    }
-
-    // Downloaded again if a refresh meanwhile delivered a newer version
-    const auto *definition = m_definitions->find(key);
-    if (error != Error::Success || !definition || !needsDownload(*definition)) {
-        m_toDownload.erase(key);
-    }
-    release(key);
     downloadNext();
 }
 
@@ -142,23 +94,136 @@ std::optional<std::vector<uint8_t>> ArtworkStore::cached(const std::string &key)
     return it->second.data;
 }
 
-void ArtworkStore::whenReady(const std::string &key, Ready ready)
+void ArtworkStore::whenReady(const std::string &key, const std::string &iconUrl, Ready ready)
 {
     m_waiting[key].push_back(std::move(ready));
+
+    if (m_kind == ArtworkKind::Image && !iconUrl.empty() && !pending(key)) {
+        const auto it = m_artwork.find(key);
+        if (it == m_artwork.end() || it->second.version != iconUrl) {
+            m_iconsToDownload.emplace_back(key, iconUrl);
+            downloadNext();
+        }
+    }
     release(key);
+}
+
+void ArtworkStore::setReportsInFlight(bool inFlight)
+{
+    m_reportsInFlight = inFlight;
+    downloadNext();
+}
+
+bool ArtworkStore::pending(const std::string &key) const
+{
+    return m_framesToDownload.contains(key) || (m_downloading && m_downloading->key == key)
+        || std::ranges::find(m_iconsToDownload, key, &std::pair<std::string, std::string>::first)
+                   != m_iconsToDownload.end();
+}
+
+std::optional<ArtworkStore::Download> ArtworkStore::nextDownload() const
+{
+    if (!m_iconsToDownload.empty()) {
+        const auto &[key, url] = m_iconsToDownload.front();
+        return Download {key, url, url};
+    }
+
+    // Frames in definition order
+    for (const auto &definition : m_definitions->all()) {
+        if (m_framesToDownload.contains(definition.key)) {
+            auto [url, version] = frameSource(definition);
+            return Download {definition.key, std::move(url), std::move(version)};
+        }
+    }
+    return std::nullopt;
+}
+
+void ArtworkStore::downloadNext()
+{
+    if (m_downloading || m_reportsInFlight) {
+        return;
+    }
+    m_downloading = nextDownload();
+    if (!m_downloading) {
+        return;
+    }
+    if (!m_iconsToDownload.empty() && m_iconsToDownload.front().first == m_downloading->key) {
+        m_iconsToDownload.erase(m_iconsToDownload.begin());
+    }
+
+    m_net.downloadAchievementArtwork(
+            m_downloading->url, [this, alive = std::weak_ptr(m_alive), download = *m_downloading](
+                                        Error error, const std::vector<uint8_t> &data) {
+                m_poster([this, alive, download, error, data]() mutable {
+                    if (!alive.expired()) {
+                        onDownloaded(download, error, std::move(data));
+                    }
+                });
+            });
+}
+
+void ArtworkStore::onDownloaded(const Download &download, Error error, std::vector<uint8_t> data)
+{
+    m_downloading.reset();
+    const auto &key = download.key;
+    if (error == Error::Success) {
+        INF("Achievements: artwork of '{}' ({} bytes) ready", key, data.size());
+        if (m_kind == ArtworkKind::Image) {
+            keepIcon(key, download.version, std::move(data));
+        } else {
+            m_artwork[key] = {download.version, std::move(data)};
+        }
+    } else {
+        WRN("Achievements: can't download artwork of '{}'", key);
+    }
+
+    // A frame is downloaded again if a refresh meanwhile delivered a newer version
+    const auto *definition = m_definitions->find(key);
+    if (error != Error::Success || !definition || !needsFrame(*definition)) {
+        m_framesToDownload.erase(key);
+    }
+    release(key);
+    downloadNext();
+}
+
+void ArtworkStore::keepIcon(const std::string &key, const std::string &url,
+                            std::vector<uint8_t> data)
+{
+    m_artwork[key] = {url, std::move(data), ++m_useClock};
+
+    // An icon a caller still waits for is kept, whatever its age
+    while (m_artwork.size() > ICON_CACHE_SIZE) {
+        auto oldest = m_artwork.end();
+        for (auto it = m_artwork.begin(); it != m_artwork.end(); ++it) {
+            if (it->first != key && !m_waiting.contains(it->first)
+                && (oldest == m_artwork.end() || it->second.lastUse < oldest->second.lastUse)) {
+                oldest = it;
+            }
+        }
+        if (oldest == m_artwork.end()) {
+            break;
+        }
+        m_artwork.erase(oldest);
+    }
 }
 
 void ArtworkStore::release(const std::string &key)
 {
-    if (m_toDownload.contains(key)) {
+    if (pending(key)) {
         return;
     }
     const auto node = m_waiting.extract(key);
     if (!node) {
         return;
     }
+
+    std::vector<uint8_t> data;
+    if (const auto it = m_artwork.find(key); it != m_artwork.end()) {
+        it->second.lastUse = ++m_useClock;
+        data = it->second.data;
+    }
     for (const auto &ready : node.mapped()) {
-        ready(cached(key).value_or(std::vector<uint8_t> {}));
+        ready(data);
     }
 }
 

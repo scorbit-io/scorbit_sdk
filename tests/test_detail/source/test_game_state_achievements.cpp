@@ -18,6 +18,8 @@
  */
 
 #include "game_state_impl.h"
+#include "achievements/artwork_store.h"
+#include "achievements/json_codec.h"
 #include "net_base.h"
 #include "event_classes.h"
 
@@ -885,37 +887,154 @@ TEST_CASE("DMD frames are kept in memory and downloaded again only when changed"
     }
 }
 
-TEST_CASE("Images are kept in memory, downloaded again when their URL changes", "[achievements]")
+TEST_CASE("Icons are fetched on the grant, not ahead", "[achievements]")
 {
     ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_IMAGE,
-                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", false));
-
-    REQUIRE(f.net->artworks.size() == 1);
-    CHECK(f.net->artworks.front().url == "https://cdn.example/icons/boom.png");
-    f.answer("ICON1");
-    CHECK(f.artworkOf("game-cv-boom") == "ICON1");
-
-    // A new frame version alone doesn't touch the image
-    f.net->revalidate();
-    f.game->runPendingPosts();
-    f.net->definitionsReply(
-            ApiReply {Error::Success,
-                      200,
-                      artworkDefinitions(9, "https://cdn.example/icons/boom.png", false),
-                      {}});
-    f.game->runPendingPosts();
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true));
     CHECK(f.net->artworks.empty());
 
-    f.net->revalidate();
+    SECTION("The unlock waits for its icon")
+    {
+        f.unlockBoom();
+        CHECK(f.net->unlocks.empty());
+        REQUIRE(f.net->artworks.size() == 1);
+        CHECK(f.net->artworks.front().url == "https://cdn.example/icons/boom.png");
+
+        f.answer("ICON1");
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork == "ICON1");
+        CHECK(f.artworkOf("game-cv-boom") == "ICON1"); // kept for the next time
+
+        // A changed icon drops the one kept, and nothing is fetched until it is asked for
+        f.net->revalidate();
+        f.game->runPendingPosts();
+        f.net->definitionsReply(
+                ApiReply {Error::Success,
+                          200,
+                          artworkDefinitions(4, "https://cdn.example/icons/boom-v2.png", true),
+                          {}});
+        f.game->runPendingPosts();
+        CHECK(f.artworkOf("game-cv-boom").empty());
+        CHECK(f.net->artworks.empty());
+    }
+
+    SECTION("An icon that can't be fetched leaves the unlock without it")
+    {
+        f.unlockBoom();
+        f.answer({});
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork.empty());
+    }
+}
+
+TEST_CASE("No artwork download starts while a report is in flight", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_FRAME,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true));
+    REQUIRE(f.net->artworks.size() == 1); // boom's frame
+
+    f.game->setGameStarted(GameStartOrigin::StartButton);
+    f.net->claim(1, "3f1c");
+    f.net->sessionCreated("9ab2");
     f.game->runPendingPosts();
-    f.net->definitionsReply(
-            ApiReply {Error::Success,
-                      200,
-                      artworkDefinitions(9, "https://cdn.example/icons/boom-v2.png", false),
-                      {}});
+    f.net->progressReply(ApiReply {Error::Success, 200, "[]"});
+    f.game->runPendingPosts();
+    f.game->addMode("balloon");
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+
+    f.answer("BOOM4");
+    CHECK(f.net->artworks.empty()); // blast's frame waits for the report
+
+    f.net->reports.front().reply(outcome("game-cv-boom", "unlocked"));
+    f.net->reports.pop_front();
     f.game->runPendingPosts();
     REQUIRE(f.net->artworks.size() == 1);
-    CHECK(f.net->artworks.front().url == "https://cdn.example/icons/boom-v2.png");
+    CHECK(f.net->artworks.front().url
+          == "https://cdn.example/achievement_frame/game-cv-blast.png?sig=a");
+}
+
+namespace {
+
+/** An icon store over a fake network, answering inline. */
+struct IconStoreFixture {
+    TempDir dir;
+    FakeNet net {dir.str()};
+    achievements::ArtworkStore store {net, [](std::function<void()> fn) { fn(); },
+                                      achievements::ArtworkKind::Image};
+
+    /** Asks for @p key's icon; the result lands in @p into once settled. */
+    void ask(const std::string &key, std::optional<std::string> &into)
+    {
+        store.whenReady(key, "https://cdn.example/icons/" + key + ".png",
+                        [&into](std::vector<uint8_t> data) {
+                            into = std::string(data.begin(), data.end());
+                        });
+    }
+
+    void answer(const std::string &content)
+    {
+        REQUIRE_FALSE(net.artworks.empty());
+        const auto download = net.artworks.front();
+        net.artworks.pop_front();
+        download.complete(content);
+    }
+
+    bool holds(const std::string &key) const { return store.cached(key).has_value(); }
+};
+
+} // namespace
+
+TEST_CASE("Icons asked for are fetched once, and the last eight kept", "[achievements]")
+{
+    IconStoreFixture f;
+
+    SECTION("Two unlocks of one achievement share one download")
+    {
+        std::optional<std::string> first;
+        std::optional<std::string> second;
+        f.ask("a", first);
+        f.ask("a", second);
+        REQUIRE(f.net.artworks.size() == 1);
+        f.answer("A");
+        CHECK(first == "A");
+        CHECK(second == "A");
+
+        std::optional<std::string> third;
+        f.ask("a", third);
+        CHECK(f.net.artworks.empty());
+        CHECK(third == "A");
+    }
+
+    SECTION("The least recently used icon is dropped first")
+    {
+        std::optional<std::string> result;
+        for (int i = 0; i < static_cast<int>(achievements::ArtworkStore::ICON_CACHE_SIZE); ++i) {
+            f.ask(std::to_string(i), result);
+            f.answer("icon");
+        }
+        f.ask("0", result); // used again: now the most recent
+        CHECK(f.net.artworks.empty());
+
+        f.ask("new", result);
+        f.answer("icon");
+        CHECK(f.holds("0"));
+        CHECK_FALSE(f.holds("1"));
+        CHECK(f.holds("new"));
+    }
+
+    SECTION("Nothing is fetched while a report is in flight")
+    {
+        f.store.setReportsInFlight(true);
+        std::optional<std::string> result;
+        f.ask("a", result);
+        CHECK(f.net.artworks.empty());
+
+        f.store.setReportsInFlight(false);
+        REQUIRE(f.net.artworks.size() == 1);
+        f.answer("A");
+        CHECK(result == "A");
+    }
 }
 
 TEST_CASE("Without artwork chosen nothing is downloaded", "[achievements]")
