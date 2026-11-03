@@ -574,6 +574,26 @@ TEST_CASE("A failed report is retried with a fresh sequence", "[achievements]")
     CHECK(f.net->reports.front().body["achievements"][0]["key"] == "game-cv-boom");
 }
 
+TEST_CASE("A claim whose reply was lost is granted by the retry's already_held", "[achievements]")
+{
+    // The server applied the first request, but its reply never arrived (§7.2)
+    Fixture f;
+    f.game->addMode("balloon");
+    f.game->commit();
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(ApiReply {Error::ApiError, 0, ""});
+    f.net->reports.pop_front();
+    f.game->runPendingPosts();
+
+    f.net->retry();
+    f.game->runPendingPosts();
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(outcome("game-cv-boom", "already_held"));
+    f.game->runPendingPosts();
+    REQUIRE(f.net->unlocks.size() == 1);
+    CHECK(f.net->unlocks.front().key == "game-cv-boom");
+}
+
 TEST_CASE("A refused report is dropped, not retried", "[achievements]")
 {
     Fixture f;

@@ -39,6 +39,12 @@ struct ReportItem {
 
     /** Sparse: only rules the machine could judge. */
     RuleProgressMap rules;
+
+    /**
+     * Not sent: an earlier request carrying this key got no answer, so the server may have
+     * applied it. An `already_held` then answers that earlier request's claim.
+     */
+    bool resent {false};
 };
 
 /** One `POST /achievements/report/` request: one player's items in one session. */

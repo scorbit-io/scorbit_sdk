@@ -90,7 +90,8 @@ void ReportOutbox::requeue(const ReportRequest &request)
     auto &queue = m_pending[request.userId];
     for (const auto &item : request.items) {
         // An item queued since the request was sent is newer: keep it
-        queue.try_emplace(item.key, item);
+        auto [it, inserted] = queue.try_emplace(item.key, item);
+        it->second.resent = true;
     }
 }
 

@@ -42,7 +42,10 @@ enum class AchievementStatus {
     Progress,
     /** The machine decided it is earned; it MAY be presented now (§7.2). */
     UnlockedLocally,
-    /** The server granted it in response to a report (`unlocked`). */
+    /**
+     * The server granted it in response to a report: `unlocked`, or `already_held` for a claim
+     * resent after its first request got no answer, since that request was the grant.
+     */
     Confirmed,
     /** The server says the player already held it (`already_held`). */
     AlreadyHeld,
