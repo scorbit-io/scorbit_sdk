@@ -39,6 +39,10 @@ constexpr auto URL_MACHINE_LEADERS {"api/v2/machines/{machine_uuid}/leaders/"};
 constexpr auto URL_VARIANT_LEADERS {"api/v2/variants/{variant_uuid}/leaders/"};
 constexpr auto URL_GAME_LEADERS {"api/v2/games/{game_slug}/leaders/"};
 constexpr auto URL_SCORBITRON_DIAGNOSTICS {"api/v2/scorbitrons/{scorbitron_uuid}/diagnostics/"};
+constexpr auto URL_SCORBITRON_TABLE_MAPPINGS {
+        "api/v2/scorbitrons/{scorbitron_uuid}/table-mappings/"};
+constexpr auto URL_SCORBITRON_SWITCH_MACHINE {
+        "api/v2/scorbitrons/{scorbitron_uuid}/switch-machine/"};
 constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 constexpr auto URL_DIAGNOSTICS_WIFI_SAMPLE_PATH {
         "internal/api/diagnostics/wifi-sample/{run_id}/"};
@@ -104,6 +108,8 @@ constexpr auto HDR_KEY_FINGERPRINT_HASH {"X-Fingerprint-Hash"};
 
 constexpr auto HDR_KEY_DATE {"Date"};
 constexpr auto HDR_KEY_RETRY_AFTER {"Retry-After"};
+constexpr auto HDR_KEY_ETAG {"ETag"};
+constexpr auto HDR_KEY_IF_NONE_MATCH {"If-None-Match"};
 
 // Providers
 constexpr auto PROVIDER_SCORBITRON {"scorbitron"};
@@ -141,6 +147,22 @@ constexpr auto CF_CHN_CONTROL_SCORBITRON {"control_scorbitron"};
 // Authentication
 constexpr auto JKEY_SCORBITRON_TOKEN {"token"};
 constexpr auto JKEY_CF_TOKEN {"token"};
+
+// VPIN table mappings and switch-machine (SPEC-0031 REQ-8/REQ-10, SPEC-0009 REQ-6)
+constexpr auto JKEY_API_ERRORS {"errors"};
+constexpr auto JKEY_API_ERROR_CODE {"code"};
+constexpr auto JKEY_TMAP_SERVER_TIME {"server_time"};
+constexpr auto JKEY_TMAP_MAPPINGS {"mappings"};
+constexpr auto JKEY_TMAP_KEY_TYPE {"key_type"};
+constexpr auto JKEY_TMAP_TABLE_KEY {"table_key"};
+constexpr auto JKEY_TMAP_VENUEMACHINE {"venuemachine"};
+constexpr auto JKEY_SWITCH_VENUEMACHINE {"venuemachine"};
+constexpr auto JKEY_SWITCH_TOKEN {"token"};
+constexpr auto JVAL_ERR_NO_OWNER {"no_owner"};
+constexpr auto JVAL_ERR_NOT_VPIN_DEVICE {"not_vpin_device"};
+constexpr auto JVAL_ERR_VENUEMACHINE_NOT_FOUND {"venuemachine_not_found"};
+constexpr auto JVAL_ERR_VENUEMACHINE_NOT_OWNED {"venuemachine_not_owned"};
+constexpr auto JVAL_ERR_VENUEMACHINE_NOT_VPIN {"venuemachine_not_vpin"};
 constexpr auto JKEY_USERNAME {"username"};
 constexpr auto JKEY_AVATAR {"avatar"};
 
@@ -424,6 +446,7 @@ constexpr auto JVAL_ACTION_UPLOAD_DIAGNOSTICS {"scorbitronUploadDiagnostics"};
 constexpr auto JVAL_ACTION_CONFIG_REFRESH {"scorbitronConfigRefresh"};
 constexpr auto JVAL_ACTION_SCORBITRON_PAIRED {"scorbitronPaired"};
 constexpr auto JVAL_ACTION_SCORBITRON_UNPAIRED {"scorbitronUnpaired"};
+constexpr auto JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED {"vpinTableMappingsChanged"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

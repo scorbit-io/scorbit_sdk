@@ -46,6 +46,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <set>
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -251,6 +252,62 @@ struct NetTestAccess {
     /// The tournament session @p sessionId has cached for @p player's score.
     static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
 
+    /// Stands in for the table-mappings GET and the switch-machine POST.
+    struct VpinTransport {
+        std::function<cpr::Response(const cpr::Url &, const cpr::Header &)> get;
+        std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)> post;
+        /// The scorbitron PATCH a switch of unknown outcome reconciles with.
+        std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)>
+                patch;
+    };
+    static void setVpinTransport(Net &net, VpinTransport transport);
+    /// The production table-mappings read, run on the calling thread.
+    static void fetchTableMappingsNow(Net &net);
+    /// Whether a mappings read is in flight or queued (the re-read a reply started).
+    static bool tableMappingsFetchQueued(Net &net);
+    /// Wires @p net's switch steps up to its own production code, except @p adopt, which stands in
+    /// for adopting the token and refreshing the context.
+    static void runSwitchMachine(
+            Net &net, const std::string &venueMachine, MachineSwitch::Callback callback,
+            std::function<void(const std::string &, const std::string &, MachineSwitch::Done)>
+                    adopt);
+    /// Whether session posts are held for a switch, and how many are held.
+    static bool switchGateHeld(Net &net);
+    static std::size_t switchHeldPosts(Net &net);
+    static void postOrHoldForSwitch(Net &net, int sessionId, task_t post);
+    static void releaseSwitchGate(Net &net);
+    static void holdSwitchGate(Net &net);
+    /// As a pairing signal arriving during a switch: true if the switch folded it in.
+    static bool foldIntoSwitch(Net &net);
+    static void setMachineUuid(Net &net, std::string machineUuid);
+    /// As a scorbitron reply to a request made before the switch, naming @p venueMachine.
+    static void staleScorbitronReply(Net &net, const std::string &venueMachine);
+    /// What game session @p sessionId was stamped with; nullopt if not yet.
+    static std::optional<std::string> sessionMachine(Net &net, int sessionId);
+    /// A switch's adoption as production does it, without the requests it queues.
+    static void adoptForTest(Net &net, const std::string &target);
+    /// Whether sendScorbitronObject() has been called since the Net was made.
+    static bool scorbitronObjectQueued(const Net &net);
+    static int machineObjectRequests(const Net &net);
+    static int creditsStatusRequests(const Net &net);
+    static void configReplyAt(Net &net, const std::string &reply, std::uint64_t gen);
+    static std::int32_t deviceMachineId(const Net &net);
+    static std::uint64_t machineGen(const Net &net);
+    /// An unpair signal outside any switch.
+    static void unpairForTest(Net &net);
+    /// As a scorbitron PATCH reply carrying @p body, at the current generation.
+    static void scorbitronRawReply(Net &net, const std::string &body);
+    /// As a scorbitron PATCH that got no usable reply.
+    static void scorbitronReplyFailed(Net &net);
+    /// The delay the next scorbitron PATCH retry will wait.
+    static std::chrono::seconds scorbitronRetryBackoff(const Net &net);
+    /// As a scorbitron reply to a request made at generation @p gen, naming @p venueMachine.
+    static void scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen);
+    /// Seeds the Centrifugo token as a machine switch does.
+    static void seedSwitchToken(Net &net, std::string token);
+    static void fetchCentrifugoTokenNow(Net &net);
+    static std::string machineUuid(const Net &net);
+
 private:
     template<typename CallbackT>
     static task_t make(Net &net, CallbackT callback, TestTransport transport, std::string payload);
@@ -270,6 +327,16 @@ class Net : public NetBase
         std::optional<std::string> tournamentUuid;
     };
 
+    struct MachineInfo {
+        std::string opdbId;
+        std::string machineUuid;
+        std::optional<std::string> variantUuid;
+        std::optional<std::string> gameSlug;
+        std::optional<std::string> venueUuid;
+        std::string title;
+        std::string channel; ///< "machine:<machineUuid>", "" when unpaired
+    };
+
     struct GameSession {
         int sessionCounter {0};
         std::string sessionUuid;
@@ -282,15 +349,9 @@ class Net : public NetBase
         std::unordered_map<sb_player_t, ScoreMetadata> scoresMetadata;
         /// The create request has finished, with or without a UUID: none can arrive after this.
         bool createDone {false};
-    };
-
-    struct MachineInfo {
-        std::string opdbId;
-        std::string machineUuid;
-        std::optional<std::string> variantUuid;
-        std::optional<std::string> gameSlug;
-        std::optional<std::string> venueUuid;
-        std::string title;
+        /// The machine context this game's posts carry: the one current when its first post was
+        /// let out, never a later one (a switch holds the posts of a game it would move).
+        std::optional<MachineInfo> machine;
     };
 
     // Test seam. createHttpRequestTask's retry loop and HTTP-status reporting have no other
@@ -376,6 +437,11 @@ public:
                                    HttpStatusCallback callback = {}) override;
     void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
                                HttpStatusCallback callback = {}) override;
+
+    std::string venueMachine() const override;
+    TableMappingsSnapshot tableMappings() const override;
+    void refreshTableMappings() override;
+    void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback) override;
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback = {}) override;
 
@@ -399,6 +465,8 @@ private:
     void stopTokenRefreshTimer();
 
     void sendLatestGameData(int sessionId);
+    /// sendLatestGameData()'s post once the switch gate lets it through.
+    void commitLatestGameData(int sessionId);
 
     void initializeConnectionState();
     void initScorbitronObject();
@@ -425,6 +493,8 @@ private:
 
     void requestReleaseTrackInfo();
     void requestMachineObject();
+    /// The config GET's reply, for a request made at machine generation @p gen.
+    void onConfigReply(std::uint64_t gen, Error error, const std::string &reply);
 
     void requestSessionData(const std::string &sessionUuid);
 
@@ -434,7 +504,8 @@ private:
     task_t createUploadTask(const std::string &endpoint, const std::string &name,
                             SafeMultipart &&multipart);
 
-    void parseScorbitronObject(Error error, const std::string &reply);
+    /// @p gen: machineGen() when the request was made.
+    void parseScorbitronObject(Error error, const std::string &reply, std::uint64_t gen);
     /// Re-send the scorbitron PATCH on a backoff while the pairing status is still unresolved.
     void retryScorbitronObjectIfPairingUnresolved();
 
@@ -458,7 +529,8 @@ private:
             const char *requestType, CallbackT replyCallback, DeferredSetupT deferredSetup,
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
-            bool includeFingerprintHash = false, bool resilientTransferTimeouts = false);
+            bool includeFingerprintHash = false, bool resilientTransferTimeouts = false,
+            bool logReply = true);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -498,7 +570,7 @@ private:
 
     bool checkAllowedStatuses(const std::vector<AuthStatus> &allowedStatuses) const;
 
-    bool isLeaderboardContextReady(LeaderboardScope scope) const;
+    bool isLeaderboardContextReady(LeaderboardScope scope, const MachineInfo &m) const;
     std::optional<Error> leaderboardRequestTerminalError() const;
     void requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
                               const std::string &since, LeaderboardVpinFilter vpinFilter,
@@ -520,7 +592,7 @@ private:
     void centrifugoConnect();
     void centrifugoDisconnect();
     /// Publish to the machine channel. @p what names the payload for the failure log.
-    void publishToMachineChannel(std::string what, nlohmann::json payload);
+    void publishToMachineChannel(std::string what, nlohmann::json payload, std::string channel);
 
     /// @return The Centrifugo JWT held in the cache, empty if none is ready yet.
     std::string cachedCentrifugoToken() const;
@@ -542,9 +614,68 @@ private:
     void resetCentrifugoIdleTimerIfArmed();
     void stopCentrifugoIdleTimer();
     void setupAndConnectCentrifugo(bool fetchFreshToken = false);
-    void restartCentrifugo();
+    /// @p fetchFreshToken false keeps the cached token, which a switch has just seeded.
+    void restartCentrifugo(bool fetchFreshToken = true);
 
     void clearPairedMachineContext();
+
+    // VPIN table mappings and machine switch
+    /// Reads the mappings unless disabled, suspended (and not @p resume) or already in flight.
+    void fetchTableMappings(bool resume);
+    /// A copy of the machine context, safe from any thread.
+    MachineInfo machine() const;
+    std::uint64_t machineGen() const;
+    /// Sets which machine the device is on ("" for none): its uuid and channel, clearing the
+    /// rest when it changes. @p authoritative (a switch, its resolution, an unpair) bumps the
+    /// generation, making replies to earlier requests stale. Returns false only when
+    /// @p expectedGen is stale and nothing was written.
+    bool setMachineIdentity(const std::string &venueMachine, bool authoritative,
+                            std::optional<std::uint64_t> expectedGen = std::nullopt);
+    /// Applies @p fn (variant, venue, slug, title...) unless the identity changed since @p gen.
+    bool refineMachine(std::uint64_t gen, const std::function<void(MachineInfo &)> &fn);
+    /// Whether a scorbitron reply to a request made at @p gen, naming @p replyMachine, may write
+    /// the pairing. Never while a switch holds the gate (news there only marks it dirty); never
+    /// once an authoritative change has come after the request.
+    bool acceptPairingReply(std::uint64_t gen, const std::string &replyMachine);
+    task_t createTableMappingsTask();
+    void armTableMappingsRefresh();
+    MachineSwitch::Steps machineSwitchSteps();
+    /// Runs @p post now, or holds it while a switch holds posts for sessions from @p sessionId on.
+    void postOrHoldForSwitch(int sessionId, task_t post);
+    /// Gives session @p sessionId the current machine context, unless it has one already.
+    void stampSession(int sessionId);
+    void holdSwitchGate(bool hold);
+    /// A pairing signal while a switch holds the gate: marks it dirty. False if none is.
+    bool foldIntoSwitch();
+    bool switchGateHeld() const;
+    /// MachineSwitch::Steps::resolve: resolveSwitchNow() on the Centrifugo strand.
+    void resolveSwitch(const MachineSwitch::Outcome &outcome, const std::string &target,
+                       const std::string &start, MachineSwitch::Resolved done);
+    /// The one place a switch ends: if anything raced it (dirty) or its outcome is unknown, the
+    /// server is asked where the device is (again, while news keeps arriving, up to a bound) and
+    /// that answer is applied; then the final result is reported. @p askServer reports the
+    /// server's venue machine ("" unpaired, nullopt unreachable).
+    void
+    resolveSwitchNow(const MachineSwitch::Outcome &outcome, const std::string &target,
+                     const std::string &start,
+                     std::function<void(std::function<void(std::optional<std::string>)>)> askServer,
+                     MachineSwitch::Resolved done, int tries = 0);
+    /// Puts the device on the server's answer: @p venueMachine ("" unpaired) or, if unknown,
+    /// clears it and asks again. The machine and channel are in place on return.
+    void applyServerPairing(const std::optional<std::string> &venueMachine);
+    std::uint64_t lastGameDataSeq() const;
+    /// The oldest submitGameData() sequence not yet applied; max() when none is pending.
+    std::uint64_t oldestPendingGameData() const;
+    void drainSessionPosts(MachineSwitch::Done done);
+    task_t createSwitchReconcileTask(std::function<void(std::optional<std::string>)> done);
+    task_t createSwitchMachineTask(const std::string &target,
+                                   std::function<void(int, const std::string &)> reply);
+    void postSwitchMachine(const std::string &target,
+                           std::function<void(int, const std::string &)> reply);
+    void adoptSwitchedMachine(const std::string &target, const std::string &token,
+                              MachineSwitch::Done done);
+    void adoptSwitchedMachineNow(const std::string &target, const std::string &token,
+                                 MachineSwitch::Done done);
     void emitPairingStatusEventIfChanged(bool isPaired);
     void onPaired();
     void onUnpaired();
@@ -739,10 +870,18 @@ private:
     template<typename... Args>
     cpr::Url url(std::string_view endpoint, Args &&...args) const
     {
-        const auto formattedEndpoint = fmt::format(
-                fmt::runtime(endpoint), fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
-                fmt::arg(ARG_MACHINE_UUID, m_machineInfo.machineUuid),
-                std::forward<Args>(args)...); // Pass extra args
+        return urlFor(machine().machineUuid, endpoint, std::forward<Args>(args)...);
+    }
+
+    /// As url(), for @p machineUuid rather than the live machine: for a request whose readiness
+    /// or reply was judged against a snapshot taken earlier.
+    template<typename... Args>
+    cpr::Url urlFor(const std::string &machineUuid, std::string_view endpoint, Args &&...args) const
+    {
+        const auto formattedEndpoint = fmt::format(fmt::runtime(endpoint),
+                                                   fmt::arg(ARG_SCORBITRON_UUID, m_deviceInfo.uuid),
+                                                   fmt::arg(ARG_MACHINE_UUID, machineUuid),
+                                                   std::forward<Args>(args)...); // Pass extra args
 
         if (formattedEndpoint.starts_with("http://") || formattedEndpoint.starts_with("https://")) {
             return cpr::Url {formattedEndpoint};
@@ -815,6 +954,8 @@ private:
     mutable std::mutex m_cfTokenMutex;
     std::string m_cfToken;
     std::atomic_bool m_cfTokenFetchInFlight {false};
+    /// Bumped when a machine switch seeds m_cfToken, so an older fetch does not overwrite it.
+    std::atomic<std::uint64_t> m_cfTokenGeneration {0};
     /// The delay the last Centrifugo token refresh was armed with; read by tests only.
     std::optional<std::chrono::seconds> m_cfTokenRefreshDelay;
 
@@ -828,7 +969,6 @@ private:
     std::string m_cachedShortCode; // As short code for the pairing is permanent, we can cache it
     mutable std::string m_cachedPairDeeplink;
 
-    std::string m_machineChannel;
     std::string m_releaseTrackUrl;
 
     std::string m_lastNfcBootReason;
@@ -949,6 +1089,41 @@ private:
     std::atomic_bool m_isCentrifugoIdleTimerArmed {false};
 
     std::optional<bool> m_lastEmittedPairingState;
+
+    /// The one machine context. Written only through setMachineIdentity() and refineMachine(),
+    /// read through machine(), all under the mutex.
+    mutable std::mutex m_machineMutex;
+    /// Bumped by every authoritative identity change (a switch, the server's answer to one, an
+    /// unpair); a reply to a request made before a bump is stale and writes nothing.
+    std::uint64_t m_machineGen {0};
+    TableMappingsStore m_tableMappings;
+    /// Guards the three below and the store's suspension: a read's trigger and its completion.
+    std::mutex m_tableMappingsFetchMutex;
+    bool m_tableMappingsFetchInFlight {false};
+    bool m_tableMappingsFetchAgain {false};
+    bool m_tableMappingsResumeAgain {false};      ///< the queued re-read resumes reads
+    NetTestAccess::VpinTransport m_vpinTransport; // test seam; empty in production
+    /// Guards the two below: session posts held while a switch runs, released in order.
+    mutable std::mutex m_switchGateMutex;
+    bool m_switchGateHeld {false};
+    int m_switchGateFromSession {0}; ///< sessions from this id on are held
+    /// Pairing news (a signal, or a scorbitron reply naming another machine) that arrived while
+    /// a switch held the gate. Signals carry no machine, so any is a reason to ask the server.
+    std::atomic<std::uint64_t> m_switchDirty {0};
+    std::atomic<int> m_scorbitronObjectSends {0}; ///< sendScorbitronObject() calls; tests only
+    std::atomic<int> m_machineObjectRequests {0}; ///< requestMachineObject() calls; tests only
+    std::atomic<int> m_creditsStatusRequests {0}; ///< requestCreditsStatusIfReady(); tests only
+    /// submitGameData() posts by sequence, and those not yet applied; the drain waits for every
+    /// one made before the gate closed.
+    mutable std::mutex m_gameDataMutex;
+    std::uint64_t m_gameDataSeq {0};
+    std::set<std::uint64_t> m_gameDataPending;
+    std::uint64_t m_switchGateGameData {0}; ///< m_gameDataSeq when the gate closed
+    std::vector<task_t> m_switchHeldPosts;
+    /// Fetch the next Centrifugo client's token (false: a switch seeded it); see restartCentrifugo.
+    std::atomic_bool m_restartFetchFreshToken {true};
+    /// Its steps only capture this; none runs before the worker starts.
+    MachineSwitch m_machineSwitch {machineSwitchSteps()};
 
     std::shared_ptr<EventManager> m_eventManager;
 };

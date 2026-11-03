@@ -49,6 +49,8 @@ from ._enums import (
     LeaderboardPeriod,
     LeaderboardScope,
     LeaderboardVpinFilter,
+    SwitchMachineResult,
+    TableMappingsResult,
     LogLevel,
 )
 from ._types import (
@@ -56,6 +58,8 @@ from ._types import (
     LeaderboardEntry,
     LeaderboardPlayer,
     LeaderboardResult,
+    TableMapping,
+    TableMappings,
     PlayerInfo,
     PricingInfo,
 )
@@ -136,6 +140,10 @@ __all__ = [
     "LeaderboardPeriod",
     "LeaderboardScope",
     "LeaderboardVpinFilter",
+    "SwitchMachineResult",
+    "TableMappingsResult",
+    "TableMapping",
+    "TableMappings",
     "LogLevel",
     # Types
     "BundlePrice",

@@ -23,12 +23,17 @@
 #include "common_types_c.h"
 
 #include "leaderboard.h"
+#include "table_mappings.h"
 #include "net_types.h"
 #include "game_state_c.h"
 #include "event.h"
 #include "config.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <iterator>
+#include <list>
+#include <mutex>
 #include <functional>
 #include <string>
 #include <memory>
@@ -71,7 +76,21 @@ public:
     GameState(const GameState &) = delete;
     GameState &operator=(const GameState &) = delete;
     GameState(GameState &&) = default;
-    GameState &operator=(GameState &&) = default;
+
+    /// Destroys this object's SDK instance, joining its threads, before taking over @p other's
+    /// callback storage: the old instance's callbacks may run until then.
+    GameState &operator=(GameState &&other) noexcept
+    {
+        if (this != &other) {
+            m_handle.reset();
+            m_eventCallbackStorage = std::move(other.m_eventCallbackStorage);
+            m_saveKeyCallbackStorage = std::move(other.m_saveKeyCallbackStorage);
+            m_loadKeyCallbackStorage = std::move(other.m_loadKeyCallbackStorage);
+            m_pendingSwitches = std::move(other.m_pendingSwitches);
+            m_handle = std::move(other.m_handle);
+        }
+        return *this;
+    }
 
     /**
      * @brief Mark the game as started.
@@ -273,6 +292,63 @@ public:
      * @return The serial number (see @ref sb_get_machine_serial).
      */
     std::uint64_t getMachineSerial() const { return sb_get_machine_serial(m_handle.get()); }
+
+    // -------------------------- VPIN table mappings and machine switch ---------------------
+
+    /// Receives the outcome of @ref switchMachine and the target as passed.
+    using SwitchMachineCallback =
+            std::function<void(SwitchMachineResult result, const std::string &venueMachine)>;
+
+    /// A copy of the VPIN table mappings; see @ref sb_get_table_mappings.
+    TableMappings tableMappings() const
+    {
+        auto *m = sb_get_table_mappings(m_handle.get());
+        auto out = TableMappings::fromC(m);
+        sb_table_mappings_free(m);
+        return out;
+    }
+
+    /// Re-read the VPIN table mappings now; see @ref sb_refresh_table_mappings.
+    void refreshTableMappings() { sb_refresh_table_mappings(m_handle.get()); }
+
+    /**
+     * @brief The current VenueMachine uuid, "" when unpaired.
+     *
+     * A host may skip @ref switchMachine when this equals the target; the server treats that as
+     * a no-op too.
+     */
+    std::string venueMachine() const
+    {
+        std::string uuid(sb_get_venue_machine(m_handle.get(), nullptr, 0), '\0');
+        if (!uuid.empty()) {
+            const auto n = sb_get_venue_machine(m_handle.get(), &uuid[0], uuid.size() + 1);
+            uuid.resize(std::min(n, uuid.size()));
+        }
+        return uuid;
+    }
+
+    /**
+     * @brief Move this VPIN device to another of its owner's VPIN machines; see
+     * @ref sb_switch_machine for the sequence and the refusals.
+     *
+     * @note The callback runs at most once, on an SDK thread, after @ref EventType::MachineChanged;
+     * not at all if the game state is destroyed first, which then releases it.
+     */
+    void switchMachine(const std::string &venueMachineUuid, SwitchMachineCallback callback)
+    {
+        // Owned here rather than by the callback, which shutdown may cut short.
+        PendingSwitch *pending = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingSwitches->mutex);
+            m_pendingSwitches->list.emplace_back();
+            pending = &m_pendingSwitches->list.back();
+            pending->owner = m_pendingSwitches.get();
+            pending->self = std::prev(m_pendingSwitches->list.end());
+            pending->callback = std::move(callback);
+        }
+        sb_switch_machine(m_handle.get(), venueMachineUuid.c_str(),
+                          &GameState::switch_machine_callback_c, pending);
+    }
 
     /**
      * @brief Retrieve the pairing deeplink.
@@ -638,6 +714,36 @@ public:
     // -------------------------- END OF PUBLIC INTERFACE  --------------------------------------
 
 private:
+    struct PendingSwitches;
+    struct PendingSwitch {
+        PendingSwitches *owner {nullptr};
+        std::list<PendingSwitch>::iterator self;
+        SwitchMachineCallback callback;
+    };
+    /// Switch callbacks not yet answered; whatever shutdown leaves here is freed with this object.
+    struct PendingSwitches {
+        std::mutex mutex;
+        std::list<PendingSwitch> list;
+    };
+
+    static void switch_machine_callback_c(sb_switch_machine_result_t result,
+                                          const char *venuemachine, void *user_data)
+    {
+        auto *pending = static_cast<PendingSwitch *>(user_data);
+        auto *owner = pending->owner;
+        SwitchMachineCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            callback = std::move(pending->callback);
+            owner->list.erase(pending->self);
+        }
+        if (callback) {
+            callback(static_cast<SwitchMachineResult>(result),
+                     venuemachine ? std::string(venuemachine) : std::string {});
+        }
+    }
+
+private:
     static void leaderboard_callback_c(sb_error_t error, sb_leaderboard_t *leaderboard,
                                        void *user_data)
     {
@@ -752,6 +858,7 @@ private:
     std::unique_ptr<std::function<void(const Event &)>> m_eventCallbackStorage;
     std::unique_ptr<SaveKeyCallback> m_saveKeyCallbackStorage;
     std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
+    std::unique_ptr<PendingSwitches> m_pendingSwitches {new PendingSwitches};
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;

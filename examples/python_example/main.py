@@ -160,6 +160,15 @@ def events_callback(event):
         if is_paired is not None:
             print(f"Pairing status changed: {'paired' if is_paired else 'unpaired'}")
 
+    # VPIN hosts only: these follow set_vpin_table_mappings() and switch_machine().
+    elif event.type == scorbit.EventType.TableMappingsUpdated:
+        print("Table mappings updated, read them with table_mappings()")
+
+    elif event.type == scorbit.EventType.MachineChanged:
+        venue_machine = event.get_machine_changed()
+        if venue_machine is not None:
+            print(f"Machine changed: {venue_machine}")
+
     elif event.type == scorbit.EventType.DiagnosticsUploadRequested:
         include_recordings = event.get_diagnostics_upload_requested()
         if include_recordings is not None:

@@ -42,6 +42,10 @@ OUT_OF_SCOPE = {
     "download": "device plumbing",
     "downloadWithOptions": "device plumbing",
     "downloadBuffer": "device plumbing",
+    "tableMappings": "VPIN host plumbing: the host daemon, not the table, maps and switches machines",
+    "refreshTableMappings": "VPIN host plumbing",
+    "venueMachine": "VPIN host plumbing",
+    "switchMachine": "VPIN host plumbing",
 }
 # The "no event" value, which ScorbitPollEvent returns when there is nothing to report.
 SENTINEL_EVENTS = {"None"}
@@ -54,6 +58,8 @@ OUT_OF_SCOPE_EVENTS = {
     "FirmwaresListReceived": "device plumbing",
     "HardwareProbeRequested": "device plumbing",
     "ProbeFlashRequested": "device plumbing",
+    "TableMappingsUpdated": "VPIN host plumbing",
+    "MachineChanged": "VPIN host plumbing",
 }
 
 # Methods the parser must find, so a header change it cannot follow fails instead of passing.

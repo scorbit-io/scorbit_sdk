@@ -55,6 +55,9 @@
 #include <ranges>
 #include <fstream>
 #include <optional>
+#include <limits>
+#include <set>
+#include <utility>
 #include <future>
 #include <random>
 
@@ -83,6 +86,13 @@ constexpr auto NET_TRANSFER_TOTAL_TIMEOUT = 0ms;
 constexpr std::int32_t NET_TRANSFER_LOW_SPEED_BPS = 32;
 constexpr auto NET_TRANSFER_LOW_SPEED_STALL_TIME = 120s;
 constexpr auto NUM_RETRIES = 3;
+/// SPEC-0031 REQ-8: the floor on how often the device re-reads its table mappings.
+constexpr auto TABLE_MAPPINGS_REFRESH_INTERVAL = 15min;
+/// SPEC-0009 REQ-4.2: how long a switch waits for the finished game's posts.
+constexpr auto SWITCH_DRAIN_BOUND = 10s;
+constexpr auto SWITCH_DRAIN_POLL = 20ms;
+/// How many times a switch asks the server while pairing news keeps arriving during the question.
+constexpr int SWITCH_RESOLVE_TRIES = 3;
 /// Whether the SDK flashes its own NFC pad (SB-5759). With it off, NFC is never in
 /// probe_flash_probes, so the API never sends an NFC probe_flash.
 constexpr bool SDK_NFC_FLASH_ROUTINE = true;
@@ -734,13 +744,34 @@ void Net::sessionCreate(const GameData &data, GameStartOrigin origin,
     stopCentrifugoIdleTimer();
 
     INF("API post create session, id: {}", data.id);
-    m_worker.postSessionQueue(createSessionCreateTask(data.id, origin, std::move(onCreated)));
+    postOrHoldForSwitch(data.id, [this, task = createSessionCreateTask(
+                                                data.id, origin, std::move(onCreated))]() mutable {
+        m_worker.postSessionQueue(std::move(task));
+    });
 }
 
 void Net::submitGameData(const GameData &data, SessionFlags flags)
 {
     // Queue in worker, so that it will not block the caller while waiting for lock
-    m_worker.post([this, data, flags]() { applyGameData(data, flags); });
+    // Counted so a machine switch can wait for the finished game's last data (see drain).
+    std::uint64_t seq = 0;
+    {
+        std::scoped_lock lock(m_gameDataMutex);
+        seq = ++m_gameDataSeq;
+        m_gameDataPending.insert(seq);
+    }
+    m_worker.post([this, data, flags, seq]() {
+        struct Applied {
+            Net &net;
+            std::uint64_t seq;
+            ~Applied()
+            {
+                std::scoped_lock lock(net.m_gameDataMutex);
+                net.m_gameDataPending.erase(seq);
+            }
+        } applied {*this, seq};
+        applyGameData(data, flags);
+    });
 }
 
 void Net::applyGameData(const GameData &data, SessionFlags flags)
@@ -779,52 +810,67 @@ void Net::getConfig()
     m_worker.post(createGetConfigTask());
 }
 
+void Net::onConfigReply(std::uint64_t gen, Error error, const std::string &reply)
+{
+    if (error != Error::Success) {
+        WRN("API get config error: {}", static_cast<int>(error));
+        return;
+    }
+    INF("API get config: {}", reply);
+
+    try {
+        json json = json::parse(reply);
+
+        // A reply for a machine the device has since left is stale as a whole: its
+        // machine id, config and pricing all belong to that machine.
+        if (!refineMachine(gen, [&json](MachineInfo &m) {
+                if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
+                    it != json.end() && it->is_string()) {
+                    m.variantUuid = it->get<std::string>();
+                }
+                if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
+                    it != json.end() && it->is_string()) {
+                    m.venueUuid = it->get<std::string>();
+                }
+                if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+                    configIt != json.end() && configIt->is_object()) {
+                    if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
+                        it != configIt->end() && it->is_string()) {
+                        it->get_to(m.opdbId);
+                    }
+                }
+            })) {
+            WRN("API get config: reply for a machine since left, discarded");
+            return;
+        }
+
+        if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
+            configIt != json.end() && configIt->is_object()) {
+
+            if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
+                it != configIt->end() && it->is_number_integer()) {
+                it->get_to(m_deviceInfo.machineId);
+            }
+        }
+
+        m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
+
+        if (const auto pricingIt = json.find(JKEY_SCFG_PRICING);
+            pricingIt != json.end() && pricingIt->is_object()) {
+            m_eventManager->push(std::make_shared<PricingReceivedEvent>(*pricingIt));
+        }
+
+    } catch (const std::exception &e) {
+        ERR("API error parsing config reply: {}", e.what());
+    }
+}
+
 task_t Net::createGetConfigTask()
 {
+    const auto gen = machineGen();
     return createGetRequestTask(
-            [this](Error error, const std::string &reply) {
-                if (error != Error::Success) {
-                    WRN("API get config error: {}", static_cast<int>(error));
-                    return;
-                }
-                INF("API get config: {}", reply);
-
-                try {
-                    json json = json::parse(reply);
-
-                    if (const auto it = json.find(JKEY_SCFG_VARIANT_ID);
-                        it != json.end() && it->is_string()) {
-                        m_machineInfo.variantUuid = it->get<std::string>();
-                    }
-
-                    if (const auto it = json.find(JKEY_SCFG_VENUE_ID);
-                        it != json.end() && it->is_string()) {
-                        m_machineInfo.venueUuid = it->get<std::string>();
-                    }
-
-                    if (const auto configIt = json.find(JKEY_SCFG_CONFIG);
-                        configIt != json.end() && configIt->is_object()) {
-                        if (const auto it = configIt->find(JKEY_SCFG_OPDB_ID);
-                            it != configIt->end() && it->is_string()) {
-                            it->get_to(m_machineInfo.opdbId);
-                        }
-
-                        if (const auto it = configIt->find(JKEY_SCFG_MACHINE_ID);
-                            it != configIt->end() && it->is_number_integer()) {
-                            it->get_to(m_deviceInfo.machineId);
-                        }
-                    }
-
-                    m_eventManager->push(std::make_shared<ConfigReceivedEvent>(json));
-
-                    if (const auto pricingIt = json.find(JKEY_SCFG_PRICING);
-                        pricingIt != json.end() && pricingIt->is_object()) {
-                        m_eventManager->push(std::make_shared<PricingReceivedEvent>(*pricingIt));
-                    }
-
-                } catch (const std::exception &e) {
-                    ERR("API error parsing config reply: {}", e.what());
-                }
+            [this, gen](Error error, const std::string &reply) {
+                onConfigReply(gen, error, reply);
             },
             [this]() {
                 INF("API get config");
@@ -940,10 +986,10 @@ const DeviceInfo &Net::deviceInfo() const
     return m_deviceInfo;
 }
 
-bool Net::isLeaderboardContextReady(LeaderboardScope scope) const
+bool Net::isLeaderboardContextReady(LeaderboardScope scope, const MachineInfo &m) const
 {
-    return detail::isLeaderboardContextReady(m_status, scope, m_machineInfo.machineUuid,
-                                             m_machineInfo.variantUuid, m_machineInfo.gameSlug);
+    return detail::isLeaderboardContextReady(m_status, scope, m.machineUuid, m.variantUuid,
+                                             m.gameSlug);
 }
 
 std::optional<Error> Net::leaderboardRequestTerminalError() const
@@ -992,7 +1038,10 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             return;
         }
 
-        if (!isLeaderboardContextReady(scope)) {
+        // One snapshot: the request is judged ready and addressed for the same machine, never
+        // judged against one and sent for another a switch has put in its place since.
+        const auto ctx = machine();
+        if (!isLeaderboardContextReady(scope, ctx)) {
             if (deferAttempt >= TOP_SCORES_DEFER_MAX_ATTEMPTS) {
                 ERR("API request top scores gave up after {} defer attempts (scope={})",
                     TOP_SCORES_DEFER_MAX_ATTEMPTS, static_cast<int>(scope));
@@ -1013,8 +1062,8 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             return;
         }
 
-        auto deferredSetup = [this, scope, periodParam, since,
-                              vpinFilter]() -> std::tuple<cpr::Url, cpr::Parameters> {
+        auto deferredSetup = [this, scope, periodParam, since, vpinFilter,
+                              ctx]() -> std::tuple<cpr::Url, cpr::Parameters> {
             cpr::Parameters parameters;
             if (!since.empty()) {
                 parameters.Add({"since", since});
@@ -1034,18 +1083,18 @@ void Net::requestTopScoresImpl(LeaderboardScope scope, LeaderboardPeriod period,
             }
 
             switch (scope) {
-            case LeaderboardScope::Machine:
-                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
             case LeaderboardScope::Variant:
-                return make_tuple(url(URL_VARIANT_LEADERS,
-                                      fmt::arg(ARG_VARIANT_UUID, *m_machineInfo.variantUuid)),
+                return make_tuple(urlFor(ctx.machineUuid, URL_VARIANT_LEADERS,
+                                         fmt::arg(ARG_VARIANT_UUID, ctx.variantUuid.value_or(""))),
                                   std::move(parameters));
             case LeaderboardScope::Game:
-                return make_tuple(
-                        url(URL_GAME_LEADERS, fmt::arg(ARG_GAME_SLUG, *m_machineInfo.gameSlug)),
-                        std::move(parameters));
+                return make_tuple(urlFor(ctx.machineUuid, URL_GAME_LEADERS,
+                                         fmt::arg(ARG_GAME_SLUG, ctx.gameSlug.value_or(""))),
+                                  std::move(parameters));
+            case LeaderboardScope::Machine:
             default:
-                return make_tuple(url(URL_MACHINE_LEADERS), std::move(parameters));
+                return make_tuple(urlFor(ctx.machineUuid, URL_MACHINE_LEADERS),
+                                  std::move(parameters));
             }
         };
 
@@ -1134,8 +1183,9 @@ void Net::patchScorbitron(std::string body, StringCallback callback,
                           std::vector<AuthStatus> allowedStatuses)
 {
     m_worker.post(createPatchRequestTask(
-            [this, callback = std::move(callback)](Error error, std::string reply) {
-                parseScorbitronObject(error, reply);
+            [this, callback = std::move(callback), gen = machineGen()](Error error,
+                                                                       std::string reply) {
+                parseScorbitronObject(error, reply, gen);
                 callback(error, reply);
             },
             [this, body = std::move(body)]() {
@@ -1289,7 +1339,8 @@ void Net::sendScorbitronUpdate(std::string body, std::string what)
     // Copied into both lambdas, which are built in no fixed order.
     const auto fields = nlohmann::json::parse(body, nullptr, false);
     m_worker.postStartupQueue(createPatchRequestTask(
-            [this, what = std::move(what), fields](Error error, std::string reply) {
+            [this, what = std::move(what), fields, gen = machineGen()](Error error,
+                                                                       std::string reply) {
                 if (error == Error::Success) {
                     INF("API set {}: ok, {}", what, reply);
                 } else {
@@ -1297,7 +1348,7 @@ void Net::sendScorbitronUpdate(std::string body, std::string what)
                         static_cast<int>(error), reply);
                 }
                 scorbitronUpdateDone(fields, error == Error::Success);
-                parseScorbitronObject(error, reply);
+                parseScorbitronObject(error, reply, gen);
             },
             [this, fields]() {
                 // Read when the request runs: one parked on the auth gate can resume after the
@@ -1462,6 +1513,8 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         const auto createdAt = to_iso8601(chrono::system_clock::now());
+        // One snapshot: a switch must not mix two machines within one packet.
+        const auto ctx = machine();
 
         json j {{JKEY_CHN_TYPE, JVAL_CURRENT_MACHINE_STATE},
                 {JKEY_CHN_PAYLOAD,
@@ -1470,9 +1523,9 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_MACHINE, ctx.machineUuid},
+                         {JKEY_SCR_VARIANT, ctx.variantUuid},
+                         {JKEY_SCR_VENUE, ctx.venueUuid},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
@@ -1485,7 +1538,7 @@ void Net::setCreditsStatus(bool freePlay, int credits, int maxCredits, const cha
         }
 
         INF("API-CF sending credits status: {}", j.dump());
-        publishToMachineChannel("credits status", std::move(j));
+        publishToMachineChannel("credits status", std::move(j), ctx.channel);
     });
 }
 
@@ -1523,7 +1576,7 @@ void Net::handleDiagnosticProbe(const nlohmann::json &payload)
     const auto createdAt = to_iso8601(chrono::system_clock::now());
 
     INF("DIAG: received probe trace_id={} sequence={} channel={}", traceId, sequence,
-        m_machineChannel);
+        machine().channel);
 
     // Resolved here, at receipt, so the budget covers the queue wait that follows -- not from
     // inside the worker, where it would restart the clock after the delay it is meant to catch.
@@ -1548,7 +1601,9 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
             WRN("DIAG: deadline passed before publish, dropping trace_id={}", traceId);
             return;
         }
-        if (m_machineChannel.empty()) {
+        // One snapshot: a switch must not mix two machines within one packet.
+        const auto ctx = machine();
+        if (ctx.channel.empty()) {
             WRN("DIAG: machine channel not ready, dropping publish for trace_id={}", traceId);
             return;
         }
@@ -1560,16 +1615,16 @@ void Net::publishDiagnosticPacket(const std::string &traceId, uint64_t sequence,
                  }},
                 {JKEY_SCR_METADATA,
                  {
-                         {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                         {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                         {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                         {JKEY_SCR_MACHINE, ctx.machineUuid},
+                         {JKEY_SCR_VARIANT, ctx.variantUuid},
+                         {JKEY_SCR_VENUE, ctx.venueUuid},
                          {JKEY_SCR_SEQUENCE, sequence},
                          {JKEY_SCR_CREATED_AT, createdAt},
                          {JKEY_SCR_UPDATED_AT, createdAt},
                  }}};
 
         INF("API-CF sending diag probe: {}", j.dump());
-        publishToMachineChannel("diag probe", std::move(j));
+        publishToMachineChannel("diag probe", std::move(j), ctx.channel);
     });
 }
 
@@ -2969,6 +3024,7 @@ task_t Net::createAuthenticateTask()
                         m_status = AuthStatus::AuthenticatedCheckingPairing;
                         INF("API authentication successful! Checking pairing status...");
                         initializeConnectionState();
+                        fetchTableMappings(false); // parks until the pairing is resolved
                     } else {
                         INF("API token refreshed successful!");
                         requestReleaseTrackInfo();
@@ -3476,7 +3532,10 @@ void Net::sessionUpdate(int sessionId, SessionFlags flags)
 
     INF("API post update session, id: {}, upload history logs: {}, player add: {}", sessionId,
         flags.has(SessionFlag::UploadHistoryLogs), flags.has(SessionFlag::PlayersAdd));
-    m_worker.postSessionQueue(createSessionUpdateTask(sessionId, flags));
+    postOrHoldForSwitch(sessionId,
+                        [this, task = createSessionUpdateTask(sessionId, flags)]() mutable {
+                            m_worker.postSessionQueue(std::move(task));
+                        });
 }
 
 void Net::startTokenRefreshTimer(std::chrono::seconds timeUntilExpiration)
@@ -3503,6 +3562,11 @@ void Net::stopTokenRefreshTimer()
 }
 
 void Net::sendLatestGameData(int sessionId)
+{
+    postOrHoldForSwitch(sessionId, [this, sessionId] { commitLatestGameData(sessionId); });
+}
+
+void Net::commitLatestGameData(int sessionId)
 {
     m_worker.postCommitTask([this, sessionId]() {
         // Cancel timer if any
@@ -3544,6 +3608,7 @@ void Net::sendLatestGameData(int sessionId)
             INF("Skip publishing score yet: has session uuid: {}, centrifugo connected: {}",
                 !sessionUuid.empty(), isConnected);
         } else {
+            std::optional<MachineInfo> stamped;
             {
                 std::scoped_lock lock(m_gameSessionsMutex);
                 const auto it = m_gameSessions.find(sessionId);
@@ -3551,7 +3616,14 @@ void Net::sendLatestGameData(int sessionId)
                     return;
                 }
                 sessionCounter = ++it->second.sessionCounter;
+                stamped = it->second.machine;
             }
+            // The machine this game was let out under; a game from before a switch keeps its own.
+            // While that is still the current machine, the live context carries the details
+            // (variant, venue) that may have arrived since.
+            const auto live = machine();
+            const bool moved = stamped && stamped->machineUuid != live.machineUuid;
+            const auto ctx = moved ? *stamped : live;
             const auto modes = json::parse(gameData.modes.jsonStr());
             const auto updatedAt = to_iso8601(chrono::system_clock::now());
             const auto createdAt = to_iso8601(startedSystemTime);
@@ -3559,7 +3631,9 @@ void Net::sendLatestGameData(int sessionId)
             json::array_t scores;
             for (const auto &[playerNum, playerState] : gameData.players) {
                 json playerProfileJson = nullptr;
-                if (const auto playerProfile = m_playersManager.profile(playerNum);
+                // The live profiles are the current machine's: none for a game on one since left.
+                if (const auto playerProfile =
+                            moved ? std::nullopt : m_playersManager.profile(playerNum);
                     playerProfile.has_value() && playerProfile->hasInfo()) {
                     playerProfileJson = {
                             {JKEY_PLAYER_ID, playerProfile->id},
@@ -3604,16 +3678,16 @@ void Net::sendLatestGameData(int sessionId)
                     {JKEY_SCR_METADATA,
                      {
                              {JKEY_SCR_GAME, sessionUuid},
-                             {JKEY_SCR_MACHINE, m_machineInfo.machineUuid},
-                             {JKEY_SCR_VARIANT, m_machineInfo.variantUuid},
-                             {JKEY_SCR_VENUE, m_machineInfo.venueUuid},
+                             {JKEY_SCR_MACHINE, ctx.machineUuid},
+                             {JKEY_SCR_VARIANT, ctx.variantUuid},
+                             {JKEY_SCR_VENUE, ctx.venueUuid},
                              {JKEY_SCR_SEQUENCE, sessionCounter},
                              {JKEY_SCR_CREATED_AT, createdAt},
                              {JKEY_SCR_UPDATED_AT, updatedAt},
                      }}};
 
-            INF("API sending game data to channel: {}, data: {}", m_machineChannel, j.dump());
-            publishToMachineChannel("game data", std::move(j));
+            INF("API sending game data to channel: {}, data: {}", ctx.channel, j.dump());
+            publishToMachineChannel("game data", std::move(j), ctx.channel);
         }
 
         // Set timer for the next game data send if the game is still active
@@ -3703,13 +3777,14 @@ void Net::initScorbitronObject()
 
 void Net::sendScorbitronObject()
 {
+    ++m_scorbitronObjectSends; // observed by tests only
     m_worker.postStartupQueue(createSendScorbitronObjectTask());
 }
 
 task_t Net::createSendScorbitronObjectTask()
 {
     return createPatchRequestTask(
-            [this](Error error, std::string reply) {
+            [this, gen = machineGen()](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API initial Scorbitron object sent: ok, {}", reply);
                 } else {
@@ -3718,7 +3793,7 @@ task_t Net::createSendScorbitronObjectTask()
                         static_cast<int>(error), reply);
                 }
                 scorbitronObjectSendDone(error == Error::Success);
-                parseScorbitronObject(error, reply);
+                parseScorbitronObject(error, reply, gen);
             },
             [this]() {
                 std::string body;
@@ -3775,12 +3850,17 @@ task_t Net::createRequestReleaseTrackInfoTask()
 
 void Net::requestMachineObject()
 {
+    ++m_machineObjectRequests; // observed by tests only
     m_worker.postStartupQueue(createRequestMachineObjectTask());
 }
 
 task_t Net::createRequestMachineObjectTask()
 {
-    auto callback = [this](Error error, std::string reply) {
+    // Asked for, and applied to, the machine of this moment: a pairing reply may change the machine
+    // without a new generation, and the object of one must never refine another.
+    const auto gen = machineGen();
+    const auto forMachine = venueMachine();
+    auto callback = [this, gen, forMachine](Error error, std::string reply) {
         if (error == Error::Success) {
             INF("API request machine object: ok, {}", reply);
             try {
@@ -3788,20 +3868,23 @@ task_t Net::createRequestMachineObjectTask()
                 const auto name = j.value(JKEY_MOBJ_NAME, std::string {});
                 const auto edition = j.value(JKEY_MOBJ_EDITION, std::string {});
 
-                if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
-                    gameIt != j.end() && gameIt->is_object()) {
-                    if (const auto slugIt = gameIt->find(JKEY_MOBJ_SLUG);
-                        slugIt != gameIt->end() && slugIt->is_string()) {
-                        m_machineInfo.gameSlug = slugIt->get<std::string>();
-                    } else {
-                        m_machineInfo.gameSlug.reset();
+                const bool applied = refineMachine(gen, [&](MachineInfo &m) {
+                    if (m.machineUuid != forMachine) {
+                        return;
                     }
-                } else {
-                    m_machineInfo.gameSlug.reset();
+                    m.gameSlug.reset();
+                    if (const auto gameIt = j.find(JKEY_MOBJ_GAME);
+                        gameIt != j.end() && gameIt->is_object()) {
+                        if (const auto slugIt = gameIt->find(JKEY_MOBJ_SLUG);
+                            slugIt != gameIt->end() && slugIt->is_string()) {
+                            m.gameSlug = slugIt->get<std::string>();
+                        }
+                    }
+                    m.title = fmt::format("{} ({})", name, edition);
+                });
+                if (applied) {
+                    updateDiscoveryDescription();
                 }
-
-                m_machineInfo.title = fmt::format("{} ({})", name, edition);
-                updateDiscoveryDescription();
             } catch (const std::exception &e) {
                 ERR("API reuquest machine object parse error: {}, reply: {}", e.what(), reply);
             }
@@ -3811,9 +3894,9 @@ task_t Net::createRequestMachineObjectTask()
         }
     };
 
-    return createGetRequestTask(std::move(callback), [this]() {
+    return createGetRequestTask(std::move(callback), [this, forMachine]() {
         INF("API request machine object...");
-        return make_tuple(url(URL_MACHINE_OBJECT), cpr::Parameters {});
+        return make_tuple(urlFor(forMachine, URL_MACHINE_OBJECT), cpr::Parameters {});
     });
 }
 
@@ -3899,16 +3982,599 @@ task_t Net::createUploadTask(const std::string &endpoint, const std::string &fil
     return createPostMultipartRequestTask(std::move(callback), std::move(deferredSetup));
 }
 
+// ---------------------------- VPIN table mappings and machine switch ----------------------------
+// Governing: SPEC-0031 REQ-8 (device read, ETag), REQ-9 (change signal), REQ-10 (error codes);
+// SPEC-0009 REQ-4..6 (settle, re-pair, one round-trip context).
+
+std::string Net::venueMachine() const
+{
+    return machine().machineUuid;
+}
+
+Net::MachineInfo Net::machine() const
+{
+    std::scoped_lock lock(m_machineMutex);
+    return m_machineInfo;
+}
+
+std::uint64_t Net::machineGen() const
+{
+    std::scoped_lock lock(m_machineMutex);
+    return m_machineGen;
+}
+
+bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative,
+                             std::optional<std::uint64_t> expectedGen)
+{
+    bool changed = false;
+    bool written = false;
+    {
+        std::scoped_lock lock(m_machineMutex);
+        if (expectedGen && *expectedGen != m_machineGen) {
+            return false; // an authoritative change landed since the reply was accepted
+        }
+        written = true;
+        if (authoritative) {
+            ++m_machineGen;
+        }
+        changed = venueMachine != m_machineInfo.machineUuid;
+        if (changed || venueMachine.empty()) {
+            m_machineInfo = MachineInfo {};
+            m_machineInfo.machineUuid = venueMachine;
+            if (venueMachine.empty()) {
+                m_machineInfo.title = "not paired";
+            } else {
+                m_machineInfo.channel = fmt::format("machine:{}", venueMachine);
+            }
+        }
+    }
+    updateDiscoveryDescription();
+    if (changed) {
+        // Profiles belong to the machine they were claimed on, whatever moved the device.
+        m_playersManager.clear();
+    }
+    return written;
+}
+
+bool Net::refineMachine(std::uint64_t gen, const std::function<void(MachineInfo &)> &fn)
+{
+    std::scoped_lock lock(m_machineMutex);
+    if (gen != m_machineGen) {
+        return false;
+    }
+    fn(m_machineInfo);
+    return true;
+}
+
+bool Net::acceptPairingReply(std::uint64_t gen, const std::string &replyMachine)
+{
+    {
+        std::scoped_lock lock(m_switchGateMutex);
+        if (m_switchGateHeld) {
+            // Only the switch writes the pairing while it runs. A reply that disagrees with the
+            // machine it has is news it must check with the server before letting posts out.
+            if (replyMachine != venueMachine()) {
+                ++m_switchDirty;
+            }
+            return false;
+        }
+    }
+    return gen == machineGen();
+}
+
+TableMappingsSnapshot Net::tableMappings() const
+{
+    return m_tableMappings.snapshot();
+}
+
+void Net::refreshTableMappings()
+{
+    fetchTableMappings(true);
+}
+
+void Net::fetchTableMappings(bool resume)
+{
+    if (m_stop || !m_deviceInfo.vpinTableMappings) {
+        return;
+    }
+    {
+        // With completion's reset under the same lock, a trigger is never lost between the two.
+        std::scoped_lock lock(m_tableMappingsFetchMutex);
+        if (resume) {
+            m_tableMappings.resume();
+        } else if (m_tableMappings.suspended()) {
+            return;
+        }
+        // One read at a time; a trigger during it gets one more read after it. That read's
+        // refusal may suspend reads again, so a resume asked for meanwhile is carried over.
+        if (m_tableMappingsFetchInFlight) {
+            m_tableMappingsFetchAgain = true;
+            m_tableMappingsResumeAgain = m_tableMappingsResumeAgain || resume;
+            return;
+        }
+        m_tableMappingsFetchInFlight = true;
+    }
+    m_worker.postQueue(createTableMappingsTask());
+}
+
+task_t Net::createTableMappingsTask()
+{
+    auto etag = std::make_shared<std::string>(); // the reply's ETag, set by the transport below
+
+    auto reply = [this, etag](Error /*error*/, int httpStatus, const std::string &body) {
+        struct Done {
+            Net &net;
+            ~Done()
+            {
+                bool again = false;
+                bool resume = false;
+                {
+                    std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+                    net.m_tableMappingsFetchInFlight = false;
+                    again = std::exchange(net.m_tableMappingsFetchAgain, false);
+                    resume = std::exchange(net.m_tableMappingsResumeAgain, false);
+                }
+                net.armTableMappingsRefresh();
+                if (again) {
+                    net.fetchTableMappings(resume);
+                }
+            }
+        } done {*this};
+        if (m_tableMappings.apply(httpStatus, *etag, body)) {
+            const auto snapshot = m_tableMappings.snapshot();
+            INF("API table mappings updated: result {}, {} mappings",
+                static_cast<int>(snapshot.result), snapshot.rows.size());
+            m_eventManager->push(std::make_shared<TableMappingsUpdatedEvent>());
+        }
+    };
+
+    return createHttpRequestTask(
+            REST_GET, HttpStatusCallback {std::move(reply)},
+            [this] { return make_tuple(url(URL_SCORBITRON_TABLE_MAPPINGS), cpr::Parameters {}); },
+            [this, etag](const cpr::Url &url, const cpr::Parameters &params, cpr::Header header,
+                         const cpr::Timeout &timeout, bool /*resilient*/) {
+                if (const auto last = m_tableMappings.etag(); !last.empty()) {
+                    header[HDR_KEY_IF_NONE_MATCH] = last;
+                }
+                auto r = m_vpinTransport.get ? m_vpinTransport.get(url, header)
+                                             : HttpSessionPool::instance().Get(
+                                                     url, params, header, timeout, sslOptions());
+                if (const auto it = r.header.find(HDR_KEY_ETAG); it != r.header.end()) {
+                    *etag = it->second;
+                }
+                return r;
+            },
+            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired});
+}
+
+void Net::armTableMappingsRefresh()
+{
+    if (m_stop || !m_deviceInfo.vpinTableMappings) {
+        return;
+    }
+    m_worker.startTimer(Worker::Timer::TableMappingsRefresh, TABLE_MAPPINGS_REFRESH_INTERVAL,
+                        [this] { fetchTableMappings(false); });
+}
+
+void Net::switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback)
+{
+    const auto status = m_status.load();
+    // Not while pairing is unresolved: the scorbitron reply still on its way would undo the switch.
+    const bool authenticated = status == AuthStatus::AuthenticatedPaired
+                            || status == AuthStatus::AuthenticatedUnpaired;
+    m_machineSwitch.start(venueMachine, this->venueMachine(), authenticated, std::move(callback));
+}
+
+MachineSwitch::Steps Net::machineSwitchSteps()
+{
+    MachineSwitch::Steps steps;
+    steps.gate = [this](bool hold) { holdSwitchGate(hold); };
+    steps.drain = [this](MachineSwitch::Done done) { drainSessionPosts(std::move(done)); };
+    steps.post = [this](const std::string &target,
+                        std::function<void(int, const std::string &)> reply) {
+        postSwitchMachine(target, std::move(reply));
+    };
+    steps.adopt = [this](const std::string &target, const std::string &token,
+                         MachineSwitch::Done done) {
+        adoptSwitchedMachine(target, token, std::move(done));
+    };
+    steps.refetch = [this] { fetchTableMappings(false); };
+    steps.resolve = [this](const MachineSwitch::Outcome &outcome, const std::string &target,
+                           const std::string &start, MachineSwitch::Resolved done) {
+        resolveSwitch(outcome, target, start, std::move(done));
+    };
+    // Behind every event already pushed, so MACHINE_CHANGED reaches the host before the callback.
+    steps.deliver = [this](MachineSwitch::Done fn) {
+        boost::asio::post(m_worker.eventsStrand(), [this, fn = std::move(fn)] {
+            if (!m_stop) {
+                fn();
+            }
+        });
+    };
+    steps.stopping = [this] { return m_stop.load(); };
+    return steps;
+}
+
+void Net::postOrHoldForSwitch(int sessionId, task_t post)
+{
+    // Posting only queues, so it is done under the lock to keep held and new posts in order.
+    // A game from before the switch settles on the old machine; only later games wait.
+    std::scoped_lock lock(m_switchGateMutex);
+    // A game's machine is the one current when its first post is let out: for a held game, the
+    // one the switch resolved to.
+    auto stampThenPost = [this, sessionId, post = std::move(post)] {
+        stampSession(sessionId);
+        post();
+    };
+    if (m_switchGateHeld && sessionId >= m_switchGateFromSession) {
+        m_switchHeldPosts.push_back(std::move(stampThenPost));
+        return;
+    }
+    stampThenPost();
+}
+
+void Net::stampSession(int sessionId)
+{
+    const auto ctx = machine();
+    if (ctx.machineUuid.empty()) {
+        return; // no machine yet: the game publishes under whatever the pairing becomes
+    }
+    std::scoped_lock lock(m_gameSessionsMutex);
+    if (const auto it = m_gameSessions.find(sessionId);
+        it != m_gameSessions.end() && !it->second.machine) {
+        it->second.machine = ctx;
+    }
+}
+
+std::uint64_t Net::lastGameDataSeq() const
+{
+    std::scoped_lock lock(m_gameDataMutex);
+    return m_gameDataSeq;
+}
+
+std::uint64_t Net::oldestPendingGameData() const
+{
+    std::scoped_lock lock(m_gameDataMutex);
+    return m_gameDataPending.empty() ? std::numeric_limits<std::uint64_t>::max()
+                                     : *m_gameDataPending.begin();
+}
+
+bool Net::switchGateHeld() const
+{
+    std::scoped_lock lock(m_switchGateMutex);
+    return m_switchGateHeld;
+}
+
+bool Net::foldIntoSwitch()
+{
+    std::scoped_lock lock(m_switchGateMutex);
+    if (!m_switchGateHeld) {
+        return false;
+    }
+    ++m_switchDirty;
+    return true;
+}
+
+void Net::resolveSwitch(const MachineSwitch::Outcome &outcome, const std::string &target,
+                        const std::string &start, MachineSwitch::Resolved done)
+{
+    // On the Centrifugo strand, where pairing signals are handled, so a signal is either before
+    // the dirty check or after the release, never between. The server is asked from the blocking
+    // pool, and its answer acted on back on the strand.
+    onCentrifugoStrand([this, outcome, target, start, done = std::move(done)]() mutable {
+        if (m_stop) {
+            return; // shutting down: no callback, and held posts go with the worker
+        }
+        resolveSwitchNow(
+                outcome, target, start,
+                [this](std::function<void(std::optional<std::string>)> answer) {
+                    m_worker.post(
+                            createSwitchReconcileTask([this, answer = std::move(answer)](
+                                                              std::optional<std::string> onServer) {
+                                onCentrifugoStrand([this, answer, onServer] {
+                                    if (!m_stop) {
+                                        answer(onServer);
+                                    }
+                                });
+                            }));
+                },
+                std::move(done));
+    });
+}
+
+void Net::resolveSwitchNow(
+        const MachineSwitch::Outcome &outcome, const std::string &target, const std::string &start,
+        std::function<void(std::function<void(std::optional<std::string>)>)> askServer,
+        MachineSwitch::Resolved done, int tries)
+{
+    using Kind = MachineSwitch::Outcome::Kind;
+
+    const auto conclude = [this, start, done](sb_switch_machine_result_t result) {
+        const auto now = venueMachine();
+        if (!now.empty() && now != start) {
+            m_eventManager->push(std::make_shared<MachineChangedEvent>(now));
+        }
+        // Only a settled status: "checking" is neither (the re-ask below settles it), and a
+        // re-authentication meanwhile settles and announces the pairing itself.
+        if (const auto status = m_status.load(); status == AuthStatus::AuthenticatedPaired
+                                                 || status == AuthStatus::AuthenticatedUnpaired) {
+            emitPairingStatusEventIfChanged(status == AuthStatus::AuthenticatedPaired);
+        }
+        // A re-authentication during the switch left the pairing to a reply the switch held
+        // back: ask for it again once the gate opens, or nothing resolves it.
+        const bool unresolved = m_status == AuthStatus::AuthenticatedCheckingPairing;
+        done(result);
+        if (unresolved) {
+            sendScorbitronObject();
+        }
+    };
+
+    // Nothing raced a clear outcome: it stands as the switch saw it.
+    if (tries == 0 && outcome.kind != Kind::Unknown && m_switchDirty.exchange(0) == 0) {
+        conclude(outcome.result);
+        return;
+    }
+
+    // Otherwise only the server knows where the device is: ask it, and again while news keeps
+    // arriving during the question, up to a bound.
+    const auto before = m_switchDirty.load();
+    askServer([this, outcome, target, start, askServer, done, tries, before,
+               conclude](std::optional<std::string> onServer) mutable {
+        if (m_switchDirty.load() != before) {
+            if (tries + 1 < SWITCH_RESOLVE_TRIES) {
+                resolveSwitchNow(outcome, target, start, std::move(askServer), std::move(done),
+                                 tries + 1);
+                return;
+            }
+            // Still moving at the bound: this answer may already be stale, so it is no answer.
+            // Cleared and left "checking", the re-ask after the gate settles it under backoff.
+            onServer.reset();
+        }
+        m_switchDirty = 0;
+
+        // Already where the server says (as after a switch adopted): nothing to apply.
+        const bool onTarget = onServer && *onServer == target;
+        if (!(onServer && *onServer == venueMachine() && !onServer->empty()
+              && m_status == AuthStatus::AuthenticatedPaired)) {
+            applyServerPairing(onServer);
+        }
+
+        sb_switch_machine_result_t result = outcome.result;
+        if (onTarget) {
+            result = (start == target) ? SB_SWITCH_MACHINE_ALREADY_ATTACHED : SB_SWITCH_MACHINE_OK;
+        } else if (outcome.kind == Kind::Switched || outcome.kind == Kind::AlreadyAttached) {
+            result = SB_SWITCH_MACHINE_FAILED; // the server has moved it elsewhere since
+        }
+        conclude(result);
+    });
+}
+
+void Net::applyServerPairing(const std::optional<std::string> &venueMachine)
+{
+    // A re-authentication that began meanwhile settles the pairing itself; onPaired() and
+    // onUnpaired() must not overwrite its status. Read without m_authMutex, which authentication
+    // holds across network I/O and this strand must never wait on.
+    if (const auto status = m_status.load();
+        status != AuthStatus::AuthenticatedPaired && status != AuthStatus::AuthenticatedUnpaired
+        && status != AuthStatus::AuthenticatedCheckingPairing) {
+        setMachineIdentity(venueMachine.value_or(std::string {}), true);
+        return;
+    }
+    if (!venueMachine) {
+        // Unknown: nothing goes out under a guessed pairing, and it is not "unpaired" either.
+        // "Checking" keeps the re-ask (sent by conclude once the gate opens) under the PATCH
+        // retry and its backoff until a reply sets whatever the server holds.
+        clearPairedMachineContext();
+        m_status = AuthStatus::AuthenticatedCheckingPairing;
+        notifyAuthStatusChanged();
+        restartCentrifugo();
+        return;
+    }
+    if (venueMachine->empty()) {
+        onUnpaired();
+        return;
+    }
+    // The machine and channel a post carries, in place now; onPaired() refreshes the rest (a
+    // fresh token, config, machine object) behind it.
+    setMachineIdentity(*venueMachine, true);
+    onPaired();
+}
+
+void Net::holdSwitchGate(bool hold)
+{
+    int fromSession = 0;
+    std::uint64_t gameDataSeq = 0;
+    if (hold) {
+        {
+            std::scoped_lock lock(m_gameSessionsMutex);
+            fromSession = m_gameSessions.empty() ? 0 : m_gameSessions.rbegin()->first + 1;
+        }
+        gameDataSeq = lastGameDataSeq();
+    }
+    std::scoped_lock lock(m_switchGateMutex);
+    m_switchGateHeld = hold;
+    if (hold) {
+        m_switchGateFromSession = fromSession;
+        m_switchGateGameData = gameDataSeq;
+        m_switchDirty = 0;
+    }
+    if (hold || m_switchHeldPosts.empty()) {
+        return;
+    }
+    INF("API switch machine: releasing {} held session posts", m_switchHeldPosts.size());
+    for (auto &post : m_switchHeldPosts) {
+        post();
+    }
+    m_switchHeldPosts.clear();
+}
+
+void Net::drainSessionPosts(MachineSwitch::Done done)
+{
+    struct Drain {
+        std::atomic<int> left {2};
+        std::atomic_bool fired {false};
+        MachineSwitch::Done done;
+    };
+    auto drain = std::make_shared<Drain>();
+    drain->done = std::move(done);
+
+    auto fire = [this, drain](bool timedOut) {
+        if (drain->fired.exchange(true)) {
+            return;
+        }
+        if (timedOut) {
+            WRN("API switch machine: session posts still pending after {}, going on",
+                SWITCH_DRAIN_BOUND);
+        } else {
+            m_worker.stopTimer(Worker::Timer::SwitchDrain);
+        }
+        drain->done();
+    };
+
+    m_worker.startTimer(Worker::Timer::SwitchDrain, SWITCH_DRAIN_BOUND, [fire] { fire(true); });
+    // Each strand runs its marker after every post queued on it before the switch. The finished
+    // game's last data may still be on its way to those strands, so wait for it first.
+    auto marker = [drain, fire] {
+        if (--drain->left == 0) {
+            fire(false);
+        }
+    };
+    const auto deadline = steady_clock::now() + SWITCH_DRAIN_BOUND;
+    std::uint64_t submittedBeforeGate = 0;
+    {
+        std::scoped_lock lock(m_switchGateMutex);
+        submittedBeforeGate = m_switchGateGameData;
+    }
+    // Only data submitted before the gate: a game started since must not keep the drain waiting.
+    m_worker.post([this, drain, marker, deadline, submittedBeforeGate] {
+        // The pool runs submissions in any order, so a later one finishing proves nothing.
+        while (oldestPendingGameData() <= submittedBeforeGate && !m_stop && !drain->fired
+               && steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(SWITCH_DRAIN_POLL);
+        }
+        m_worker.postSessionQueue(marker);
+        // A commit's publish runs on the Centrifugo strand, after the commit strand is done
+        // with it, and reads the machine channel there: drained only once that is through too.
+        m_worker.postCommitTask([this, marker] { onCentrifugoStrand(marker); });
+    });
+}
+
+task_t Net::createSwitchMachineTask(const std::string &target,
+                                    std::function<void(int, const std::string &)> reply)
+{
+    return createHttpRequestTask(
+            REST_POST,
+            HttpStatusCallback {[reply = std::move(reply)](Error /*error*/, int httpStatus,
+                                                           const std::string &body) {
+                reply(httpStatus, body);
+            }},
+            [this, target] {
+                const json body {{JKEY_SWITCH_VENUEMACHINE, target}};
+                return make_tuple(url(URL_SCORBITRON_SWITCH_MACHINE), cpr::Body {body.dump()});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.post ? m_vpinTransport.post(url, body, header)
+                                            : HttpSessionPool::instance().Post(
+                                                    url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired},
+            false, false, false); // the reply carries a token: never logged
+}
+
+task_t Net::createSwitchReconcileTask(std::function<void(std::optional<std::string>)> done)
+{
+    // The scorbitron PATCH every startup sends: its reply is the server's view of the pairing.
+    // Only read here; whatever it says is acted on by the switch, not by this request.
+    return createHttpRequestTask(
+            REST_PATCH,
+            HttpStatusCallback {[done = std::move(done)](Error error, int /*httpStatus*/,
+                                                         const std::string &reply) {
+                if (error != Error::Success) {
+                    done(std::nullopt);
+                    return;
+                }
+                done(scorbitronMachine(reply));
+            }},
+            [this]() {
+                std::string body;
+                {
+                    std::scoped_lock lock(m_scorbitronObjectMutex);
+                    body = m_scorbitronObject.dump();
+                }
+                return make_tuple(url(URL_SCORBITRON_OBJECT), cpr::Body {body});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.patch ? m_vpinTransport.patch(url, body, header)
+                                             : HttpSessionPool::instance().Patch(
+                                                     url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired});
+}
+
+void Net::postSwitchMachine(const std::string &target,
+                            std::function<void(int, const std::string &)> reply)
+{
+    m_worker.post(createSwitchMachineTask(target, std::move(reply)));
+}
+
+void Net::adoptSwitchedMachine(const std::string &target, const std::string &token,
+                               MachineSwitch::Done done)
+{
+    // On the startup strand, where the scorbitron reply writes the same machine context.
+    m_worker.postStartupQueue([this, target, token, done = std::move(done)]() mutable {
+        adoptSwitchedMachineNow(target, token, std::move(done));
+    });
+}
+
+void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &token,
+                                  MachineSwitch::Done done)
+{
+    // SPEC-0009 REQ-6.2: the reply's token is the new connection; no /socket/ request. Without
+    // one (a switch confirmed after its reply was lost), the reconnect fetches a fresh token.
+    const bool haveToken = !token.empty();
+    {
+        std::scoped_lock lock(m_cfTokenMutex);
+        m_cfToken = token;
+        ++m_cfTokenGeneration;
+    }
+    if (haveToken) {
+        scheduleCentrifugoTokenRefresh(token, 0);
+    }
+
+    m_playersManager.clear();
+    setMachineIdentity(target, true);
+
+    bool nowPaired = false;
+    {
+        // As a 401 resets the status: never over a re-authentication that began meanwhile.
+        std::scoped_lock lock(m_authMutex);
+        if (m_status == AuthStatus::AuthenticatedUnpaired) {
+            m_status = AuthStatus::AuthenticatedPaired;
+            nowPaired = true;
+        }
+    }
+    if (nowPaired) {
+        notifyAuthStatusChanged();
+    }
+
+    restartCentrifugo(!haveToken);
+
+    // The context initializeConnectionState() fetches. The scorbitron reply queues the machine
+    // object behind these, so the last step re-queues itself to land after that too.
+    m_worker.postStartupQueue(createSendScorbitronObjectTask());
+    m_worker.postStartupQueue(createGetConfigTask());
+    m_worker.postStartupQueue([this, done = std::move(done)]() mutable {
+        m_worker.postStartupQueue(std::move(done));
+    });
+}
+
 void Net::clearPairedMachineContext()
 {
-    m_machineInfo.opdbId.clear();
-    m_machineInfo.machineUuid.clear();
-    m_machineInfo.variantUuid.reset();
-    m_machineInfo.gameSlug.reset();
-    m_machineInfo.venueUuid.reset();
-    m_machineInfo.title = fmt::format("not paired");
-    m_machineChannel.clear();
-    updateDiscoveryDescription();
+    setMachineIdentity({}, true);
 }
 
 void Net::emitPairingStatusEventIfChanged(bool isPaired)
@@ -3926,6 +4592,7 @@ void Net::onPaired()
     notifyAuthStatusChanged();
     initializeConnectionState();
     emitPairingStatusEventIfChanged(true);
+    fetchTableMappings(true); // a pairing change lifts a refusal's stop
 }
 
 void Net::onUnpaired()
@@ -3935,6 +4602,7 @@ void Net::onUnpaired()
     notifyAuthStatusChanged();
     emitPairingStatusEventIfChanged(false);
     restartCentrifugo();
+    fetchTableMappings(true);
 }
 
 void Net::retryScorbitronObjectIfPairingUnresolved()
@@ -3956,7 +4624,7 @@ void Net::retryScorbitronObjectIfPairingUnresolved()
                                                               SCORBITRON_RETRY_MAX_BACKOFF);
 }
 
-void Net::parseScorbitronObject(Error error, const std::string &reply)
+void Net::parseScorbitronObject(Error error, const std::string &reply, std::uint64_t gen)
 {
     if (error != Error::Success) {
         retryScorbitronObjectIfPairingUnresolved();
@@ -3975,29 +4643,39 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
             notifyShortCodeChanged();
         }
 
-        bool isPaired {false};
-
         // "machine"
-        if (const auto it = json.find(JKEY_SOBJ_MACHINE_OBJ); it != json.end()) {
-            isPaired = it->is_object();
-            if (isPaired) {
-                if (const auto idIt = it->find(JKEY_SOBJ_MACHINE_UUID);
-                    idIt != it->end() && idIt->is_string()) {
-                    idIt->get_to(m_machineInfo.machineUuid);
-                    m_machineChannel = fmt::format("machine:{}", m_machineInfo.machineUuid);
-                    requestCreditsStatusIfReady();
-                }
-            }
+        // A machine object without a usable id is no answer: it must not read as "unpaired".
+        const auto parsedMachine = scorbitronMachine(reply);
+        if (!parsedMachine) {
+            ERR("API scorbitron reply has a machine with no id, pairing left as it is");
+            retryScorbitronObjectIfPairingUnresolved();
+            return;
         }
+        const auto &replyMachine = *parsedMachine;
+        const bool isPaired = !replyMachine.empty();
 
-        AuthStatus status {AuthStatus::AuthenticatedPaired};
-
-        if (!isPaired) {
-            status = AuthStatus::AuthenticatedUnpaired;
-            clearPairedMachineContext();
-        } else {
+        // Stale (an authoritative change came after this request) or a switch is running: the
+        // pairing here is not this reply's to write.
+        // Accepted, and still current when written: an authoritative change in between refuses it.
+        const bool accepted = acceptPairingReply(gen, replyMachine)
+                           && setMachineIdentity(replyMachine, false, gen);
+        // A reply that agrees with the machine a switch just adopted writes nothing (the switch
+        // owns the context), but the machine object it would fetch is still owed.
+        const bool agreesWithSwitch =
+                !accepted && isPaired && replyMachine == venueMachine() && switchGateHeld();
+        if ((accepted && isPaired) || agreesWithSwitch) {
+            requestCreditsStatusIfReady();
             requestMachineObject();
         }
+        if (accepted) {
+        } else if (m_status == AuthStatus::AuthenticatedCheckingPairing && !switchGateHeld()) {
+            // This reply would have settled the pairing; a newer change made it stale. Ask again,
+            // or every request waiting on the pairing waits out its deadline.
+            sendScorbitronObject();
+        }
+
+        const AuthStatus status =
+                isPaired ? AuthStatus::AuthenticatedPaired : AuthStatus::AuthenticatedUnpaired;
 
         // Get release track url
         if (const auto configIt = json.find(JKEY_SOBJ_RELEASE_TRACK);
@@ -4012,10 +4690,11 @@ void Net::parseScorbitronObject(Error error, const std::string &reply)
 
         m_scorbitronRetryBackoff = SCORBITRON_RETRY_INITIAL_BACKOFF;
 
-        if (m_status != status) {
+        if (accepted && m_status != status) {
             m_status = status;
             notifyAuthStatusChanged();
             emitPairingStatusEventIfChanged(isPaired);
+            fetchTableMappings(true); // a pairing change; a parked read may have given up
         }
 
     } catch (const std::exception &e) {
@@ -4029,7 +4708,8 @@ template<typename DeferredSetupT, typename HttpMethodT, typename CallbackT>
 task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallback,
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
                                   std::vector<AuthStatus> allowedStatuses,
-                                  bool includeFingerprintHash, bool resilientTransferTimeouts)
+                                  bool includeFingerprintHash, bool resilientTransferTimeouts,
+                                  bool logReply)
 {
     // A request that arrives before the status allows it is parked rather than run, and needs to
     // re-enter itself when the gate opens. The weak capture keeps the lambda from owning the
@@ -4040,7 +4720,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
     *run = [this, weakRun, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
             allowedStatuses = std::move(allowedStatuses), includeFingerprintHash,
-            resilientTransferTimeouts]() {
+            resilientTransferTimeouts, logReply]() {
         switch (authGate(m_status, allowedStatuses, m_stop)) {
         case AuthGate::Ready:
             break;
@@ -4092,8 +4772,10 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             reply = std::move(r.text);
             httpStatus = r.status_code;
 
-            if (r.status_code >= 200 && r.status_code < 300) {
-                DBG("API {} request to {} OK, {}", requestType, url.str(), reply);
+            // 304 answers only a conditional GET (the table mappings), which asked for it.
+            if ((r.status_code >= 200 && r.status_code < 300) || r.status_code == 304) {
+                DBG("API {} request to {} OK, {}", requestType, url.str(),
+                    logReply ? reply : std::string {"(reply not logged)"});
                 error = Error::Success;
                 noteRestSuccess(r.header);
                 break;
@@ -4409,6 +5091,189 @@ bool NetTestAccess::noteKeyResolutionDeferred(Net &net, std::chrono::steady_cloc
 AuthStatus NetTestAccess::status(const Net &net)
 {
     return net.m_status;
+}
+
+void NetTestAccess::setVpinTransport(Net &net, VpinTransport transport)
+{
+    net.m_vpinTransport = std::move(transport);
+}
+
+void NetTestAccess::setMachineUuid(Net &net, std::string machineUuid)
+{
+    net.setMachineIdentity(machineUuid, false);
+}
+
+void NetTestAccess::seedSwitchToken(Net &net, std::string token)
+{
+    std::scoped_lock lock(net.m_cfTokenMutex);
+    net.m_cfToken = std::move(token);
+    ++net.m_cfTokenGeneration;
+}
+
+void NetTestAccess::fetchCentrifugoTokenNow(Net &net)
+{
+    net.fetchCentrifugoTokenNow();
+}
+
+std::string NetTestAccess::machineUuid(const Net &net)
+{
+    return net.venueMachine();
+}
+
+void NetTestAccess::fetchTableMappingsNow(Net &net)
+{
+    {
+        std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+        net.m_tableMappingsFetchInFlight = true;
+    }
+    net.createTableMappingsTask()();
+}
+
+bool NetTestAccess::tableMappingsFetchQueued(Net &net)
+{
+    std::scoped_lock lock(net.m_tableMappingsFetchMutex);
+    return net.m_tableMappingsFetchInFlight;
+}
+
+void NetTestAccess::runSwitchMachine(
+        Net &net, const std::string &venueMachine, MachineSwitch::Callback callback,
+        std::function<void(const std::string &, const std::string &, MachineSwitch::Done)> adopt)
+{
+    auto &steps = net.m_machineSwitch.steps();
+    steps.drain = [](MachineSwitch::Done done) { done(); };
+    steps.post = [&net](const std::string &target,
+                        std::function<void(int, const std::string &)> reply) {
+        net.createSwitchMachineTask(target, std::move(reply))();
+    };
+    steps.adopt = std::move(adopt);
+    // Production's resolution, run inline as the steps above are, with the server asked inline.
+    steps.resolve = [&net](const MachineSwitch::Outcome &outcome, const std::string &target,
+                           const std::string &start, MachineSwitch::Resolved done) {
+        net.resolveSwitchNow(
+                outcome, target, start,
+                [&net](std::function<void(std::optional<std::string>)> answer) {
+                    net.createSwitchReconcileTask(std::move(answer))();
+                },
+                std::move(done));
+    };
+    steps.deliver = [](MachineSwitch::Done fn) { fn(); };
+    net.switchMachine(venueMachine, std::move(callback));
+}
+
+bool NetTestAccess::switchGateHeld(Net &net)
+{
+    std::scoped_lock lock(net.m_switchGateMutex);
+    return net.m_switchGateHeld;
+}
+
+std::size_t NetTestAccess::switchHeldPosts(Net &net)
+{
+    std::scoped_lock lock(net.m_switchGateMutex);
+    return net.m_switchHeldPosts.size();
+}
+
+void NetTestAccess::postOrHoldForSwitch(Net &net, int sessionId, task_t post)
+{
+    net.postOrHoldForSwitch(sessionId, std::move(post));
+}
+
+bool NetTestAccess::foldIntoSwitch(Net &net)
+{
+    return net.foldIntoSwitch();
+}
+
+void NetTestAccess::staleScorbitronReply(Net &net, const std::string &venueMachine)
+{
+    const json reply =
+            venueMachine.empty()
+                    ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
+                    : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
+    net.parseScorbitronObject(Error::Success, reply.dump(), net.machineGen());
+}
+
+std::optional<std::string> NetTestAccess::sessionMachine(Net &net, int sessionId)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    const auto it = net.m_gameSessions.find(sessionId);
+    if (it == net.m_gameSessions.end() || !it->second.machine) {
+        return std::nullopt;
+    }
+    return it->second.machine->machineUuid;
+}
+
+std::uint64_t NetTestAccess::machineGen(const Net &net)
+{
+    return net.machineGen();
+}
+
+void NetTestAccess::unpairForTest(Net &net)
+{
+    net.onUnpaired();
+}
+
+void NetTestAccess::scorbitronRawReply(Net &net, const std::string &body)
+{
+    net.parseScorbitronObject(Error::Success, body, net.machineGen());
+}
+
+void NetTestAccess::scorbitronReplyFailed(Net &net)
+{
+    net.parseScorbitronObject(Error::ApiError, {}, net.machineGen());
+}
+
+std::chrono::seconds NetTestAccess::scorbitronRetryBackoff(const Net &net)
+{
+    return net.m_scorbitronRetryBackoff;
+}
+
+void NetTestAccess::scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen)
+{
+    const json reply =
+            venueMachine.empty()
+                    ? json {{JKEY_SOBJ_MACHINE_OBJ, nullptr}}
+                    : json {{JKEY_SOBJ_MACHINE_OBJ, {{JKEY_SOBJ_MACHINE_UUID, venueMachine}}}};
+    net.parseScorbitronObject(Error::Success, reply.dump(), gen);
+}
+
+int NetTestAccess::machineObjectRequests(const Net &net)
+{
+    return net.m_machineObjectRequests;
+}
+
+int NetTestAccess::creditsStatusRequests(const Net &net)
+{
+    return net.m_creditsStatusRequests;
+}
+
+void NetTestAccess::configReplyAt(Net &net, const std::string &reply, std::uint64_t gen)
+{
+    net.onConfigReply(gen, Error::Success, reply);
+}
+
+std::int32_t NetTestAccess::deviceMachineId(const Net &net)
+{
+    return net.m_deviceInfo.machineId;
+}
+
+bool NetTestAccess::scorbitronObjectQueued(const Net &net)
+{
+    return net.m_scorbitronObjectSends > 0;
+}
+
+void NetTestAccess::adoptForTest(Net &net, const std::string &target)
+{
+    net.setMachineIdentity(target, true);
+    net.m_status = AuthStatus::AuthenticatedPaired;
+}
+
+void NetTestAccess::holdSwitchGate(Net &net)
+{
+    net.holdSwitchGate(true);
+}
+
+void NetTestAccess::releaseSwitchGate(Net &net)
+{
+    net.holdSwitchGate(false);
 }
 
 void NetTestAccess::setEventManager(Net &net, std::shared_ptr<EventManager> eventManager)
@@ -5054,8 +5919,13 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
         ERR("Error parsing player score: {}", e.what());
     }
 
-    // Process players profiles
-    if (auto changedProfiles = m_playersManager.setProfiles(val, m_machineInfo.machineUuid)) {
+    // Process players profiles. They belong to the machine this game ran on: a reply that outlives
+    // a move (as past a switch's drain bound) adds none to the machine the device is on now.
+    const auto live = machine().machineUuid;
+    if (gameSession.machine && gameSession.machine->machineUuid != live) {
+        return;
+    }
+    if (auto changedProfiles = m_playersManager.setProfiles(val, live)) {
         m_eventManager->push(std::make_shared<PlayersUpdatedEvent>(std::move(*changedProfiles)));
     }
 
@@ -5129,6 +5999,7 @@ void Net::fetchCentrifugoTokenNow()
         std::shared_lock lock(m_tokenMutex);
         authToken = m_stoken;
     }
+    const auto generation = m_cfTokenGeneration.load();
 
     std::string token;
     std::int64_t serverNow = 0;
@@ -5141,6 +6012,10 @@ void Net::fetchCentrifugoTokenNow()
 
     {
         std::scoped_lock lock(m_cfTokenMutex);
+        // A machine switch seeded a newer token while this one was fetched: keep it.
+        if (m_cfTokenGeneration != generation) {
+            return;
+        }
         m_cfToken = token;
     }
 
@@ -5310,14 +6185,16 @@ void Net::centrifugoSetup(bool fetchFreshToken)
             retireCentrifugoClient();
             // Timers fire on an io_context thread, not on this strand, so the check on the client
             // has to be made after hopping back onto it.
-            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY, [this] {
-                onCentrifugoStrand([this] {
-                    if (m_stop || m_centrifugo) {
-                        return;
-                    }
-                    setupAndConnectCentrifugo(true);
-                });
-            });
+            const bool fetchFreshToken = m_restartFetchFreshToken.exchange(true);
+            m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY,
+                                [this, fetchFreshToken] {
+                                    onCentrifugoStrand([this, fetchFreshToken] {
+                                        if (m_stop || m_centrifugo) {
+                                            return;
+                                        }
+                                        setupAndConnectCentrifugo(fetchFreshToken);
+                                    });
+                                });
             return;
         }
 
@@ -5432,6 +6309,13 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                             m_eventManager->push(
                                     std::make_shared<DiagnosticsUploadRequestedEvent>(false));
                         } else if (method == JVAL_METHOD_SIGNAL
+                                   && (name == JVAL_ACTION_SCORBITRON_PAIRED
+                                       || name == JVAL_ACTION_SCORBITRON_UNPAIRED)
+                                   && foldIntoSwitch()) {
+                            // Most likely the switch's own re-pair, whose context it adopts
+                            // itself; kept so a failed switch can still act on it.
+                            INF("API-CF {} signal folded into the machine switch", name);
+                        } else if (method == JVAL_METHOD_SIGNAL
                                    && name == JVAL_ACTION_SCORBITRON_PAIRED) {
                             INF("API-CF Scorbitron paired signal received");
                             onPaired();
@@ -5439,6 +6323,10 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                                    && name == JVAL_ACTION_SCORBITRON_UNPAIRED) {
                             INF("API-CF Scorbitron unpaired signal received");
                             onUnpaired();
+                        } else if (method == JVAL_METHOD_SIGNAL
+                                   && name == JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED) {
+                            INF("API-CF table mappings changed signal received");
+                            fetchTableMappings(false);
                         } else if (method == JVAL_METHOD_GET
                                    && name == JVAL_ACTION_CONFIG_REFRESH) {
                             INF("API-CF Config refresh requested via control channel");
@@ -5482,16 +6370,17 @@ void Net::centrifugoDisconnect()
     });
 }
 
-void Net::publishToMachineChannel(std::string what, nlohmann::json payload)
+void Net::publishToMachineChannel(std::string what, nlohmann::json payload, std::string channel)
 {
     // The payload is built by the caller, off the strand, so only the publish itself lands on the
     // io_context.
-    onCentrifugoStrand([this, what = std::move(what), payload = std::move(payload)] {
+    onCentrifugoStrand([this, what = std::move(what), payload = std::move(payload),
+                        channel = std::move(channel)] {
         if (m_stop || !m_centrifugo) {
             return;
         }
 
-        if (const auto r = m_centrifugo->publish(m_machineChannel, payload); !r) {
+        if (const auto r = m_centrifugo->publish(channel, payload); !r) {
             WRN("API-CF failed to send {}: code:{}, error: {}", what, r.error().ec.value(),
                 r.error().message);
         }
@@ -5590,24 +6479,25 @@ void Net::stopCentrifugoIdleTimer()
     m_worker.stopTimer(Worker::Timer::CentrifugoIdleDisconnect);
 }
 
-void Net::restartCentrifugo()
+void Net::restartCentrifugo(bool fetchFreshToken)
 {
-    onCentrifugoStrand([this] {
+    onCentrifugoStrand([this, fetchFreshToken] {
         m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
 
         if (!m_centrifugo) {
             m_restartCentrifugoPending = false;
-            setupAndConnectCentrifugo(true);
+            setupAndConnectCentrifugo(fetchFreshToken);
             return;
         }
 
         if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
             m_restartCentrifugoPending = false;
             retireCentrifugoClient();
-            setupAndConnectCentrifugo(true);
+            setupAndConnectCentrifugo(fetchFreshToken);
             return;
         }
 
+        m_restartFetchFreshToken = fetchFreshToken;
         m_restartCentrifugoPending = true;
         m_centrifugo->disconnect();
     });
@@ -5692,7 +6582,7 @@ void Net::setNfcTag()
     if (nonce.empty()) {
         return;
     }
-    const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", m_machineInfo.machineUuid),
+    const auto tag = fmt::format(URL_NFC_TAG, fmt::arg("machine_uuid", machine().machineUuid),
                                  fmt::arg("nonce", nonce));
 
     // The probe stores the URI length in a single byte, so a longer URI is truncated on the
@@ -5742,7 +6632,8 @@ void Net::requestCreditsStatusEvent()
 
 void Net::requestCreditsStatusIfReady()
 {
-    if (m_stop || m_machineChannel.empty()) {
+    ++m_creditsStatusRequests; // observed by tests only
+    if (m_stop || machine().channel.empty()) {
         return;
     }
     if (m_cfState != centrifugo::ConnectionState::Connected) {
@@ -5815,10 +6706,11 @@ void Net::updateDiscoveryDescription()
         return fmt::format("{} {}", m_deviceInfo.provider, m_deviceInfo.gameCodeVersion);
     });
 
-    if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, m_machineInfo.title,
-                                                 providerVersion, m_deviceInfo.machineTitle)) {
-        INF("Discovery description updated machine: {}, provider: {}, extra info: {}",
-            m_machineInfo.title, providerVersion, m_deviceInfo.machineTitle);
+    const auto title = machine().title;
+    if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, title, providerVersion,
+                                                 m_deviceInfo.machineTitle)) {
+        INF("Discovery description updated machine: {}, provider: {}, extra info: {}", title,
+            providerVersion, m_deviceInfo.machineTitle);
     }
 }
 

@@ -85,6 +85,9 @@ public:
 
     std::map<sb_player_t, std::string> picturesToDownload() const;
 
+    /// Forgets every profile, as when the device moves to another machine.
+    void clear();
+
 private:
     std::vector<PlayerProfile> m_profiles;
     mutable Picture m_storedPicture;

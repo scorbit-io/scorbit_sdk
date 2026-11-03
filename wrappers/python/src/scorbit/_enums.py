@@ -93,6 +93,42 @@ class LeaderboardVpinFilter(IntEnum):
     """Exclude virtual pinball scores."""
 
 
+class TableMappingsResult(IntEnum):
+    """How the last read of the VPIN table mappings ended (append-only)."""
+
+    NoneYet = 0
+    """Not fetched yet; the list is empty."""
+
+    Ok = 1
+    """The list is the server's current one."""
+
+    NotVpinDevice = 2
+    """The device is not a VPIN device; the list is empty."""
+
+    NoOwner = 3
+    """The device has no owner; the list is empty."""
+
+    Unavailable = 4
+    """Network, server or reply error; the last good list is kept."""
+
+
+class SwitchMachineResult(IntEnum):
+    """How a :meth:`GameState.switch_machine` call ended (append-only)."""
+
+    Ok = 0
+    AlreadyAttached = 1
+    GameActive = 2
+    Busy = 3
+    NotAuthenticated = 4
+    NotVpinDevice = 5
+    NoOwner = 6
+    TargetNotFound = 7
+    TargetNotOwned = 8
+    TargetNotVpin = 9
+    Network = 10
+    Failed = 11
+
+
 class Capability(IntFlag):
     """Device capability flags (combine with bitwise OR)."""
 
@@ -116,6 +152,8 @@ class EventType(IntEnum):
     DiagnosticsUploaded = 7
     PricingReceived = 8
     PairingStatusChanged = 9
+    TableMappingsUpdated = 10
+    MachineChanged = 11
 
     # Internal / scorbitd events
     _None = 1000

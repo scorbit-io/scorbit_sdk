@@ -23,6 +23,7 @@
 #include "config_c.h"
 #include "game_state_c.h"
 #include "leaderboard_c.h"
+#include "table_mappings_c.h"
 #include "log_c.h"
 #include "net_types_c.h"
 #include "event_helpers_c.h"

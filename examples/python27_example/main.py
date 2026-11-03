@@ -176,6 +176,15 @@ def events_callback(event):
         if is_paired is not None:
             print("Pairing status changed: %s" % ("paired" if is_paired else "unpaired"))
 
+    # VPIN hosts only: these follow set_vpin_table_mappings() and switch_machine().
+    elif event.type == scorbit.EventType.TableMappingsUpdated:
+        print("Table mappings updated, read them with table_mappings()")
+
+    elif event.type == scorbit.EventType.MachineChanged:
+        venue_machine = event.get_machine_changed()
+        if venue_machine is not None:
+            print("Machine changed: %s" % venue_machine)
+
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:

@@ -245,3 +245,55 @@ TEST_CASE("sb_upload_diagnostics_ex accepts an absent request generation", "[Gam
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);
 }
+
+TEST_CASE("The table mappings start empty, never fetched", "[GameState][Vpin]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_config_set_vpin_table_mappings(cfg, true);
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    sb_table_mappings_t m = sb_get_table_mappings(h);
+    REQUIRE(m != nullptr);
+    CHECK(sb_table_mappings_result(m) == SB_TABLE_MAPPINGS_NONE);
+    CHECK(sb_table_mappings_count(m) == 0);
+    CHECK(std::string {sb_table_mappings_etag(m)}.empty());
+    CHECK(std::string {sb_table_mapping_venuemachine(m, 0)}.empty());
+    sb_table_mappings_free(m);
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}
+
+TEST_CASE("sb_switch_machine before authentication is refused through the callback",
+          "[GameState][Vpin]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    struct Seen {
+        std::atomic<int> calls {0};
+        std::atomic<int> result {-1};
+        std::string target;
+    } seen;
+    sb_switch_machine(
+            h, "6a0d1f7e-2b9c-4e8a-9d3f-1c2b3a4d5e6f",
+            [](sb_switch_machine_result_t result, const char *venuemachine, void *userData) {
+                auto *s = static_cast<Seen *>(userData);
+                s->target = venuemachine ? venuemachine : "";
+                s->result = result;
+                ++s->calls;
+            },
+            &seen);
+
+    for (int i = 0; i < 200 && seen.calls == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(seen.calls == 1);
+    CHECK(seen.result == SB_SWITCH_MACHINE_NOT_AUTHENTICATED);
+    CHECK(seen.target == "6a0d1f7e-2b9c-4e8a-9d3f-1c2b3a4d5e6f");
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}

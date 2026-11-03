@@ -68,6 +68,7 @@ public:
                           LeaderboardVpinFilter, LeaderboardHandleCallback) override {};
     void requestUnpair(StringCallback) override {};
     MAKE_MOCK2(submitGameData, void(const scorbit::detail::GameData &, SessionFlags), override);
+    MAKE_MOCK2(switchMachine, void(const std::string &, MachineSwitch::Callback), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
                        std::function<void()> onCreated) override
@@ -1102,4 +1103,40 @@ TEST_CASE("GameStateImpl submitHardwareProbeResult delegates to Net")
             "run-1", R"({"a":1})",
             [&](Error, int httpStatus, const std::string &) { seenStatus = httpStatus; });
     CHECK(seenStatus == 202);
+}
+
+TEST_CASE("A machine switch is refused exactly while a game is active")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
+    ALLOW_CALL(mockNetRef, submitGameData(_, _));
+
+    GameStateImpl gameState(std::move(mockNet));
+    std::vector<sb_switch_machine_result_t> results;
+    auto record = [&](sb_switch_machine_result_t result, const std::string &venueMachine) {
+        CHECK(venueMachine == "vm");
+        results.push_back(result);
+    };
+
+    {
+        REQUIRE_CALL(mockNetRef, switchMachine("vm", _)).TIMES(1);
+        gameState.switchMachine("vm", record);
+    }
+
+    gameState.setGameStarted(GameStartOrigin::StartButton);
+    {
+        FORBID_CALL(mockNetRef, switchMachine(_, _));
+        gameState.switchMachine("vm", record);
+    }
+    CHECK(results == std::vector<sb_switch_machine_result_t> {SB_SWITCH_MACHINE_GAME_ACTIVE});
+
+    gameState.setGameFinished();
+    {
+        REQUIRE_CALL(mockNetRef, switchMachine("vm", _)).TIMES(1);
+        gameState.switchMachine("vm", record);
+    }
+    CHECK(results.size() == 1);
 }

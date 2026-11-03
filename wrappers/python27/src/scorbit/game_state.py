@@ -23,6 +23,7 @@ from __future__ import absolute_import
 import json
 import traceback
 import warnings
+from ctypes import create_string_buffer
 from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
 
 from ._bindings import (
@@ -31,6 +32,7 @@ from ._bindings import (
     sb_http_header_t,
     sb_http_status_callback_t,
     sb_leaderboard_callback_t,
+    sb_switch_machine_callback_t,
     sb_string_callback_t,
 )
 from ._enums import (
@@ -39,11 +41,14 @@ from ._enums import (
     GameStartOrigin,
     LeaderboardPeriod,
     LeaderboardScope,
+    SwitchMachineResult,
+    TableMappingsResult,
     LeaderboardVpinFilter,
 )
 from . import config as _config_mod
 from .config import Config, _encode, _text_types
 from ._types import LeaderboardEntry, LeaderboardPlayer, LeaderboardResult
+from ._types import TableMapping, TableMappings
 
 
 def _header_array(headers):
@@ -425,6 +430,83 @@ class GameState(object):
 
         self._async_callbacks.append(_trampoline)
         return _trampoline
+
+    # ------------------------------------------------------------------
+    # VPIN table mappings and machine switch
+    # ------------------------------------------------------------------
+
+    def table_mappings(self):
+        # type: () -> TableMappings
+        """A copy of the VPIN table mappings the SDK holds.
+
+        Read only when :meth:`Config.set_vpin_table_mappings` enabled it. A
+        ``TableMappingsUpdated`` event follows every change of the list or result.
+        """
+        handle = _lib.sb_get_table_mappings(self._handle)
+        if not handle:
+            return TableMappings()
+        try:
+            mappings = []
+            for index in range(int(_lib.sb_table_mappings_count(handle))):
+                mappings.append(
+                    TableMapping(
+                        self._decode_c_string(_lib.sb_table_mapping_key_type(handle, index)),
+                        self._decode_c_string(_lib.sb_table_mapping_table_key(handle, index)),
+                        self._decode_c_string(_lib.sb_table_mapping_venuemachine(handle, index)),
+                    )
+                )
+            return TableMappings(
+                TableMappingsResult(_lib.sb_table_mappings_result(handle)),
+                self._decode_c_string(_lib.sb_table_mappings_etag(handle)),
+                self._decode_c_string(_lib.sb_table_mappings_server_time(handle)),
+                mappings,
+            )
+        finally:
+            _lib.sb_table_mappings_free(handle)
+
+    def refresh_table_mappings(self):
+        # type: () -> None
+        """Re-read the VPIN table mappings now, without blocking."""
+        _lib.sb_refresh_table_mappings(self._handle)
+
+    def venue_machine(self):
+        # type: () -> str
+        """The current VenueMachine uuid, ``""`` when unpaired.
+
+        Not :attr:`machine_uuid`, which is the device's own uuid.
+        """
+        size = int(_lib.sb_get_venue_machine(self._handle, None, 0))
+        if size == 0:
+            return ""
+        buf = create_string_buffer(size + 1)
+        _lib.sb_get_venue_machine(self._handle, buf, size + 1)
+        return self._decode_c_string(buf.value)
+
+    def switch_machine(self, venue_machine, callback):
+        # type: (str, ...) -> None
+        """Move this VPIN device to another of its owner's VPIN machines.
+
+        Refused with ``GameActive`` while a game is active, ``Busy`` while another
+        switch runs and ``NotAuthenticated`` before the device has a session.
+        Otherwise the callback runs after the ``MachineChanged`` event.
+
+        Args:
+            venue_machine: The target VenueMachine uuid.
+            callback: ``(result: SwitchMachineResult, venue_machine: str) -> None``,
+                called once on an SDK thread.
+        """
+
+        @sb_switch_machine_callback_t
+        def _trampoline(result, venuemachine, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                callback(SwitchMachineResult(result), self._decode_c_string(venuemachine))
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        _lib.sb_switch_machine(self._handle, _encode(venue_machine), _trampoline, None)
 
     def request_top_scores(self, scope, period, since, vpin_filter, callback):
         # type: (int, int, object, int, ...) -> None

@@ -157,5 +157,11 @@ std::map<sb_player_t, std::string> PlayerProfilesManager::picturesToDownload() c
     return result;
 }
 
+void PlayerProfilesManager::clear()
+{
+    std::scoped_lock lock(m_profilesMutex);
+    m_profiles.clear();
+}
+
 } // namespace detail
 } // namespace scorbit

@@ -97,6 +97,12 @@ public:
     void requestPairMachine(const std::string &machineUuid, const std::string &ownerUuid,
                             StringCallback callback);
 
+    std::string venueMachine() const { return m_net->venueMachine(); }
+    TableMappingsSnapshot tableMappings() const;
+    void refreshTableMappings();
+    /// Refuses GAME_ACTIVE between setGameStarted() and setGameFinished(); see sb_switch_machine.
+    void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback);
+
     void download(StringCallback callback, const std::string &url, const std::string &filename,
                   const HttpHeaders &headers = {});
     /// download() under the limits in @p optionsJson; see sb_download_with_options.

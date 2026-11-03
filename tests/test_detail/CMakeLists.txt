@@ -96,6 +96,10 @@ target_sources(
         ../../source/game_state_impl.cpp
         ../../source/leaderboard_internal.h
         ../../source/leaderboard_c.cpp
+        ../../include/scorbit_sdk/table_mappings_c.h
+        ../../source/table_mappings_internal.h
+        ../../source/table_mappings.cpp
+        source/test_table_mappings.cpp
         source/test_leaderboard.cpp
         source/test_player_state.cpp
         ../../source/modes.h

@@ -188,6 +188,17 @@ public:
     }
 
     /**
+     * @brief Enable or disable reading the VPIN table mappings (default disabled); see
+     * @ref sb_config_set_vpin_table_mappings.
+     * @return Reference to this Config for method chaining.
+     */
+    Config &setVpinTableMappings(bool enabled)
+    {
+        sb_config_set_vpin_table_mappings(m_handle.get(), enabled);
+        return *this;
+    }
+
+    /**
      * @brief Set nice / QOS for SDK background threads (see @ref sb_config_set_threads_priority).
      */
     Config &setThreadsPriority(int priority)

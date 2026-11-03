@@ -23,6 +23,7 @@
 #include "common_types_c.h"
 #include "config_c.h"
 #include "leaderboard_c.h"
+#include "table_mappings_c.h"
 #include "net_types_c.h"
 #include "event_types_c.h"
 
@@ -359,6 +360,77 @@ void sb_request_top_scores(sb_game_handle_t handle, sb_leaderboard_scope_t scope
                            sb_leaderboard_period_t period, const char *since,
                            sb_leaderboard_vpin_filter_t vpin_filter,
                            sb_leaderboard_callback_t callback, void *user_data);
+
+/**
+ * @brief A copy of the VPIN table mappings the SDK holds.
+ *
+ * The SDK reads the mappings only when @ref sb_config_set_vpin_table_mappings enabled it. It
+ * refreshes them once authenticated, when the server signals a change, after a failed
+ * @ref sb_switch_machine and every 15 minutes, each time asking only for a changed list. Until the
+ * first read the result is @ref SB_TABLE_MAPPINGS_NONE and the list is empty; the SDK never
+ * invents one. On @ref SB_TABLE_MAPPINGS_UNAVAILABLE the last good list is kept.
+ *
+ * @ref SB_EVT_TABLE_MAPPINGS_UPDATED is raised whenever the list or the result changes.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @return A copy, never NULL; release it with @ref sb_table_mappings_free.
+ */
+SCORBIT_SDK_EXPORT
+sb_table_mappings_t sb_get_table_mappings(sb_game_handle_t handle);
+
+/**
+ * @brief Re-read the VPIN table mappings now, without blocking.
+ *
+ * Also resumes reading after the server answered that the device is not a VPIN device or has no
+ * owner. @ref SB_EVT_TABLE_MAPPINGS_UPDATED follows only if something changed. Does nothing
+ * unless @ref sb_config_set_vpin_table_mappings enabled reading.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_refresh_table_mappings(sb_game_handle_t handle);
+
+/**
+ * @brief Copy the VenueMachine uuid the device is on, "" when unpaired.
+ *
+ * This is the scorbitron object's machine id, the value @ref sb_switch_machine takes; it differs
+ * from @ref sb_get_machine_uuid, the device's own uuid. A host may skip a switch when it equals
+ * the target; the server treats that as a no-op too.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param buffer Receives the uuid, NUL-terminated and truncated to fit. May be NULL.
+ * @param buffer_size The size of @p buffer in bytes.
+ * @return The uuid's full length, excluding the NUL; a larger buffer is needed if it is not less
+ * than @p buffer_size.
+ */
+SCORBIT_SDK_EXPORT
+size_t sb_get_venue_machine(sb_game_handle_t handle, char *buffer, size_t buffer_size);
+
+/**
+ * @brief Move this VPIN device to another of its owner's VPIN machines.
+ *
+ * Refused at once, with @ref SB_SWITCH_MACHINE_GAME_ACTIVE between @ref sb_set_game_started and
+ * @ref sb_set_game_finished, @ref SB_SWITCH_MACHINE_BUSY while another switch is in flight, and
+ * @ref SB_SWITCH_MACHINE_NOT_AUTHENTICATED before the device has a session with the server.
+ *
+ * Otherwise the SDK waits up to 10 seconds for the finished game's posts to go out, holds new
+ * session posts, asks the server to switch, adopts the new connection and machine context and
+ * clears the players. It then raises @ref SB_EVT_MACHINE_CHANGED (and
+ * @ref SB_EVT_PAIRING_STATUS_CHANGED if the device was unpaired), releases the held posts and only
+ * then calls @p callback with @ref SB_SWITCH_MACHINE_OK. A game started after the callback lands
+ * on the new machine. On an error nothing changes, the SDK re-reads the table mappings, and the
+ * callback receives the error.
+ *
+ * Works whether or not table-mapping reads are enabled.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param venuemachine_uuid The target VenueMachine uuid.
+ * @param callback Receives the result; see @ref sb_switch_machine_callback_t. May be NULL.
+ * @param user_data Optional user data passed to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_switch_machine(sb_game_handle_t handle, const char *venuemachine_uuid,
+                       sb_switch_machine_callback_t callback, void *user_data);
 
 /**
  * @brief Request a pairing short code (6 alphanumeric characters).

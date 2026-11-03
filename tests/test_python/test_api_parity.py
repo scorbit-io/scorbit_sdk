@@ -76,6 +76,26 @@ for _name in [
     EXCEPTIONS.setdefault(_name, {})["godot"] = "Scorbitron device daemon plumbing"
 
 
+# A VPIN host's table mappings and machine switch: a Godot game is not a VPIN table host.
+for _name in [
+    "sb_config_set_vpin_table_mappings",
+    "sb_event_machine_changed",
+    "sb_get_table_mappings",
+    "sb_get_venue_machine",
+    "sb_refresh_table_mappings",
+    "sb_switch_machine",
+    "sb_table_mapping_key_type",
+    "sb_table_mapping_table_key",
+    "sb_table_mapping_venuemachine",
+    "sb_table_mappings_count",
+    "sb_table_mappings_etag",
+    "sb_table_mappings_free",
+    "sb_table_mappings_result",
+    "sb_table_mappings_server_time",
+]:
+    EXCEPTIONS.setdefault(_name, {})["godot"] = "VPIN host plumbing"
+
+
 def strip_comments(text, line_comment):
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S) if line_comment == "//" else text
     return re.sub(re.escape(line_comment) + r"[^\n]*", " ", text)

@@ -87,6 +87,8 @@ struct DeviceInfo {
     std::string uuid;
     uint64_t serialNumber {0};
     bool autoDownloadPlayerPics {false};
+    /// Read the VPIN table mappings (sb_config_set_vpin_table_mappings).
+    bool vpinTableMappings {false};
     std::vector<std::string> scoreFeatures;
     int scoreFeaturesVersion {0};
 

@@ -150,6 +150,19 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_auto_download_player_pics(sb_config_t config, bool enable);
 
 /**
+ * @brief Enable or disable reading the VPIN table mappings (default disabled).
+ *
+ * While disabled the SDK never fetches them; @ref sb_switch_machine still works. When the server
+ * answers that the device is not a VPIN device or has no owner, the SDK stops reading until the
+ * pairing changes or the host calls @ref sb_refresh_table_mappings.
+ *
+ * @param config The configuration handle.
+ * @param enabled true to read the mappings; see @ref sb_get_table_mappings.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_vpin_table_mappings(sb_config_t config, bool enabled);
+
+/**
  * @brief Set scheduling priority for SDK-owned background threads (worker and C API queue).
  *
  * On Linux this is the value passed to setpriority(2) for each of those threads (higher means

@@ -503,3 +503,18 @@ bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
     *is_paired = derived->isPaired();
     return true;
 }
+
+bool sb_event_machine_changed(const sb_event_t *event, const char **venuemachine)
+{
+    if (!event || !venuemachine) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::MachineChangedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *venuemachine = derived->venueMachine().c_str();
+    return true;
+}
