@@ -26,6 +26,7 @@
 #include "player_tracker.h"
 #include "report_outbox.h"
 #include "timeline_row.h"
+#include "unlock_presenter.h"
 #include "../net_base.h"
 #include <functional>
 #include <map>
@@ -44,17 +45,6 @@ namespace achievements {
 
 /** The system clock, in UTC epoch milliseconds. */
 int64_t systemWallClock();
-
-/** An achievement the server granted a claimed player, as delivered to game code. */
-struct AchievementUnlock {
-    std::string key;
-    PlayerNumber player {0};
-    std::string name;
-    std::string description;
-
-    /** The artwork of the configured kind; empty when there is none. */
-    std::vector<uint8_t> artwork;
-};
 
 /** Read-only snapshot of the achievements state, safe to read from any thread. */
 struct AchievementsView {
@@ -81,7 +71,7 @@ public:
     using Poster = std::function<void(std::function<void()>)>;
 
     /** Receives every unlock for game code. */
-    using UnlockSink = std::function<void(AchievementUnlock)>;
+    using UnlockSink = UnlockPresenter::Sink;
 
     /** The wall clock, in UTC epoch milliseconds. */
     using WallClock = std::function<int64_t()>;
@@ -166,12 +156,6 @@ private:
     /** Puts @p response in force if it parses, and caches it when @p persist. */
     bool applyDefinitions(const CachedDefinitions &response, bool persist);
 
-    /**
-     * Hands @p unlock to game code once its artwork is settled: an icon not held yet is fetched
-     * from @p iconUrl first.
-     */
-    void deliver(AchievementUnlock unlock, const std::string &iconUrl);
-
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
@@ -198,8 +182,8 @@ private:
     NetBase &m_net;
     AchievementStorage m_storage;
     Poster m_poster;
-    UnlockSink m_sink;
     ArtworkStore m_artwork;
+    UnlockPresenter m_presenter;
 
     /** The definitions in force, from the last response that parsed. */
     std::shared_ptr<const DefinitionFeed> m_feed = std::make_shared<DefinitionFeed>();

@@ -88,6 +88,22 @@ std::optional<T> parseJson(const std::string &body,
     }
 }
 
+/** @p key unlocked for @p player, described from @p definitions, and the URL of its icon. */
+std::pair<AchievementUnlock, std::string> describeUnlock(const DefinitionSet &definitions,
+                                                         std::string key, PlayerNumber player)
+{
+    std::pair<AchievementUnlock, std::string> described;
+    auto &[unlock, iconUrl] = described;
+    unlock.key = std::move(key);
+    unlock.player = player;
+    if (const auto *definition = definitions.find(unlock.key)) {
+        unlock.name = definition->name;
+        unlock.description = definition->description;
+        iconUrl = definition->iconUrl;
+    }
+    return described;
+}
+
 /** Definitions are revalidated at least this often (§10.3). */
 constexpr int64_t REVALIDATE_EVERY_MS = 24 * 3'600'000;
 
@@ -111,8 +127,8 @@ AchievementService::AchievementService(NetBase &net, AchievementStorage storage,
     : m_net {net}
     , m_storage {std::move(storage)}
     , m_poster {std::move(poster)}
-    , m_sink {std::move(sink)}
     , m_artwork {net, m_poster, artworkKind}
+    , m_presenter {m_artwork, std::move(sink)}
     , m_wallClock {std::move(wallClock)}
 {
     if (const auto cached = m_storage.loadDefinitions();
@@ -226,20 +242,6 @@ void AchievementService::refreshArtwork()
 std::optional<std::vector<uint8_t>> AchievementService::artwork(const std::string &key) const
 {
     return m_artwork.cached(key);
-}
-
-void AchievementService::deliver(AchievementUnlock unlock, const std::string &iconUrl)
-{
-    // Held while its artwork is still downloading, so the game can present both together
-    auto key = unlock.key;
-    m_artwork.whenReady(
-            key, iconUrl, [this, unlock = std::move(unlock)](std::vector<uint8_t> artwork) mutable {
-                unlock.artwork = std::move(artwork);
-                INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
-                if (m_sink) {
-                    m_sink(std::move(unlock));
-                }
-            });
 }
 
 // ---- Session -----------------------------------------------------------------------------------
@@ -448,16 +450,9 @@ void AchievementService::publish(Session &session, PlayerNumber player, Claim &c
         if (update.status != AchievementStatus::Confirmed) {
             continue;
         }
-        AchievementUnlock unlock;
-        unlock.key = std::move(update.key);
-        unlock.player = player;
-        std::string iconUrl;
-        if (const auto *definition = session.definitions().find(unlock.key)) {
-            unlock.name = definition->name;
-            unlock.description = definition->description;
-            iconUrl = definition->iconUrl;
-        }
-        deliver(std::move(unlock), iconUrl);
+        auto [unlock, iconUrl] = describeUnlock(session.definitions(), update.key, player);
+        m_presenter.granted({session.id, claim.userId, std::move(update.key)}, std::move(unlock),
+                            iconUrl);
     }
 }
 
@@ -629,7 +624,12 @@ void AchievementService::onRetryTimer()
 void AchievementService::dropDrainedSessions()
 {
     std::erase_if(m_sessions, [this](const std::unique_ptr<Session> &session) {
-        return session.get() != m_current && session->finished && session->outbox->empty();
+        const bool drained =
+                session.get() != m_current && session->finished && session->outbox->empty();
+        if (drained) {
+            m_presenter.forgetSession(session->id);
+        }
+        return drained;
     });
 }
 
