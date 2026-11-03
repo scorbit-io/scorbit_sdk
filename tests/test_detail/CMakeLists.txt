@@ -126,12 +126,15 @@ target_sources(
         ../../source/achievements/report.h
         ../../source/achievements/report_outbox.h
         ../../source/achievements/report_outbox.cpp
+        ../../source/achievements/unlock_proximity.h
+        ../../source/achievements/unlock_proximity.cpp
         ../../source/achievements/achievement_storage.h
         ../../source/achievements/achievement_storage.cpp
         ../../source/achievements/artwork_store.h
         ../../source/achievements/artwork_store.cpp
         ../../source/achievements/achievement_service.h
         ../../source/achievements/achievement_service.cpp
+        source/test_achievement_proximity.cpp
         source/test_achievement_tracker.cpp
         source/test_achievement_reporting.cpp
         source/test_game_state_achievements.cpp

@@ -187,6 +187,25 @@ ReportItem PlayerTracker::reportItem(const std::string &key, const Record &recor
     return item;
 }
 
+std::vector<std::pair<std::string, UnlockProximity>>
+PlayerTracker::nearUnlocks(const DefinitionSet &definitions) const
+{
+    std::vector<std::pair<std::string, UnlockProximity>> near;
+    for (const auto &[key, record] : m_records) {
+        if (record.isTrophy || record.retracted || record.unlockedLocally || m_held.count(key)) {
+            continue;
+        }
+        const auto *definition = definitions.find(key);
+        if (!definition) {
+            continue;
+        }
+        if (const auto proximity = unlockProximity(*definition, record.rules); proximity.near) {
+            near.emplace_back(key, proximity);
+        }
+    }
+    return near;
+}
+
 void PlayerTracker::retract(const std::string &key, Record &record)
 {
     record.retracted = true;

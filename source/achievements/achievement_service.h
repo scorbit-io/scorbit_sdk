@@ -180,6 +180,8 @@ private:
     void evaluate(Session &session, PlayerNumber player, Claim &claim);
     void publish(Session &session, PlayerNumber player, Claim &claim);
     void reportBallEnd(Session &session, PlayerNumber player);
+    /** Fetches ahead the icons of achievements the session's players are about to unlock. */
+    void prefetchIcons(const Session &session);
 
     void pump(const std::shared_ptr<ReportOutbox> &outbox);
     /** Tells the artwork store whether any report is in flight. */

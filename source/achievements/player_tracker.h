@@ -24,6 +24,7 @@
 #include "progress.h"
 #include "report.h"
 #include "rule_evaluator.h"
+#include "unlock_proximity.h"
 #include <map>
 #include <optional>
 #include <string>
@@ -114,6 +115,14 @@ public:
 
     /** Every tracked record, by key. */
     std::map<std::string, Record> records() const;
+
+    /**
+     * The tracked achievements this player looks close to unlocking (see @ref unlockProximity),
+     * with how close each is. Those the player holds, has unlocked, or can't unlock on this
+     * machine (trophies, refused unlocks) are left out.
+     */
+    std::vector<std::pair<std::string, UnlockProximity>>
+    nearUnlocks(const DefinitionSet &definitions) const;
 
     /** Whether the player holds @p key: at claim time, or earned and not retracted since. */
     bool holds(const std::string &key) const { return m_held.count(key) != 0; }
