@@ -211,11 +211,20 @@ class Config(object):
         # type: (AchievementArtwork) -> Config
         """Choose the artwork handed over with ``AchievementUnlocked``.
 
-        The SDK downloads it for every achievement and keeps it in memory,
-        so an unlock can be presented with it at once. Nothing is downloaded
-        with the default, ``AchievementArtwork.None_``.
+        DMD frames are downloaded ahead and kept in memory. An icon is
+        downloaded when its unlock is granted, and the last few are kept.
+        Nothing is downloaded with the default, ``AchievementArtwork.None_``.
         """
         _lib.sb_config_set_achievement_artwork(self._handle, int(artwork))
+        return self
+
+    def set_achievement_presentation(self, presentation):
+        # type: (AchievementPresentation) -> Config
+        """Choose when ``AchievementUnlocked`` is raised for an achievement the
+        machine decided: once Scorbit grants it (the default), or at once with
+        ``AchievementPresentation.Local``. See ``AchievementPresentation``.
+        """
+        _lib.sb_config_set_achievement_presentation(self._handle, int(presentation))
         return self
 
     def set_threads_priority(self, priority):

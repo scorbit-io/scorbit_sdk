@@ -685,6 +685,11 @@ bool ScorbitGameState::start(const Dictionary &config)
         api().sb_config_set_achievement_artwork(
                 cfg, static_cast<sb_achievement_artwork_t>(int(config["achievement_artwork"])));
     }
+    if (config.has("achievement_presentation")) {
+        api().sb_config_set_achievement_presentation(
+                cfg, static_cast<sb_achievement_presentation_t>(
+                             int(config["achievement_presentation"])));
+    }
     api().sb_config_set_event_callback(cfg, &onEvent, m_bridge.get());
     api().sb_config_set_save_key_callback(cfg, &onSaveKey, m_bridge.get());
     api().sb_config_set_load_key_callback(cfg, &onLoadKey, m_bridge.get());
@@ -1329,6 +1334,11 @@ void ScorbitGameState::_bind_methods()
                                    SB_ACHIEVEMENT_ARTWORK_FRAME);
     ClassDB::bind_integer_constant(cls, "AchievementArtwork", "ACHIEVEMENT_ARTWORK_IMAGE",
                                    SB_ACHIEVEMENT_ARTWORK_IMAGE);
+    ClassDB::bind_integer_constant(cls, "AchievementPresentation",
+                                   "ACHIEVEMENT_PRESENTATION_GRANTED",
+                                   SB_ACHIEVEMENT_PRESENTATION_GRANTED);
+    ClassDB::bind_integer_constant(cls, "AchievementPresentation", "ACHIEVEMENT_PRESENTATION_LOCAL",
+                                   SB_ACHIEVEMENT_PRESENTATION_LOCAL);
 }
 
 } // namespace scorbit_godot

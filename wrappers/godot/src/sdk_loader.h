@@ -38,6 +38,7 @@
     X(sb_config_create)                                                                            \
     X(sb_config_destroy)                                                                           \
     X(sb_config_set_achievement_artwork)                                                           \
+    X(sb_config_set_achievement_presentation)                                                      \
     X(sb_config_set_auto_download_player_pics)                                                     \
     X(sb_config_set_cf_hostname)                                                                   \
     X(sb_config_set_data_dir)                                                                      \

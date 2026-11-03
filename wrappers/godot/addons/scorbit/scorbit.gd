@@ -79,6 +79,11 @@ const ACHIEVEMENT_ARTWORK_NONE := 0  # nothing (the default); nothing is downloa
 const ACHIEVEMENT_ARTWORK_FRAME := 1  # the DMD frame, for the machine's display
 const ACHIEVEMENT_ARTWORK_IMAGE := 2  # the icon, a high-resolution image for LCD machines
 
+# The achievement_presentation setting of start(): when achievement_unlocked is raised for an
+# achievement the machine decided. Trophies are always raised once Scorbit grants them.
+const ACHIEVEMENT_PRESENTATION_GRANTED := 0  # once Scorbit grants it (the default)
+const ACHIEVEMENT_PRESENTATION_LOCAL := 1  # at once, even offline; not signalled if refused
+
 # get_status() values.
 const NOT_AUTHENTICATED := 0
 const AUTHENTICATING := 1
@@ -141,8 +146,9 @@ func get_sdk_error() -> String:
 ## device key is kept, user://scorbit/device_key by default), score_features (an Array of names) and
 ## score_features_version, machine_title, game_firmware ({id, version, serial}), uuid,
 ## serial_number, extra_fingerprint, threads_priority, worker_thread_count, cf_hostname,
-## heartbeat_host, heartbeat_port, achievement_artwork (an ACHIEVEMENT_ARTWORK_* value) and data_dir
-## (where the achievements cache is kept between runs, user://scorbit/data by default).
+## heartbeat_host, heartbeat_port, achievement_artwork (an ACHIEVEMENT_ARTWORK_* value),
+## achievement_presentation (an ACHIEVEMENT_PRESENTATION_* value) and data_dir (where the
+## achievements cache is kept between runs, user://scorbit/data by default).
 func start(config: Dictionary) -> bool:
 	return _native.start(config) if _native else false
 

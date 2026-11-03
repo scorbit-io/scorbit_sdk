@@ -75,7 +75,10 @@ Everything a game uses from the SDK. `scorbit.gd` documents each call:
   one, `achievement_unlocked(key, player, name, description, artwork)` reports it, ready to show.
   The `achievement_artwork` setting of `start()` chooses the artwork: `ACHIEVEMENT_ARTWORK_FRAME`
   (the DMD frame) or `ACHIEVEMENT_ARTWORK_IMAGE` (the icon); with the default,
-  `ACHIEVEMENT_ARTWORK_NONE`, none is downloaded.
+  `ACHIEVEMENT_ARTWORK_NONE`, none is downloaded. With the `achievement_presentation` setting
+  `ACHIEVEMENT_PRESENTATION_LOCAL`, an achievement the machine decided is reported the moment it
+  decides it, even offline, instead of once Scorbit grants it; a refusal that follows is not
+  signalled.
 - **Leaderboards:** `request_top_scores(scope, period, since, vpin_filter)` answers with
   `top_scores_received`.
 - **Pairing:** `get_pair_deeplink`, `request_pair_code`, `request_pair_machine`, `request_unpair`,

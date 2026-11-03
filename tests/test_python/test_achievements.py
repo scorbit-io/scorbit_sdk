@@ -21,6 +21,8 @@ class TestAchievementsExports(unittest.TestCase):
         self.assertEqual(scorbit.AchievementArtwork.None_, 0)
         self.assertEqual(scorbit.AchievementArtwork.Frame, 1)
         self.assertEqual(scorbit.AchievementArtwork.Image, 2)
+        self.assertEqual(scorbit.AchievementPresentation.Granted, 0)
+        self.assertEqual(scorbit.AchievementPresentation.Local, 1)
 
     def test_unlock_fields(self):
         unlock = scorbit.AchievementUnlock()
@@ -39,6 +41,7 @@ class TestAchievementsGameState(unittest.TestCase):
         config.set_signer(_signer)
         config.set_data_dir(self.data_dir)
         config.set_achievement_artwork(scorbit.AchievementArtwork.Frame)
+        config.set_achievement_presentation(scorbit.AchievementPresentation.Local)
         self.gs = scorbit.create_game_state(config)
 
     def tearDown(self):

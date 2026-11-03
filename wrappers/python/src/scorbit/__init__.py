@@ -42,6 +42,7 @@ from ._version import __version__
 
 from ._enums import (
     AchievementArtwork,
+    AchievementPresentation,
     AuthStatus,
     Capability,
     Error,
@@ -132,6 +133,7 @@ __all__ = [
     "__version__",
     # Enums
     "AchievementArtwork",
+    "AchievementPresentation",
     "AuthStatus",
     "Capability",
     "Error",

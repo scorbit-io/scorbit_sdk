@@ -62,6 +62,7 @@ TEST_CASE("Achievements C API on a fresh game state", "[Achievements]")
     sb_config_set_signer(cfg, dummySigner, nullptr);
     sb_config_set_data_dir(cfg, dataDir.c_str());
     sb_config_set_achievement_artwork(cfg, SB_ACHIEVEMENT_ARTWORK_FRAME);
+    sb_config_set_achievement_presentation(cfg, SB_ACHIEVEMENT_PRESENTATION_LOCAL);
 
     sb_game_handle_t h = sb_create_game_state(cfg);
     REQUIRE(h != nullptr);
@@ -87,6 +88,20 @@ TEST_CASE("Config chooses the achievement artwork", "[Achievements][C++]")
     config.setDataDir(tempDir()).setAchievementArtwork(scorbit::AchievementArtwork::Image);
     CHECK(config.isValid());
     CHECK(static_cast<int>(scorbit::AchievementArtwork::Frame) == SB_ACHIEVEMENT_ARTWORK_FRAME);
+}
+
+TEST_CASE("Config chooses the achievement presentation", "[Achievements][C++]")
+{
+    sb_config_set_achievement_presentation(nullptr, SB_ACHIEVEMENT_PRESENTATION_LOCAL); // ignored
+
+    scorbit::Config config;
+    config.setDataDir(tempDir()).setAchievementPresentation(
+            scorbit::AchievementPresentation::Local);
+    CHECK(config.isValid());
+    CHECK(static_cast<int>(scorbit::AchievementPresentation::Granted)
+          == SB_ACHIEVEMENT_PRESENTATION_GRANTED);
+    CHECK(static_cast<int>(scorbit::AchievementPresentation::Local)
+          == SB_ACHIEVEMENT_PRESENTATION_LOCAL);
 }
 
 TEST_CASE("Achievement event helpers reject other events", "[Achievements]")

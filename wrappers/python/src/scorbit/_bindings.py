@@ -164,6 +164,10 @@ _lib.sb_config_set_data_dir.argtypes = [sb_config_t, c_char_p]
 _lib.sb_config_set_achievement_artwork.restype = None
 _lib.sb_config_set_achievement_artwork.argtypes = [sb_config_t, c_int]
 
+# void sb_config_set_achievement_presentation(sb_config_t, sb_achievement_presentation_t)
+_lib.sb_config_set_achievement_presentation.restype = None
+_lib.sb_config_set_achievement_presentation.argtypes = [sb_config_t, c_int]
+
 # void sb_config_set_threads_priority(sb_config_t, int)
 _lib.sb_config_set_threads_priority.restype = None
 _lib.sb_config_set_threads_priority.argtypes = [sb_config_t, c_int]

@@ -100,10 +100,11 @@ End Sub
 
 The SDK the plugin runs evaluates achievements by itself on every commit, from the game state and
 the game events the table adds with `ScorbitAddGameEvent`. `SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED`
-reports an achievement Scorbit granted, ready to show. `ScorbitEventAchievement()` returns it as a
+reports an unlocked achievement, ready to show. `ScorbitEventAchievement()` returns it as a
 `ScorbitAchievementUnlock`, with `Key`, `Player`, `Name`, `Description` and `Artwork`: the full path
-of its artwork, or `""`. The plugin chooses which artwork it hands over. Like a player's picture,
-the file belongs to the plugin.
+of its artwork, or `""`. The plugin chooses which artwork it hands over, and whether an achievement
+the machine decided is reported once Scorbit grants it or at once (`sb_config_set_achievement_presentation`).
+Like a player's picture, the file belongs to the plugin.
 
 A leaderboard request returns an id, and its answer is kept under that id until released:
 

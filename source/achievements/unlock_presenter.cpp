@@ -25,10 +25,22 @@ namespace scorbit {
 namespace detail {
 namespace achievements {
 
-UnlockPresenter::UnlockPresenter(ArtworkStore &artwork, Sink sink)
+UnlockPresenter::UnlockPresenter(ArtworkStore &artwork, Sink sink, Presentation presentation)
     : m_artwork {artwork}
     , m_sink {std::move(sink)}
+    , m_presentation {presentation}
 {
+}
+
+void UnlockPresenter::decided(const GrantId &grant, AchievementUnlock unlock)
+{
+    if (m_presentation != Presentation::Local || !m_raised.insert(grant).second) {
+        return;
+    }
+
+    // Never delayed by a download: the artwork goes along only if it is already held
+    unlock.artwork = m_artwork.handOver(unlock.key);
+    hand(std::move(unlock));
 }
 
 void UnlockPresenter::granted(const GrantId &grant, AchievementUnlock unlock,
@@ -57,11 +69,16 @@ void UnlockPresenter::raise(AchievementUnlock unlock, const std::string &iconUrl
     m_artwork.whenReady(
             key, iconUrl, [this, unlock = std::move(unlock)](std::vector<uint8_t> artwork) mutable {
                 unlock.artwork = std::move(artwork);
-                INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
-                if (m_sink) {
-                    m_sink(std::move(unlock));
-                }
+                hand(std::move(unlock));
             });
+}
+
+void UnlockPresenter::hand(AchievementUnlock unlock)
+{
+    INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
+    if (m_sink) {
+        m_sink(std::move(unlock));
+    }
 }
 
 } // namespace achievements

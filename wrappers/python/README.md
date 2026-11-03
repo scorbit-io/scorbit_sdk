@@ -167,9 +167,15 @@ slot. When Scorbit grants one, the event callback receives `EventType.Achievemen
 `event.get_achievement_unlocked()` returns an `AchievementUnlock`: `key`, `player`, `name`,
 `description` and `artwork`. It can be presented at once.
 
-`Config.set_achievement_artwork(AchievementArtwork.Frame)` (or `.Image`) makes the SDK download that
-artwork for every achievement and hand it over in `artwork`; with the default, `None_`, nothing is
-downloaded. `Config.set_data_dir(path)` keeps the achievements cache across reboots.
+`Config.set_achievement_artwork(AchievementArtwork.Frame)` (or `.Image`) makes the SDK hand that
+artwork over in `artwork`: DMD frames are downloaded ahead, an icon when its unlock is granted. With
+the default, `None_`, nothing is downloaded. `Config.set_data_dir(path)` keeps the achievements
+cache across reboots.
+
+`Config.set_achievement_presentation(AchievementPresentation.Local)` raises an achievement the
+machine decided the moment it decides it, even offline, instead of once Scorbit grants it (the
+default, `Granted`). It is raised once either way. Local presentation is not authoritative: if
+Scorbit refuses it, nothing is signalled. Trophies are always raised once Scorbit grants them.
 
 ### `Event`
 
