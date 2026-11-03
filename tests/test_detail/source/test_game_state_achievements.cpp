@@ -44,11 +44,13 @@ namespace {
 class FakeNet : public NetBase
 {
 public:
-    explicit FakeNet(std::string dataDir,
-                     sb_achievement_artwork_t artwork = SB_ACHIEVEMENT_ARTWORK_NONE)
+    explicit FakeNet(
+            std::string dataDir, sb_achievement_artwork_t artwork = SB_ACHIEVEMENT_ARTWORK_NONE,
+            sb_achievement_presentation_t presentation = SB_ACHIEVEMENT_PRESENTATION_GRANTED)
     {
         m_info.dataDir = std::move(dataDir);
         m_info.achievementArtwork = artwork;
+        m_info.achievementPresentation = presentation;
     }
 
     AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
@@ -287,9 +289,11 @@ struct Fixture {
     FakeNet *net;
     std::unique_ptr<GameStateImpl> game;
 
-    explicit Fixture(json baseline = json::array(), std::string definitions = DEFINITIONS)
+    explicit Fixture(
+            json baseline = json::array(), std::string definitions = DEFINITIONS,
+            sb_achievement_presentation_t presentation = SB_ACHIEVEMENT_PRESENTATION_GRANTED)
     {
-        auto fake = std::make_unique<FakeNet>(dir.str());
+        auto fake = std::make_unique<FakeNet>(dir.str(), SB_ACHIEVEMENT_ARTWORK_NONE, presentation);
         net = fake.get();
         game = std::make_unique<GameStateImpl>(std::move(fake));
 
@@ -794,9 +798,10 @@ struct ArtworkFixture {
     FakeNet *net;
     std::unique_ptr<GameStateImpl> game;
 
-    ArtworkFixture(sb_achievement_artwork_t kind, const std::string &definitions)
+    ArtworkFixture(sb_achievement_artwork_t kind, const std::string &definitions,
+                   sb_achievement_presentation_t presentation = SB_ACHIEVEMENT_PRESENTATION_GRANTED)
     {
-        auto fake = std::make_unique<FakeNet>(dir.str(), kind);
+        auto fake = std::make_unique<FakeNet>(dir.str(), kind, presentation);
         net = fake.get();
         game = std::make_unique<GameStateImpl>(std::move(fake));
         net->definitionsReply(ApiReply {Error::Success, 200, definitions, {}});
@@ -819,8 +824,8 @@ struct ArtworkFixture {
         return artwork ? std::string(artwork->begin(), artwork->end()) : std::string {};
     }
 
-    /** Starts a game with player 1 claimed, and unlocks game-cv-boom. */
-    void unlockBoom()
+    /** Starts a game with player 1 claimed. */
+    void startClaimed()
     {
         game->setGameStarted(GameStartOrigin::StartButton);
         net->claim(1, "3f1c");
@@ -828,7 +833,12 @@ struct ArtworkFixture {
         game->runPendingPosts();
         net->progressReply(ApiReply {Error::Success, 200, "[]"});
         game->runPendingPosts();
+    }
 
+    /** Starts a game with player 1 claimed, and unlocks game-cv-boom. */
+    void unlockBoom()
+    {
+        startClaimed();
         game->addMode("balloon");
         game->commit();
         REQUIRE(net->reports.size() == 1);
@@ -1197,6 +1207,81 @@ TEST_CASE("An unlock carries its artwork, and waits for it", "[achievements]")
     }
 }
 
+TEST_CASE("Local presentation raises an unlock the moment the machine decides it", "[achievements]")
+{
+    ArtworkFixture f(SB_ACHIEVEMENT_ARTWORK_FRAME,
+                     artworkDefinitions(4, "https://cdn.example/icons/boom.png", true),
+                     SB_ACHIEVEMENT_PRESENTATION_LOCAL);
+
+    SECTION("With its frame, and not again on the grant")
+    {
+        f.answer("BOOM4");
+        f.answer("BLAST1");
+        f.startClaimed();
+        f.game->addMode("balloon");
+        f.game->commit();
+        REQUIRE(f.net->unlocks.size() == 1); // before any reply
+        CHECK(f.net->unlocks.front().key == "game-cv-boom");
+        CHECK(f.net->unlocks.front().artwork == "BOOM4");
+
+        REQUIRE(f.net->reports.size() == 1);
+        f.net->reports.front().reply(outcome("game-cv-boom", "unlocked"));
+        f.game->runPendingPosts();
+        CHECK(f.net->unlocks.size() == 1);
+    }
+
+    SECTION("Never waiting for its artwork")
+    {
+        f.startClaimed();
+        f.game->addMode("balloon");
+        f.game->commit();
+        REQUIRE(f.net->unlocks.size() == 1);
+        CHECK(f.net->unlocks.front().artwork.empty()); // boom's frame is still downloading
+    }
+
+    SECTION("A refusal raises nothing and retracts nothing")
+    {
+        f.startClaimed();
+        f.game->addMode("balloon");
+        f.game->commit();
+        REQUIRE(f.net->reports.size() == 1);
+        f.net->reports.front().reply(ApiReply {Error::Success, 200,
+                                               reply({{{"key", "game-cv-boom"},
+                                                       {"status", "rejected"},
+                                                       {"code", "scope_mismatch"},
+                                                       {"detail", "Not here."}}})});
+        f.game->runPendingPosts();
+        CHECK(f.net->unlocks.size() == 1);
+    }
+}
+
+TEST_CASE("Local presentation still waits for the grant of a trophy", "[achievements]")
+{
+    auto definitions = json::parse(DEFINITIONS);
+    definitions["results"].push_back({{"key", "game-cv-top-spinner"},
+                                      {"scope", "game"},
+                                      {"is_single_session", false},
+                                      {"is_trophy", true},
+                                      {"frame", nullptr},
+                                      {"frame_version", 0},
+                                      {"rules", json::array({{{"type", "EVENT"},
+                                                              {"comparison", ">="},
+                                                              {"target", 1},
+                                                              {"reference", "spins"}}})}});
+    Fixture f(json::array(), definitions.dump(), SB_ACHIEVEMENT_PRESENTATION_LOCAL);
+
+    f.game->addEvent("spins", 3);
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    CHECK(f.net->unlocks.empty()); // the server's call
+
+    REQUIRE(f.net->reports.size() == 1);
+    f.net->reports.front().reply(outcome("game-cv-top-spinner", "unlocked"));
+    f.game->runPendingPosts();
+    REQUIRE(f.net->unlocks.size() == 1);
+    CHECK(f.net->unlocks.front().key == "game-cv-top-spinner");
+}
+
 TEST_CASE("One unlock event is raised per grant", "[achievements]")
 {
     TempDir dir;
@@ -1253,6 +1338,7 @@ TEST_CASE("Definitions are revalidated at least daily, and after local midnight"
                                 [](std::function<void()> fn) { fn(); },
                                 {},
                                 ArtworkKind::None,
+                                Presentation::Granted,
                                 [&now] { return now; }};
 
     SECTION("Without a time zone, after UTC midnight, spread over a few minutes")

@@ -229,6 +229,17 @@ public:
     }
 
     /**
+     * @brief Choose when @ref EventType::AchievementUnlocked is raised for an achievement the
+     *        machine decided (see @ref sb_config_set_achievement_presentation).
+     */
+    Config &setAchievementPresentation(AchievementPresentation presentation)
+    {
+        sb_config_set_achievement_presentation(
+                m_handle.get(), static_cast<sb_achievement_presentation_t>(presentation));
+        return *this;
+    }
+
+    /**
      * @brief Set how many threads the SDK uses for blocking work (see @ref
      *        sb_config_set_worker_thread_count).
      * @param count Number of threads, clamped to 1-8. Optional, defaults to 4; use 2 on

@@ -35,6 +35,12 @@ enum class AchievementArtwork {
     Image = SB_ACHIEVEMENT_ARTWORK_IMAGE,
 };
 
+/** @brief When an unlock the machine decided is raised; see @ref sb_achievement_presentation_t. */
+enum class AchievementPresentation {
+    Granted = SB_ACHIEVEMENT_PRESENTATION_GRANTED,
+    Local = SB_ACHIEVEMENT_PRESENTATION_LOCAL,
+};
+
 /** @brief The content of an @ref EventType::AchievementUnlocked event. */
 struct AchievementUnlock {
     std::string key;

@@ -101,6 +101,13 @@ scorbit::detail::achievements::ArtworkKind artworkKind(sb_achievement_artwork_t 
     return ArtworkKind::None;
 }
 
+scorbit::detail::achievements::Presentation presentation(sb_achievement_presentation_t presentation)
+{
+    using scorbit::detail::achievements::Presentation;
+    return presentation == SB_ACHIEVEMENT_PRESENTATION_LOCAL ? Presentation::Local
+                                                             : Presentation::Granted;
+}
+
 } // namespace
 
 namespace scorbit {
@@ -125,7 +132,8 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
                         std::move(unlock.key), unlock.player, std::move(unlock.name),
                         std::move(unlock.description), std::move(unlock.artwork)));
             },
-            artworkKind(m_net->deviceInfo().achievementArtwork));
+            artworkKind(m_net->deviceInfo().achievementArtwork),
+            presentation(m_net->deviceInfo().achievementPresentation));
     m_net->setPlayersChangedCallback([this](const std::vector<PlayerProfile> &) {
         post([this] { m_achievements->onPlayersChanged(); });
     });

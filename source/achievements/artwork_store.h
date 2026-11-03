@@ -89,6 +89,9 @@ public:
     /** The artwork held for achievement @p key, without waiting for any download. */
     std::optional<std::vector<uint8_t>> cached(const std::string &key) const;
 
+    /** The artwork held for @p key, now handed over with an unlock; empty when none is held. */
+    std::vector<uint8_t> handOver(const std::string &key);
+
     /**
      * Calls @p ready with the artwork of @p key once no download of it is outstanding: at once
      * when none is. An icon not held yet is downloaded from @p iconUrl first. Calls for one key

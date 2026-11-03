@@ -123,12 +123,12 @@ int64_t systemWallClock()
 
 AchievementService::AchievementService(NetBase &net, AchievementStorage storage, Poster poster,
                                        UnlockSink sink, ArtworkKind artworkKind,
-                                       WallClock wallClock)
+                                       Presentation presentation, WallClock wallClock)
     : m_net {net}
     , m_storage {std::move(storage)}
     , m_poster {std::move(poster)}
     , m_artwork {net, m_poster, artworkKind}
-    , m_presenter {m_artwork, std::move(sink)}
+    , m_presenter {m_artwork, std::move(sink), presentation}
     , m_wallClock {std::move(wallClock)}
 {
     if (const auto cached = m_storage.loadDefinitions();
@@ -444,15 +444,20 @@ void AchievementService::publish(Session &session, PlayerNumber player, Claim &c
     session.outbox->add(claim.userId, claim.tracker->takeClaims());
     pump(session.outbox);
 
-    // Game code hears of an achievement once the server granted it: what the machine decided
-    // alone may still be refused, and a trophy is the server's call anyway (§7.2)
+    // What the machine decided alone may still be refused, so by default game code hears of it
+    // once Scorbit grants it; the presenter knows when (§7.2)
     for (auto &update : claim.tracker->takeUpdates()) {
-        if (update.status != AchievementStatus::Confirmed) {
+        if (update.status != AchievementStatus::UnlockedLocally
+            && update.status != AchievementStatus::Confirmed) {
             continue;
         }
         auto [unlock, iconUrl] = describeUnlock(session.definitions(), update.key, player);
-        m_presenter.granted({session.id, claim.userId, std::move(update.key)}, std::move(unlock),
-                            iconUrl);
+        GrantId grant {session.id, claim.userId, std::move(update.key)};
+        if (update.status == AchievementStatus::UnlockedLocally) {
+            m_presenter.decided(grant, std::move(unlock));
+        } else {
+            m_presenter.granted(grant, std::move(unlock), iconUrl);
+        }
     }
 }
 

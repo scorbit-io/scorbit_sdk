@@ -36,7 +36,8 @@ extern "C" {
  * When Scorbit grants a claimed player an achievement, the SDK raises
  * @ref SB_EVT_ACHIEVEMENT_UNLOCKED, which game code may present: see
  * @ref sb_event_achievement_unlocked. To present it with its artwork, choose the kind with
- * @ref sb_config_set_achievement_artwork.
+ * @ref sb_config_set_achievement_artwork. To present what the machine decides at once, without
+ * waiting for Scorbit, see @ref sb_config_set_achievement_presentation.
  */
 
 /**
@@ -55,6 +56,28 @@ typedef enum {
     SB_ACHIEVEMENT_ARTWORK_FRAME = 1, ///< The DMD frame, for the machine's display (a PNG today)
     SB_ACHIEVEMENT_ARTWORK_IMAGE = 2, ///< The icon, a high-resolution image for LCD machines
 } sb_achievement_artwork_t;
+
+/**
+ * @brief When @ref SB_EVT_ACHIEVEMENT_UNLOCKED is raised for an achievement the machine decided.
+ *
+ * Whatever the mode, the event is raised once per unlock. An achievement only Scorbit can decide
+ * (a trophy, or one that depends on another title's achievements) is always raised once Scorbit
+ * grants it.
+ */
+typedef enum {
+    /**
+     * Once Scorbit grants it (the default). The game never celebrates something Scorbit then
+     * refuses, at the cost of one round trip, and of no celebration while offline.
+     */
+    SB_ACHIEVEMENT_PRESENTATION_GRANTED = 0,
+    /**
+     * The moment the machine decides it, even offline, never waiting for its artwork: the artwork
+     * goes along only if it is already in memory, as DMD frames normally are. Not raised again
+     * when Scorbit grants it. Not authoritative: if Scorbit refuses it, nothing is signalled and
+     * nothing is retracted, and the Scorbit app won't show it.
+     */
+    SB_ACHIEVEMENT_PRESENTATION_LOCAL = 1,
+} sb_achievement_presentation_t;
 
 #ifdef __cplusplus
 }

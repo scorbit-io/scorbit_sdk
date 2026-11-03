@@ -214,6 +214,19 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_achievement_artwork(sb_config_t config, sb_achievement_artwork_t artwork);
 
 /**
+ * @brief Choose when @ref SB_EVT_ACHIEVEMENT_UNLOCKED is raised for an achievement the machine
+ *        decided: once Scorbit grants it (the default), or at once.
+ *
+ * See @ref sb_achievement_presentation_t.
+ *
+ * @param config The configuration handle.
+ * @param presentation The mode. Must be set before @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_achievement_presentation(sb_config_t config,
+                                            sb_achievement_presentation_t presentation);
+
+/**
  * @brief Set how many threads the SDK uses for blocking work.
  *
  * These threads run the work that waits: HTTP requests, cryptography, firmware downloads and

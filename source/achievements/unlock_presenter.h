@@ -45,6 +45,17 @@ struct AchievementUnlock {
     std::vector<uint8_t> artwork;
 };
 
+/** When game code hears of an unlock the machine decided itself (§7.2, §14.3). */
+enum class Presentation {
+    /** Once Scorbit grants it: one round trip later, and never while offline. */
+    Granted,
+    /**
+     * The moment the machine decides it, never waiting for artwork, and not again on the grant.
+     * Not authoritative: a refusal that follows is not signalled.
+     */
+    Local,
+};
+
 /** One grant: an achievement, for a player, in one session. */
 struct GrantId {
     uint64_t session {0};
@@ -57,9 +68,12 @@ struct GrantId {
 /**
  * Decides when game code hears of an unlock (§7.2, §12.1), and hands it over with its artwork.
  *
- * One event is raised per grant. A grant can be signalled more than once (the report's result and
- * the server's event), and only the first signal raises it. Separate grants are not merged: a
- * trophy granted again after it was revoked is a new grant.
+ * - **Granted** (the default): one event per grant. A grant can be signalled more than once (the
+ *   report's result and the server's event), and only the first signal raises it. Separate grants
+ *   are not merged: a trophy granted again after it was revoked is a new grant.
+ * - **Local**: an achievement the machine decided itself is raised at once, with its artwork only
+ *   if that is already held, and its grant raises nothing more. A refusal raises nothing and
+ *   clears nothing. Anything the server decides is raised on its grant, as in granted mode.
  */
 class UnlockPresenter
 {
@@ -67,7 +81,13 @@ public:
     /** Receives every unlock for game code. */
     using Sink = std::function<void(AchievementUnlock)>;
 
-    UnlockPresenter(ArtworkStore &artwork, Sink sink);
+    UnlockPresenter(ArtworkStore &artwork, Sink sink,
+                    Presentation presentation = Presentation::Granted);
+
+    Presentation presentation() const { return m_presentation; }
+
+    /** The machine decided @p unlock itself: raised at once in local mode, else not yet. */
+    void decided(const GrantId &grant, AchievementUnlock unlock);
 
     UnlockPresenter(const UnlockPresenter &) = delete;
     UnlockPresenter &operator=(const UnlockPresenter &) = delete;
@@ -87,10 +107,13 @@ public:
 private:
     void raise(AchievementUnlock unlock, const std::string &iconUrl);
 
+    void hand(AchievementUnlock unlock);
+
     ArtworkStore &m_artwork;
     Sink m_sink;
+    Presentation m_presentation;
 
-    /** The grants raised so far. */
+    /** The grants raised so far; in local mode, also the decisions raised. */
     std::set<GrantId> m_raised;
 };
 

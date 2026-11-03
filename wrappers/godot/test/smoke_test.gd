@@ -123,6 +123,7 @@ func _begin() -> void:
 		"key_path": "user://smoke/device_key",
 		"data_dir": "user://smoke/data",
 		"achievement_artwork": _scorbit.ACHIEVEMENT_ARTWORK_FRAME,
+		"achievement_presentation": _scorbit.ACHIEVEMENT_PRESENTATION_LOCAL,
 	})
 	_check(started == _expect_native, "start()")
 	_check(_scorbit.is_started() == _expect_native, "is_started() after start()")
@@ -139,7 +140,8 @@ func _begin() -> void:
 	_scorbit.set_credits_dropped(1, "smoke-transaction")
 	if _expect_native:
 		for name in ["LEADERBOARD_SCOPE_GAME", "LEADERBOARD_PERIOD_365D", "LEADERBOARD_VPIN_REAL_ONLY",
-				"ACHIEVEMENT_ARTWORK_NONE", "ACHIEVEMENT_ARTWORK_FRAME", "ACHIEVEMENT_ARTWORK_IMAGE"]:
+				"ACHIEVEMENT_ARTWORK_NONE", "ACHIEVEMENT_ARTWORK_FRAME", "ACHIEVEMENT_ARTWORK_IMAGE",
+				"ACHIEVEMENT_PRESENTATION_GRANTED", "ACHIEVEMENT_PRESENTATION_LOCAL"]:
 			var gd_value = _scorbit.get_script().get_script_constant_map().get(name)
 			_check(gd_value == ClassDB.class_get_integer_constant("ScorbitGameState", name),
 					name + " matches")

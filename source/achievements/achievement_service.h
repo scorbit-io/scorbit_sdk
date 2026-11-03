@@ -78,6 +78,7 @@ public:
 
     AchievementService(NetBase &net, AchievementStorage storage, Poster poster, UnlockSink sink,
                        ArtworkKind artworkKind = ArtworkKind::None,
+                       Presentation presentation = Presentation::Granted,
                        WallClock wallClock = systemWallClock);
     ~AchievementService();
 

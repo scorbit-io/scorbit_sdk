@@ -94,6 +94,17 @@ std::optional<std::vector<uint8_t>> ArtworkStore::cached(const std::string &key)
     return it->second.data;
 }
 
+std::vector<uint8_t> ArtworkStore::handOver(const std::string &key)
+{
+    const auto it = m_artwork.find(key);
+    if (it == m_artwork.end()) {
+        return {};
+    }
+    it->second.lastUse = ++m_useClock;
+    it->second.prefetched = false;
+    return it->second.data;
+}
+
 void ArtworkStore::whenReady(const std::string &key, const std::string &iconUrl, Ready ready)
 {
     m_waiting[key].push_back(std::move(ready));
@@ -254,12 +265,7 @@ void ArtworkStore::release(const std::string &key)
         return;
     }
 
-    std::vector<uint8_t> data;
-    if (const auto it = m_artwork.find(key); it != m_artwork.end()) {
-        it->second.lastUse = ++m_useClock;
-        it->second.prefetched = false;
-        data = it->second.data;
-    }
+    const auto data = handOver(key);
     for (const auto &ready : node.mapped()) {
         ready(data);
     }
