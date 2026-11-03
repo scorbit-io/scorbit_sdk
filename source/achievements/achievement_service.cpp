@@ -110,7 +110,7 @@ AchievementService::AchievementService(NetBase &net, AchievementStorage storage,
     , m_storage {std::move(storage)}
     , m_poster {std::move(poster)}
     , m_sink {std::move(sink)}
-    , m_artworkKind {artworkKind}
+    , m_artwork {net, m_poster, artworkKind}
     , m_wallClock {std::move(wallClock)}
 {
     if (const auto cached = m_storage.loadDefinitions();
@@ -216,128 +216,28 @@ bool AchievementService::applyDefinitions(const CachedDefinitions &response, boo
 
 // ---- Artwork ----------------------------------------------------------------------------------
 
-std::pair<std::string, std::string>
-AchievementService::artworkSource(const Definition &definition) const
-{
-    switch (m_artworkKind) {
-    case ArtworkKind::Frame:
-        return {definition.frameUrl, std::to_string(definition.frameVersion)};
-    case ArtworkKind::Image:
-        return {definition.iconUrl, definition.iconUrl};
-    case ArtworkKind::None:
-        break;
-    }
-    return {};
-}
-
-bool AchievementService::needsArtwork(const Definition &definition) const
-{
-    const auto [url, version] = artworkSource(definition);
-    if (url.empty()) {
-        return false;
-    }
-    const auto it = m_artwork.find(definition.key);
-    return it == m_artwork.end() || it->second.version != version;
-}
-
 void AchievementService::refreshArtwork()
 {
-    // Artwork no longer delivered, or no longer of the kind kept, is dropped
-    std::erase_if(m_artwork, [this](const auto &entry) {
-        const auto *definition = m_feed->definitions.find(entry.first);
-        return !definition || artworkSource(*definition).first.empty();
-    });
-
-    m_artworkToDownload.clear();
-    for (const auto &definition : m_feed->definitions.all()) {
-        if (needsArtwork(definition)) {
-            m_artworkToDownload.insert(definition.key);
-        }
-    }
-    downloadNextArtwork();
-}
-
-void AchievementService::downloadNextArtwork()
-{
-    if (m_downloadingArtwork) {
-        return;
-    }
-
-    const auto &definitions = m_feed->definitions.all();
-    const auto next = std::ranges::find_if(definitions, [this](const Definition &definition) {
-        return m_artworkToDownload.contains(definition.key);
-    });
-    if (next == definitions.end()) {
-        return;
-    }
-
-    m_downloadingArtwork = true;
-    const auto key = next->key;
-    auto [url, version] = artworkSource(*next);
-    m_net.downloadAchievementArtwork(
-            url, [this, alive = std::weak_ptr(m_alive), key,
-                  version = std::move(version)](Error error, const std::vector<uint8_t> &data) {
-                m_poster([this, alive, key, version, error, data] {
-                    if (alive.expired()) {
-                        return;
-                    }
-                    m_downloadingArtwork = false;
-                    if (error == Error::Success) {
-                        INF("Achievements: artwork of '{}' ({} bytes) ready", key, data.size());
-                        m_artwork[key] = {version, data};
-                    } else {
-                        WRN("Achievements: can't download artwork of '{}'", key);
-                    }
-
-                    // Downloaded again if a refresh meanwhile delivered a newer version
-                    const auto *definition = m_feed->definitions.find(key);
-                    if (error != Error::Success || !definition || !needsArtwork(*definition)) {
-                        m_artworkToDownload.erase(key);
-                    }
-                    releaseUnlocks(key);
-                    downloadNextArtwork();
-                });
-            });
+    m_artwork.refresh({m_feed, &m_feed->definitions});
 }
 
 std::optional<std::vector<uint8_t>> AchievementService::artwork(const std::string &key) const
 {
-    const auto it = m_artwork.find(key);
-    if (it == m_artwork.end()) {
-        return std::nullopt;
-    }
-    return it->second.data;
+    return m_artwork.cached(key);
 }
 
 void AchievementService::deliver(AchievementUnlock unlock)
 {
-    // Held while its artwork is to be downloaded, so the game can present both together
-    if (m_artworkToDownload.contains(unlock.key)) {
-        m_heldUnlocks[unlock.key].push_back(std::move(unlock));
-        return;
-    }
-
-    if (const auto it = m_artwork.find(unlock.key); it != m_artwork.end()) {
-        unlock.artwork = it->second.data;
-    }
-    INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
-    if (m_sink) {
-        m_sink(std::move(unlock));
-    }
-}
-
-void AchievementService::releaseUnlocks(const std::string &key)
-{
-    if (m_artworkToDownload.contains(key)) {
-        return;
-    }
-    const auto node = m_heldUnlocks.extract(key);
-    if (!node) {
-        return;
-    }
-    for (auto &unlock : node.mapped()) {
-        deliver(std::move(unlock));
-    }
+    // Held while its artwork is still downloading, so the game can present both together
+    auto key = unlock.key;
+    m_artwork.whenReady(
+            key, [this, unlock = std::move(unlock)](std::vector<uint8_t> artwork) mutable {
+                unlock.artwork = std::move(artwork);
+                INF("Achievements: '{}' unlocked for player {}", unlock.key, unlock.player);
+                if (m_sink) {
+                    m_sink(std::move(unlock));
+                }
+            });
 }
 
 // ---- Session -----------------------------------------------------------------------------------

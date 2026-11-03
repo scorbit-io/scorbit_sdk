@@ -230,6 +230,8 @@ target_sources(
         source/achievements/report_outbox.cpp
         source/achievements/achievement_storage.h
         source/achievements/achievement_storage.cpp
+        source/achievements/artwork_store.h
+        source/achievements/artwork_store.cpp
         source/achievements/achievement_service.h
         source/achievements/achievement_service.cpp
         source/game_data.h
