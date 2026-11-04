@@ -194,6 +194,43 @@ TEST_CASE("An unlimited count carries across games: 4, then 6 more, is one award
     }
 }
 
+TEST_CASE("A progress response captured from the API seeds the real tracker", "[achievements]")
+{
+    // A 200 body from GET achievements/scorbitron/progress/, as the API serves it (the user id
+    // zeroed). A counter with 4 stored and no stored verdict; a two-rule achievement whose second
+    // rule was never reported, so it comes back null.
+    const auto captured = nlohmann::json::parse(
+            R"({"user_id":"00000000-0000-0000-0000-000000000000","results":[{"key":"game-capture-lifetime-counter","achieved":false,"achieved_time":null,"venue":null,"machine":null,"is_holder":null,"percent":40,"rule_progress":[{"index":0,"value":4,"target":10,"satisfied":null}]},{"key":"game-capture-two-rules","achieved":false,"achieved_time":null,"venue":null,"machine":null,"is_holder":null,"percent":0,"rule_progress":[{"index":0,"value":2,"target":5,"satisfied":false},{"index":1,"value":null,"target":7,"satisfied":null}]}]})");
+
+    const auto baselines = parseProgressResponse(captured);
+    REQUIRE(baselines);
+    REQUIRE(baselines->size() == 2);
+    CHECK(baselines->at("game-capture-lifetime-counter").rules.at(0) == RuleProgress {4, false});
+    const auto &twoRules = baselines->at("game-capture-two-rules");
+    CHECK(twoRules.rules.at(0) == RuleProgress {2, false});
+    CHECK_FALSE(twoRules.rules.contains(1)); // never reported: counts from zero
+
+    Session s({unlimited("game-capture-lifetime-counter", {rule(RuleType::Event, GE, 10, "kick")}),
+               unlimited("game-capture-two-rules",
+                         {rule(RuleType::Event, GE, 5, "a"), rule(RuleType::Event, GE, 7, "b")})},
+              *baselines);
+    s.timeline.at(1000).event("kick", 6).event("a", 3).event("b", 7);
+    s.commit();
+    s.timeline.at(2000).ball(2);
+    s.commit();
+
+    const auto report = s.tracker.collectReport();
+    const auto *counter = findItem(report, "game-capture-lifetime-counter");
+    const auto *two = findItem(report, "game-capture-two-rules");
+    REQUIRE(counter);
+    REQUIRE(two);
+    CHECK(counter->rules.at(0) == RuleProgress {10, true}); // 4 stored + 6
+    CHECK(counter->achieved == true);
+    CHECK(two->rules.at(0) == RuleProgress {5, true}); // 2 stored + 3
+    CHECK(two->rules.at(1) == RuleProgress {7, true}); // nothing stored + 7
+    CHECK(two->achieved == true);
+}
+
 TEST_CASE("A slot claimed again by the same player takes back only its own contribution",
           "[achievements]")
 {
