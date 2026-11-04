@@ -386,17 +386,28 @@ void AchievementService::fetchBaseline(PlayerNumber player, const std::string &u
     // A slot claimed again waits until what it sent has its answer, so that the state fetched holds
     // all of it and reclaimBaselines can take it back out exactly. Any claim also waits for an
     // earlier game's reports still unanswered (as after a game ended offline): a state fetched
-    // before them would start this game behind them. Retried after each answer and at ball ends.
+    // before them would start this game behind them. Retried after each answer and at ball ends,
+    // but only up to a bound: a claim left untracked to the end of the game would lose the whole
+    // game, where going ahead costs at most those reports' play (late claims aren't guaranteed).
     const bool reclaimPending = session->slotBaselines.contains({player, userId})
                              && session->outbox->hasPending(userId);
     const bool earlierPending = std::ranges::any_of(m_sessions, [&](const auto &other) {
         return other.get() != session && other->outbox->hasPending(userId);
     });
     if (reclaimPending || earlierPending) {
-        INF("Achievements: player {} claimed by {}, waiting for their reports first", player,
-            userId);
-        return;
+        const auto now = std::chrono::steady_clock::now();
+        if (!claim.waitingSince) {
+            claim.waitingSince = now;
+        }
+        if (now - *claim.waitingSince < BASELINE_WAIT_BOUND) {
+            INF("Achievements: player {} claimed by {}, waiting for their reports first", player,
+                userId);
+            return;
+        }
+        WRN("Achievements: player {}'s reports still unanswered after {}s, fetching state anyway",
+            userId, BASELINE_WAIT_BOUND.count());
     }
+    claim.waitingSince.reset();
     claim.fetching = true;
 
     m_net.fetchAchievementProgress(userId, [this, alive = std::weak_ptr(m_alive),

@@ -162,12 +162,13 @@ private:
                     addSaturating(carried, static_cast<int64_t>(occurrences(rule).size())), rule);
 
         case RuleType::Event: {
-            // Saturating: a stored lifetime value may sit at either end of the int64 range
-            int64_t total = carried;
+            // The session's net delta first, then one clip against the stored lifetime value: a
+            // value at an int64 bound must not make the result depend on the order of events
+            int64_t delta = 0;
             for (const auto &op : occurrences(rule)) {
-                total = addSaturating(total, op.value);
+                delta = addSaturating(delta, op.value);
             }
-            return resolveAccumulator(total, rule);
+            return resolveAccumulator(addSaturating(carried, delta), rule);
         }
 
         case RuleType::Session:
