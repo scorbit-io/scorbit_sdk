@@ -484,6 +484,8 @@ TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achieveme
                                { "index": 3, "value": 9223372036854775808 },
                                { "index": -1, "value": 1 },
                                { "index": 4, "value": "8" },
+                               { "index": 5, "value": 9007199254740993.0 },
+                               { "index": 6, "value": 9007199254740992.0 },
                                { "index": 1, "value": 99 } ] },
           { "key": "game-no-rules", "achieved": true, "rule_progress": null },
           "not an entry"
@@ -505,8 +507,9 @@ TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achieveme
     CHECK_FALSE(two.rules.contains(1));
 
     // An exact float and a negative value are kept; a float index (even -0.5, which would convert
-    // to 0), a fraction, an out-of-range or negative index, a string, and a repeated index (the
-    // first wins) are not
+    // to 0), a fraction, a float at or past 2^53 (a literal there may have been rounded onto an
+    // integer), an out-of-range or negative index, a string, and a repeated index (the first wins)
+    // are not
     const auto &odd = baselines->at("game-odd-values");
     CHECK(odd.achieved);
     REQUIRE(odd.rules.size() == 2);
