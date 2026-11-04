@@ -18,8 +18,10 @@
  */
 
 #include "achievement_test_support.h"
+#include <../source/achievements/json_codec.h>
 #include <../source/achievements/player_tracker.h>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 
 // clazy:excludeall=non-pod-global-static
@@ -140,6 +142,77 @@ TEST_CASE("The ball-end report worked example (§7.7)", "[achievements]")
     s.outcome(report[0], ReportStatus::AlreadyHeld);
     CHECK(statusesOf(s.tracker.takeUpdates(), "game-cv-marathon")
           == std::vector {AchievementStatus::Progress}); // no second celebration
+}
+
+TEST_CASE("An unlimited count carries across games: 4, then 6 more, is one award at 10",
+          "[achievements]")
+{
+    const auto def = unlimited("game-taf-bear", {rule(RuleType::Event, GE, 10, "bear_kick")});
+
+    // Game 1: nothing stored yet. Four kicks, then the ball ends.
+    Session first({def});
+    first.timeline.at(1000).event("bear_kick", 4);
+    first.commit();
+    first.timeline.at(2000).ball(2);
+    first.commit();
+    auto report = first.tracker.collectReport();
+    REQUIRE(report.size() == 1);
+    CHECK(report[0].rules.at(0) == RuleProgress {4, false});
+    first.outcome(report[0], ReportStatus::InProgress);
+
+    // What the API stored, served as §10.4 does, read by the production parser. Every machine the
+    // player goes to next (or this one after a restart) starts from the same baseline.
+    const auto stored = nlohmann::json::parse(R"({
+        "user_id": "3f1c",
+        "results": [ { "key": "game-taf-bear", "achieved": false, "achieved_time": null,
+                       "venue": null, "machine": null, "is_holder": null, "percent": 40,
+                       "rule_progress": [ { "index": 0, "value": 4, "target": 10,
+                                            "satisfied": false } ] } ] })");
+    const auto baselines = parseProgressResponse(stored);
+    REQUIRE(baselines);
+
+    for (const auto *machine : {"after a restart", "on another machine"}) {
+        CAPTURE(machine);
+        Session next({def}, *baselines);
+        next.timeline.at(1000).event("bear_kick", 6);
+        next.commit();
+        CHECK(statusesOf(next.tracker.takeUpdates(), "game-taf-bear")
+              == std::vector {AchievementStatus::UnlockedLocally});
+
+        next.timeline.at(2000).ball(2);
+        next.commit();
+        report = next.tracker.collectReport();
+        REQUIRE(report.size() == 1);
+        CHECK(report[0].rules.at(0) == RuleProgress {10, true}); // lifetime 4 + 6, not 6
+        CHECK(report[0].achieved == true);
+        next.outcome(report[0], ReportStatus::Unlocked);
+
+        // A retry of the same absolute report (an offline resend) is not a second award
+        next.outcome(report[0], ReportStatus::AlreadyHeld);
+        const auto statuses = statusesOf(next.tracker.takeUpdates(), "game-taf-bear");
+        CHECK(std::ranges::count(statuses, AchievementStatus::Confirmed) == 1);
+    }
+}
+
+TEST_CASE("A slot claimed again by the same player keeps its first baseline's values",
+          "[achievements]")
+{
+    // First claim: 4 stored. The slot then reports 7 (4 + 3 this game), changes hands, and comes
+    // back. The new fetch holds 7, which already includes the slot's 3: it must not be added again.
+    Baselines first;
+    first["game-taf-bear"] = Baseline {false, {{0, RuleProgress {4, false}}}};
+    Baselines fresh;
+    fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {7, false}}}};
+    fresh["game-started-here"] = Baseline {false, {{0, RuleProgress {2, false}}}};
+    fresh["game-won-here"] = Baseline {true, {{0, RuleProgress {1, true}}}};
+
+    const auto merged = reclaimBaselines(first, fresh);
+    CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
+    // Started only this game, so its values are all in the slot's facts
+    CHECK(merged.at("game-started-here").rules.empty());
+    // Holdings come from the fresh fetch
+    CHECK(merged.at("game-won-here").achieved);
+    CHECK(merged.at("game-won-here").rules.empty());
 }
 
 TEST_CASE("Unacknowledged values ride along with the next report", "[achievements]")
