@@ -17,7 +17,7 @@ def _signer(digest):
 
 class TestAchievementsExports(unittest.TestCase):
     def test_enums_match_c_values(self):
-        self.assertEqual(scorbit.EventType.AchievementUnlocked, 10)
+        self.assertEqual(scorbit.EventType.AchievementUnlocked, 12)
         self.assertEqual(scorbit.AchievementArtwork.None_, 0)
         self.assertEqual(scorbit.AchievementArtwork.Frame, 1)
         self.assertEqual(scorbit.AchievementArtwork.Image, 2)
