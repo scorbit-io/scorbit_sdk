@@ -1380,6 +1380,51 @@ TEST_CASE("Definitions are revalidated at least daily, and after local midnight"
     }
 }
 
+TEST_CASE("A failed definitions fetch is retried with a growing delay", "[achievements]")
+{
+    using namespace std::chrono;
+    using namespace scorbit::detail::achievements;
+    constexpr auto INITIAL = AchievementService::DEFINITIONS_RETRY_INITIAL;
+
+    TempDir dir;
+    FakeNet net {dir.str()};
+    AchievementService service {net,
+                                AchievementStorage {dir.str()},
+                                [](std::function<void()> fn) { fn(); },
+                                {},
+                                ArtworkKind::None,
+                                Presentation::Granted,
+                                [] { return int64_t {1793448000000}; }};
+
+    // E.g. offline at boot, past the wait for authentication
+    service.refreshDefinitions();
+    net.definitionsReply(ApiReply {Error::ApiError, 0, {}, {}});
+    CHECK(net.revalidationDelay == INITIAL);
+
+    REQUIRE(net.revalidate);
+    net.revalidate();
+    CHECK(net.definitionsFetches == 2);
+    net.definitionsReply(ApiReply {Error::Success, 200, "[]", {}}); // doesn't parse
+    CHECK(net.revalidationDelay == 2 * INITIAL);
+
+    for (int i = 0; i < 10; ++i) {
+        net.revalidate();
+        net.definitionsReply(ApiReply {Error::ApiError, 503, {}, {}});
+        CHECK(net.revalidationDelay <= AchievementService::DEFINITIONS_RETRY_MAX);
+    }
+    CHECK(net.revalidationDelay == AchievementService::DEFINITIONS_RETRY_MAX);
+
+    // Fetched at last: the normal revalidation, and the next failure starts over
+    net.revalidate();
+    net.definitionsReply(ApiReply {Error::Success, 200, DEFINITIONS, {}});
+    CHECK(net.revalidationDelay > hours {1});
+    CHECK(service.view()->definitions->size() == 2);
+
+    net.revalidate();
+    net.definitionsReply(ApiReply {Error::ApiError, 0, {}, {}});
+    CHECK(net.revalidationDelay == INITIAL);
+}
+
 TEST_CASE("Definitions are refetched on token refresh, not at game start", "[achievements]")
 {
     TempDir dir;

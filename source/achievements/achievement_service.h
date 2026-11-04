@@ -77,6 +77,10 @@ public:
     /** The wall clock, in UTC epoch milliseconds. */
     using WallClock = std::function<int64_t()>;
 
+    /** A failed definitions fetch is retried after this, doubling up to the maximum below. */
+    static constexpr std::chrono::milliseconds DEFINITIONS_RETRY_INITIAL {60'000};
+    static constexpr std::chrono::milliseconds DEFINITIONS_RETRY_MAX {15 * 60'000};
+
     AchievementService(NetBase &net, AchievementStorage storage, Poster poster, UnlockSink sink,
                        ArtworkKind artworkKind = ArtworkKind::None,
                        Presentation presentation = Presentation::Granted,
@@ -91,7 +95,8 @@ public:
      * every token refresh, so a machine paired after boot, or an achievement published since,
      * needs no reboot; and, as calendar data changes over time, at least daily and after every
      * local midnight (§10.3). A game in progress keeps the definitions it started with; new ones
-     * apply from the next game.
+     * apply from the next game. A fetch that fails, or a response that doesn't parse, is retried
+     * after a delay that grows from @ref DEFINITIONS_RETRY_INITIAL to @ref DEFINITIONS_RETRY_MAX.
      */
     void refreshDefinitions();
 
@@ -171,6 +176,9 @@ private:
 
     /** The definitions in force were just confirmed: schedules the next revalidation. */
     void scheduleRevalidation();
+    /** No definitions could be fetched or parsed: tries again after a growing delay. */
+    void scheduleRetry();
+    void scheduleRefresh(std::chrono::milliseconds delay);
     bool revalidationDue() const;
     int64_t revalidationDueMs() const;
 
@@ -219,6 +227,7 @@ private:
     uint64_t m_lastSessionId {0};
 
     bool m_fetchingDefinitions {false};
+    std::chrono::milliseconds m_definitionsRetry {DEFINITIONS_RETRY_INITIAL};
 
     WallClock m_wallClock;
 

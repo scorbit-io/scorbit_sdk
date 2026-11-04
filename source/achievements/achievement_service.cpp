@@ -169,16 +169,27 @@ void AchievementService::onDefinitions(ApiReply reply)
     m_fetchingDefinitions = false;
     if (reply.error != Error::Success) {
         WRN("Achievements: can't fetch definitions, status {}", reply.httpStatus);
+        scheduleRetry();
         return;
     }
 
     // 304: the definitions in force are still current
     if (reply.httpStatus != 304
         && !applyDefinitions({std::move(reply.body), std::move(reply.etag)}, true)) {
+        scheduleRetry();
         return;
     }
+    m_definitionsRetry = DEFINITIONS_RETRY_INITIAL;
     scheduleRevalidation();
     refreshArtwork();
+}
+
+void AchievementService::scheduleRetry()
+{
+    INF("Achievements: fetching the definitions again in {} s",
+        std::chrono::duration_cast<std::chrono::seconds>(m_definitionsRetry).count());
+    scheduleRefresh(m_definitionsRetry);
+    m_definitionsRetry = std::min(m_definitionsRetry * 2, DEFINITIONS_RETRY_MAX);
 }
 
 void AchievementService::scheduleRevalidation()
@@ -192,7 +203,11 @@ void AchievementService::scheduleRevalidation()
     const auto delay = std::chrono::milliseconds {at - *m_validatedMs};
     INF("Achievements: definitions are current, next revalidation in {} s",
         std::chrono::duration_cast<std::chrono::seconds>(delay).count());
+    scheduleRefresh(delay);
+}
 
+void AchievementService::scheduleRefresh(std::chrono::milliseconds delay)
+{
     m_net.scheduleDefinitionsRevalidation(delay, [this, alive = std::weak_ptr(m_alive)] {
         m_poster([this, alive] {
             if (!alive.expired()) {
