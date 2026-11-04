@@ -505,18 +505,18 @@ void AchievementService::prefetchIcons(const Session &session)
     }
 
     // The closest first, across every claimed player
-    std::vector<std::pair<std::string, UnlockProximity>> near;
+    std::vector<std::pair<std::string, UnlockProximity>> imminent;
     for (const auto &[player, claim] : session.claims) {
         if (claim.tracker) {
             std::ranges::move(claim.tracker->nearUnlocks(session.definitions()),
-                              std::back_inserter(near));
+                              std::back_inserter(imminent));
         }
     }
-    std::ranges::stable_sort(near, std::greater {},
+    std::ranges::stable_sort(imminent, std::greater {},
                              [](const auto &entry) { return entry.second.score; });
 
     std::vector<std::pair<std::string, std::string>> icons;
-    for (auto &[key, proximity] : near) {
+    for (auto &[key, proximity] : imminent) {
         if (const auto *definition = session.definitions().find(key)) {
             icons.emplace_back(std::move(key), definition->iconUrl);
         }

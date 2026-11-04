@@ -79,8 +79,8 @@ UnlockProximity unlockProximity(const Definition &definition, const RuleProgress
 
     UnlockProximity proximity;
     proximity.score = total / static_cast<double>(definition.rules.size());
-    proximity.near = unsatisfied > 0 && sharesClose
-                  && yesOrNoLeft <= (definition.rules.size() > 1 ? 1U : 0U);
+    proximity.imminent = unsatisfied > 0 && sharesClose
+                      && yesOrNoLeft <= (definition.rules.size() > 1 ? 1U : 0U);
     return proximity;
 }
 

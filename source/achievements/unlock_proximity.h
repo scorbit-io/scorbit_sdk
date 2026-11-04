@@ -43,7 +43,7 @@ struct UnlockProximity {
      * @ref NEAR_SHARE of its target, and at most one yes-or-no rule remains, unless it is the only
      * rule (nothing then tells it is close).
      */
-    bool near {false};
+    bool imminent {false};
 
     static constexpr double NEAR_SHARE = 0.8;
 };

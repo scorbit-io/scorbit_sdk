@@ -34,8 +34,8 @@ TEST_CASE("Unlock proximity", "[achievements]")
     {
         const auto definition = inSession("a", {spins});
         CHECK(unlockProximity(definition, {{0, {50, false}}}).score == Catch::Approx(0.5));
-        CHECK_FALSE(unlockProximity(definition, {{0, {79, false}}}).near);
-        CHECK(unlockProximity(definition, {{0, {80, false}}}).near);
+        CHECK_FALSE(unlockProximity(definition, {{0, {79, false}}}).imminent);
+        CHECK(unlockProximity(definition, {{0, {80, false}}}).imminent);
     }
 
     SECTION("An unlock already decided is not near: nothing remains to fetch ahead for")
@@ -43,27 +43,27 @@ TEST_CASE("Unlock proximity", "[achievements]")
         const auto definition = inSession("a", {spins});
         const auto proximity = unlockProximity(definition, {{0, {100, true}}});
         CHECK(proximity.score == Catch::Approx(1.0));
-        CHECK_FALSE(proximity.near);
+        CHECK_FALSE(proximity.imminent);
     }
 
     SECTION("A yes-or-no rule alone is never near: nothing tells it is close")
     {
-        CHECK_FALSE(unlockProximity(inSession("a", {drainLe}), {{0, {1, false}}}).near);
-        CHECK_FALSE(unlockProximity(inSession("a", {balloon}), {{0, {0, false}}}).near);
+        CHECK_FALSE(unlockProximity(inSession("a", {drainLe}), {{0, {1, false}}}).imminent);
+        CHECK_FALSE(unlockProximity(inSession("a", {balloon}), {{0, {0, false}}}).imminent);
     }
 
     SECTION("One yes-or-no rule left of several is near")
     {
         const auto definition = inSession("a", {spins, balloon});
-        CHECK(unlockProximity(definition, {{0, {100, true}}, {1, {0, false}}}).near);
+        CHECK(unlockProximity(definition, {{0, {100, true}}, {1, {0, false}}}).imminent);
         CHECK(unlockProximity(definition, {{0, {100, true}}, {1, {0, false}}}).score
               == Catch::Approx(0.5));
-        CHECK(unlockProximity(definition, {{0, {85, false}}, {1, {0, false}}}).near);
-        CHECK_FALSE(unlockProximity(definition, {{0, {10, false}}, {1, {0, false}}}).near);
+        CHECK(unlockProximity(definition, {{0, {85, false}}, {1, {0, false}}}).imminent);
+        CHECK_FALSE(unlockProximity(definition, {{0, {10, false}}, {1, {0, false}}}).imminent);
 
         const auto twoLeft = inSession("a", {spins, balloon, drainLe});
         CHECK_FALSE(unlockProximity(twoLeft, {{0, {100, true}}, {1, {0, false}}, {2, {5, false}}})
-                            .near);
+                            .imminent);
     }
 
     SECTION("Several rules left are near only when each is close")
@@ -71,17 +71,18 @@ TEST_CASE("Unlock proximity", "[achievements]")
         const auto definition = inSession(
                 "a", {spins, rule(RuleType::Event, Comparison::Ge, 10, "ramps"), balloon});
         CHECK(unlockProximity(definition, {{0, {90, false}}, {1, {9, false}}, {2, {1, true}}})
-                      .near);
+                      .imminent);
         CHECK_FALSE(unlockProximity(definition, {{0, {90, false}}, {1, {5, false}}, {2, {1, true}}})
-                            .near);
+                            .imminent);
     }
 
     SECTION("A rule not judged yet scores 0")
     {
         const auto definition = inSession("a", {spins, balloon});
-        CHECK_FALSE(unlockProximity(definition, {{1, {1, true}}, {0, {50, false}}}).near);
-        CHECK_FALSE(unlockProximity(definition, {{1, {1, true}}}).near);
-        CHECK(unlockProximity(definition, {{0, {100, true}}}).near); // the mode is all that's left
+        CHECK_FALSE(unlockProximity(definition, {{1, {1, true}}, {0, {50, false}}}).imminent);
+        CHECK_FALSE(unlockProximity(definition, {{1, {1, true}}}).imminent);
+        CHECK(unlockProximity(definition, {{0, {100, true}}})
+                      .imminent); // the mode is all that's left
         CHECK(unlockProximity(definition, {}).score == Catch::Approx(0.0));
     }
 }

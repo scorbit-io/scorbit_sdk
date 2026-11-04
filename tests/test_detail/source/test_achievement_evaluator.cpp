@@ -467,7 +467,7 @@ TEST_CASE("A running mode counts toward GE, and GE keeps what it met", "[achieve
 
 TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
 {
-    const auto small =
+    const auto smallMultiball =
             inSession("game-mb-small", {rule(RuleType::ModeScore, LE, 999'999, "multiball"),
                                         rule(RuleType::Mode, GE, 1, "multiball")});
     Evaluator ev;
@@ -475,7 +475,7 @@ TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
 
     SECTION("Never activated: 0, and the pairing fails")
     {
-        const auto e = ev(small);
+        const auto e = ev(smallMultiball);
         CHECK(e.rules.at(0) == RuleProgress {0, true});
         CHECK(e.rules.at(1) == RuleProgress {0, false});
         CHECK_FALSE(e.allSatisfied);
@@ -484,7 +484,7 @@ TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
     SECTION("Running: no verdict, so no claim, rather than 0")
     {
         ev.timeline.at(1000).modes({"multiball"}).commit();
-        const auto e = ev(small);
+        const auto e = ev(smallMultiball);
         CHECK_FALSE(e.rules.contains(0));
         CHECK(e.rules.at(1) == RuleProgress {1, true});
         CHECK_FALSE(e.allSatisfied);
@@ -500,7 +500,7 @@ TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
     {
         ev.timeline.at(1000).modes({"multiball"}).commit();
         ev.timeline.at(2000).score(1, 400'000).modes({}).commit();
-        CHECK(ev(small).allSatisfied);
+        CHECK(ev(smallMultiball).allSatisfied);
     }
 
     SECTION("Running again after a closed one: judged on the closed one")
@@ -509,7 +509,7 @@ TEST_CASE("LE, EQ and NE wait for a mode to close", "[achievements]")
         ev.timeline.at(2000).score(1, 400'000).modes({}).commit();
         ev.timeline.at(3000).modes({"multiball"}).commit();
         ev.timeline.at(4000).score(1, 5'000'000).commit();
-        CHECK(ev(small).rules.at(0) == RuleProgress {400'000, true});
+        CHECK(ev(smallMultiball).rules.at(0) == RuleProgress {400'000, true});
     }
 }
 
