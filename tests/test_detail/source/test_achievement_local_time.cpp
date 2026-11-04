@@ -154,3 +154,28 @@ TEST_CASE("The next local midnight", "[achievements]")
     CHECK(nextLocalMidnight(std::nullopt, 5) == MS_PER_DAY);
     CHECK(nextLocalMidnight(std::nullopt, MS_PER_DAY) == 2 * MS_PER_DAY);
 }
+
+TEST_CASE("The next local midnight across a change made at midnight", "[achievements]")
+{
+    const int64_t day = 1793491200000; // 2026-11-01 00:00Z
+
+    SECTION("Clocks going forward jump over midnight: the change is the deadline")
+    {
+        // UTC-4 to UTC-3 at 04:00Z: the local clock goes from 00:00 straight to 01:00
+        const auto table = UtcOffsetTable::create(
+                {{day - MS_PER_DAY, -4 * 3600}, {day + 4 * HOUR, -3 * 3600}});
+        REQUIRE(table);
+        // 31 October 23:30 local: never the 03:00Z that UTC-3 alone would give
+        CHECK(nextLocalMidnight(table, day + 3 * HOUR + 30 * 60'000) == day + 4 * HOUR);
+        CHECK(nextLocalMidnight(table, day + 4 * HOUR) == day + MS_PER_DAY + 3 * HOUR);
+    }
+
+    SECTION("Clocks going back at midnight: the second midnight")
+    {
+        // UTC-3 to UTC-4 at 03:00Z: at midnight the local clock goes back to 23:00
+        const auto table = UtcOffsetTable::create(
+                {{day - MS_PER_DAY, -3 * 3600}, {day + 3 * HOUR, -4 * 3600}});
+        REQUIRE(table);
+        CHECK(nextLocalMidnight(table, day + 2 * HOUR + 30 * 60'000) == day + 4 * HOUR);
+    }
+}

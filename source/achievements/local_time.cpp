@@ -18,6 +18,7 @@
  */
 
 #include "local_time.h"
+#include <algorithm>
 #include <limits>
 #include <utility>
 
@@ -130,12 +131,20 @@ std::vector<UtcOffsetTable::Segment> UtcOffsetTable::segments(const TimeInterval
 
 int64_t nextLocalMidnight(const std::optional<UtcOffsetTable> &offsets, int64_t utcMs)
 {
-    const auto offsetAt = [&offsets](int64_t ms) { return offsets ? offsets->offsetMsAt(ms) : 0; };
+    if (!offsets) {
+        return (dayOf(utcMs) + 1) * MS_PER_DAY;
+    }
 
-    const int64_t midnight = (dayOf(utcMs + offsetAt(utcMs)) + 1) * MS_PER_DAY;
-    // The offset in force at midnight decides, should it change before then
-    const int64_t guess = midnight - offsetAt(utcMs);
-    return midnight - offsetAt(guess);
+    // The first instant after utcMs at which the local clock reads the next midnight or later. An
+    // offset change can make the clock jump over midnight; then the change itself is that instant.
+    const int64_t midnight = (dayOf(utcMs + offsets->offsetMsAt(utcMs)) + 1) * MS_PER_DAY;
+    for (const auto &segment :
+         offsets->segments({utcMs + 1, std::numeric_limits<int64_t>::max()})) {
+        if (const int64_t at = midnight - segment.offsetMs; at < segment.utc.endMs) {
+            return std::max(at, segment.utc.startMs);
+        }
+    }
+    return midnight - offsets->offsetMsAt(utcMs); // not reached: the last segment never ends
 }
 
 } // namespace achievements
