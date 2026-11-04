@@ -340,9 +340,11 @@ inline auto makeLeaderboardReplyBridge(sb_leaderboard_callback_t cb, void *user_
 } // namespace scorbit_c_api_queue
 
 struct sb_game_state_struct {
-    detail::GameStateImpl gameState;
+    // Declared before gameState so they are destroyed after it: network replies post to the queue
+    // until gameState's destruction has stopped the network threads.
     moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::ApiQueueItem> cApiQueue;
     std::atomic<bool> cApiAccepting {true};
+    detail::GameStateImpl gameState;
     std::thread cApiDispatcher;
 
     explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
