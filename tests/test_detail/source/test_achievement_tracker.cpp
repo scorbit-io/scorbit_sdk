@@ -244,13 +244,41 @@ TEST_CASE("A slot claimed again by the same player takes back only its own contr
         CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {6, false});
     }
 
-    SECTION("The slot's last report not stored yet: never below the first fetch")
+    SECTION("A decrease made elsewhere meanwhile is kept")
     {
+        // Another slot's negative event took 5 off: 4 + 3 - 5 = 2 stored. Taking this slot's 3
+        // back out leaves -1, which with the slot's facts (3) reports 2, as stored.
         Baselines fresh;
-        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {4, false}}}};
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {2, false}}}};
         const auto merged = reclaimBaselines(first, fresh, sent, definitions);
-        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {-1, false});
     }
+}
+
+TEST_CASE("Each re-claim takes back only what the slot sent since its previous claim",
+          "[achievements]")
+{
+    const DefinitionSet definitions {
+            {unlimited("game-taf-bear", {rule(RuleType::Event, GE, 100, "bear_kick")})}};
+    const auto one = [](int64_t value) {
+        Baselines b;
+        b["game-taf-bear"] = Baseline {false, {{0, RuleProgress {value, false}}}};
+        return b;
+    };
+    const auto sentOf = [](int64_t value) {
+        return std::map<std::string, RuleProgressMap> {
+                {"game-taf-bear", {{0, RuleProgress {value, false}}}}};
+    };
+
+    // Claim 1 starts at 4; the slot's facts reach 3 and it sends 7. Another slot adds 2 (stored 9).
+    auto used = one(4);
+    used = reclaimBaselines(used, one(9), sentOf(7), definitions);
+    CHECK(used.at("game-taf-bear").rules.at(0).value == 6); // 9 - (7 - 4)
+
+    // Claim 2 starts at 6; the slot's facts reach 4 and it sends 10. Another slot adds 5 (stored
+    // 15). Measured from claim 2's start, the slot added 4: 15 - 4 = 11, and 11 + 4 = 15 reports.
+    used = reclaimBaselines(used, one(15), sentOf(10), definitions);
+    CHECK(used.at("game-taf-bear").rules.at(0).value == 11);
 }
 
 TEST_CASE("A stored value at the int64 bounds saturates instead of overflowing", "[achievements]")

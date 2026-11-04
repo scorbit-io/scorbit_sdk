@@ -74,6 +74,12 @@ public:
     bool hasInFlight() const { return m_inFlight.has_value(); }
     bool empty() const { return m_pending.empty() && !m_inFlight; }
 
+    /** Whether anything for @p userId is queued or awaiting its answer. */
+    bool hasPending(const std::string &userId) const
+    {
+        return m_pending.contains(userId) || (m_inFlight && m_inFlight->userId == userId);
+    }
+
 private:
     void requeue(const ReportRequest &request);
 

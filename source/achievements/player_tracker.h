@@ -155,15 +155,15 @@ private:
 };
 
 /**
- * The state for a player claiming a slot again in the same session. @p first is the fetch of their
- * first claim there, @p fresh the new one, and @p sent what the slot sent in between
- * (@ref PlayerTracker::sentValues).
+ * The state for a player claiming a slot again in the same session. @p first is the baseline their
+ * previous claim there started from, @p fresh the new fetch, made once every report the slot sent
+ * was answered, and @p sent what the slot sent (@ref PlayerTracker::sentValues).
  *
- * The slot's facts run from the start of the session, and @p fresh may already hold what the slot
- * sent, so for each accumulator rule the slot's own contribution (`sent - first`) is taken back
- * out of @p fresh. Progress from another slot or machine meanwhile is kept, and a report still in
- * flight can never make the result lower than @p first. Observation rules merge to a best value,
- * so @p fresh is used as it is; holdings always come from @p fresh.
+ * The slot's facts run from the start of the session and @p fresh holds what the slot sent, so for
+ * each accumulator rule the slot's own contribution (`sent - first`) is taken back out of @p fresh.
+ * Whatever else changed meanwhile, on another slot or machine, increase or decrease, is kept.
+ * Observation rules merge to a best value, so @p fresh is used as it is; holdings always come from
+ * @p fresh.
  */
 Baselines reclaimBaselines(const Baselines &first, Baselines fresh,
                            const std::map<std::string, RuleProgressMap> &sent,

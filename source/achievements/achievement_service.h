@@ -144,13 +144,13 @@ private:
         SessionFacts facts;
         std::map<PlayerNumber, Claim> claims;
         /**
-         * For each player on each slot: the state fetched at their first claim there, and the
-         * values the slot sent when it last changed hands. A later claim of the same slot by the
-         * same player takes this slot's own contribution back out of its new fetch (see
-         * reclaimBaselines), as the slot's facts, which run from the start of the session, add it
-         * again.
+         * For each player on each slot: the baseline their latest claim there started from, and
+         * the values the slot sent when it last changed hands. A later claim of the same slot by
+         * the same player takes the slot's own contribution (sent less that baseline) back out of
+         * its new fetch (see reclaimBaselines), as the slot's facts, which run from the start of
+         * the session, add it again.
          */
-        std::map<std::pair<PlayerNumber, std::string>, Baselines> firstBaselines;
+        std::map<std::pair<PlayerNumber, std::string>, Baselines> slotBaselines;
         std::map<std::pair<PlayerNumber, std::string>, std::map<std::string, RuleProgressMap>>
                 sentBySlot;
         std::shared_ptr<ReportOutbox> outbox = std::make_shared<ReportOutbox>();
@@ -169,6 +169,8 @@ private:
 
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
+    /** Fetches the state of every current claim that has none and is not fetching it. */
+    void fetchWaitingBaselines();
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
                     ApiReply reply);
 
