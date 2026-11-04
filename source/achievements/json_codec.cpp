@@ -392,7 +392,8 @@ std::optional<int64_t> storedRuleValue(const json &value)
     if (value.is_number_float()) {
         constexpr double exact = 9007199254740992.0; // 2^53
         const auto number = value.get<double>();
-        if (!std::isfinite(number) || std::trunc(number) != number || std::fabs(number) > exact) {
+        // Strictly inside 2^53: a literal past it may have been rounded onto an integer
+        if (!std::isfinite(number) || std::trunc(number) != number || std::fabs(number) >= exact) {
             throw std::invalid_argument(
                     fmt::format("rule value {} is not an exact integer", number));
         }

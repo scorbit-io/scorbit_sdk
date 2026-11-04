@@ -384,9 +384,16 @@ void AchievementService::fetchBaseline(PlayerNumber player, const std::string &u
         return;
     }
     // A slot claimed again waits until what it sent has its answer, so that the state fetched holds
-    // all of it and reclaimBaselines can take it back out exactly. Retried after each answer.
-    if (session->slotBaselines.contains({player, userId}) && session->outbox->hasPending(userId)) {
-        INF("Achievements: player {} claimed again by {}, waiting for its reports first", player,
+    // all of it and reclaimBaselines can take it back out exactly. Any claim also waits for an
+    // earlier game's reports still unanswered (as after a game ended offline): a state fetched
+    // before them would start this game behind them. Retried after each answer and at ball ends.
+    const bool reclaimPending = session->slotBaselines.contains({player, userId})
+                             && session->outbox->hasPending(userId);
+    const bool earlierPending = std::ranges::any_of(m_sessions, [&](const auto &other) {
+        return other.get() != session && other->outbox->hasPending(userId);
+    });
+    if (reclaimPending || earlierPending) {
+        INF("Achievements: player {} claimed by {}, waiting for their reports first", player,
             userId);
         return;
     }
