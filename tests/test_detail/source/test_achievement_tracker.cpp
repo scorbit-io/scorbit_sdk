@@ -318,6 +318,25 @@ TEST_CASE("Each re-claim takes back only what the slot sent since its previous c
     CHECK(used.at("game-taf-bear").rules.at(0).value == 11);
 }
 
+TEST_CASE("At an int64 bound the result is the stored value plus the net delta, in any order",
+          "[achievements]")
+{
+    const auto def = unlimited("game-max", {rule(RuleType::Event, GE, 10, "spins")});
+    for (const auto &[first, second] : {std::pair {1, -1}, std::pair {-1, 1}}) {
+        CAPTURE(first, second);
+        Baselines baselines;
+        baselines["game-max"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+        Session s({def}, std::move(baselines));
+        s.timeline.at(1000).event("spins", first);
+        s.commit();
+        s.timeline.at(2000).event("spins", second);
+        s.commit();
+        const auto *record = s.tracker.record("game-max");
+        REQUIRE(record);
+        CHECK(record->rules.at(0).value == INT64_MAX); // a net delta of zero
+    }
+}
+
 TEST_CASE("A stored value at the int64 bounds saturates instead of overflowing", "[achievements]")
 {
     CHECK(addSaturating(INT64_MAX, 1) == INT64_MAX);

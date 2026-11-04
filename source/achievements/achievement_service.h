@@ -28,6 +28,7 @@
 #include "timeline_row.h"
 #include "unlock_presenter.h"
 #include "../net_base.h"
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -128,7 +129,16 @@ private:
         std::string userId;
         std::unique_ptr<PlayerTracker> tracker;
         bool fetching {false};
+        /** When the state fetch was first held back for the player's pending reports. */
+        std::optional<std::chrono::steady_clock::time_point> waitingSince;
     };
+
+    /**
+     * How long a claim's state fetch waits for its player's pending reports before going ahead
+     * without them: long enough for a reconnecting machine's retries, short enough that a stuck
+     * report never leaves the claim untracked to the end of the game.
+     */
+    static constexpr std::chrono::seconds BASELINE_WAIT_BOUND {20};
 
     /** Everything belonging to one game; kept until its reports are delivered. */
     struct Session {
