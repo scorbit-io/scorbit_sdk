@@ -455,5 +455,82 @@ TEST_CASE("An empty progress response means nothing started", "[achievements]")
     REQUIRE(baselines);
     CHECK(baselines->empty());
 
-    CHECK_FALSE(parseProgressResponse({{"user_id", "3f1c"}, {"results", json::array()}}));
+    // The §10.4 envelope with nothing in it
+    const auto enveloped = parseProgressResponse({{"user_id", "3f1c"}, {"results", json::array()}});
+    REQUIRE(enveloped);
+    CHECK(enveloped->empty());
+
+    CHECK_FALSE(parseProgressResponse({{"user_id", "3f1c"}}));
+    CHECK_FALSE(parseProgressResponse("progress"));
+}
+
+TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achievements]")
+{
+    const auto document = json::parse(R"({
+        "user_id": "3f1c",
+        "results": [
+          { "key": "game-taf-bear", "achieved": false, "achieved_time": null, "venue": null,
+            "machine": null, "is_holder": null, "percent": 30,
+            "rule_progress": [ { "index": 0, "value": 3, "target": 10, "satisfied": false } ] },
+          { "key": "game-two-rules", "achieved": false, "percent": 0,
+            "rule_progress": [ { "index": 0, "value": 9223372036854775807, "satisfied": true },
+                               { "index": 1, "value": null, "target": 5, "satisfied": false } ] },
+          { "key": "game-odd-values", "achieved": true,
+            "rule_progress": [ { "index": -0.5, "value": 77, "satisfied": false },
+                               { "index": 0.0, "value": 78, "satisfied": false },
+                               { "index": 0, "value": 7400.0, "satisfied": true },
+                               { "index": 1, "value": -12, "satisfied": false },
+                               { "index": 2, "value": 1.5 },
+                               { "index": 3, "value": 9223372036854775808 },
+                               { "index": -1, "value": 1 },
+                               { "index": 4, "value": "8" },
+                               { "index": 5, "value": 9007199254740993.0 },
+                               { "index": 6, "value": 9007199254740992.0 },
+                               { "index": 1, "value": 99 } ] },
+          { "key": "game-no-rules", "achieved": true, "rule_progress": null },
+          "not an entry"
+        ] })");
+
+    const auto baselines = parseProgressResponse(document);
+    REQUIRE(baselines);
+    REQUIRE(baselines->size() == 4);
+
+    const auto &bear = baselines->at("game-taf-bear");
+    CHECK_FALSE(bear.achieved);
+    REQUIRE(bear.rules.size() == 1);
+    CHECK(bear.rules.at(0) == RuleProgress {3, false});
+
+    // Full int64 range; a never-reported rule (null) has no entry, so it counts from zero
+    const auto &two = baselines->at("game-two-rules");
+    REQUIRE(two.rules.size() == 1);
+    CHECK(two.rules.at(0) == RuleProgress {INT64_MAX, true});
+    CHECK_FALSE(two.rules.contains(1));
+
+    // An exact float and a negative value are kept; a float index (even -0.5, which would convert
+    // to 0), a fraction, a float at or past 2^53 (a literal there may have been rounded onto an
+    // integer), an out-of-range or negative index, a string, and a repeated index (the first wins)
+    // are not
+    const auto &odd = baselines->at("game-odd-values");
+    CHECK(odd.achieved);
+    REQUIRE(odd.rules.size() == 2);
+    CHECK(odd.rules.at(0) == RuleProgress {7400, true});
+    CHECK(odd.rules.at(1) == RuleProgress {-12, false});
+
+    CHECK(baselines->at("game-no-rules").achieved);
+    CHECK(baselines->at("game-no-rules").rules.empty());
+}
+
+TEST_CASE("A bare-array progress response with rule_progress is read too", "[achievements]")
+{
+    // An API serving UserAchievement entries before it adds the envelope, with the older nested key
+    const auto baselines = parseProgressResponse(json::array(
+            {{{"key", "game-a"},
+              {"achieved", false},
+              {"rule_progress", {{{"index", 0}, {"value", 4}, {"satisfied", false}}}}},
+             {{"achievement", {{"key", "game-b"}}},
+              {"achieved", false},
+              {"rule_progress", {{{"index", 0}, {"value", 6}, {"satisfied", false}}}}}}));
+    REQUIRE(baselines);
+    CHECK(baselines->at("game-a").rules.at(0) == RuleProgress {4, false});
+    CHECK(baselines->at("game-b").rules.at(0) == RuleProgress {6, false});
 }

@@ -23,6 +23,8 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <map>
 #include <string_view>
 #include <utility>
@@ -369,28 +371,121 @@ std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
     return DefinitionFeed {DefinitionSet {std::move(definitions)}, std::move(calendar)};
 }
 
+/**
+ * A stored rule value as `int64` (§10.2), or std::nullopt for `null`, which means never reported.
+ * An integral float is accepted only where a double holds it exactly; anything else throws.
+ */
+std::optional<int64_t> storedRuleValue(const json &value)
+{
+    if (value.is_null()) {
+        return std::nullopt;
+    }
+    if (value.is_number_unsigned()) {
+        if (value.get<uint64_t>() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            throw std::invalid_argument("rule value out of int64 range");
+        }
+        return static_cast<int64_t>(value.get<uint64_t>());
+    }
+    if (value.is_number_integer()) {
+        return value.get<int64_t>();
+    }
+    if (value.is_number_float()) {
+        constexpr double exact = 9007199254740992.0; // 2^53
+        const auto number = value.get<double>();
+        // Strictly inside 2^53: a literal past it may have been rounded onto an integer
+        if (!std::isfinite(number) || std::trunc(number) != number || std::fabs(number) >= exact) {
+            throw std::invalid_argument(
+                    fmt::format("rule value {} is not an exact integer", number));
+        }
+        return static_cast<int64_t>(number);
+    }
+    throw std::invalid_argument(fmt::format("rule value is a {}", value.type_name()));
+}
+
+/** The stored rules of one entry, by index. A rule never reported, or malformed, has no entry. */
+RuleProgressMap parseStoredRules(const json &entry, const std::string &key)
+{
+    RuleProgressMap rules;
+    const auto progress = entry.find(KEY_RULE_PROGRESS);
+    if (progress == entry.end() || progress->is_null()) {
+        return rules;
+    }
+    if (!progress->is_array()) {
+        WRN("Achievements: progress for '{}' has a non-array 'rule_progress'", key);
+        return rules;
+    }
+    for (const auto &rule : *progress) {
+        try {
+            // An integer only: a float such as -0.5 would otherwise convert to a valid index
+            const auto indexIt = rule.find(KEY_INDEX);
+            if (indexIt == rule.end() || !indexIt->is_number_integer()) {
+                throw std::invalid_argument("'index' is missing or not an integer");
+            }
+            // Far beyond any definition's rule count, and in range for a 32-bit size_t
+            constexpr uint64_t maxIndex = 65535;
+            if (indexIt->is_number_unsigned()
+                        ? indexIt->get<uint64_t>() > maxIndex
+                        : indexIt->get<int64_t>() < 0
+                                  || indexIt->get<int64_t>() > static_cast<int64_t>(maxIndex)) {
+                throw std::invalid_argument(fmt::format("index {} out of range", indexIt->dump()));
+            }
+            const auto index = static_cast<size_t>(indexIt->get<int64_t>());
+            const auto value = storedRuleValue(rule.value(KEY_VALUE, json {}));
+            if (!value) {
+                continue; // never reported: a later report starts from zero
+            }
+            const RuleProgress stored {*value, fieldOr<bool>(rule, KEY_SATISFIED, false)};
+            if (!rules.emplace(index, stored).second) {
+                WRN("Achievements: progress for '{}' repeats rule {}, keeping the first", key,
+                    index);
+            }
+        } catch (const std::exception &e) {
+            WRN("Achievements: skipping a malformed rule in the progress for '{}': {}", key,
+                e.what());
+        }
+    }
+    return rules;
+}
+
 std::optional<Baselines> parseProgressResponse(const json &document)
 {
-    if (!document.is_array()) {
-        ERR("Achievements: progress response is not an array but {}: {}", document.type_name(),
-            document.dump());
+    // §10.4 wraps the entries as {"user_id", "results"}; an older API sends the bare array
+    const json *entries = &document;
+    if (document.is_object()) {
+        const auto results = document.find(KEY_RESULTS);
+        if (results == document.end() || !results->is_array()) {
+            ERR("Achievements: progress response has no 'results' array: {}", document.dump());
+            return std::nullopt;
+        }
+        entries = &*results;
+    } else if (!document.is_array()) {
+        ERR("Achievements: progress response is neither an object nor an array but {}: {}",
+            document.type_name(), document.dump());
         return std::nullopt;
     }
 
     Baselines baselines;
-    for (const auto &entry : document) {
+    for (const auto &entry : *entries) {
         try {
-            const auto achievement = entry.find(KEY_ACHIEVEMENT);
-            if (achievement == entry.end() || !achievement->is_object()) {
-                throw std::invalid_argument("missing 'achievement' object");
+            if (!entry.is_object()) {
+                throw std::invalid_argument("entry is not an object");
             }
-            auto key = requiredField<std::string>(*achievement, KEY_KEY);
+            // A §10.2 UserAchievement carries its own `key`; the older shape nests it
+            auto key = field<std::string>(entry, KEY_KEY);
+            if (!key) {
+                const auto achievement = entry.find(KEY_ACHIEVEMENT);
+                if (achievement == entry.end() || !achievement->is_object()) {
+                    throw std::invalid_argument("missing 'key' and 'achievement' object");
+                }
+                key = requiredField<std::string>(*achievement, KEY_KEY);
+            }
 
-            // `current_value` is not read: /report/ stores per-rule values elsewhere, so it only
-            // holds what the legacy /unlock/ `count` once wrote
+            // `current_value` (the older shape) is not read: it holds only what the legacy
+            // /unlock/ `count` once wrote, not a per-rule measurement
             Baseline baseline;
             baseline.achieved = fieldOr<bool>(entry, KEY_ACHIEVED, false);
-            baselines.insert_or_assign(std::move(key), std::move(baseline));
+            baseline.rules = parseStoredRules(entry, *key);
+            baselines.insert_or_assign(std::move(*key), std::move(baseline));
         } catch (const std::exception &e) {
             WRN("Achievements: skipping malformed progress entry: {}", e.what());
         }

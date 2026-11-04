@@ -357,6 +357,7 @@ void AchievementService::reconcileClaims()
             // The slot changed hands: what the previous player earned is still reported
             if (it->second.tracker) {
                 session->outbox->add(it->second.userId, it->second.tracker->collectReport());
+                session->sentBySlot[{player, it->second.userId}] = it->second.tracker->sentValues();
             }
             session->claims.erase(it);
         }
@@ -382,6 +383,31 @@ void AchievementService::fetchBaseline(PlayerNumber player, const std::string &u
     if (claim.fetching || claim.tracker) {
         return;
     }
+    // A slot claimed again waits until what it sent has its answer, so that the state fetched holds
+    // all of it and reclaimBaselines can take it back out exactly. Any claim also waits for an
+    // earlier game's reports still unanswered (as after a game ended offline): a state fetched
+    // before them would start this game behind them. Retried after each answer and at ball ends,
+    // but only up to a bound: a claim left untracked to the end of the game would lose the whole
+    // game, where going ahead costs at most those reports' play (late claims aren't guaranteed).
+    const bool reclaimPending = session->slotBaselines.contains({player, userId})
+                             && session->outbox->hasPending(userId);
+    const bool earlierPending = std::ranges::any_of(m_sessions, [&](const auto &other) {
+        return other.get() != session && other->outbox->hasPending(userId);
+    });
+    if (reclaimPending || earlierPending) {
+        const auto now = std::chrono::steady_clock::now();
+        if (!claim.waitingSince) {
+            claim.waitingSince = now;
+        }
+        if (now - *claim.waitingSince < BASELINE_WAIT_BOUND) {
+            INF("Achievements: player {} claimed by {}, waiting for their reports first", player,
+                userId);
+            return;
+        }
+        WRN("Achievements: player {}'s reports still unanswered after {}s, fetching state anyway",
+            userId, BASELINE_WAIT_BOUND.count());
+    }
+    claim.waitingSince.reset();
     claim.fetching = true;
 
     m_net.fetchAchievementProgress(userId, [this, alive = std::weak_ptr(m_alive),
@@ -424,6 +450,17 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
         return;
     }
 
+    const auto [used, isFirst] = session->slotBaselines.try_emplace({player, userId}, *baselines);
+    if (!isFirst) {
+        const auto sent = session->sentBySlot.find({player, userId});
+        *baselines = reclaimBaselines(used->second, std::move(*baselines),
+                                      sent == session->sentBySlot.end()
+                                              ? std::map<std::string, RuleProgressMap> {}
+                                              : sent->second,
+                                      session->definitions());
+        // What this claim starts from, so that a later one takes back only what is sent from now
+        used->second = *baselines;
+    }
     claim.tracker = std::make_unique<PlayerTracker>(userId, std::move(*baselines));
     evaluate(*session, player, claim);
     prefetchIcons(*session);
@@ -579,6 +616,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
             ERR("Achievements: report refused (status {}): {}", reply.httpStatus,
                 describeRefusal(reply.body));
             pump(outbox);
+            fetchWaitingBaselines();
         }
         return;
     }
@@ -614,8 +652,21 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
     }
 
     pump(outbox);
+    fetchWaitingBaselines();
     dropDrainedSessions();
     updateView();
+}
+
+void AchievementService::fetchWaitingBaselines()
+{
+    // A claim held back for its player's reports (see fetchBaseline) tries again once one is in
+    if (auto *session = current()) {
+        for (auto &[player, claim] : session->claims) {
+            if (!claim.tracker && !claim.fetching) {
+                fetchBaseline(player, claim.userId);
+            }
+        }
+    }
 }
 
 void AchievementService::onRetryTimer()

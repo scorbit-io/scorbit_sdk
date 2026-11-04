@@ -28,6 +28,7 @@
 #include "timeline_row.h"
 #include "unlock_presenter.h"
 #include "../net_base.h"
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -128,7 +129,16 @@ private:
         std::string userId;
         std::unique_ptr<PlayerTracker> tracker;
         bool fetching {false};
+        /** When the state fetch was first held back for the player's pending reports. */
+        std::optional<std::chrono::steady_clock::time_point> waitingSince;
     };
+
+    /**
+     * How long a claim's state fetch waits for its player's pending reports before going ahead
+     * without them: long enough for a reconnecting machine's retries, short enough that a stuck
+     * report never leaves the claim untracked to the end of the game.
+     */
+    static constexpr std::chrono::seconds BASELINE_WAIT_BOUND {20};
 
     /** Everything belonging to one game; kept until its reports are delivered. */
     struct Session {
@@ -143,6 +153,16 @@ private:
         PlayerSession seat(PlayerNumber player) const { return {facts, player, &feed->calendar}; }
         SessionFacts facts;
         std::map<PlayerNumber, Claim> claims;
+        /**
+         * For each player on each slot: the baseline their latest claim there started from, and
+         * the values the slot sent when it last changed hands. A later claim of the same slot by
+         * the same player takes the slot's own contribution (sent less that baseline) back out of
+         * its new fetch (see reclaimBaselines), as the slot's facts, which run from the start of
+         * the session, add it again.
+         */
+        std::map<std::pair<PlayerNumber, std::string>, Baselines> slotBaselines;
+        std::map<std::pair<PlayerNumber, std::string>, std::map<std::string, RuleProgressMap>>
+                sentBySlot;
         std::shared_ptr<ReportOutbox> outbox = std::make_shared<ReportOutbox>();
         bool finished {false};
     };
@@ -159,6 +179,8 @@ private:
 
     void reconcileClaims();
     void fetchBaseline(PlayerNumber player, const std::string &userId);
+    /** Fetches the state of every current claim that has none and is not fetching it. */
+    void fetchWaitingBaselines();
     void onBaseline(uint64_t sessionId, PlayerNumber player, const std::string &userId,
                     ApiReply reply);
 

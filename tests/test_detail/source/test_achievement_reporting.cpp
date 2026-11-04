@@ -72,6 +72,23 @@ TEST_CASE("Outbox waits for the session uuid", "[achievements]")
     CHECK(request->sequence == 1);
 }
 
+TEST_CASE("Outbox says whether a player still has a report unanswered", "[achievements]")
+{
+    // A slot claimed again waits on this before fetching the player's state
+    ReportOutbox outbox;
+    outbox.setSessionUuid("s");
+    CHECK_FALSE(outbox.hasPending("user-a"));
+
+    outbox.add("user-a", {item("k", 1)});
+    CHECK(outbox.hasPending("user-a")); // queued
+    CHECK_FALSE(outbox.hasPending("user-b"));
+
+    REQUIRE(outbox.next());
+    CHECK(outbox.hasPending("user-a")); // in flight
+    outbox.delivered();
+    CHECK_FALSE(outbox.hasPending("user-a"));
+}
+
 TEST_CASE("Outbox sends one request at a time, sequence shared by players", "[achievements]")
 {
     ReportOutbox outbox;

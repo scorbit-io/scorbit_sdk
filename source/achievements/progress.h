@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -45,8 +46,8 @@ using RuleProgressMap = std::map<size_t, RuleProgress>;
 
 /**
  * A player's stored state for one achievement, as fetched when the player claims a slot. A rule
- * with no stored measurement has no entry in @ref rules; the API's device progress read carries no
- * per-rule values today, so a fetched baseline has only @ref achieved.
+ * with no stored measurement (never reported, or a response without `rule_progress`) has no entry
+ * in @ref rules.
  */
 struct Baseline {
     bool achieved {false};
@@ -58,6 +59,30 @@ struct Baseline {
  * it has never been started and all its rule values are zero (§7.7).
  */
 using Baselines = std::unordered_map<std::string, Baseline>;
+
+/**
+ * @p lhs + @p rhs, held at the `int64` bounds rather than overflowing: a stored lifetime value may
+ * be anywhere in the range (§10.2), and an accumulator adds this session's play to it.
+ */
+inline int64_t addSaturating(int64_t lhs, int64_t rhs)
+{
+    if (rhs > 0 && lhs > std::numeric_limits<int64_t>::max() - rhs) {
+        return std::numeric_limits<int64_t>::max();
+    }
+    if (rhs < 0 && lhs < std::numeric_limits<int64_t>::min() - rhs) {
+        return std::numeric_limits<int64_t>::min();
+    }
+    return lhs + rhs;
+}
+
+/** @p lhs - @p rhs, held at the `int64` bounds. */
+inline int64_t subtractSaturating(int64_t lhs, int64_t rhs)
+{
+    if (rhs == std::numeric_limits<int64_t>::min()) {
+        return lhs >= 0 ? std::numeric_limits<int64_t>::max() : lhs - rhs;
+    }
+    return addSaturating(lhs, -rhs);
+}
 
 } // namespace achievements
 } // namespace detail

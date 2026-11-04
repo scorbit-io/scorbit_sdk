@@ -18,8 +18,10 @@
  */
 
 #include "achievement_test_support.h"
+#include <../source/achievements/json_codec.h>
 #include <../source/achievements/player_tracker.h>
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 
 // clazy:excludeall=non-pod-global-static
@@ -140,6 +142,234 @@ TEST_CASE("The ball-end report worked example (§7.7)", "[achievements]")
     s.outcome(report[0], ReportStatus::AlreadyHeld);
     CHECK(statusesOf(s.tracker.takeUpdates(), "game-cv-marathon")
           == std::vector {AchievementStatus::Progress}); // no second celebration
+}
+
+TEST_CASE("An unlimited count carries across games: 4, then 6 more, is one award at 10",
+          "[achievements]")
+{
+    const auto def = unlimited("game-taf-bear", {rule(RuleType::Event, GE, 10, "bear_kick")});
+
+    // Game 1: nothing stored yet. Four kicks, then the ball ends.
+    Session first({def});
+    first.timeline.at(1000).event("bear_kick", 4);
+    first.commit();
+    first.timeline.at(2000).ball(2);
+    first.commit();
+    auto report = first.tracker.collectReport();
+    REQUIRE(report.size() == 1);
+    CHECK(report[0].rules.at(0) == RuleProgress {4, false});
+    first.outcome(report[0], ReportStatus::InProgress);
+
+    // What the API stored, served as §10.4 does, read by the production parser. Every machine the
+    // player goes to next (or this one after a restart) starts from the same baseline.
+    const auto stored = nlohmann::json::parse(R"({
+        "user_id": "3f1c",
+        "results": [ { "key": "game-taf-bear", "achieved": false, "achieved_time": null,
+                       "venue": null, "machine": null, "is_holder": null, "percent": 40,
+                       "rule_progress": [ { "index": 0, "value": 4, "target": 10,
+                                            "satisfied": false } ] } ] })");
+    const auto baselines = parseProgressResponse(stored);
+    REQUIRE(baselines);
+
+    for (const auto *machine : {"after a restart", "on another machine"}) {
+        CAPTURE(machine);
+        Session next({def}, *baselines);
+        next.timeline.at(1000).event("bear_kick", 6);
+        next.commit();
+        CHECK(statusesOf(next.tracker.takeUpdates(), "game-taf-bear")
+              == std::vector {AchievementStatus::UnlockedLocally});
+
+        next.timeline.at(2000).ball(2);
+        next.commit();
+        report = next.tracker.collectReport();
+        REQUIRE(report.size() == 1);
+        CHECK(report[0].rules.at(0) == RuleProgress {10, true}); // lifetime 4 + 6, not 6
+        CHECK(report[0].achieved == true);
+        next.outcome(report[0], ReportStatus::Unlocked);
+
+        // A retry of the same absolute report (an offline resend) is not a second award
+        next.outcome(report[0], ReportStatus::AlreadyHeld);
+        const auto statuses = statusesOf(next.tracker.takeUpdates(), "game-taf-bear");
+        CHECK(std::ranges::count(statuses, AchievementStatus::Confirmed) == 1);
+    }
+}
+
+TEST_CASE("A progress response captured from the API seeds the real tracker", "[achievements]")
+{
+    // A 200 body from GET achievements/scorbitron/progress/, as the API serves it (the user id
+    // zeroed). A counter with 4 stored and no stored verdict; a two-rule achievement whose second
+    // rule was never reported, so it comes back null.
+    const auto captured = nlohmann::json::parse(
+            R"({"user_id":"00000000-0000-0000-0000-000000000000","results":[{"key":"game-capture-lifetime-counter","achieved":false,"achieved_time":null,"venue":null,"machine":null,"is_holder":null,"percent":40,"rule_progress":[{"index":0,"value":4,"target":10,"satisfied":null}]},{"key":"game-capture-two-rules","achieved":false,"achieved_time":null,"venue":null,"machine":null,"is_holder":null,"percent":0,"rule_progress":[{"index":0,"value":2,"target":5,"satisfied":false},{"index":1,"value":null,"target":7,"satisfied":null}]}]})");
+
+    const auto baselines = parseProgressResponse(captured);
+    REQUIRE(baselines);
+    REQUIRE(baselines->size() == 2);
+    CHECK(baselines->at("game-capture-lifetime-counter").rules.at(0) == RuleProgress {4, false});
+    const auto &twoRules = baselines->at("game-capture-two-rules");
+    CHECK(twoRules.rules.at(0) == RuleProgress {2, false});
+    CHECK_FALSE(twoRules.rules.contains(1)); // never reported: counts from zero
+
+    Session s({unlimited("game-capture-lifetime-counter", {rule(RuleType::Event, GE, 10, "kick")}),
+               unlimited("game-capture-two-rules",
+                         {rule(RuleType::Event, GE, 5, "a"), rule(RuleType::Event, GE, 7, "b")})},
+              *baselines);
+    s.timeline.at(1000).event("kick", 6).event("a", 3).event("b", 7);
+    s.commit();
+    s.timeline.at(2000).ball(2);
+    s.commit();
+
+    const auto report = s.tracker.collectReport();
+    const auto *counter = findItem(report, "game-capture-lifetime-counter");
+    const auto *two = findItem(report, "game-capture-two-rules");
+    REQUIRE(counter);
+    REQUIRE(two);
+    CHECK(counter->rules.at(0) == RuleProgress {10, true}); // 4 stored + 6
+    CHECK(counter->achieved == true);
+    CHECK(two->rules.at(0) == RuleProgress {5, true}); // 2 stored + 3
+    CHECK(two->rules.at(1) == RuleProgress {7, true}); // nothing stored + 7
+    CHECK(two->achieved == true);
+}
+
+TEST_CASE("A slot claimed again by the same player takes back only its own contribution",
+          "[achievements]")
+{
+    const DefinitionSet definitions {
+            {unlimited("game-taf-bear", {rule(RuleType::Event, GE, 10, "bear_kick")}),
+             unlimited("game-started-here", {rule(RuleType::Event, GE, 10, "spins")}),
+             unlimited("game-best-score", {rule(RuleType::Score, GE, 1000000)}),
+             unlimited("game-two-rules",
+                       {rule(RuleType::Event, GE, 10, "a"), rule(RuleType::Event, GE, 10, "b")})}};
+
+    // First claim of the slot: 4 stored. The slot then sent 7 (4 + 3 this game), and changed hands.
+    Baselines first;
+    first["game-taf-bear"] = Baseline {false, {{0, RuleProgress {4, false}}}};
+    first["game-best-score"] = Baseline {false, {{0, RuleProgress {800000, false}}}};
+    first["game-two-rules"] = Baseline {false, {{0, RuleProgress {1, false}}, {1, {5, false}}}};
+    const std::map<std::string, RuleProgressMap> sent {
+            {"game-taf-bear", {{0, RuleProgress {7, false}}}},
+            {"game-started-here", {{0, RuleProgress {2, false}}}},
+            {"game-best-score", {{0, RuleProgress {900000, false}}}},
+            {"game-two-rules", {{0, RuleProgress {3, false}}, {1, {5, false}}}}};
+
+    SECTION("Back on the same slot: the slot's 3 come out of the fresh 7")
+    {
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {7, false}}}};
+        fresh["game-started-here"] = Baseline {false, {{0, RuleProgress {2, false}}}};
+        fresh["game-best-score"] = Baseline {false, {{0, RuleProgress {900000, false}}}};
+        // Rule 1 never reached the server
+        fresh["game-two-rules"] = Baseline {true, {{0, RuleProgress {3, false}}}};
+
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
+        CHECK(merged.at("game-started-here").rules.at(0) == RuleProgress {0, false});
+        // An observation merges to a best value, so the fresh one is reused as it is
+        CHECK(merged.at("game-best-score").rules.at(0) == RuleProgress {900000, false});
+        CHECK(merged.at("game-two-rules").rules.at(0) == RuleProgress {1, false});
+        CHECK(merged.at("game-two-rules").rules.at(1) == RuleProgress {5, false});
+        CHECK(merged.at("game-two-rules").achieved); // holdings come from the fresh fetch
+    }
+
+    SECTION("Played on another slot meanwhile: that progress is kept")
+    {
+        // The player went to slot 2 and added 2 there (stored 9), then came back
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {9, false}}}};
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        // 9 - this slot's 3: plus the slot's facts (3) and one more kick, the next report is 10
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {6, false});
+    }
+
+    SECTION("A decrease made elsewhere meanwhile is kept")
+    {
+        // Another slot's negative event took 5 off: 4 + 3 - 5 = 2 stored. Taking this slot's 3
+        // back out leaves -1, which with the slot's facts (3) reports 2, as stored.
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {2, false}}}};
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {-1, false});
+    }
+}
+
+TEST_CASE("Each re-claim takes back only what the slot sent since its previous claim",
+          "[achievements]")
+{
+    const DefinitionSet definitions {
+            {unlimited("game-taf-bear", {rule(RuleType::Event, GE, 100, "bear_kick")})}};
+    const auto one = [](int64_t value) {
+        Baselines b;
+        b["game-taf-bear"] = Baseline {false, {{0, RuleProgress {value, false}}}};
+        return b;
+    };
+    const auto sentOf = [](int64_t value) {
+        return std::map<std::string, RuleProgressMap> {
+                {"game-taf-bear", {{0, RuleProgress {value, false}}}}};
+    };
+
+    // Claim 1 starts at 4; the slot's facts reach 3 and it sends 7. Another slot adds 2 (stored 9).
+    auto used = one(4);
+    used = reclaimBaselines(used, one(9), sentOf(7), definitions);
+    CHECK(used.at("game-taf-bear").rules.at(0).value == 6); // 9 - (7 - 4)
+
+    // Claim 2 starts at 6; the slot's facts reach 4 and it sends 10. Another slot adds 5 (stored
+    // 15). Measured from claim 2's start, the slot added 4: 15 - 4 = 11, and 11 + 4 = 15 reports.
+    used = reclaimBaselines(used, one(15), sentOf(10), definitions);
+    CHECK(used.at("game-taf-bear").rules.at(0).value == 11);
+}
+
+TEST_CASE("At an int64 bound the result is the stored value plus the net delta, in any order",
+          "[achievements]")
+{
+    const auto def = unlimited("game-max", {rule(RuleType::Event, GE, 10, "spins")});
+    for (const auto &[first, second] : {std::pair {1, -1}, std::pair {-1, 1}}) {
+        CAPTURE(first, second);
+        Baselines baselines;
+        baselines["game-max"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+        Session s({def}, std::move(baselines));
+        s.timeline.at(1000).event("spins", first);
+        s.commit();
+        s.timeline.at(2000).event("spins", second);
+        s.commit();
+        const auto *record = s.tracker.record("game-max");
+        REQUIRE(record);
+        CHECK(record->rules.at(0).value == INT64_MAX); // a net delta of zero
+    }
+}
+
+TEST_CASE("A stored value at the int64 bounds saturates instead of overflowing", "[achievements]")
+{
+    CHECK(addSaturating(INT64_MAX, 1) == INT64_MAX);
+    CHECK(addSaturating(INT64_MIN, -1) == INT64_MIN);
+    CHECK(addSaturating(INT64_MAX, -1) == INT64_MAX - 1);
+    CHECK(subtractSaturating(INT64_MIN, 1) == INT64_MIN);
+    CHECK(subtractSaturating(0, INT64_MIN) == INT64_MAX);
+    CHECK(subtractSaturating(-1, INT64_MIN) == INT64_MAX);
+    CHECK(subtractSaturating(5, 3) == 2);
+
+    Baselines baselines;
+    baselines["game-max-events"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+    baselines["game-min-events"] = Baseline {false, {{0, RuleProgress {INT64_MIN, false}}}};
+    baselines["game-max-sessions"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+    Session s({unlimited("game-max-events", {rule(RuleType::Event, GE, 10, "spins")}),
+               unlimited("game-min-events", {rule(RuleType::Event, GE, 10, "ramps")}),
+               unlimited("game-max-sessions", {rule(RuleType::Session, GE, 10)})},
+              std::move(baselines));
+    s.timeline.at(1000).event("spins", 5).event("ramps", -5);
+    s.commit();
+    s.timeline.at(2000).ball(2);
+    s.commit();
+
+    // Held at the bound, so unchanged from what the server holds and not reported again
+    CHECK(s.tracker.collectReport().empty());
+    for (const auto &[key, bound] :
+         {std::pair {"game-max-events", INT64_MAX}, std::pair {"game-min-events", INT64_MIN},
+          std::pair {"game-max-sessions", INT64_MAX}}) {
+        CAPTURE(key);
+        const auto *record = s.tracker.record(key);
+        REQUIRE(record);
+        CHECK(record->rules.at(0).value == bound);
+    }
 }
 
 TEST_CASE("Unacknowledged values ride along with the next report", "[achievements]")
