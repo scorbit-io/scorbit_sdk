@@ -194,25 +194,98 @@ TEST_CASE("An unlimited count carries across games: 4, then 6 more, is one award
     }
 }
 
-TEST_CASE("A slot claimed again by the same player keeps its first baseline's values",
+TEST_CASE("A slot claimed again by the same player takes back only its own contribution",
           "[achievements]")
 {
-    // First claim: 4 stored. The slot then reports 7 (4 + 3 this game), changes hands, and comes
-    // back. The new fetch holds 7, which already includes the slot's 3: it must not be added again.
+    const DefinitionSet definitions {
+            {unlimited("game-taf-bear", {rule(RuleType::Event, GE, 10, "bear_kick")}),
+             unlimited("game-started-here", {rule(RuleType::Event, GE, 10, "spins")}),
+             unlimited("game-best-score", {rule(RuleType::Score, GE, 1000000)}),
+             unlimited("game-two-rules",
+                       {rule(RuleType::Event, GE, 10, "a"), rule(RuleType::Event, GE, 10, "b")})}};
+
+    // First claim of the slot: 4 stored. The slot then sent 7 (4 + 3 this game), and changed hands.
     Baselines first;
     first["game-taf-bear"] = Baseline {false, {{0, RuleProgress {4, false}}}};
-    Baselines fresh;
-    fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {7, false}}}};
-    fresh["game-started-here"] = Baseline {false, {{0, RuleProgress {2, false}}}};
-    fresh["game-won-here"] = Baseline {true, {{0, RuleProgress {1, true}}}};
+    first["game-best-score"] = Baseline {false, {{0, RuleProgress {800000, false}}}};
+    first["game-two-rules"] = Baseline {false, {{0, RuleProgress {1, false}}, {1, {5, false}}}};
+    const std::map<std::string, RuleProgressMap> sent {
+            {"game-taf-bear", {{0, RuleProgress {7, false}}}},
+            {"game-started-here", {{0, RuleProgress {2, false}}}},
+            {"game-best-score", {{0, RuleProgress {900000, false}}}},
+            {"game-two-rules", {{0, RuleProgress {3, false}}, {1, {5, false}}}}};
 
-    const auto merged = reclaimBaselines(first, fresh);
-    CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
-    // Started only this game, so its values are all in the slot's facts
-    CHECK(merged.at("game-started-here").rules.empty());
-    // Holdings come from the fresh fetch
-    CHECK(merged.at("game-won-here").achieved);
-    CHECK(merged.at("game-won-here").rules.empty());
+    SECTION("Back on the same slot: the slot's 3 come out of the fresh 7")
+    {
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {7, false}}}};
+        fresh["game-started-here"] = Baseline {false, {{0, RuleProgress {2, false}}}};
+        fresh["game-best-score"] = Baseline {false, {{0, RuleProgress {900000, false}}}};
+        // Rule 1 never reached the server
+        fresh["game-two-rules"] = Baseline {true, {{0, RuleProgress {3, false}}}};
+
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
+        CHECK(merged.at("game-started-here").rules.at(0) == RuleProgress {0, false});
+        // An observation merges to a best value, so the fresh one is reused as it is
+        CHECK(merged.at("game-best-score").rules.at(0) == RuleProgress {900000, false});
+        CHECK(merged.at("game-two-rules").rules.at(0) == RuleProgress {1, false});
+        CHECK(merged.at("game-two-rules").rules.at(1) == RuleProgress {5, false});
+        CHECK(merged.at("game-two-rules").achieved); // holdings come from the fresh fetch
+    }
+
+    SECTION("Played on another slot meanwhile: that progress is kept")
+    {
+        // The player went to slot 2 and added 2 there (stored 9), then came back
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {9, false}}}};
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        // 9 - this slot's 3: plus the slot's facts (3) and one more kick, the next report is 10
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {6, false});
+    }
+
+    SECTION("The slot's last report not stored yet: never below the first fetch")
+    {
+        Baselines fresh;
+        fresh["game-taf-bear"] = Baseline {false, {{0, RuleProgress {4, false}}}};
+        const auto merged = reclaimBaselines(first, fresh, sent, definitions);
+        CHECK(merged.at("game-taf-bear").rules.at(0) == RuleProgress {4, false});
+    }
+}
+
+TEST_CASE("A stored value at the int64 bounds saturates instead of overflowing", "[achievements]")
+{
+    CHECK(addSaturating(INT64_MAX, 1) == INT64_MAX);
+    CHECK(addSaturating(INT64_MIN, -1) == INT64_MIN);
+    CHECK(addSaturating(INT64_MAX, -1) == INT64_MAX - 1);
+    CHECK(subtractSaturating(INT64_MIN, 1) == INT64_MIN);
+    CHECK(subtractSaturating(0, INT64_MIN) == INT64_MAX);
+    CHECK(subtractSaturating(-1, INT64_MIN) == INT64_MAX);
+    CHECK(subtractSaturating(5, 3) == 2);
+
+    Baselines baselines;
+    baselines["game-max-events"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+    baselines["game-min-events"] = Baseline {false, {{0, RuleProgress {INT64_MIN, false}}}};
+    baselines["game-max-sessions"] = Baseline {false, {{0, RuleProgress {INT64_MAX, true}}}};
+    Session s({unlimited("game-max-events", {rule(RuleType::Event, GE, 10, "spins")}),
+               unlimited("game-min-events", {rule(RuleType::Event, GE, 10, "ramps")}),
+               unlimited("game-max-sessions", {rule(RuleType::Session, GE, 10)})},
+              std::move(baselines));
+    s.timeline.at(1000).event("spins", 5).event("ramps", -5);
+    s.commit();
+    s.timeline.at(2000).ball(2);
+    s.commit();
+
+    // Held at the bound, so unchanged from what the server holds and not reported again
+    CHECK(s.tracker.collectReport().empty());
+    for (const auto &[key, bound] :
+         {std::pair {"game-max-events", INT64_MAX}, std::pair {"game-min-events", INT64_MIN},
+          std::pair {"game-max-sessions", INT64_MAX}}) {
+        CAPTURE(key);
+        const auto *record = s.tracker.record(key);
+        REQUIRE(record);
+        CHECK(record->rules.at(0).value == bound);
+    }
 }
 
 TEST_CASE("Unacknowledged values ride along with the next report", "[achievements]")

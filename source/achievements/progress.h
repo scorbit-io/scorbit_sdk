@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -60,18 +61,27 @@ struct Baseline {
 using Baselines = std::unordered_map<std::string, Baseline>;
 
 /**
- * The state for a player claiming a slot again in the same session: holdings from @p fresh, rule
- * values from @p first, the fetch of their first claim there. The slot's facts run from the start
- * of the session, and @p fresh already holds what the slot reported since. An achievement started
- * only this session has no values in @p first, so it starts from zero, as it did then.
+ * @p lhs + @p rhs, held at the `int64` bounds rather than overflowing: a stored lifetime value may
+ * be anywhere in the range (§10.2), and an accumulator adds this session's play to it.
  */
-inline Baselines reclaimBaselines(const Baselines &first, Baselines fresh)
+inline int64_t addSaturating(int64_t lhs, int64_t rhs)
 {
-    for (auto &[key, baseline] : fresh) {
-        const auto it = first.find(key);
-        baseline.rules = it == first.end() ? RuleProgressMap {} : it->second.rules;
+    if (rhs > 0 && lhs > std::numeric_limits<int64_t>::max() - rhs) {
+        return std::numeric_limits<int64_t>::max();
     }
-    return fresh;
+    if (rhs < 0 && lhs < std::numeric_limits<int64_t>::min() - rhs) {
+        return std::numeric_limits<int64_t>::min();
+    }
+    return lhs + rhs;
+}
+
+/** @p lhs - @p rhs, held at the `int64` bounds. */
+inline int64_t subtractSaturating(int64_t lhs, int64_t rhs)
+{
+    if (rhs == std::numeric_limits<int64_t>::min()) {
+        return lhs >= 0 ? std::numeric_limits<int64_t>::max() : lhs - rhs;
+    }
+    return addSaturating(lhs, -rhs);
 }
 
 } // namespace achievements

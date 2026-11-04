@@ -158,20 +158,21 @@ private:
         case RuleType::Mode:
         case RuleType::ModeCompleted:
         case RuleType::ModeStack:
-            return resolveAccumulator(carried + static_cast<int64_t>(occurrences(rule).size()),
-                                      rule);
+            return resolveAccumulator(
+                    addSaturating(carried, static_cast<int64_t>(occurrences(rule).size())), rule);
 
         case RuleType::Event: {
+            // Saturating: a stored lifetime value may sit at either end of the int64 range
             int64_t total = carried;
             for (const auto &op : occurrences(rule)) {
-                total += op.value;
+                total = addSaturating(total, op.value);
             }
             return resolveAccumulator(total, rule);
         }
 
         case RuleType::Session:
             // The game in progress counts from the moment play begins (§5.4)
-            return resolveAccumulator(carried + 1, rule);
+            return resolveAccumulator(addSaturating(carried, 1), rule);
 
         case RuleType::Achievement:
             if (!m_context.definitions.contains(rule.reference)) {
@@ -202,7 +203,7 @@ private:
 
         case RuleType::Calendar:
             // The sessions in which something qualified, counting this one once (§5.5.2)
-            return resolveAccumulator(carried + (sessionQualifies() ? 1 : 0), rule);
+            return resolveAccumulator(addSaturating(carried, sessionQualifies() ? 1 : 0), rule);
         }
 
         return std::nullopt;

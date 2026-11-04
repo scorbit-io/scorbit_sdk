@@ -130,6 +130,12 @@ public:
     /** Whether the player holds @p key: at claim time, or earned and not retracted since. */
     bool holds(const std::string &key) const { return m_held.count(key) != 0; }
 
+    /**
+     * The lifetime values of every `unlimited` record, as last sent. Taken when the slot changes
+     * hands, after its final @ref collectReport, for @ref reclaimBaselines.
+     */
+    std::map<std::string, RuleProgressMap> sentValues() const;
+
 private:
     void startTracking(const Definition &definition);
     bool evaluateAll(const PlayerSession &session, const DefinitionSet &definitions);
@@ -147,6 +153,21 @@ private:
     std::vector<std::string> m_pendingClaims;
     std::vector<AchievementUpdate> m_updates;
 };
+
+/**
+ * The state for a player claiming a slot again in the same session. @p first is the fetch of their
+ * first claim there, @p fresh the new one, and @p sent what the slot sent in between
+ * (@ref PlayerTracker::sentValues).
+ *
+ * The slot's facts run from the start of the session, and @p fresh may already hold what the slot
+ * sent, so for each accumulator rule the slot's own contribution (`sent - first`) is taken back
+ * out of @p fresh. Progress from another slot or machine meanwhile is kept, and a report still in
+ * flight can never make the result lower than @p first. Observation rules merge to a best value,
+ * so @p fresh is used as it is; holdings always come from @p fresh.
+ */
+Baselines reclaimBaselines(const Baselines &first, Baselines fresh,
+                           const std::map<std::string, RuleProgressMap> &sent,
+                           const DefinitionSet &definitions);
 
 } // namespace achievements
 } // namespace detail
