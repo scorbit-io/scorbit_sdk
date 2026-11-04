@@ -163,6 +163,26 @@ TEST_CASE("Outbox retries a failed request with a fresh sequence and backoff", "
     CHECK(outbox.failed(true) == ReportOutbox::INITIAL_BACKOFF); // reset by the delivery
 }
 
+TEST_CASE("Outbox keeps the resent mark when a newer item supersedes a requeued one",
+          "[achievements]")
+{
+    ReportOutbox outbox;
+    outbox.setSessionUuid("s");
+    outbox.add("user-a", {item("k", 1, true)});
+    REQUIRE(outbox.next());
+    CHECK(outbox.failed(true) == ReportOutbox::INITIAL_BACKOFF);
+
+    // A newer value arrives during the backoff, after the failed request's items were requeued
+    outbox.add("user-a", {item("k", 2, true)});
+    outbox.retryReady();
+
+    const auto retry = outbox.next();
+    REQUIRE(retry);
+    REQUIRE(retry->items.size() == 1);
+    CHECK(retry->items[0].rules.at(0).value == 2);
+    CHECK(retry->items[0].resent); // the failed request may still have been applied
+}
+
 TEST_CASE("Outbox drops a request the server refused outright", "[achievements]")
 {
     ReportOutbox outbox;

@@ -37,6 +37,10 @@ void ReportOutbox::add(const std::string &userId, std::vector<ReportItem> items)
     }
     auto &queue = m_pending[userId];
     for (auto &item : items) {
+        // One queued since a failed request keeps its mark: the server may have applied that one
+        if (const auto it = queue.find(item.key); it != queue.end() && it->second.resent) {
+            item.resent = true;
+        }
         auto key = item.key;
         queue.insert_or_assign(std::move(key), std::move(item));
     }
