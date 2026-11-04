@@ -18,6 +18,7 @@
  */
 
 #include "player_tracker.h"
+#include <algorithm>
 #include <utility>
 
 namespace scorbit {
@@ -40,6 +41,28 @@ RuleProgressMap zeroState(const Definition &definition)
                                             && satisfies(0, rule.comparison, rule.target)};
     }
     return rules;
+}
+
+const RuleProgressMap *rulesOf(const Baselines &baselines, const std::string &key)
+{
+    const auto it = baselines.find(key);
+    return it == baselines.end() ? nullptr : &it->second.rules;
+}
+
+const RuleProgressMap *rulesOf(const std::map<std::string, RuleProgressMap> &values,
+                               const std::string &key)
+{
+    const auto it = values.find(key);
+    return it == values.end() ? nullptr : &it->second;
+}
+
+const RuleProgress *ruleIn(const RuleProgressMap *rules, size_t index)
+{
+    if (!rules) {
+        return nullptr;
+    }
+    const auto it = rules->find(index);
+    return it == rules->end() ? nullptr : &it->second;
 }
 
 } // namespace
@@ -292,6 +315,55 @@ void PlayerTracker::applyOutcome(const ReportItem &sent, const ReportOutcome &ou
 std::vector<AchievementUpdate> PlayerTracker::takeUpdates()
 {
     return std::exchange(m_updates, {});
+}
+
+std::map<std::string, RuleProgressMap> PlayerTracker::sentValues() const
+{
+    std::map<std::string, RuleProgressMap> sent;
+    for (const auto &[key, record] : m_records) {
+        if (record.evaluation == EvaluationClass::Unlimited && !record.rules.empty()) {
+            sent.emplace(key, record.rules);
+        }
+    }
+    return sent;
+}
+
+Baselines reclaimBaselines(const Baselines &first, Baselines fresh,
+                           const std::map<std::string, RuleProgressMap> &sent,
+                           const DefinitionSet &definitions)
+{
+    for (auto &[key, baseline] : fresh) {
+        const auto *definition = definitions.find(key);
+        if (!definition) {
+            continue; // not evaluated here, so its values are never added to
+        }
+        for (size_t index = 0; index < definition->rules.size(); ++index) {
+            const auto type = definition->rules[index].type;
+            if (isObservation(type) || type == RuleType::Achievement) {
+                continue; // merged, not added: the fresh best value is safe to reuse
+            }
+            const auto *before = ruleIn(rulesOf(first, key), index);
+            const auto *slotSent = ruleIn(rulesOf(sent, key), index);
+            const int64_t start = before ? before->value : 0;
+            const int64_t contribution = slotSent ? subtractSaturating(slotSent->value, start) : 0;
+
+            const auto stored = baseline.rules.find(index);
+            if (stored == baseline.rules.end()) {
+                // Nothing reached the server for it: the first fetch still stands
+                if (before) {
+                    baseline.rules[index] = *before;
+                }
+                continue;
+            }
+            auto value = subtractSaturating(stored->second.value, contribution);
+            if (contribution >= 0) {
+                // A last report not yet stored would otherwise take back more than it added
+                value = std::max(value, start);
+            }
+            stored->second.value = value;
+        }
+    }
+    return fresh;
 }
 
 } // namespace achievements

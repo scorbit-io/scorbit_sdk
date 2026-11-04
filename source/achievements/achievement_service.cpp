@@ -357,6 +357,7 @@ void AchievementService::reconcileClaims()
             // The slot changed hands: what the previous player earned is still reported
             if (it->second.tracker) {
                 session->outbox->add(it->second.userId, it->second.tracker->collectReport());
+                session->sentBySlot[{player, it->second.userId}] = it->second.tracker->sentValues();
             }
             session->claims.erase(it);
         }
@@ -426,7 +427,12 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
 
     const auto [first, isFirst] = session->firstBaselines.try_emplace({player, userId}, *baselines);
     if (!isFirst) {
-        *baselines = reclaimBaselines(first->second, std::move(*baselines));
+        const auto sent = session->sentBySlot.find({player, userId});
+        *baselines = reclaimBaselines(first->second, std::move(*baselines),
+                                      sent == session->sentBySlot.end()
+                                              ? std::map<std::string, RuleProgressMap> {}
+                                              : sent->second,
+                                      session->definitions());
     }
     claim.tracker = std::make_unique<PlayerTracker>(userId, std::move(*baselines));
     evaluate(*session, player, claim);

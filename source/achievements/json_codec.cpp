@@ -415,16 +415,26 @@ RuleProgressMap parseStoredRules(const json &entry, const std::string &key)
     }
     for (const auto &rule : *progress) {
         try {
-            const auto index = requiredField<int64_t>(rule, KEY_INDEX);
-            if (index < 0) {
-                throw std::invalid_argument(fmt::format("negative index {}", index));
+            // An integer only: a float such as -0.5 would otherwise convert to a valid index
+            const auto indexIt = rule.find(KEY_INDEX);
+            if (indexIt == rule.end() || !indexIt->is_number_integer()) {
+                throw std::invalid_argument("'index' is missing or not an integer");
             }
+            // Far beyond any definition's rule count, and in range for a 32-bit size_t
+            constexpr uint64_t maxIndex = 65535;
+            if (indexIt->is_number_unsigned()
+                        ? indexIt->get<uint64_t>() > maxIndex
+                        : indexIt->get<int64_t>() < 0
+                                  || indexIt->get<int64_t>() > static_cast<int64_t>(maxIndex)) {
+                throw std::invalid_argument(fmt::format("index {} out of range", indexIt->dump()));
+            }
+            const auto index = static_cast<size_t>(indexIt->get<int64_t>());
             const auto value = storedRuleValue(rule.value(KEY_VALUE, json {}));
             if (!value) {
                 continue; // never reported: a later report starts from zero
             }
             const RuleProgress stored {*value, fieldOr<bool>(rule, KEY_SATISFIED, false)};
-            if (!rules.emplace(static_cast<size_t>(index), stored).second) {
+            if (!rules.emplace(index, stored).second) {
                 WRN("Achievements: progress for '{}' repeats rule {}, keeping the first", key,
                     index);
             }

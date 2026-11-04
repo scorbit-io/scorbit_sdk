@@ -476,7 +476,9 @@ TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achieveme
             "rule_progress": [ { "index": 0, "value": 9223372036854775807, "satisfied": true },
                                { "index": 1, "value": null, "target": 5, "satisfied": false } ] },
           { "key": "game-odd-values", "achieved": true,
-            "rule_progress": [ { "index": 0, "value": 7400.0, "satisfied": true },
+            "rule_progress": [ { "index": -0.5, "value": 77, "satisfied": false },
+                               { "index": 0.0, "value": 78, "satisfied": false },
+                               { "index": 0, "value": 7400.0, "satisfied": true },
                                { "index": 1, "value": -12, "satisfied": false },
                                { "index": 2, "value": 1.5 },
                                { "index": 3, "value": 9223372036854775808 },
@@ -502,8 +504,9 @@ TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achieveme
     CHECK(two.rules.at(0) == RuleProgress {INT64_MAX, true});
     CHECK_FALSE(two.rules.contains(1));
 
-    // An exact float and a negative value are kept; a fraction, an out-of-range or negative index,
-    // a string, and a repeated index (the first wins) are not
+    // An exact float and a negative value are kept; a float index (even -0.5, which would convert
+    // to 0), a fraction, an out-of-range or negative index, a string, and a repeated index (the
+    // first wins) are not
     const auto &odd = baselines->at("game-odd-values");
     CHECK(odd.achieved);
     REQUIRE(odd.rules.size() == 2);
