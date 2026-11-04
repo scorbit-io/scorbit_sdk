@@ -424,6 +424,10 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
         return;
     }
 
+    const auto [first, isFirst] = session->firstBaselines.try_emplace({player, userId}, *baselines);
+    if (!isFirst) {
+        *baselines = reclaimBaselines(first->second, std::move(*baselines));
+    }
     claim.tracker = std::make_unique<PlayerTracker>(userId, std::move(*baselines));
     evaluate(*session, player, claim);
     prefetchIcons(*session);

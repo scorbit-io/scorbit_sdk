@@ -45,8 +45,8 @@ using RuleProgressMap = std::map<size_t, RuleProgress>;
 
 /**
  * A player's stored state for one achievement, as fetched when the player claims a slot. A rule
- * with no stored measurement has no entry in @ref rules; the API's device progress read carries no
- * per-rule values today, so a fetched baseline has only @ref achieved.
+ * with no stored measurement (never reported, or a response without `rule_progress`) has no entry
+ * in @ref rules.
  */
 struct Baseline {
     bool achieved {false};
@@ -58,6 +58,21 @@ struct Baseline {
  * it has never been started and all its rule values are zero (§7.7).
  */
 using Baselines = std::unordered_map<std::string, Baseline>;
+
+/**
+ * The state for a player claiming a slot again in the same session: holdings from @p fresh, rule
+ * values from @p first, the fetch of their first claim there. The slot's facts run from the start
+ * of the session, and @p fresh already holds what the slot reported since. An achievement started
+ * only this session has no values in @p first, so it starts from zero, as it did then.
+ */
+inline Baselines reclaimBaselines(const Baselines &first, Baselines fresh)
+{
+    for (auto &[key, baseline] : fresh) {
+        const auto it = first.find(key);
+        baseline.rules = it == first.end() ? RuleProgressMap {} : it->second.rules;
+    }
+    return fresh;
+}
 
 } // namespace achievements
 } // namespace detail

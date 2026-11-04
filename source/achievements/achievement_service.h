@@ -143,6 +143,13 @@ private:
         PlayerSession seat(PlayerNumber player) const { return {facts, player, &feed->calendar}; }
         SessionFacts facts;
         std::map<PlayerNumber, Claim> claims;
+        /**
+         * The first state fetched for each player on each slot. The slot's facts run from the start
+         * of the session, so a later claim of the same slot by the same player takes holdings from
+         * its new fetch but rule values from this one: the new fetch already holds what the slot
+         * reported since, and adding the facts again would count them twice.
+         */
+        std::map<std::pair<PlayerNumber, std::string>, Baselines> firstBaselines;
         std::shared_ptr<ReportOutbox> outbox = std::make_shared<ReportOutbox>();
         bool finished {false};
     };
