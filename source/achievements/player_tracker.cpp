@@ -356,7 +356,10 @@ Baselines reclaimBaselines(const Baselines &first, Baselines fresh,
                 continue;
             }
             // The fetch waited for the slot's reports, so it holds all of `contribution`: what is
-            // left is everything else, a decrease made elsewhere included
+            // left is everything else, a decrease made elsewhere included. Accepted limit (late
+            // claims are not guaranteed to carry everything): a hand-off report the server refused,
+            // rejected or discarded is still taken back, and near the int64 bounds `contribution`
+            // is a saturated difference; either undercounts by at most that report's play.
             stored->second.value = subtractSaturating(stored->second.value, contribution);
         }
     }
