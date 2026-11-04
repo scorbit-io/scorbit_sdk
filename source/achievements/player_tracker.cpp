@@ -355,12 +355,9 @@ Baselines reclaimBaselines(const Baselines &first, Baselines fresh,
                 }
                 continue;
             }
-            auto value = subtractSaturating(stored->second.value, contribution);
-            if (contribution >= 0) {
-                // A last report not yet stored would otherwise take back more than it added
-                value = std::max(value, start);
-            }
-            stored->second.value = value;
+            // The fetch waited for the slot's reports, so it holds all of `contribution`: what is
+            // left is everything else, a decrease made elsewhere included
+            stored->second.value = subtractSaturating(stored->second.value, contribution);
         }
     }
     return fresh;

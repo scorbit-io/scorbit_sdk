@@ -383,6 +383,13 @@ void AchievementService::fetchBaseline(PlayerNumber player, const std::string &u
     if (claim.fetching || claim.tracker) {
         return;
     }
+    // A slot claimed again waits until what it sent has its answer, so that the state fetched holds
+    // all of it and reclaimBaselines can take it back out exactly. Retried after each answer.
+    if (session->slotBaselines.contains({player, userId}) && session->outbox->hasPending(userId)) {
+        INF("Achievements: player {} claimed again by {}, waiting for its reports first", player,
+            userId);
+        return;
+    }
     claim.fetching = true;
 
     m_net.fetchAchievementProgress(userId, [this, alive = std::weak_ptr(m_alive),
@@ -425,14 +432,16 @@ void AchievementService::onBaseline(uint64_t sessionId, PlayerNumber player,
         return;
     }
 
-    const auto [first, isFirst] = session->firstBaselines.try_emplace({player, userId}, *baselines);
+    const auto [used, isFirst] = session->slotBaselines.try_emplace({player, userId}, *baselines);
     if (!isFirst) {
         const auto sent = session->sentBySlot.find({player, userId});
-        *baselines = reclaimBaselines(first->second, std::move(*baselines),
+        *baselines = reclaimBaselines(used->second, std::move(*baselines),
                                       sent == session->sentBySlot.end()
                                               ? std::map<std::string, RuleProgressMap> {}
                                               : sent->second,
                                       session->definitions());
+        // What this claim starts from, so that a later one takes back only what is sent from now
+        used->second = *baselines;
     }
     claim.tracker = std::make_unique<PlayerTracker>(userId, std::move(*baselines));
     evaluate(*session, player, claim);
@@ -589,6 +598,7 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
             ERR("Achievements: report refused (status {}): {}", reply.httpStatus,
                 describeRefusal(reply.body));
             pump(outbox);
+            fetchWaitingBaselines();
         }
         return;
     }
@@ -624,8 +634,21 @@ void AchievementService::onReportReply(const std::shared_ptr<ReportOutbox> &outb
     }
 
     pump(outbox);
+    fetchWaitingBaselines();
     dropDrainedSessions();
     updateView();
+}
+
+void AchievementService::fetchWaitingBaselines()
+{
+    // A claim held back for its player's reports (see fetchBaseline) tries again once one is in
+    if (auto *session = current()) {
+        for (auto &[player, claim] : session->claims) {
+            if (!claim.tracker && !claim.fetching) {
+                fetchBaseline(player, claim.userId);
+            }
+        }
+    }
 }
 
 void AchievementService::onRetryTimer()
