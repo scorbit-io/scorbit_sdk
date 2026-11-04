@@ -5110,9 +5110,32 @@ void NetTestAccess::seedSwitchToken(Net &net, std::string token)
     ++net.m_cfTokenGeneration;
 }
 
-void NetTestAccess::fetchCentrifugoTokenNow(Net &net)
+void NetTestAccess::fetchCentrifugoTokenNow(Net &net, std::optional<std::uint64_t> asOf)
 {
-    net.fetchCentrifugoTokenNow();
+    net.fetchCentrifugoTokenNow(asOf);
+}
+
+std::uint64_t NetTestAccess::centrifugoTokenGeneration(const Net &net)
+{
+    return net.m_cfTokenGeneration.load();
+}
+
+void NetTestAccess::setupAndConnectCentrifugo(Net &net, bool fetchFreshToken,
+                                              std::optional<std::uint64_t> requestedAt)
+{
+    net.setupAndConnectCentrifugo(fetchFreshToken, requestedAt);
+}
+
+bool NetTestAccess::connectCentrifugoFor(Net &net, std::uint64_t gen)
+{
+    const auto *const before = net.m_centrifugo.get();
+    net.connectCentrifugoFor(gen);
+    return net.m_centrifugo && net.m_centrifugo.get() != before;
+}
+
+bool NetTestAccess::hasCentrifugoClient(const Net &net)
+{
+    return net.m_centrifugo != nullptr;
 }
 
 std::string NetTestAccess::machineUuid(const Net &net)
@@ -5987,7 +6010,7 @@ std::string Net::cachedCentrifugoToken() const
     return m_cfToken;
 }
 
-void Net::fetchCentrifugoTokenNow()
+void Net::fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf)
 {
     if (m_stop) {
         return;
@@ -5999,7 +6022,7 @@ void Net::fetchCentrifugoTokenNow()
         std::shared_lock lock(m_tokenMutex);
         authToken = m_stoken;
     }
-    const auto generation = m_cfTokenGeneration.load();
+    const auto generation = asOf.value_or(m_cfTokenGeneration.load());
 
     std::string token;
     std::int64_t serverNow = 0;
@@ -6186,13 +6209,14 @@ void Net::centrifugoSetup(bool fetchFreshToken)
             // Timers fire on an io_context thread, not on this strand, so the check on the client
             // has to be made after hopping back onto it.
             const bool fetchFreshToken = m_restartFetchFreshToken.exchange(true);
+            const auto requestedAt = m_restartRequestedAt.load();
             m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RESTART_DELAY,
-                                [this, fetchFreshToken] {
-                                    onCentrifugoStrand([this, fetchFreshToken] {
+                                [this, fetchFreshToken, requestedAt] {
+                                    onCentrifugoStrand([this, fetchFreshToken, requestedAt] {
                                         if (m_stop || m_centrifugo) {
                                             return;
                                         }
-                                        setupAndConnectCentrifugo(fetchFreshToken);
+                                        setupAndConnectCentrifugo(fetchFreshToken, requestedAt);
                                     });
                                 });
             return;
@@ -6205,11 +6229,12 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         case 3502:
             if (!m_stop) {
                 INF("API-CF reset and setup centrifugo client in {}", RECONNECT_DELAY);
-                m_worker.startTimer(
-                        Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY, [this, withActiveClient] {
-                            onCentrifugoStrand(
-                                    withActiveClient([this] { setupAndConnectCentrifugo(true); }));
-                        });
+                m_worker.startTimer(Worker::Timer::CentrifugoReconnect, RECONNECT_DELAY,
+                                    [this, withActiveClient, armedAt = m_cfTokenGeneration.load()] {
+                                        onCentrifugoStrand(withActiveClient([this, armedAt] {
+                                            setupAndConnectCentrifugo(true, armedAt);
+                                        }));
+                                    });
                 // m_worker.post([this]() { m_centrifugo.reset(); }); // TODO: if we need to reset?
             }
             break;
@@ -6387,12 +6412,48 @@ void Net::publishToMachineChannel(std::string what, nlohmann::json payload, std:
     });
 }
 
-void Net::setupAndConnectCentrifugo(bool fetchFreshToken)
+void Net::connectCentrifugoFor(std::uint64_t gen)
 {
-    onCentrifugoStrand([this, fetchFreshToken] {
-        pruneRetiredCentrifugoClients();
-        centrifugoSetup(fetchFreshToken);
-        centrifugoConnect();
+    // One token generation only: a later restart or a switch's token supersedes it, and connects
+    // itself, so this one must not replace the client that one made.
+    if (m_stop || m_cfTokenGeneration != gen) {
+        return;
+    }
+    if (auto *const old = m_centrifugo.get()) {
+        retireCentrifugoClient(); // retired, not destroyed, as on the other restart paths
+        if (old->state() != centrifugo::ConnectionState::Disconnected) {
+            old->disconnect(); // or it stays subscribed until it is pruned
+        }
+    }
+    pruneRetiredCentrifugoClients();
+    centrifugoSetup(false);
+    centrifugoConnect();
+}
+
+void Net::setupAndConnectCentrifugo(bool fetchFreshToken, std::optional<std::uint64_t> requestedAt)
+{
+    if (!fetchFreshToken) {
+        onCentrifugoStrand([this, gen = m_cfTokenGeneration.load()] { connectCentrifugoFor(gen); });
+        return;
+    }
+    // The server subscribes the channels the token names: connecting with the cached one, issued
+    // for the pairing as it was, keeps the old set until the next reconnect. Drop it, outdate any
+    // fetch already in flight, and connect once the fresh one is in. A failed fetch leaves none,
+    // and the client's getToken falls back on its reconnect backoff.
+    std::uint64_t gen = 0;
+    {
+        std::scoped_lock lock(m_cfTokenMutex);
+        if (requestedAt && *requestedAt != m_cfTokenGeneration) {
+            // A switch adopted its token, or a newer restart began, since this was asked for:
+            // that one connects, and with its own token, which this must not clear.
+            return;
+        }
+        m_cfToken.clear();
+        gen = ++m_cfTokenGeneration;
+    }
+    m_worker.post([this, gen] {
+        fetchCentrifugoTokenNow(gen);
+        onCentrifugoStrand([this, gen] { connectCentrifugoFor(gen); });
     });
 }
 
@@ -6481,22 +6542,25 @@ void Net::stopCentrifugoIdleTimer()
 
 void Net::restartCentrifugo(bool fetchFreshToken)
 {
-    onCentrifugoStrand([this, fetchFreshToken] {
+    // Taken here, not when the strand gets to it: a switch's token seeded in between wins.
+    const auto requestedAt = m_cfTokenGeneration.load();
+    onCentrifugoStrand([this, fetchFreshToken, requestedAt] {
         m_worker.stopTimer(Worker::Timer::CentrifugoReconnect);
 
         if (!m_centrifugo) {
             m_restartCentrifugoPending = false;
-            setupAndConnectCentrifugo(fetchFreshToken);
+            setupAndConnectCentrifugo(fetchFreshToken, requestedAt);
             return;
         }
 
         if (m_centrifugo->state() == centrifugo::ConnectionState::Disconnected) {
             m_restartCentrifugoPending = false;
             retireCentrifugoClient();
-            setupAndConnectCentrifugo(fetchFreshToken);
+            setupAndConnectCentrifugo(fetchFreshToken, requestedAt);
             return;
         }
 
+        m_restartRequestedAt = requestedAt;
         m_restartFetchFreshToken = fetchFreshToken;
         m_restartCentrifugoPending = true;
         m_centrifugo->disconnect();

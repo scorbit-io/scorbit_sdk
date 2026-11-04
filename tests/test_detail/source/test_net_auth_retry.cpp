@@ -1306,6 +1306,128 @@ TEST_CASE("Other Centrifugo errors keep the cached token")
     CHECK_FALSE(NetTestAccess::centrifugoTokenFetchInFlight(h.net));
 }
 
+TEST_CASE("A Centrifugo restart for a pairing change never connects with the old pairing's token")
+{
+    // The server subscribes the channels the token names, so a reconnect with the token issued
+    // before a pairing change keeps the old channel set: "not subscribed" on the new machine.
+    AuthHarness h;
+    NetTestAccess::startTokenRefresh(h.net, AuthStatus::AuthenticatedPaired, "api-token");
+    NetTestAccess::setCentrifugoToken(h.net, "unpaired-token");
+
+    // A fetch begun before the change is still on the wire when the restart comes.
+    NetTestAccess::setAuthTransport(h.net,
+                                    {.centrifugoToken =
+                                             [&](const std::string &, const std::string &) {
+                                                 NetTestAccess::setupAndConnectCentrifugo(h.net,
+                                                                                          true);
+                                                 return std::string {"unpaired-token-2"};
+                                             }},
+                                    {});
+    NetTestAccess::fetchCentrifugoTokenNow(h.net);
+    // Dropped by the restart, and the older fetch writes nothing: no token to connect with yet.
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net).empty());
+
+    // The restart's own fetch, which its connect waits for, brings the new pairing's token.
+    NetTestAccess::setAuthTransport(
+            h.net,
+            {.centrifugoToken = [](const std::string &,
+                                   const std::string &) { return std::string {"paired-token"}; }},
+            {});
+    NetTestAccess::fetchCentrifugoTokenNow(h.net);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "paired-token");
+}
+
+TEST_CASE("A Centrifugo restart superseded before its fetch runs writes nothing")
+{
+    AuthHarness h;
+    NetTestAccess::startTokenRefresh(h.net, AuthStatus::AuthenticatedPaired, "api-token");
+    NetTestAccess::setAuthTransport(
+            h.net,
+            {.centrifugoToken = [](const std::string &,
+                                   const std::string &) { return std::string {"fetched"}; }},
+            {});
+
+    // Two restarts in a row (checking, then paired): the first one's fetch is for an outdated
+    // generation, so it neither writes the token nor connects.
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true);
+    const auto first = NetTestAccess::centrifugoTokenGeneration(h.net);
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true);
+    const auto second = NetTestAccess::centrifugoTokenGeneration(h.net);
+    REQUIRE(second != first);
+    NetTestAccess::fetchCentrifugoTokenNow(h.net, first);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net).empty());
+    NetTestAccess::fetchCentrifugoTokenNow(h.net, second);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "fetched");
+
+    // A switch seeding its token after a restart: the restart's queued fetch must not replace it.
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true);
+    const auto restart = NetTestAccess::centrifugoTokenGeneration(h.net);
+    NetTestAccess::seedSwitchToken(h.net, "switch-token");
+    NetTestAccess::fetchCentrifugoTokenNow(h.net, restart);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "switch-token");
+}
+
+TEST_CASE("A Centrifugo restart asked for before a switch adopted its token leaves that token")
+{
+    // As a delayed rebuild reaching the strand after a switch seeded its token: the switch's own
+    // restart connects with that token, so this one must neither clear it nor outdate it.
+    AuthHarness h;
+    const auto askedAt = NetTestAccess::centrifugoTokenGeneration(h.net);
+    NetTestAccess::seedSwitchToken(h.net, "switch-token");
+    const auto switchGen = NetTestAccess::centrifugoTokenGeneration(h.net);
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true, askedAt);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "switch-token");
+    CHECK(NetTestAccess::centrifugoTokenGeneration(h.net) == switchGen);
+
+    // Asked for at the current generation, it goes ahead.
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true, switchGen);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net).empty());
+    CHECK(NetTestAccess::centrifugoTokenGeneration(h.net) != switchGen);
+}
+
+TEST_CASE("Only the current restart's connect step builds a Centrifugo client")
+{
+    AuthHarness h;
+    NetTestAccess::startTokenRefresh(h.net, AuthStatus::AuthenticatedPaired, "api-token");
+    NetTestAccess::setAuthTransport(
+            h.net,
+            {.centrifugoToken = [](const std::string &,
+                                   const std::string &) { return std::string {"fresh"}; }},
+            {});
+
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true);
+    const auto first = NetTestAccess::centrifugoTokenGeneration(h.net);
+    NetTestAccess::setupAndConnectCentrifugo(h.net, true);
+    const auto second = NetTestAccess::centrifugoTokenGeneration(h.net);
+
+    // The superseded restart's step runs first and builds nothing.
+    CHECK_FALSE(NetTestAccess::connectCentrifugoFor(h.net, first));
+    CHECK_FALSE(NetTestAccess::hasCentrifugoClient(h.net));
+
+    // The current one, run as its task does (fetch, then connect), connects with the fresh token:
+    // the client's getToken hands out the cached one.
+    NetTestAccess::fetchCentrifugoTokenNow(h.net, second);
+    REQUIRE(NetTestAccess::cachedCentrifugoToken(h.net) == "fresh");
+    CHECK(NetTestAccess::connectCentrifugoFor(h.net, second));
+    CHECK(NetTestAccess::hasCentrifugoClient(h.net));
+
+    // A restart that keeps its token connects at the generation it found.
+    NetTestAccess::seedSwitchToken(h.net, "switch-token");
+    const auto switchGen = NetTestAccess::centrifugoTokenGeneration(h.net);
+    CHECK_FALSE(NetTestAccess::connectCentrifugoFor(h.net, second)); // outdated by the switch
+    CHECK(NetTestAccess::connectCentrifugoFor(h.net, switchGen));
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "switch-token");
+}
+
+TEST_CASE("A Centrifugo restart with a token already in hand keeps it")
+{
+    // As a machine switch does: the token it adopted is the one to connect with.
+    AuthHarness h;
+    NetTestAccess::seedSwitchToken(h.net, "switch-token");
+    NetTestAccess::setupAndConnectCentrifugo(h.net, false);
+    CHECK(NetTestAccess::cachedCentrifugoToken(h.net) == "switch-token");
+}
+
 TEST_CASE("A Centrifugo token's refresh is timed by the server's clock, not the device's")
 {
     // The server issues a 30 min token; the refresh is due 26 min out (3 min before the client's

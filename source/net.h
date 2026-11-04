@@ -305,7 +305,14 @@ struct NetTestAccess {
     static void scorbitronReplyAt(Net &net, const std::string &venueMachine, std::uint64_t gen);
     /// Seeds the Centrifugo token as a machine switch does.
     static void seedSwitchToken(Net &net, std::string token);
-    static void fetchCentrifugoTokenNow(Net &net);
+    static void fetchCentrifugoTokenNow(Net &net, std::optional<std::uint64_t> asOf = std::nullopt);
+    static std::uint64_t centrifugoTokenGeneration(const Net &net);
+    /// As a Centrifugo restart does; the connect itself is queued, and runs only with a worker.
+    static void setupAndConnectCentrifugo(Net &net, bool fetchFreshToken,
+                                          std::optional<std::uint64_t> requestedAt = std::nullopt);
+    /// The strand step of a restart, run directly; whether it built a client.
+    static bool connectCentrifugoFor(Net &net, std::uint64_t gen);
+    static bool hasCentrifugoClient(const Net &net);
     static std::string machineUuid(const Net &net);
 
 private:
@@ -598,7 +605,8 @@ private:
     std::string cachedCentrifugoToken() const;
     /// Fetch a Centrifugo JWT and store it in the cache. Blocks; call only on the blocking
     /// executor, never on the Centrifugo strand.
-    void fetchCentrifugoTokenNow();
+    /// @p asOf: the token generation the fetch answers for; a newer one makes it write nothing.
+    void fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf = std::nullopt);
     /// Ask for a cache refresh without blocking the caller. At most one fetch is in flight.
     void refreshCentrifugoToken();
     /// Arm the next refresh from the token's own expiry, staying ahead of the client's request.
@@ -613,7 +621,12 @@ private:
     /// Give the idle window a full extension, but only when it is already armed.
     void resetCentrifugoIdleTimerIfArmed();
     void stopCentrifugoIdleTimer();
-    void setupAndConnectCentrifugo(bool fetchFreshToken = false);
+    /// @p requestedAt: the token generation when the restart was asked for; a switch's token or a
+    /// newer restart since then supersedes it.
+    void setupAndConnectCentrifugo(bool fetchFreshToken = false,
+                                   std::optional<std::uint64_t> requestedAt = std::nullopt);
+    /// On the Centrifugo strand: builds and connects the client, unless @p gen is outdated.
+    void connectCentrifugoFor(std::uint64_t gen);
     /// @p fetchFreshToken false keeps the cached token, which a switch has just seeded.
     void restartCentrifugo(bool fetchFreshToken = true);
 
@@ -1122,6 +1135,8 @@ private:
     std::vector<task_t> m_switchHeldPosts;
     /// Fetch the next Centrifugo client's token (false: a switch seeded it); see restartCentrifugo.
     std::atomic_bool m_restartFetchFreshToken {true};
+    std::atomic<std::uint64_t> m_restartRequestedAt {
+            0}; ///< token generation of the pending restart
     /// Its steps only capture this; none runs before the worker starts.
     MachineSwitch m_machineSwitch {machineSwitchSteps()};
 
