@@ -320,6 +320,16 @@ _lib.sb_commit.argtypes = [sb_game_handle_t]
 _lib.sb_get_status.restype = c_int
 _lib.sb_get_status.argtypes = [sb_game_handle_t]
 
+# Connectivity evidence
+_lib.sb_realtime_connected.restype = c_bool
+_lib.sb_realtime_connected.argtypes = [sb_game_handle_t]
+_lib.sb_seconds_since_rest_success.restype = c_int64
+_lib.sb_seconds_since_rest_success.argtypes = [sb_game_handle_t]
+_lib.sb_rest_transport_failures.restype = c_uint32
+_lib.sb_rest_transport_failures.argtypes = [sb_game_handle_t]
+_lib.sb_seconds_since_heartbeat_reply.restype = c_int64
+_lib.sb_seconds_since_heartbeat_reply.argtypes = [sb_game_handle_t]
+
 # const char* sb_get_machine_uuid(sb_game_handle_t)
 _lib.sb_get_machine_uuid.restype = c_char_p
 _lib.sb_get_machine_uuid.argtypes = [sb_game_handle_t]

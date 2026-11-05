@@ -661,6 +661,40 @@ AuthStatus Net::status() const
     return m_status;
 }
 
+namespace {
+/// Seconds from a steady_clock stamp in seconds to now; -1 for 0, which means never.
+int64_t secondsSinceSteady(int64_t stamp)
+{
+    if (stamp <= 0) {
+        return -1;
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count();
+    return std::max<int64_t>(0, now - stamp);
+}
+} // namespace
+
+bool Net::realtimeConnected() const
+{
+    return m_cfState.load(std::memory_order_relaxed) == centrifugo::ConnectionState::Connected;
+}
+
+int64_t Net::secondsSinceRestSuccess() const
+{
+    return secondsSinceSteady(m_lastRestSuccessSteady.load(std::memory_order_relaxed));
+}
+
+uint32_t Net::restTransportFailures() const
+{
+    return m_restTransportFailures.load(std::memory_order_relaxed);
+}
+
+int64_t Net::secondsSinceHeartbeatReply() const
+{
+    return secondsSinceSteady(m_heartbeat.lastReplySteadySeconds());
+}
+
 const string &Net::hostname() const
 {
     return m_hostname;
@@ -2647,6 +2681,7 @@ void Net::noteRestSuccess(const cpr::Header &header)
     m_lastRestSuccessSteady.store(
             duration_cast<seconds>(steady_clock::now().time_since_epoch()).count(),
             std::memory_order_relaxed);
+    m_restTransportFailures.store(0, std::memory_order_relaxed);
 
     // The Date header is a free server clock reading on every single REST call, which is what
     // lets the `clock` chip be passive. checkSystemTimeAccuracy() reads the same header but runs
@@ -3039,6 +3074,8 @@ task_t Net::createAuthenticateTask()
                 // never sees it. Without this call a capture overlapping a token refresh could
                 // age rest443 to intermittent while REST was demonstrably working.
                 noteRestSuccess(noopReply.header);
+            } else if (noopReply.status_code == 0) {
+                noteRestTransportFailure(); // outside createHttpRequestTask() too
             }
 
             if (timestampUtc > MIN_VIABLE_SERVER_TIME) {
@@ -3116,6 +3153,9 @@ task_t Net::createAuthenticateTask()
                 m_isRefreshingToken = false;
                 notifyAuthStatusChanged();
                 return;
+            }
+            if (r.status_code == 0) {
+                noteRestTransportFailure(); // outside createHttpRequestTask(), as the noop
             }
 
             // Check system time and timestamp from response header
@@ -4954,6 +4994,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
                 r.status_code, r.error.message, reply);
 
             if (r.status_code == 0) {
+                noteRestTransportFailure();
                 std::this_thread::sleep_for(1000ms);
                 continue;
             }
@@ -5245,6 +5286,12 @@ void NetTestAccess::setSignerBusyCheck(Net &net, std::function<bool()> busy)
 void NetTestAccess::setStatus(Net &net, AuthStatus status)
 {
     net.m_status = status;
+}
+
+void NetTestAccess::setRealtimeConnected(Net &net, bool connected)
+{
+    net.m_cfState = connected ? centrifugo::ConnectionState::Connected
+                              : centrifugo::ConnectionState::Disconnected;
 }
 
 void NetTestAccess::cancelAuthRetry(Net &net)

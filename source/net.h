@@ -137,6 +137,8 @@ struct NetTestAccess {
     static void onEmptySignature(Net &net, bool normalAuthentication);
     static void setSignerBusyCheck(Net &net, std::function<bool()> busy);
     static void setStatus(Net &net, AuthStatus status);
+    /// Stands in for the Centrifugo client's connection callbacks: Connected or Disconnected.
+    static void setRealtimeConnected(Net &net, bool connected);
     /// Disarms the auth retry a test armed (the test Net's worker never runs it anyway).
     static void cancelAuthRetry(Net &net);
     /// Records a deferral at @p now; true the one time deferrals have spanned the threshold.
@@ -375,6 +377,10 @@ public:
     ~Net() override;
 
     AuthStatus status() const override;
+    bool realtimeConnected() const override;
+    int64_t secondsSinceRestSuccess() const override;
+    uint32_t restTransportFailures() const override;
+    int64_t secondsSinceHeartbeatReply() const override;
 
     const std::string &hostname() const;
     const std::string &cfHostname() const; // Centrifugo hostname
@@ -888,6 +894,11 @@ private:
      * dependency_checks passively -- SPEC-0007 forbids fresh handshakes for those.
      */
     void noteRestSuccess(const cpr::Header &header);
+    /// A REST attempt that got no HTTP response at all (status 0), at the noteRestSuccess() sites.
+    void noteRestTransportFailure()
+    {
+        m_restTransportFailures.fetch_add(1, std::memory_order_relaxed);
+    }
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;
     void updateDiscoveryDescription();
@@ -1110,6 +1121,8 @@ private:
     /// steady_clock seconds at the last REST 2xx; 0 means none has succeeded yet. Written from
     /// whichever worker thread ran the request, read from the capture sampler thread.
     std::atomic<int64_t> m_lastRestSuccessSteady {0};
+    /// REST attempts with no HTTP response since the last 2xx/304 (sb_rest_transport_failures).
+    std::atomic<uint32_t> m_restTransportFailures {0};
     /// Server time minus local time, in seconds, from the most recent REST response's Date header.
     std::atomic<int64_t> m_clockDeltaSeconds {0};
     std::atomic<bool> m_haveClockDelta {false};

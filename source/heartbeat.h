@@ -110,6 +110,13 @@ public:
     /// The server this instance sends to, after the host, environment and default are applied.
     const std::string &host() const { return m_host; }
 
+    /// steady_clock seconds at the last whole reply from the server, 0 if none yet. Kept across
+    /// stop() and start(). Safe from any thread.
+    std::int64_t lastReplySteadySeconds() const
+    {
+        return m_lastReplySteady.load(std::memory_order_relaxed);
+    }
+
 private:
     void scheduleNextTick();
     void send();
@@ -148,6 +155,8 @@ private:
 
     /// Written by start() and stop() from outside the strand, hence atomic.
     std::atomic_bool m_stopped {true};
+    /// Written on the strand, read from any thread (sb_seconds_since_heartbeat_reply).
+    std::atomic<std::int64_t> m_lastReplySteady {0};
 };
 
 /// The heartbeat server for an api label: staging's own for "staging", else empty (production).

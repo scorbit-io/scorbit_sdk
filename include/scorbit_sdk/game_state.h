@@ -298,6 +298,27 @@ public:
      */
     AuthStatus getStatus() const { return static_cast<AuthStatus>(sb_get_status(m_handle.get())); }
 
+    /// @copydoc sb_realtime_connected
+    bool realtimeConnected() const { return sb_realtime_connected(m_handle.get()); }
+
+    /// @copydoc sb_seconds_since_rest_success
+    std::int64_t secondsSinceRestSuccess() const
+    {
+        return sb_seconds_since_rest_success(m_handle.get());
+    }
+
+    /// @copydoc sb_rest_transport_failures
+    std::uint32_t restTransportFailures() const
+    {
+        return sb_rest_transport_failures(m_handle.get());
+    }
+
+    /// @copydoc sb_seconds_since_heartbeat_reply
+    std::int64_t secondsSinceHeartbeatReply() const
+    {
+        return sb_seconds_since_heartbeat_reply(m_handle.get());
+    }
+
     /**
      * @brief Retrieve the machine's UUID.
      *

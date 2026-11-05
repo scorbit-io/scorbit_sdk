@@ -80,6 +80,13 @@ public:
 
     virtual AuthStatus status() const = 0;
 
+    // Connectivity evidence for the host (sb_realtime_connected and its siblings). The defaults
+    // say "no evidence", for test doubles.
+    virtual bool realtimeConnected() const { return false; }
+    virtual int64_t secondsSinceRestSuccess() const { return -1; }
+    virtual uint32_t restTransportFailures() const { return 0; }
+    virtual int64_t secondsSinceHeartbeatReply() const { return -1; }
+
     virtual void authenticate() = 0;
 
     /**

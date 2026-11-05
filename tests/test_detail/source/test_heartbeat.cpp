@@ -158,11 +158,16 @@ TEST_CASE("Heartbeat", "[wake flag]")
     Heartbeat heartbeat(worker.heartbeatStrand(), "127.0.0.1", server.local_endpoint().port(),
                         [&wakeCount] { ++wakeCount; });
 
+    // No reply yet: no evidence of the server either way
+    CHECK(heartbeat.lastReplySteadySeconds() == 0);
+
     // The datagram is nothing but the device uuid, and a plain ack must leave the device asleep
     heartbeat.start(DEVICE_UUID);
     CHECK(exchange(serverIoc, server, HEARTBEAT_FLAG_ACK) == DEVICE_UUID);
     std::this_thread::sleep_for(100ms);
     CHECK(wakeCount == 0);
+    const auto replied = heartbeat.lastReplySteadySeconds();
+    CHECK(replied > 0);
 
     // The same reply with the wake bit set asks the device to come online
     heartbeat.start(DEVICE_UUID);
@@ -175,6 +180,9 @@ TEST_CASE("Heartbeat", "[wake flag]")
     heartbeat.stop();
     worker.stop();
     CHECK(!worker.isRunning());
+
+    // The last reply outlives a stop, so its age keeps growing rather than reading "never"
+    CHECK(heartbeat.lastReplySteadySeconds() >= replied);
 }
 
 TEST_CASE("Heartbeat", "[stale reply]")
@@ -206,6 +214,7 @@ TEST_CASE("Heartbeat", "[stale reply]")
     heartbeat.start(DEVICE_UUID);
     REQUIRE(swallow(serverIoc, server, client) == DEVICE_UUID);
     std::this_thread::sleep_for(6s); // past the 5 s reply timeout; swallow() returns on receipt
+    CHECK(heartbeat.lastReplySteadySeconds() == 0); // a timed-out wait is no reply
 
     // SB-5170/SB-5172: the late wake reply must not be read as the answer to the next heartbeat.
     // The failed wait closed the socket, so the kernel drops it instead of queueing it.
