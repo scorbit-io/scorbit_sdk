@@ -185,6 +185,8 @@ target_sources(
         include/scorbit_sdk/leaderboard_c.h
         include/scorbit_sdk/table_mappings.h
         include/scorbit_sdk/table_mappings_c.h
+        include/scorbit_sdk/achievements_c.h
+        include/scorbit_sdk/achievements.h
         include/scorbit_sdk/log.h
         include/scorbit_sdk/log_types.h
         include/scorbit_sdk/common_types_c.h
@@ -204,6 +206,42 @@ target_sources(
         source/player_state.cpp
         source/modes.h
         source/modes.cpp
+        source/event_ops.h
+        source/event_ops.cpp
+        source/achievements/definition.h
+        source/achievements/definition.cpp
+        source/achievements/definition_check.h
+        source/achievements/definition_check.cpp
+        source/achievements/progress.h
+        source/achievements/json_codec.h
+        source/achievements/json_codec.cpp
+        source/achievements/timeline_row.h
+        source/achievements/time_interval.h
+        source/achievements/local_time.h
+        source/achievements/local_time.cpp
+        source/achievements/calendar_condition.h
+        source/achievements/calendar_condition.cpp
+        source/achievements/calendar.h
+        source/achievements/calendar.cpp
+        source/achievements/player_facts.h
+        source/achievements/player_facts.cpp
+        source/achievements/rule_evaluator.h
+        source/achievements/rule_evaluator.cpp
+        source/achievements/player_tracker.h
+        source/achievements/player_tracker.cpp
+        source/achievements/report.h
+        source/achievements/report_outbox.h
+        source/achievements/report_outbox.cpp
+        source/achievements/unlock_proximity.h
+        source/achievements/unlock_proximity.cpp
+        source/achievements/unlock_presenter.h
+        source/achievements/unlock_presenter.cpp
+        source/achievements/achievement_storage.h
+        source/achievements/achievement_storage.cpp
+        source/achievements/artwork_store.h
+        source/achievements/artwork_store.cpp
+        source/achievements/achievement_service.h
+        source/achievements/achievement_service.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h

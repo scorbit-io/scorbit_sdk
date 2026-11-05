@@ -41,6 +41,8 @@ from ._version import __version__
 # -- public API ---------------------------------------------------------------
 
 from ._enums import (
+    AchievementArtwork,
+    AchievementPresentation,
     AuthStatus,
     Capability,
     Error,
@@ -54,6 +56,7 @@ from ._enums import (
     LogLevel,
 )
 from ._types import (
+    AchievementUnlock,
     BundlePrice,
     LeaderboardEntry,
     LeaderboardPlayer,
@@ -133,6 +136,8 @@ __all__ = [
     # Version
     "__version__",
     # Enums
+    "AchievementArtwork",
+    "AchievementPresentation",
     "AuthStatus",
     "Capability",
     "Error",
@@ -147,6 +152,7 @@ __all__ = [
     "TableMappings",
     "LogLevel",
     # Types
+    "AchievementUnlock",
     "BundlePrice",
     "LeaderboardEntry",
     "LeaderboardPlayer",

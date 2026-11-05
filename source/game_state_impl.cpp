@@ -25,6 +25,7 @@
 #include <nfc/probes_manager.h>
 #include <nfc/Probe.h>
 #include <boost/uuid.hpp>
+#include <boost/filesystem.hpp>
 #include <utility>
 #include <functional>
 
@@ -42,6 +43,71 @@ void displayProbeInfo(ProbeBase *probe, const std::string &device)
     }
 }
 
+int64_t toEpochMs(std::chrono::system_clock::time_point tp)
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
+}
+
+/**
+ * The fact model's view of one committed row: what the session history CSV records, and whether
+ * the clock that timed it was @p clockSynchronised.
+ */
+scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::GameData &data,
+                                                         bool clockSynchronised)
+{
+    scorbit::detail::achievements::TimelineRow row;
+    row.clockSynchronised = clockSynchronised;
+    row.timeMs = toEpochMs(data.timestamp);
+    row.player = data.activePlayer;
+    row.ball = data.ball;
+    for (const auto &[player, state] : data.players) {
+        if (state.score() >= 0) {
+            row.scores.emplace(player, state.score());
+        }
+    }
+    row.modes = data.modes.names();
+    row.completedModes = data.completedModes.names();
+    for (const auto &op : data.events) {
+        row.events.emplace_back(op.name.get(), op.value);
+    }
+    return row;
+}
+
+/** Where the achievements cache lives: the configured data dir, else a temporary one. */
+std::string achievementsDataDir(const scorbit::DeviceInfo &deviceInfo)
+{
+    if (!deviceInfo.dataDir.empty()) {
+        return deviceInfo.dataDir;
+    }
+
+    boost::system::error_code ec;
+    const auto dir = boost::filesystem::temp_directory_path(ec) / "scorbit_sdk"
+                   / (deviceInfo.uuid.empty() ? std::string {"default"} : deviceInfo.uuid);
+    INF("Achievements: no data dir configured, caching in {}", dir.string());
+    return dir.string();
+}
+
+scorbit::detail::achievements::ArtworkKind artworkKind(sb_achievement_artwork_t artwork)
+{
+    using scorbit::detail::achievements::ArtworkKind;
+    switch (artwork) {
+    case SB_ACHIEVEMENT_ARTWORK_FRAME:
+        return ArtworkKind::Frame;
+    case SB_ACHIEVEMENT_ARTWORK_IMAGE:
+        return ArtworkKind::Image;
+    case SB_ACHIEVEMENT_ARTWORK_NONE:
+        break;
+    }
+    return ArtworkKind::None;
+}
+
+scorbit::detail::achievements::Presentation presentation(sb_achievement_presentation_t presentation)
+{
+    using scorbit::detail::achievements::Presentation;
+    return presentation == SB_ACHIEVEMENT_PRESENTATION_LOCAL ? Presentation::Local
+                                                             : Presentation::Granted;
+}
+
 } // namespace
 
 namespace scorbit {
@@ -57,6 +123,65 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     m_net->setProbesManager(m_probesManager);
     // m_net->connectToGameStartRequested(std::bind(&GameStateImpl::gameStartRequested, this, _1));
     m_net->authenticate();
+
+    m_achievements = std::make_unique<achievements::AchievementService>(
+            *m_net, achievements::AchievementStorage {achievementsDataDir(m_net->deviceInfo())},
+            [this](std::function<void()> fn) { post(std::move(fn)); },
+            [this](achievements::AchievementUnlock unlock) {
+                m_net->publishEvent(std::make_shared<AchievementUnlockedEvent>(
+                        std::move(unlock.key), unlock.player, std::move(unlock.name),
+                        std::move(unlock.description), std::move(unlock.artwork)));
+            },
+            artworkKind(m_net->deviceInfo().achievementArtwork),
+            presentation(m_net->deviceInfo().achievementPresentation));
+    m_net->setPlayersChangedCallback([this](const std::vector<PlayerProfile> &) {
+        post([this] { m_achievements->onPlayersChanged(); });
+    });
+
+    // Definitions are fetched at boot and revalidated with every token refresh (~25 min)
+    m_net->setTokenRefreshedCallback(
+            [this] { post([this] { m_achievements->refreshDefinitions(); }); });
+    m_achievements->refreshDefinitions();
+}
+
+void GameStateImpl::setDispatcherPoster(std::function<void(std::function<void()>)> poster)
+{
+    std::vector<std::function<void()>> pending;
+    {
+        std::scoped_lock lock(m_postMutex);
+        m_postToDispatcher = poster;
+        pending.swap(m_pendingPosts);
+    }
+    for (auto &fn : pending) {
+        poster(std::move(fn));
+    }
+}
+
+void GameStateImpl::post(std::function<void()> fn)
+{
+    std::function<void(std::function<void()>)> poster;
+    {
+        std::scoped_lock lock(m_postMutex);
+        if (!m_postToDispatcher) {
+            m_pendingPosts.push_back(std::move(fn));
+            return;
+        }
+        poster = m_postToDispatcher;
+    }
+    poster(std::move(fn));
+}
+
+size_t GameStateImpl::runPendingPosts()
+{
+    std::vector<std::function<void()>> pending;
+    {
+        std::scoped_lock lock(m_postMutex);
+        pending.swap(m_pendingPosts);
+    }
+    for (auto &fn : pending) {
+        fn();
+    }
+    return pending.size();
 }
 
 void GameStateImpl::setGameStarted(GameStartOrigin origin)
@@ -76,6 +201,7 @@ void GameStateImpl::setGameFinished()
 
     m_data.isGameActive = false;
     submitGameData(false);
+    m_achievements->onSessionFinished(toEpochMs(std::chrono::system_clock::now()));
 
     // Reset game data
     m_data = GameData {};
@@ -162,6 +288,20 @@ void GameStateImpl::setModeCompleted(std::string mode)
     }
 
     m_data.completedModes.addMode(std::move(mode));
+}
+
+void GameStateImpl::addEvent(std::string name, int64_t value)
+{
+    if (!m_data.isGameActive) {
+        return;
+    }
+
+    if (!isValidTimelineName(name)) {
+        WRN("Ignoring event with invalid name '{}'", name);
+        return;
+    }
+
+    m_data.events.push_back(EventOp {std::move(name), value});
 }
 
 void GameStateImpl::tickModeExpiries()
@@ -407,9 +547,12 @@ void GameStateImpl::submitGameData(bool forceSending)
                     // Use previous active player as current active player and prev ball
                     tempData.activePlayer = prevActivePlayer;
                     tempData.ball = m_prevData.ball;
-                    // Completed modes belong to the real update below, not to this synthetic
-                    // bonus score row, otherwise they would be reported twice.
+                    // Modes, completed modes and events belong to the real update below, not to
+                    // this synthetic bonus score row: otherwise edges would be reported twice, and
+                    // a mode started in this update would be attributed to the previous player.
+                    tempData.modes = m_prevData.modes;
                     tempData.completedModes.clear();
+                    tempData.events.clear();
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
@@ -417,7 +560,7 @@ void GameStateImpl::submitGameData(bool forceSending)
                     INF("Detected bonus score for previous player {}, submit CSV logs as current "
                         "player",
                         prevActivePlayer);
-                    m_net->submitGameData(tempData, tempFlags);
+                    emitRow(tempData, tempFlags);
                     bonusScoreSubmitted = true;
                 }
             }
@@ -446,16 +589,25 @@ void GameStateImpl::submitGameData(bool forceSending)
         }
 
         // Publish game data
-        m_net->submitGameData(m_data, flags);
+        emitRow(m_data, flags);
 
         m_prevData = m_data;
 
-        // Completed modes are one-shot events: they are reported in the update just published and
-        // must not be repeated in the following ones. Clearing both keeps isChanged() false, so an
-        // otherwise unchanged game state doesn't produce an extra update.
+        // Completed modes and events are one-shot edges: they are reported in the update just
+        // published and must not be repeated in the following ones. Clearing both keeps
+        // isChanged() false, so an otherwise unchanged game state doesn't produce an extra update.
         m_data.completedModes.clear();
         m_prevData.completedModes.clear();
+        m_data.events.clear();
+        m_prevData.events.clear();
     }
+}
+
+void GameStateImpl::emitRow(const GameData &data, SessionFlags flags)
+{
+    // Every row of the session history also feeds achievements, so both see the same timeline
+    m_net->submitGameData(data, flags);
+    m_achievements->onRow(toTimelineRow(data, m_net->isClockSynchronised()));
 }
 
 bool GameStateImpl::isChanged() const
@@ -506,13 +658,19 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     // Create session and send initial game data later when session uuid will be available,
     // so it will publish initial state (which maybe 0) to centrifugo channel.
     // This prevents situation when just started game doesn't publish 0 and app stuck waiting
-    // Only for this game, and only while it runs: a reply after the game ended would otherwise
-    // submit the reset GameData, session id 0 (SB-5673).
-    m_net->sessionCreate(m_data, origin, [this, sessionId = m_data.id]() {
-        if (m_data.isGameActive && m_data.id == sessionId) {
-            submitGameData(true);
-        }
+    m_net->sessionCreate(m_data, origin, [this, sessionId = m_data.id](const std::string &uuid) {
+        // Runs on a network thread: bring it back to the thread game state lives on
+        post([this, sessionId, uuid] {
+            m_achievements->onSessionCreated(sessionId, uuid);
+            // A reply for a game that has already ended must not publish the next one's state, nor
+            // the reset GameData of session id 0 (SB-5673)
+            if (m_data.isGameActive && m_data.id == sessionId) {
+                submitGameData(true);
+            }
+        });
     });
+    m_achievements->onSessionStarted(m_data.id,
+                                     toTimelineRow(m_data, m_net->isClockSynchronised()));
 
     return true;
 }

@@ -109,6 +109,41 @@ Class MockThrowing
     Public Function PlayerName(slot) : Err.Raise 5 : End Function
 End Class
 
+' The plugin's object at ApiLevel 3, achievements members only, with Pending unlocks queued:
+' unlock n (from 0) is of "spinner" for slot n+1, with its frame on even n.
+Class MockAchievements
+    Public Log, Pending
+    Private taken
+
+    Private Sub Class_Initialize() : Log = "" : Pending = 2 : taken = -1 : End Sub
+
+    Public Property Get ApiLevel() : ApiLevel = 3 : End Property
+    Public Sub Declare(id) : End Sub
+    Public Sub AddGameEvent(name, value) : Log = Log & "AddGameEvent " & name & "," & value & ";" : End Sub
+
+    Public Function NextAchievementUnlock()
+        NextAchievementUnlock = (taken + 1 < Pending)
+        If NextAchievementUnlock Then taken = taken + 1
+    End Function
+    Public Property Get AchievementUnlockKey() : AchievementUnlockKey = "spinner" : End Property
+    Public Property Get AchievementUnlockPlayer() : AchievementUnlockPlayer = taken + 1 : End Property
+    Public Property Get AchievementUnlockName() : AchievementUnlockName = "Spinner Master" : End Property
+    Public Property Get AchievementUnlockDescription() : AchievementUnlockDescription = "Spin 10,000 times." : End Property
+    Public Property Get AchievementUnlockArtwork()
+        If taken Mod 2 = 0 Then AchievementUnlockArtwork = "C:\frames\spinner.png" Else AchievementUnlockArtwork = ""
+    End Property
+End Class
+
+' ApiLevel 3, with an unlock always queued whose every field raises: each reads as its default.
+' Members not defined here raise as well.
+Class MockAchievementsThrowing
+    Public Property Get ApiLevel() : ApiLevel = 3 : End Property
+    Public Sub Declare(id) : End Sub
+    Public Sub AddGameEvent(name, value) : Err.Raise 5 : End Sub
+    Public Function NextAchievementUnlock() : NextAchievementUnlock = True : End Function
+    Public Property Get AchievementUnlockName() : Err.Raise 5 : End Property
+End Class
+
 If WScript.Arguments.Count <> 1 Then
     WScript.Echo "usage: cscript //nologo binding_test.vbs <scorbit-<version>.vbs>"
     WScript.Quit 2
@@ -136,6 +171,8 @@ Check ScorbitTopScoresResult(1) = SCORBIT_TOP_SCORES_NONE, "no plugin: no result
 Check ScorbitPlayerName(1) = "", "no plugin: no player"
 Check Not ScorbitPlayerClaimed(1), "no plugin: unclaimed"
 Check ScorbitPollEvent() = SCORBIT_EVENT_NONE, "no plugin: no event"
+Check ScorbitEventAchievement() Is Nothing, "no plugin: no unlock"
+ScorbitAddGameEvent "spins", 1
 ScorbitInitWith Nothing, UUID
 Check Not ScorbitAvailable(), "Nothing: not available"
 
@@ -198,6 +235,9 @@ Check m.Log = "SetScore 1,3000000000,0;", "level 2: a score past 2^31 passes thr
 m.Log = ""
 ScorbitReleaseTopScores id
 Check m.Log = "ReleaseTopScores 7;", "level 2: release"
+m.Log = ""
+ScorbitAddGameEvent "spins", 1
+Check m.Log = "", "level 2: no AddGameEvent below ApiLevel 3: " & m.Log
 
 ' --- events, against the same object
 Check ScorbitPollEvent() = SCORBIT_EVENT_PAIRING_STATUS_CHANGED, "events: status known"
@@ -222,6 +262,49 @@ Check ScorbitPollEvent() = SCORBIT_EVENT_PLAYERS_UPDATED, "events: a field bound
 m.Auth = SCORBIT_STATUS_AUTHENTICATED_UNPAIRED
 Check ScorbitPollEvent() = SCORBIT_EVENT_PAIRING_STATUS_CHANGED, "events: status change"
 Check ScorbitPollEvent() = SCORBIT_EVENT_NONE, "events: drained"
+
+' --- ApiLevel 3: game events and unlocks
+Dim ach, u, n
+Set ach = New MockAchievements
+ScorbitInitWith ach, UUID
+Check ScorbitApiLevel() = 3, "level 3: level"
+ScorbitAddGameEvent "spins", -3
+Check ach.Log = "AddGameEvent spins,-3;", "level 3: AddGameEvent: " & ach.Log
+
+Check ScorbitPollEvent() = SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, "level 3: an unlock"
+Check ScorbitEventSlot() = 1, "level 3: the unlock's slot"
+Set u = ScorbitEventAchievement()
+Check u.Key = "spinner" And u.Player = 1, "level 3: unlock key, player"
+Check u.Name = "Spinner Master" And u.Description = "Spin 10,000 times.", "level 3: unlock name, description"
+Check u.Artwork = "C:\frames\spinner.png", "level 3: unlock artwork"
+Check ScorbitPollEvent() = SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, "level 3: a second unlock"
+Set u = ScorbitEventAchievement()
+Check u.Player = 2 And u.Artwork = "", "level 3: an unlock without artwork"
+Check ScorbitPollEvent() = SCORBIT_EVENT_NONE, "level 3: unlocks drained"
+Check ScorbitEventAchievement() Is Nothing And ScorbitEventSlot() = 0, "level 3: nothing stale after an empty poll"
+
+' More unlocks than the binding's queue holds: none is lost, and they keep their order.
+ach.Pending = 2 + 40
+n = 0
+Do
+    Select Case ScorbitPollEvent()
+        Case SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED
+            n = n + 1
+            Set u = ScorbitEventAchievement()
+            Check u.Player = n + 2, "level 3: unlock " & n & " in order"
+        Case SCORBIT_EVENT_NONE
+            Exit Do
+    End Select
+    If n > 100 Then Exit Do
+Loop
+Check n = 40, "level 3: 40 unlocks past the queue's size, got " & n
+
+' Every field raises: each reads as its default, and nothing reaches the table.
+ScorbitInitWith New MockAchievementsThrowing, UUID
+ScorbitAddGameEvent "spins", 1
+Check ScorbitPollEvent() = SCORBIT_EVENT_ACHIEVEMENT_UNLOCKED, "level 3 raising: an unlock"
+Set u = ScorbitEventAchievement()
+Check u.Key = "" And u.Player = 0 And u.Name = "" And u.Artwork = "", "level 3 raising: unlock defaults"
 
 ' --- ApiLevel 1: an object without ApiLevel
 Dim legacy
@@ -263,10 +346,11 @@ calls = Array("ScorbitSetGameStarted 0", "ScorbitSetGameFinished", "ScorbitSetCu
     "x = ScorbitTopScoresName(1, 0)", "x = ScorbitTopScoresInitials(1, 0)", "x = ScorbitTopScoresFlags(1, 0)", _
     "x = ScorbitTopScoresCreated(1, 0)", "ScorbitReleaseTopScores 1", "x = ScorbitPlayerClaimed(1)", "x = ScorbitPlayerId(1)", _
     "x = ScorbitPlayerName(1)", "x = ScorbitPlayerInitials(1)", "x = ScorbitPlayerClaimLink(1)", "x = ScorbitPlayerPicture(1)", _
-    "x = ScorbitPollEvent()", "x = ScorbitEventSlot()", "x = ScorbitAvailable()", "x = ScorbitApiLevel()")
+    "x = ScorbitPollEvent()", "x = ScorbitEventSlot()", "x = ScorbitAvailable()", "x = ScorbitApiLevel()", _
+    "ScorbitAddGameEvent ""spins"", 1", "Set y = ScorbitEventAchievement()")
 
 Sub ErrAfterEvery(obj, label)
-    Dim c, x
+    Dim c, x, y
     On Error Resume Next
     ScorbitInitWith obj, UUID
     Check Err.Number = 0, label & ": ScorbitInitWith left Err " & Err.Number
@@ -277,6 +361,8 @@ Sub ErrAfterEvery(obj, label)
     Next
 End Sub
 ErrAfterEvery New MockThrowing, "raising"
+ErrAfterEvery New MockAchievements, "level 3"
+ErrAfterEvery New MockAchievementsThrowing, "level 3 raising"
 ErrAfterEvery New MockLegacy, "level 1"
 ErrAfterEvery Nothing, "no plugin"
 

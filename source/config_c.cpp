@@ -116,6 +116,28 @@ void sb_config_set_threads_priority(sb_config_t config, int priority)
     }
 }
 
+void sb_config_set_data_dir(sb_config_t config, const char *path)
+{
+    if (config) {
+        config->dataDir = path ? path : "";
+    }
+}
+
+void sb_config_set_achievement_artwork(sb_config_t config, sb_achievement_artwork_t artwork)
+{
+    if (config) {
+        config->achievementArtwork = artwork;
+    }
+}
+
+void sb_config_set_achievement_presentation(sb_config_t config,
+                                            sb_achievement_presentation_t presentation)
+{
+    if (config) {
+        config->achievementPresentation = presentation;
+    }
+}
+
 void sb_config_set_worker_thread_count(sb_config_t config, int count)
 {
     if (config) {

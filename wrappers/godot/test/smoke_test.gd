@@ -121,6 +121,9 @@ func _begin() -> void:
 		"hostname": "staging",
 		"encrypted_key": "dummy_encrypted_key",
 		"key_path": "user://smoke/device_key",
+		"data_dir": "user://smoke/data",
+		"achievement_artwork": _scorbit.ACHIEVEMENT_ARTWORK_FRAME,
+		"achievement_presentation": _scorbit.ACHIEVEMENT_PRESENTATION_LOCAL,
 	})
 	_check(started == _expect_native, "start()")
 	_check(_scorbit.is_started() == _expect_native, "is_started() after start()")
@@ -136,7 +139,9 @@ func _begin() -> void:
 	_scorbit.set_credits_status(false, 3, 10)
 	_scorbit.set_credits_dropped(1, "smoke-transaction")
 	if _expect_native:
-		for name in ["LEADERBOARD_SCOPE_GAME", "LEADERBOARD_PERIOD_365D", "LEADERBOARD_VPIN_REAL_ONLY"]:
+		for name in ["LEADERBOARD_SCOPE_GAME", "LEADERBOARD_PERIOD_365D", "LEADERBOARD_VPIN_REAL_ONLY",
+				"ACHIEVEMENT_ARTWORK_NONE", "ACHIEVEMENT_ARTWORK_FRAME", "ACHIEVEMENT_ARTWORK_IMAGE",
+				"ACHIEVEMENT_PRESENTATION_GRANTED", "ACHIEVEMENT_PRESENTATION_LOCAL"]:
 			var gd_value = _scorbit.get_script().get_script_constant_map().get(name)
 			_check(gd_value == ClassDB.class_get_integer_constant("ScorbitGameState", name),
 					name + " matches")
@@ -160,6 +165,8 @@ func _begin() -> void:
 			extra.free()
 		_check(_has_arg("download_finished", "path"), "download_finished reports the saved path")
 		_check(_has_arg("device_state_reported", "type"), "device_state_reported names the type")
+		for arg in ["key", "player", "name", "description", "artwork"]:
+			_check(_has_arg("achievement_unlocked", arg), "achievement_unlocked carries " + arg)
 		for name in ["top_scores_received", "pair_code_received", "unpair_finished",
 				"pair_machine_finished", "download_finished", "download_buffer_finished",
 				"device_state_reported", "diagnostics_uploaded"]:
@@ -190,6 +197,8 @@ func _begin() -> void:
 	_scorbit.add_mode("MB:Multiball")
 	_scorbit.set_mode_completed("MB:Multiball")
 	_scorbit.remove_mode("MB:Multiball")
+	_scorbit.add_game_event("spins", 3)
+	_scorbit.add_game_event("spins", -1)
 	_scorbit.commit()
 
 

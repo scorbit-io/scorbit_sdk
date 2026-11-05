@@ -116,6 +116,17 @@ struct JobSetModeCompleted {
     std::string mode;
 };
 
+struct JobAddEvent {
+    sb_game_state_struct *h;
+    std::string name;
+    int64_t value;
+};
+
+/** A function to run on the dispatcher thread, e.g. a network reply for game state. */
+struct JobRunOnDispatcher {
+    std::function<void()> fn;
+};
+
 struct JobTickModeExpiries {
     sb_game_state_struct *h;
 };
@@ -266,14 +277,16 @@ struct JobSubmitProbeFlashResult {
     void *user_data;
 };
 
-using ApiQueueItem = std::variant<
-        Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall, JobSetActivePlayer,
-        JobSetScore, JobAddMode, JobAddModeExpiring, JobSetModeCompleted, JobTickModeExpiries,
-        JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores, JobRequestPairCode,
-        JobRequestUnpair, JobSetCapabilities, JobPairMachine, JobSwitchMachine, JobCreditsDropped,
-        JobCreditsStatus, JobDownload, JobDownloadBuffer, JobUploadDiagnostics,
-        JobReportDeviceState, JobSubmitHardwareProbeResult, JobSetProbeFirmware,
-        JobSetPbspkcommFirmwareId, JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
+using ApiQueueItem =
+        std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
+                     JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
+                     JobSetModeCompleted, JobAddEvent, JobRunOnDispatcher, JobTickModeExpiries,
+                     JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores,
+                     JobRequestPairCode, JobRequestUnpair, JobSetCapabilities, JobPairMachine,
+                     JobSwitchMachine, JobCreditsDropped, JobCreditsStatus, JobDownload,
+                     JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
+                     JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
+                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -327,9 +340,11 @@ inline auto makeLeaderboardReplyBridge(sb_leaderboard_callback_t cb, void *user_
 } // namespace scorbit_c_api_queue
 
 struct sb_game_state_struct {
-    detail::GameStateImpl gameState;
+    // Declared before gameState so they are destroyed after it: network replies post to the queue
+    // until gameState's destruction has stopped the network threads.
     moodycamel::BlockingConcurrentQueue<scorbit_c_api_queue::ApiQueueItem> cApiQueue;
     std::atomic<bool> cApiAccepting {true};
+    detail::GameStateImpl gameState;
     std::thread cApiDispatcher;
 
     explicit sb_game_state_struct(std::unique_ptr<NetBase> net);
@@ -359,6 +374,12 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobAddMode &&j) { j.h->gameState.addMode(std::move(j.mode)); },
                     [](JobAddModeExpiring &&j) {
                         j.h->gameState.addModeExpiring(std::move(j.mode), j.duration_seconds);
+                    },
+                    [](JobAddEvent &&j) { j.h->gameState.addEvent(std::move(j.name), j.value); },
+                    [](JobRunOnDispatcher &&j) {
+                        if (j.fn) {
+                            j.fn();
+                        }
                     },
                     [](JobSetModeCompleted &&j) {
                         j.h->gameState.setModeCompleted(std::move(j.mode));
@@ -471,6 +492,12 @@ sb_game_state_struct::sb_game_state_struct(std::unique_ptr<NetBase> net)
             return;
         }
         cApiQueue.enqueue(ApiQueueItem {JobTickModeExpiries {this}});
+    });
+    gameState.setDispatcherPoster([this](std::function<void()> fn) {
+        if (!cApiAccepting.load(std::memory_order_relaxed)) {
+            return;
+        }
+        cApiQueue.enqueue(ApiQueueItem {JobRunOnDispatcher {std::move(fn)}});
     });
 }
 
@@ -598,6 +625,11 @@ void sb_add_mode_expiring(sb_game_handle_t handle, const char *mode, uint32_t du
 void sb_set_mode_completed(sb_game_handle_t handle, const char *mode)
 {
     handle->postApiJob(JobSetModeCompleted {handle, copyCStr(mode)});
+}
+
+void sb_add_game_event(sb_game_handle_t handle, const char *name, int64_t value)
+{
+    handle->postApiJob(JobAddEvent {handle, copyCStr(name), value});
 }
 
 void sb_remove_mode(sb_game_handle_t handle, const char *mode)

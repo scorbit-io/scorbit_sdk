@@ -61,6 +61,9 @@ public:
     /** Clear the deadline map only (leaves the mode list untouched). */
     void clearExpiries();
 
+    /** Mode names in their current order. */
+    std::vector<std::string> names() const;
+
     std::string str() const;
     std::string jsonStr() const;
 

@@ -171,6 +171,13 @@ def events_callback(event):
             for bundle in pricing.bundles:
                 print("  Bundle: %d credits for %s" % (bundle.credits, bundle.price))
 
+    elif event.type == scorbit.EventType.AchievementUnlocked:
+        # Achievements are evaluated by the SDK on every commit; this is one Scorbit granted.
+        unlock = event.get_achievement_unlocked()
+        if unlock is not None:
+            print("Player %d unlocked achievement %s (%s), frame of %d bytes"
+                  % (unlock.player, unlock.name, unlock.key, len(unlock.artwork)))
+
     elif event.type == scorbit.EventType.PairingStatusChanged:
         is_paired = event.get_pairing_status_changed()
         if is_paired is not None:
@@ -230,6 +237,8 @@ def setup_game_state():
     config.set_hostname("staging")
     config.set_game_code_version("0.1.0")
     config.set_auto_download_player_pics(True)
+    # Hand the DMD frame over with every achievement unlock
+    config.set_achievement_artwork(scorbit.AchievementArtwork.Frame)
     config.set_score_features(G_SCORE_FEATURES, G_SCORE_FEATURES_VERSION)
 
     # Optional: point the UDP heartbeat at a staging or local server.
@@ -328,6 +337,10 @@ def main():
             # achievements.
             if i % 10 == 3:
                 gs.set_mode_completed("NA:The Tale of the Forty Thieves")
+
+            # Game events are named counters the game adds to, e.g. spinner spins. Like completed
+            # modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            gs.add_game_event("spins", 3)
 
             if time_to_clear_modes():
                 gs.clear_modes()

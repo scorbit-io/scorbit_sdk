@@ -8,6 +8,7 @@
 #pragma once
 
 #include "event_types.h"
+#include "achievements.h"
 #include "player_info.h"
 #include "pricing_info.h"
 #include <scorbit_sdk/event_helpers_c.h>
@@ -136,6 +137,44 @@ public:
     bool getPairingStatusChanged(bool &isPaired) const
     {
         return ::sb_event_pairing_status_changed(m_event, &isPaired);
+    }
+
+    // ------------------------------------------------------------------
+    // Achievements
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process an achievement unlocked event.
+     *
+     * The event type must be @ref scorbit::EventType::AchievementUnlocked, otherwise the function
+     * returns false. See @ref sb_event_achievement_unlocked.
+     *
+     * @param unlock [OUT] The achievement, the player it was granted to, and its artwork.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAchievementUnlocked(AchievementUnlock &unlock) const
+    {
+        const char *key = nullptr;
+        if (!::sb_event_achievement_unlocked(m_event, &key, &unlock.player)) {
+            return false;
+        }
+
+        const char *name = nullptr;
+        const char *description = nullptr;
+        ::sb_event_achievement_name(m_event, &name);
+        ::sb_event_achievement_description(m_event, &description);
+        unlock.key = key ? key : "";
+        unlock.name = name ? name : "";
+        unlock.description = description ? description : "";
+
+        const uint8_t *data = nullptr;
+        size_t size = 0;
+        if (::sb_event_achievement_artwork(m_event, &data, &size) && data) {
+            unlock.artwork.assign(data, data + size);
+        } else {
+            unlock.artwork.clear();
+        }
+        return true;
     }
 
     /**

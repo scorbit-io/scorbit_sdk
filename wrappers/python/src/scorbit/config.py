@@ -206,6 +206,36 @@ class Config(object):
         _lib.sb_config_set_vpin_table_mappings(self._handle, enabled)
         return self
 
+    def set_data_dir(self, path):
+        # type: (str) -> Config
+        """Set a writable, persistent directory for SDK data.
+
+        The achievements cache (the last definitions) is kept there across
+        reboots. Defaults to a temporary directory.
+        """
+        _lib.sb_config_set_data_dir(self._handle, _encode(path))
+        return self
+
+    def set_achievement_artwork(self, artwork):
+        # type: (AchievementArtwork) -> Config
+        """Choose the artwork handed over with ``AchievementUnlocked``.
+
+        DMD frames are downloaded ahead and kept in memory. An icon is
+        downloaded when its unlock is granted, and the last few are kept.
+        Nothing is downloaded with the default, ``AchievementArtwork.None_``.
+        """
+        _lib.sb_config_set_achievement_artwork(self._handle, int(artwork))
+        return self
+
+    def set_achievement_presentation(self, presentation):
+        # type: (AchievementPresentation) -> Config
+        """Choose when ``AchievementUnlocked`` is raised for an achievement the
+        machine decided: once Scorbit grants it (the default), or at once with
+        ``AchievementPresentation.Local``. See ``AchievementPresentation``.
+        """
+        _lib.sb_config_set_achievement_presentation(self._handle, int(presentation))
+        return self
+
     def set_threads_priority(self, priority):
         # type: (int) -> Config
         """Nice / QOS for SDK background threads; ``0`` leaves scheduling unchanged (default)."""

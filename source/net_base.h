@@ -27,6 +27,7 @@
 #include "download_options.h"
 #include "player_profiles_manager.h"
 #include "event_classes.h"
+#include "event_queue.h"
 #include "session_flags.h"
 #include "table_mappings_internal.h"
 #include <boost/signals2.hpp>
@@ -46,6 +47,30 @@ namespace scorbit {
 namespace detail {
 
 struct GameData;
+
+/** Called once the server has created the session, with the uuid it assigned. */
+using SessionCreatedCallback = std::function<void(const std::string &sessionUuid)>;
+
+/** Called with the new player profiles whenever a player claims or leaves a slot. */
+using PlayersChangedCallback = std::function<void(const std::vector<PlayerProfile> &profiles)>;
+
+/** Called after the scheduled refresh of the API token succeeded. */
+using TokenRefreshedCallback = std::function<void()>;
+
+/** Outcome of an achievements API request. */
+struct ApiReply {
+    Error error {Error::ApiError};
+
+    /** Status of the final attempt; 0 when no HTTP response was received. 304 is a success. */
+    int httpStatus {0};
+
+    std::string body;
+
+    /** The response's `ETag`, when it carried one. */
+    std::string etag;
+};
+
+using ApiReplyCallback = std::function<void(ApiReply reply)>;
 
 class NetBase
 {
@@ -69,7 +94,7 @@ public:
                               std::optional<std::string> log = std::nullopt,
                               HttpStatusCallback callback = {}) = 0;
     virtual void sessionCreate(const detail::GameData &data, GameStartOrigin origin,
-                               std::function<void()> onCreated) = 0;
+                               SessionCreatedCallback onCreated) = 0;
     virtual void submitGameData(const detail::GameData &data, SessionFlags flags) = 0;
     virtual void getConfig() = 0;
     virtual void requestPairCode(StringCallback cb) = 0;
@@ -174,6 +199,71 @@ public:
             callback(Error::Unknown, 0, "unsupported");
         }
     }
+
+    // ---- Achievements (contract v1, §10) --------------------------------------------
+
+    /** `GET achievements/scorbitron/`, revalidated with `If-None-Match: @p etag` when not empty. */
+    virtual void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback)
+    {
+        (void)etag;
+        (void)callback;
+    }
+
+    /** `GET achievements/scorbitron/progress/?user_id=@p userId`. */
+    virtual void fetchAchievementProgress(std::string userId, ApiReplyCallback callback)
+    {
+        (void)userId;
+        (void)callback;
+    }
+
+    /** `POST achievements/report/` with the JSON @p body. */
+    virtual void postAchievementReport(std::string body, ApiReplyCallback callback)
+    {
+        (void)body;
+        (void)callback;
+    }
+
+    /** Downloads one achievement's artwork (its `frame` or `icon_url`) from @p url to memory. */
+    virtual void downloadAchievementArtwork(std::string url, VectorCallback callback)
+    {
+        (void)url;
+        (void)callback;
+    }
+
+    /** Runs @p fn on a worker thread after @p delay, replacing any pending one (report retries). */
+    virtual void scheduleAchievementRetry(std::chrono::steady_clock::duration delay,
+                                          std::function<void()> fn)
+    {
+        (void)delay;
+        (void)fn;
+    }
+
+    /**
+     * Runs @p fn on a worker thread after @p delay, replacing any pending one (definitions
+     * revalidation).
+     */
+    virtual void scheduleDefinitionsRevalidation(std::chrono::steady_clock::duration delay,
+                                                 std::function<void()> fn)
+    {
+        (void)delay;
+        (void)fn;
+    }
+
+    /** Delivers @p event to game code through the event callback. */
+    virtual void publishEvent(EventPtr event) { (void)event; }
+
+    /**
+     * Whether the system clock agrees with the server's: a server reading has arrived, and the
+     * clock is within the drift the SDK tolerates. Local time judged on any other clock can't be
+     * trusted (§5.5.2).
+     */
+    virtual bool isClockSynchronised() const { return true; }
+
+    /** @p callback is invoked from a network thread whenever player profiles change. */
+    virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
+
+    /** @p callback is invoked from a network thread after each scheduled token refresh. */
+    virtual void setTokenRefreshedCallback(TokenRefreshedCallback callback) { (void)callback; }
 
     // ---------------------------------------------------------------------------------
 

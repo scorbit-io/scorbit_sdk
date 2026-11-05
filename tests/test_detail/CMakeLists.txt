@@ -104,6 +104,52 @@ target_sources(
         source/test_player_state.cpp
         ../../source/modes.h
         ../../source/modes.cpp
+        ../../source/event_ops.h
+        ../../source/event_ops.cpp
+        ../../source/achievements/definition.h
+        ../../source/achievements/definition.cpp
+        ../../source/achievements/definition_check.h
+        ../../source/achievements/definition_check.cpp
+        ../../source/achievements/progress.h
+        ../../source/achievements/json_codec.h
+        ../../source/achievements/json_codec.cpp
+        ../../source/achievements/timeline_row.h
+        ../../source/achievements/time_interval.h
+        ../../source/achievements/local_time.h
+        ../../source/achievements/local_time.cpp
+        ../../source/achievements/calendar_condition.h
+        ../../source/achievements/calendar_condition.cpp
+        ../../source/achievements/calendar.h
+        ../../source/achievements/calendar.cpp
+        ../../source/achievements/player_facts.h
+        ../../source/achievements/player_facts.cpp
+        ../../source/achievements/rule_evaluator.h
+        ../../source/achievements/rule_evaluator.cpp
+        ../../source/achievements/player_tracker.h
+        ../../source/achievements/player_tracker.cpp
+        ../../source/achievements/report.h
+        ../../source/achievements/report_outbox.h
+        ../../source/achievements/report_outbox.cpp
+        ../../source/achievements/unlock_proximity.h
+        ../../source/achievements/unlock_proximity.cpp
+        ../../source/achievements/unlock_presenter.h
+        ../../source/achievements/unlock_presenter.cpp
+        ../../source/achievements/achievement_storage.h
+        ../../source/achievements/achievement_storage.cpp
+        ../../source/achievements/artwork_store.h
+        ../../source/achievements/artwork_store.cpp
+        ../../source/achievements/achievement_service.h
+        ../../source/achievements/achievement_service.cpp
+        source/test_achievement_proximity.cpp
+        source/test_achievement_tracker.cpp
+        source/test_achievement_reporting.cpp
+        source/test_game_state_achievements.cpp
+        source/achievement_test_support.h
+        source/test_achievement_evaluator.cpp
+        source/test_achievement_facts.cpp
+        source/test_achievement_local_time.cpp
+        source/test_achievement_calendar.cpp
+        source/test_achievement_definitions.cpp
         source/test_modes.cpp
         source/test_game_state.cpp
         source/test_probes_manager.cpp

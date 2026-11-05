@@ -24,9 +24,12 @@
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "game_data.h"
+#include "achievements/achievement_service.h"
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <vector>
 #include <optional>
 #include <string>
 
@@ -54,6 +57,16 @@ public:
     void setModeExpiryPoster(std::function<void()> postTickToCApiThread);
 
     /**
+     * Poster running a function on the thread game state lives on (the C API dispatcher). Network
+     * replies are brought back through it. Functions posted before it is set are held and handed
+     * to it then; with none ever set (unit tests) call @ref runPendingPosts to run them.
+     */
+    void setDispatcherPoster(std::function<void(std::function<void()>)> poster);
+
+    /** Runs the functions posted while no dispatcher poster is set; returns how many ran. */
+    size_t runPendingPosts();
+
+    /**
      * Add a mode that is removed automatically after a duration.
      * @param duration_seconds unsigned seconds; 0 is normalized to 2, values above 5 clamp to 5.
      */
@@ -64,6 +77,12 @@ public:
      * mode list and are never sent to the cloud except as in CSV history logs.
      */
     void setModeCompleted(std::string mode);
+
+    /**
+     * Add @p value (may be negative) to the event register @p name (achievements input). The
+     * operation is recorded in the `events` column of the next history row only.
+     */
+    void addEvent(std::string name, int64_t value);
 
     /** Called from C API thread when the worker timer fires. */
     void tickModeExpiries();
@@ -126,9 +145,15 @@ public:
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback);
 
+    achievements::AchievementService &achievements() { return *m_achievements; }
+
+    const achievements::AchievementService &achievements() const { return *m_achievements; }
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
+    void emitRow(const GameData &data, SessionFlags flags);
+    void post(std::function<void()> fn);
     bool isChanged() const;
     bool isPlayerValid(sb_player_t player) const;
     bool isBallValid(sb_ball_t ball) const;
@@ -147,6 +172,12 @@ private:
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 
     std::function<void()> m_postModeExpiryToCApi;
+    std::function<void(std::function<void()>)> m_postToDispatcher;
+    std::vector<std::function<void()>> m_pendingPosts;
+    std::mutex m_postMutex;
+
+    // Declared before m_net so it outlives it: once ~Net() returns no reply can reach it.
+    std::unique_ptr<achievements::AchievementService> m_achievements;
 
     std::unique_ptr<NetBase> m_net;
 };

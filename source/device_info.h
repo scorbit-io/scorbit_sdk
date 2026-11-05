@@ -103,6 +103,15 @@ struct DeviceInfo {
     /// realtime connection run on their own threads and are not affected by this.
     int workerThreadCount {DEFAULT_WORKER_THREADS};
 
+    /// Writable, persistent directory for SDK data (achievements cache); empty = temp directory.
+    std::string dataDir;
+
+    /// The artwork handed over with an achievement unlock, kept in memory.
+    sb_achievement_artwork_t achievementArtwork {SB_ACHIEVEMENT_ARTWORK_NONE};
+
+    /// When an achievement the machine decided itself is raised: once granted, or at once.
+    sb_achievement_presentation_t achievementPresentation {SB_ACHIEVEMENT_PRESENTATION_GRANTED};
+
     // Authentication - one of these must be set
     std::string encryptedKey;
     sb_signer_callback_t signerCallback {nullptr};

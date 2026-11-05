@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "achievements.h"
 #include "config_c.h"
 #include "event.h"
 #include "net_types.h"
@@ -204,6 +205,37 @@ public:
     Config &setThreadsPriority(int priority)
     {
         sb_config_set_threads_priority(m_handle.get(), priority);
+        return *this;
+    }
+
+    /**
+     * @brief Set a writable, persistent directory for SDK data (see @ref sb_config_set_data_dir).
+     */
+    Config &setDataDir(const std::string &path)
+    {
+        sb_config_set_data_dir(m_handle.get(), path.c_str());
+        return *this;
+    }
+
+    /**
+     * @brief Choose the artwork handed over with @ref EventType::AchievementUnlocked (see @ref
+     *        sb_config_set_achievement_artwork).
+     */
+    Config &setAchievementArtwork(AchievementArtwork artwork)
+    {
+        sb_config_set_achievement_artwork(m_handle.get(),
+                                          static_cast<sb_achievement_artwork_t>(artwork));
+        return *this;
+    }
+
+    /**
+     * @brief Choose when @ref EventType::AchievementUnlocked is raised for an achievement the
+     *        machine decided (see @ref sb_config_set_achievement_presentation).
+     */
+    Config &setAchievementPresentation(AchievementPresentation presentation)
+    {
+        sb_config_set_achievement_presentation(
+                m_handle.get(), static_cast<sb_achievement_presentation_t>(presentation));
         return *this;
     }
 
