@@ -111,10 +111,10 @@ typedef void (*sb_switch_machine_callback_t)(sb_switch_machine_result_t result,
  * @brief How a @ref sb_match_table_mapping call ended. Append-only.
  */
 typedef enum sb_table_match_result {
-    SB_TABLE_MATCH_MAPPED = 0,              ///< 200: the mapping and its target are filled.
-    SB_TABLE_MATCH_NEEDS_MAPPING = 1,       ///< 409 venuemachine_needed: map the table first.
-    SB_TABLE_MATCH_UNKNOWN_ROM = 2,         ///< 404 unknown_rom.
-    SB_TABLE_MATCH_UNKNOWN_SIGNATURE = 3,   ///< 404 unknown_signature.
+    SB_TABLE_MATCH_MAPPED = 0,            ///< 200: the mapping and its target are filled.
+    SB_TABLE_MATCH_NEEDS_MAPPING = 1,     ///< 409 venuemachine_needed: map the table first.
+    SB_TABLE_MATCH_UNKNOWN_ROM = 2,       ///< 404 unknown_rom.
+    SB_TABLE_MATCH_UNKNOWN_SIGNATURE = 3, ///< 404 unknown_signature.
     /// Any 413: signature_too_large, or a proxy's body limit with no code (error_code "").
     SB_TABLE_MATCH_SIGNATURE_TOO_LARGE = 4,
     /// Any 400 (invalid_table_key, invalid_signature, signature_conflict, required, invalid,

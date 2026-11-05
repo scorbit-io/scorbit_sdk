@@ -22,7 +22,6 @@
 #include <scorbit_sdk/table_mappings_c.h>
 
 #include <cstddef>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -73,9 +72,9 @@ enum class TableMatchResult {
 struct TableMatchRequest {
     std::string keyType;
     std::string tableKey;
-    std::string firmwareId;                          ///< Empty: left out of the request.
-    std::optional<std::string> signaturesJson;       ///< A JSON array, sent as given.
-    std::optional<std::string> signatureUnavailable; ///< Why there are no signatures.
+    std::string firmwareId;           ///< Empty: left out of the request.
+    std::string signaturesJson;       ///< A JSON array, sent as given. Empty: left out.
+    std::string signatureUnavailable; ///< Why there are no signatures. Empty: left out.
 };
 
 /// The server's signature verdict; its strings are opaque to the SDK.
@@ -98,7 +97,8 @@ struct TableMatch {
     std::string venueMachineName;
     std::string machine; ///< Machine uuid
     std::string machineName;
-    std::optional<SignatureVerdict> verdict;
+    bool hasVerdict = false;  ///< Whether the server sent a verdict.
+    SignatureVerdict verdict; ///< Meaningful only when hasVerdict.
 
     /// Copies @p m, which stays the SDK's.
     static TableMatch fromC(sb_table_match_t m)
@@ -114,7 +114,8 @@ struct TableMatch {
         out.venueMachineName = sb_table_match_venuemachine_name(m);
         out.machine = sb_table_match_machine(m);
         out.machineName = sb_table_match_machine_name(m);
-        if (sb_table_match_has_verdict(m)) {
+        out.hasVerdict = sb_table_match_has_verdict(m);
+        if (out.hasVerdict) {
             SignatureVerdict verdict;
             verdict.status = sb_table_match_verdict_status(m);
             verdict.acceptedVersion = sb_table_match_verdict_accepted_version(m);

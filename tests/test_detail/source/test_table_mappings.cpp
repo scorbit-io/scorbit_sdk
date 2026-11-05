@@ -1339,13 +1339,13 @@ TEST_CASE("The lookup answer's C accessors and the C++ copy read every field")
     CHECK(copy.venueMachineName == "Left cabinet");
     CHECK(copy.machine == MACHINE);
     CHECK(copy.machineName == "Table One");
-    REQUIRE(copy.verdict);
-    CHECK(copy.verdict->status == "modified");
-    CHECK(copy.verdict->acceptedVersion == "2");
-    CHECK(copy.verdict->changedSections == std::vector<std::string> {"script", "physics"});
-    CHECK(copy.verdict->changedProcedures == std::vector<std::string> {"StartGame", "Drain"});
+    REQUIRE(copy.hasVerdict);
+    CHECK(copy.verdict.status == "modified");
+    CHECK(copy.verdict.acceptedVersion == "2");
+    CHECK(copy.verdict.changedSections == std::vector<std::string> {"script", "physics"});
+    CHECK(copy.verdict.changedProcedures == std::vector<std::string> {"StartGame", "Drain"});
 
-    CHECK_FALSE(TableMatch::fromC(nullptr).verdict);
+    CHECK_FALSE(TableMatch::fromC(nullptr).hasVerdict);
 
     sb_table_match_request_t r = sb_table_match_request_create();
     sb_table_match_request_set_key(r, "rom", "mm_109c");

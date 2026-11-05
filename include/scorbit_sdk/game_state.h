@@ -388,12 +388,12 @@ public:
         auto *r = sb_table_match_request_create();
         sb_table_match_request_set_key(r, request.keyType.c_str(), request.tableKey.c_str());
         sb_table_match_request_set_firmware_id(r, request.firmwareId.c_str());
-        if (request.signaturesJson) {
-            sb_table_match_request_set_signatures_json(r, request.signaturesJson->c_str());
+        if (!request.signaturesJson.empty()) {
+            sb_table_match_request_set_signatures_json(r, request.signaturesJson.c_str());
         }
-        if (request.signatureUnavailable) {
+        if (!request.signatureUnavailable.empty()) {
             sb_table_match_request_set_signature_unavailable(r,
-                                                             request.signatureUnavailable->c_str());
+                                                             request.signatureUnavailable.c_str());
         }
 
         // Owned here rather than by the callback, which shutdown may cut short.
