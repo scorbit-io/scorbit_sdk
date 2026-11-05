@@ -71,12 +71,12 @@ public:
     MAKE_MOCK2(switchMachine, void(const std::string &, MachineSwitch::Callback), override);
     MAKE_MOCK0(authenticate, void(), override);
     void sessionCreate(const scorbit::detail::GameData &, GameStartOrigin,
-                       std::function<void()> onCreated) override
+                       scorbit::detail::SessionCreatedCallback onCreated) override
     {
         createReplies.push_back(std::move(onCreated));
     };
     /// Each session's onCreated, in start order: calling one stands in for its create reply.
-    std::vector<std::function<void()>> createReplies;
+    std::vector<scorbit::detail::SessionCreatedCallback> createReplies;
     void getConfig() override {};
     MAKE_MOCK5(updateConfig,
                void(const std::string &, const std::string &, bool, std::optional<std::string>,
@@ -308,7 +308,8 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         REQUIRE(mockNetRef.createReplies.size() == 1);
 
         REQUIRE_CALL(mockNetRef, submitGameData(_, _)).WITH(_1.id == 1 && _1.isGameActive).TIMES(1);
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
     SECTION("a reply after the game ended sends nothing")
     {
@@ -318,7 +319,8 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         gameState.setGameFinished();
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
     SECTION("a reply after the next game started sends nothing for either")
     {
@@ -329,7 +331,8 @@ TEST_CASE("A session-create reply submits only for its own game while it runs")
         REQUIRE(mockNetRef.createReplies.size() == 2);
 
         FORBID_CALL(mockNetRef, submitGameData(_, _));
-        mockNetRef.createReplies[0]();
+        mockNetRef.createReplies[0]("");
+        gameState.runPendingPosts(); // the reply hops onto the game-state thread
     }
 }
 
@@ -735,6 +738,58 @@ TEST_CASE("setModeCompleted functionality")
     }
 }
 
+TEST_CASE("addEvent functionality")
+{
+    auto mockNet = std::make_unique<MockNetBase>();
+    auto &mockNetRef = *mockNet; // mockNet will be moved into GameState, so we keep the ref
+    sequence seq;
+
+    ALLOW_CALL(mockNetRef, authenticate());
+    ALLOW_CALL(mockNetRef, updateConfig(_, _, _, _, _));
+
+    REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+
+    GameStateImpl gameState(std::move(mockNet));
+    gameState.setGameStarted(scorbit::GameStartOrigin::StartButton);
+    gameState.commit();
+
+    SECTION("Event operations are reported in order, once")
+    {
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _))
+                .WITH(eventOpsStr(_1.events) == "spins+=3;spins+=-1;ramps+=1")
+                .IN_SEQUENCE(seq)
+                .TIMES(1);
+
+        gameState.addEvent("spins", 3);
+        gameState.addEvent("spins", -1);
+        gameState.addEvent("ramps", 1);
+        gameState.commit();
+
+        // Assert: events are edges, nothing else changed, so no further update
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
+        gameState.commit();
+    }
+
+    SECTION("Event with an invalid name is ignored")
+    {
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
+
+        gameState.addEvent("a;b", 1);
+        gameState.addEvent("", 1);
+        gameState.commit();
+    }
+
+    SECTION("Event is ignored when the game is not active")
+    {
+        REQUIRE_CALL(mockNetRef, submitGameData(_, _)).IN_SEQUENCE(seq).TIMES(1);
+        gameState.setGameFinished();
+
+        FORBID_CALL(mockNetRef, submitGameData(_, _));
+        gameState.addEvent("spins", 1);
+        gameState.commit();
+    }
+}
+
 TEST_CASE("removeMode functionality")
 {
     auto mockNet = std::make_unique<MockNetBase>();
@@ -883,16 +938,20 @@ TEST_CASE("commit functionality")
         gameState.setScore(1, 500);
         gameState.setActivePlayer(2);
 
-        // Bonus score for previous player (player 1) whose score changed during player switch
+        gameState.addEvent("spins", 2);
+
+        // Bonus score for previous player (player 1) whose score changed during player switch.
+        // Modes and events of this commit belong to the real update, not to the synthetic row.
         REQUIRE_CALL(mockNetRef, submitGameData(_, _))
-                .WITH(_1.activePlayer == 1 && _1.players.at(1).score() == 500)
+                .WITH(_1.activePlayer == 1 && _1.players.at(1).score() == 500
+                      && !_1.modes.contains("MB:Multiball") && _1.events.empty())
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 
         // Assert: commit should trigger submitGameData with the appropriate game state
         REQUIRE_CALL(mockNetRef, submitGameData(_, _))
                 .WITH(_1.modes.contains("MB:Multiball") && _1.players.at(1).score() == 500
-                      && _1.activePlayer == 2)
+                      && _1.activePlayer == 2 && _1.events.size() == 1)
                 .IN_SEQUENCE(seq)
                 .TIMES(1);
 

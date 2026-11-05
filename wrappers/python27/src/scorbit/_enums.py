@@ -189,6 +189,7 @@ class EventType(IntEnum):
     PairingStatusChanged = 9
     TableMappingsUpdated = 10
     MachineChanged = 11
+    AchievementUnlocked = 12
 
     # Internal / scorbitd events
     _None = 1000
@@ -206,3 +207,34 @@ class LogLevel(IntEnum):
     Info = 1
     Warn = 2
     Error = 3
+
+
+class AchievementArtwork(IntEnum):
+    """The artwork handed over with an ``AchievementUnlocked`` event."""
+
+    None_ = 0
+    """No artwork (the default): nothing is downloaded."""
+
+    Frame = 1
+    """The DMD frame, for the machine's display (a PNG today)."""
+
+    Image = 2
+    """The icon, a high-resolution image for LCD machines."""
+
+
+class AchievementPresentation(IntEnum):
+    """When ``AchievementUnlocked`` is raised for an achievement the machine decided.
+
+    Whatever the mode, it is raised once per unlock. An achievement only Scorbit can
+    decide (a trophy, or one that depends on another title's achievements) is always
+    raised once Scorbit grants it.
+    """
+
+    Granted = 0
+    """Once Scorbit grants it (the default): never for something Scorbit then refuses,
+    one round trip later, and not while offline."""
+
+    Local = 1
+    """The moment the machine decides it, even offline, with its artwork only if that is
+    already in memory; not again on the grant. Not authoritative: a refusal that follows is
+    not signalled, and the Scorbit app won't show it."""

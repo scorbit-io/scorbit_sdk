@@ -1,0 +1,169 @@
+/*
+ * Scorbit SDK
+ *
+ * (c) 2025 Spinner Systems, Inc. (DBA Scorbit), scorbit.io, All Rights Reserved
+ *
+ * MIT License
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+#pragma once
+
+#include "calendar.h"
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
+
+/**
+ * Achievement definitions: the rule set an achievement is earned by, as delivered by the API's
+ * `GET achievements/scorbitron/` (Achievements Platform Contract v1, §3, §5). Pure data, no
+ * behaviour beyond predicates.
+ */
+namespace scorbit {
+namespace detail {
+namespace achievements {
+
+/** The rule types (§5.1); new ones are appended, as their values are public. */
+enum class RuleType {
+    Mode,          ///< Times the referenced mode was activated
+    ModeCompleted, ///< Times the referenced mode was completed
+    ModeStack,     ///< Times the referenced modes became simultaneously active
+    Score,         ///< The player's score
+    Event,         ///< The value of the referenced event register
+    Session,       ///< Sessions played within the achievement's scope
+    TimerSession,  ///< Milliseconds the player spent at the machine in one session
+    TimerBall,     ///< Milliseconds one ball lasted
+    TimerMode,     ///< Milliseconds one activation of the referenced mode lasted
+    TimerBetween,  ///< Milliseconds to bring the sibling rules' facts together within one ball
+    Ball,          ///< The ball number on which the sibling rules' facts occurred
+    Achievement,   ///< Whether the referenced prerequisite achievement is held
+    ModeScore,     ///< Points the player scored during one activation of the referenced mode
+    Calendar,      ///< Sessions in which the siblings' facts, or the play, fell in a local window
+};
+
+/** The four inclusive predicates (§6.1); `=`, `<=`, `>=`, `!=` on the wire. */
+enum class Comparison { Eq, Le, Ge, Ne };
+
+/** The measurement window (§3.4); `is_single_session` on the wire. */
+enum class EvaluationClass { InSession, Unlimited };
+
+/** What the achievement attaches to (§3.2). */
+enum class Scope { Game, Venue, Event, Global };
+
+struct Rule {
+    RuleType type {RuleType::Mode};
+    Comparison comparison {Comparison::Ge};
+    int64_t target {0};
+
+    /** What the rule measures (§5.3): mode or event name, stack list, or prerequisite key. */
+    std::string reference;
+
+    /** For @ref RuleType::ModeStack, the parsed, de-duplicated mode names of @ref reference. */
+    std::vector<std::string> stackModes;
+
+    /** For @ref RuleType::Calendar, the parsed @ref reference; absent if it does not parse. */
+    std::optional<CalendarCondition> calendar;
+};
+
+struct Definition {
+    std::string key;
+    std::string name;
+    std::string description;
+    Scope scope {Scope::Game};
+    EvaluationClass evaluation {EvaluationClass::InSession};
+    bool isTrophy {false};
+    bool isBadge {false};
+    bool visible {true};
+    bool obscure {false};
+    bool notifyWhenAchieved {false};
+    std::string iconUrl;
+    std::string obscureImageUrl;
+    std::optional<int64_t> groupId;
+    std::optional<int64_t> level;
+    std::optional<int64_t> displayPosition;
+
+    /** The achievement's DMD frame, empty when it has none (§3.9). */
+    std::string frameUrl;
+
+    /** Bumped by the API whenever the frame changes. */
+    int64_t frameVersion {0};
+
+    /** In definition order; the order fixes each rule's `index` (§10.2). */
+    std::vector<Rule> rules;
+};
+
+/** The definitions delivered to this machine (§10.3), searchable by key. */
+class DefinitionSet
+{
+public:
+    DefinitionSet() = default;
+    explicit DefinitionSet(std::vector<Definition> definitions);
+
+    const std::vector<Definition> &all() const { return m_definitions; }
+    bool empty() const { return m_definitions.empty(); }
+    size_t size() const { return m_definitions.size(); }
+
+    /** The definition with @p key, or nullptr if it was not delivered. */
+    const Definition *find(std::string_view key) const;
+    bool contains(std::string_view key) const { return find(key) != nullptr; }
+
+private:
+    std::vector<Definition> m_definitions;
+    std::unordered_map<std::string, size_t> m_index;
+};
+
+/** The device definitions response (§10.3): what this machine evaluates, and with what. */
+struct DefinitionFeed {
+    DefinitionSet definitions;
+    CalendarData calendar;
+};
+
+/** Applies @p comparison to @p value against @p target (§6.1; all predicates inclusive). */
+bool satisfies(int64_t value, Comparison comparison, int64_t target);
+
+/** Observation rules resolve to a set of observed values (§5.4). */
+bool isObservation(RuleType type);
+
+/** Qualifiers constrain their sibling rules rather than measuring anything (§5.5). */
+bool isQualifier(RuleType type);
+
+/** Accumulators whose occurrences happen at an identifiable instant in a session (§6.4). */
+bool isInstantValued(RuleType type);
+
+/** Rules a trophy may be ranked by: `SCORE`, `MODE_SCORE` and the timers (§7.5). */
+bool isRankingRule(RuleType type);
+
+/**
+ * Rules a `CALENDAR` rule can restrict: those with an instant or an activation to place in a
+ * window, the player's score, and other `CALENDAR` rules (§5.5.2).
+ */
+bool isCalendarSibling(RuleType type);
+
+/** Rule types whose `reference` names a single mode. */
+bool isSingleModeRule(RuleType type);
+
+std::optional<RuleType> ruleTypeFromString(std::string_view str);
+std::string_view toString(RuleType type);
+
+std::optional<Comparison> comparisonFromString(std::string_view str);
+std::string_view toString(Comparison comparison);
+
+std::optional<Scope> scopeFromString(std::string_view str);
+
+} // namespace achievements
+} // namespace detail
+} // namespace scorbit

@@ -23,6 +23,7 @@
 #include "scorbit_sdk/common_types_c.h"
 #include <scorbit_sdk/export.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -342,6 +343,55 @@ bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired);
  */
 SCORBIT_SDK_EXPORT
 bool sb_event_machine_changed(const sb_event_t *event, const char **venuemachine);
+
+/**
+ * @brief Helper function to process an achievement unlocked event.
+ *
+ * The event type must be @ref SB_EVT_ACHIEVEMENT_UNLOCKED, otherwise the function returns false.
+ * It is raised once Scorbit granted the achievement, so it can be presented at once. Any output
+ * pointer may be NULL.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] key The achievement key; valid during the callback only.
+ * @param [OUT] player The player number the achievement was granted to.
+ * @return Returns true on success, or false if an error occurs (e.g., wrong event type was given).
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, sb_player_t *player);
+
+/**
+ * @brief Reads the name of the achievement of an achievement unlocked event.
+ *
+ * @param [IN] event The event.
+ * @param [OUT] name The name; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_name(const sb_event_t *event, const char **name);
+
+/**
+ * @brief Reads the description of the achievement of an achievement unlocked event.
+ *
+ * @param [IN] event The event.
+ * @param [OUT] description The description; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_description(const sb_event_t *event, const char **description);
+
+/**
+ * @brief Reads the artwork of the achievement of an achievement unlocked event.
+ *
+ * The artwork is of the kind chosen with @ref sb_config_set_achievement_artwork.
+ *
+ * @param [IN] event The event.
+ * @param [OUT] data The artwork's bytes; valid during the callback only.
+ * @param [OUT] size Their size.
+ * @return Returns false for a wrong event type, or when there is no artwork: none was chosen, the
+ * achievement has none of that kind, or it couldn't be downloaded.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data, size_t *size);
 
 // ------------------ OEM providers can ignore the event helpers below ------------------
 

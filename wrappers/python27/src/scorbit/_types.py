@@ -141,6 +141,33 @@ class PlayerInfo(object):
         return "PlayerInfo(claim_deeplink={0!r})".format(self.claim_deeplink)
 
 
+class AchievementUnlock(object):
+    """An achievement Scorbit granted a claimed player (``AchievementUnlocked``).
+
+    Attributes:
+        key: The achievement's key.
+        player: The player number it was granted to.
+        name: The achievement's name.
+        description: Its description.
+        artwork: The artwork chosen with
+            :meth:`Config.set_achievement_artwork`, or ``b""`` when there is none.
+    """
+
+    __slots__ = ("key", "player", "name", "description", "artwork")
+
+    def __init__(self, key="", player=0, name="", description="", artwork=b""):
+        # type: (str, int, str, str, bytes) -> None
+        self.key = key
+        self.player = player
+        self.name = name
+        self.description = description
+        self.artwork = artwork
+
+    def __repr__(self):
+        # type: () -> str
+        return "AchievementUnlock(key={!r}, player={!r})".format(self.key, self.player)
+
+
 class LeaderboardPlayer(object):
     """Leaderboard player information."""
 

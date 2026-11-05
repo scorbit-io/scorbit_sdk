@@ -377,6 +377,23 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_ACHIEVEMENT_UNLOCKED: {
+        // Achievements are evaluated by the SDK on every commit; this is one Scorbit granted.
+        const char *key = NULL;
+        const char *name = NULL;
+        sb_player_t player = 0;
+        const uint8_t *frame = NULL;
+        size_t frame_size = 0;
+        if (sb_event_achievement_unlocked(event, &key, &player)
+            && sb_event_achievement_name(event, &name)) {
+            printf("Player %u unlocked achievement %s (%s)\n", player, name, key);
+            // The DMD frame chosen with sb_config_set_achievement_artwork(), ready to show
+            if (sb_event_achievement_artwork(event, &frame, &frame_size)) {
+                printf("  its frame is %zu bytes\n", frame_size);
+            }
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;
@@ -409,6 +426,8 @@ sb_game_handle_t setup_game_state(void)
     // sb_config_set_heartbeat_port(config, 9443);
 
     sb_config_set_auto_download_player_pics(config, true);
+    // Hand the DMD frame over with every achievement unlock
+    sb_config_set_achievement_artwork(config, SB_ACHIEVEMENT_ARTWORK_FRAME);
     sb_config_set_score_features(config, G_SCORE_FEATURES, G_SCORE_FEATURES_COUNT,
                                  G_SCORE_FEATURES_VERSION);
 
@@ -679,6 +698,10 @@ int main(void)
             if (i % 10 == 3) {
                 sb_set_mode_completed(gs, "NA:The Tale of the Forty Thieves");
             }
+
+            // Game events are named counters the game adds to, e.g. spinner spins. Like completed
+            // modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            sb_add_game_event(gs, "spins", 3);
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {

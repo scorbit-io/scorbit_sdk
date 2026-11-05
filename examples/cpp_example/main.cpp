@@ -322,6 +322,15 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::AchievementUnlocked: {
+        // Achievements are evaluated by the SDK on every commit; this is one Scorbit granted.
+        scorbit::AchievementUnlock unlock;
+        if (event.getAchievementUnlocked(unlock)) {
+            cout << "Player " << unlock.player << " unlocked achievement " << unlock.name << " ("
+                 << unlock.key << "), frame of " << unlock.artwork.size() << " bytes" << endl;
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {
@@ -347,6 +356,8 @@ scorbit::GameState setupGameState()
             .setGameCodeVersion("0.1.0")
             .setHostname("staging")
             .setAutoDownloadPlayerPics(true)
+            // Hand the DMD frame over with every achievement unlock
+            .setAchievementArtwork(scorbit::AchievementArtwork::Frame)
 
             // Optional: point the UDP heartbeat at a staging or local server. Omit both to use
             // heartbeat.scorbit.io:8443
@@ -547,6 +558,10 @@ int main()
             if (i % 10 == 3) {
                 gs.setModeCompleted("NA:The Tale of the Forty Thieves");
             }
+
+            // Game events are named counters the game adds to, e.g. spinner spins. Like completed
+            // modes they are one-shot and are used by achievements ("10,000 spins, for life").
+            gs.addGameEvent("spins", 3);
 
             // Sometimes we might need to clear all modes
             if (timeToClearModes()) {

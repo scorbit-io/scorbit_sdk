@@ -153,6 +153,7 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `add_mode(mode)` | Add mode string. |
 | `add_mode_expiring(mode, secs=3)` | Expiring mode. |
 | `set_mode_completed(mode)` | Mark a mode as completed (used as condition for achievements). |
+| `add_game_event(name, value)` | Add to a named game event register, e.g. spinner spins (achievements input). |
 | `remove_mode(mode)` | Remove mode. |
 | `clear_modes()` | Clear all modes. |
 | `commit()` | Push updates to the cloud. |
@@ -169,6 +170,23 @@ From `scorbit.create_game_state(config)`. Supports `with` / `__exit__`.
 | `download(url, file, headers, cb)` | Async file download. `headers`: dict or `(name, value)` pairs, or `None`; a string is sent as `Accept`. `content_type=` is still accepted in its place, deprecated. |
 | `download_buffer(url, size, headers, cb)` | Async buffer download. `headers` as for `download`. |
 | `destroy()` | Free resources (also from `__exit__`). |
+
+### Achievements
+
+Achievements are evaluated automatically on every `commit()` for each player who claimed a
+slot. When Scorbit grants one, the event callback receives `EventType.AchievementUnlocked`, and
+`event.get_achievement_unlocked()` returns an `AchievementUnlock`: `key`, `player`, `name`,
+`description` and `artwork`. It can be presented at once.
+
+`Config.set_achievement_artwork(AchievementArtwork.Frame)` (or `.Image`) makes the SDK hand that
+artwork over in `artwork`: DMD frames are downloaded ahead, an icon when its unlock is granted. With
+the default, `None_`, nothing is downloaded. `Config.set_data_dir(path)` keeps the achievements
+cache across reboots.
+
+`Config.set_achievement_presentation(AchievementPresentation.Local)` raises an achievement the
+machine decided the moment it decides it, even offline, instead of once Scorbit grants it (the
+default, `Granted`). It is raised once either way. Local presentation is not authoritative: if
+Scorbit refuses it, nothing is signalled. Trophies are always raised once Scorbit grants them.
 
 ### `Event`
 

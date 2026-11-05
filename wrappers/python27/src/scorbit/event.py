@@ -19,7 +19,7 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_size_t, c_uint, c_
 
 from ._bindings import _lib
 from ._enums import EventType
-from ._types import BundlePrice, PlayerInfo, PricingInfo
+from ._types import AchievementUnlock, BundlePrice, PlayerInfo, PricingInfo
 
 
 class Event(object):
@@ -254,6 +254,46 @@ class Event(object):
             pic = bytes(bytearray(data[: size.value])) if size.value else b""
             return player.value, pic
         return None
+
+    # ------------------------------------------------------------------
+    # Achievements
+    # ------------------------------------------------------------------
+
+    def get_achievement_unlocked(self):
+        """Parse an ``AchievementUnlocked`` event.
+
+        Raised once Scorbit granted the achievement, so it can be presented
+        at once.
+
+        Returns:
+            An :class:`AchievementUnlock`, or ``None`` if the event type does
+            not match.
+        """
+        key = c_char_p()
+        player = c_uint(0)
+        if not _lib.sb_event_achievement_unlocked(self._ptr, byref(key), byref(player)):
+            return None
+
+        def text(getter):
+            out = c_char_p()
+            getter(self._ptr, byref(out))
+            val = out.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", "replace")
+            return val or ""
+
+        data = POINTER(c_uint8)()
+        size = c_size_t(0)
+        artwork = b""
+        if _lib.sb_event_achievement_artwork(self._ptr, byref(data), byref(size)) and size.value:
+            artwork = bytes(bytearray(data[: size.value]))
+
+        name = text(_lib.sb_event_achievement_name)
+        description = text(_lib.sb_event_achievement_description)
+        raw_key = key.value
+        if isinstance(raw_key, bytes):
+            raw_key = raw_key.decode("utf-8", "replace")
+        return AchievementUnlock(raw_key or "", int(player.value), name, description, artwork)
 
     # ------------------------------------------------------------------
     # Internal / scorbitd events

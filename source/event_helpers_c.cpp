@@ -489,6 +489,61 @@ bool sb_event_pricing_bundle_sale_price(const sb_event_t *event, int index, cons
     return true;
 }
 
+bool sb_event_achievement_unlocked(const sb_event_t *event, const char **key, sb_player_t *player)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    if (key) {
+        *key = derived->key().c_str();
+    }
+    if (player) {
+        *player = derived->player();
+    }
+    return true;
+}
+
+bool sb_event_achievement_name(const sb_event_t *event, const char **name)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    if (name) {
+        *name = derived->name().c_str();
+    }
+    return true;
+}
+
+bool sb_event_achievement_description(const sb_event_t *event, const char **description)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    if (description) {
+        *description = derived->description().c_str();
+    }
+    return true;
+}
+
+bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data, size_t *size)
+{
+    const auto *derived = dynamic_cast<const scorbit::detail::AchievementUnlockedEvent *>(event);
+    if (!derived || derived->artwork().empty()) {
+        return false;
+    }
+    if (data) {
+        *data = derived->artwork().data();
+    }
+    if (size) {
+        *size = derived->artwork().size();
+    }
+    return true;
+}
+
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
 {
     if (!event || !is_paired) {

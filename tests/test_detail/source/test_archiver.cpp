@@ -231,3 +231,16 @@ TEST_CASE("createTarGz edge cases")
         CHECK(createTarGz(archivePath, files));
     }
 }
+
+TEST_CASE("extract refuses an entry escaping through a parent directory")
+{
+    TempDir tmpDir;
+    const auto archivePath = (tmpDir.path() / "dotdot.tar.gz").string();
+    const auto extractDir = tmpDir.path() / "out";
+    fs::create_directories(extractDir);
+
+    REQUIRE(createTarGz(archivePath, {}, {{"../escaped.txt", "evil"}}));
+
+    CHECK_FALSE(extract(archivePath, extractDir.string()));
+    CHECK_FALSE(fs::exists(tmpDir.path() / "escaped.txt"));
+}

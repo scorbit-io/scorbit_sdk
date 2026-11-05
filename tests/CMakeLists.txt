@@ -68,7 +68,7 @@ if(Python3_Interpreter_FOUND)
         get_target_property(_scorbit_sdk_type scorbit_sdk TYPE)
     endif()
     if(_scorbit_sdk_type STREQUAL "SHARED_LIBRARY" AND NOT WIN32)
-        foreach(_module test_leaderboard_types test_wrapper_parity)
+        foreach(_module test_leaderboard_types test_wrapper_parity test_achievements)
             add_test(
                 NAME python_${_module}
                 COMMAND ${Python3_EXECUTABLE} -m unittest -v ${_module}

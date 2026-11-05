@@ -177,6 +177,18 @@ _lib.sb_config_set_auto_download_player_pics.argtypes = [sb_config_t, c_bool]
 _lib.sb_config_set_vpin_table_mappings.restype = None
 _lib.sb_config_set_vpin_table_mappings.argtypes = [sb_config_t, c_bool]
 
+# void sb_config_set_data_dir(sb_config_t, const char*)
+_lib.sb_config_set_data_dir.restype = None
+_lib.sb_config_set_data_dir.argtypes = [sb_config_t, c_char_p]
+
+# void sb_config_set_achievement_artwork(sb_config_t, sb_achievement_artwork_t)
+_lib.sb_config_set_achievement_artwork.restype = None
+_lib.sb_config_set_achievement_artwork.argtypes = [sb_config_t, c_int]
+
+# void sb_config_set_achievement_presentation(sb_config_t, sb_achievement_presentation_t)
+_lib.sb_config_set_achievement_presentation.restype = None
+_lib.sb_config_set_achievement_presentation.argtypes = [sb_config_t, c_int]
+
 # void sb_config_set_threads_priority(sb_config_t, int)
 _lib.sb_config_set_threads_priority.restype = None
 _lib.sb_config_set_threads_priority.argtypes = [sb_config_t, c_int]
@@ -296,6 +308,10 @@ _lib.sb_add_mode_expiring.argtypes = [sb_game_handle_t, c_char_p, c_uint32]
 # void sb_set_mode_completed(sb_game_handle_t, const char*)
 _lib.sb_set_mode_completed.restype = None
 _lib.sb_set_mode_completed.argtypes = [sb_game_handle_t, c_char_p]
+
+# void sb_add_game_event(sb_game_handle_t, const char*, int64_t)
+_lib.sb_add_game_event.restype = None
+_lib.sb_add_game_event.argtypes = [sb_game_handle_t, c_char_p, c_int64]
 
 # void sb_remove_mode(sb_game_handle_t, const char*)
 _lib.sb_remove_mode.restype = None
@@ -658,6 +674,25 @@ _lib.sb_event_pairing_status_changed.argtypes = [c_void_p, POINTER(c_bool)]
 # bool sb_event_machine_changed(const sb_event_t*, const char**)
 _lib.sb_event_machine_changed.restype = c_bool
 _lib.sb_event_machine_changed.argtypes = [c_void_p, POINTER(c_char_p)]
+
+
+# bool sb_event_achievement_unlocked(const sb_event_t*, const char**, sb_player_t*)
+_lib.sb_event_achievement_unlocked.restype = c_bool
+_lib.sb_event_achievement_unlocked.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_uint)]
+
+# bool sb_event_achievement_name(const sb_event_t*, const char**)
+_lib.sb_event_achievement_name.restype = c_bool
+_lib.sb_event_achievement_name.argtypes = [c_void_p, POINTER(c_char_p)]
+
+# bool sb_event_achievement_description(const sb_event_t*, const char**)
+_lib.sb_event_achievement_description.restype = c_bool
+_lib.sb_event_achievement_description.argtypes = [c_void_p, POINTER(c_char_p)]
+
+# bool sb_event_achievement_artwork(const sb_event_t*, const uint8_t**, size_t*)
+_lib.sb_event_achievement_artwork.restype = c_bool
+_lib.sb_event_achievement_artwork.argtypes = [
+    c_void_p, POINTER(POINTER(c_uint8)), POINTER(c_size_t)
+]
 
 # void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
 #                             const char**, size_t, const char*)

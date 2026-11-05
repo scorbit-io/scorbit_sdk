@@ -25,10 +25,12 @@
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <optional>
 #include <iterator>
+#include <vector>
 
 struct sb_event_t {
     virtual ~sb_event_t() = default;
@@ -455,6 +457,36 @@ public:
 
 private:
     std::string m_venueMachine;
+};
+
+// ---------------- AchievementUnlocked implementation ----------------
+
+class AchievementUnlockedEvent : public EventBase
+{
+public:
+    AchievementUnlockedEvent(std::string key, sb_player_t player, std::string name,
+                             std::string description, std::vector<uint8_t> artwork)
+        : EventBase(EventType::AchievementUnlocked, EventPriority::High)
+        , m_key {std::move(key)}
+        , m_player {player}
+        , m_name {std::move(name)}
+        , m_description {std::move(description)}
+        , m_artwork {std::move(artwork)}
+    {
+    }
+
+    auto key() const -> const std::string & { return m_key; }
+    auto player() const -> sb_player_t { return m_player; }
+    auto name() const -> const std::string & { return m_name; }
+    auto description() const -> const std::string & { return m_description; }
+    auto artwork() const -> const std::vector<uint8_t> & { return m_artwork; }
+
+private:
+    std::string m_key;
+    sb_player_t m_player;
+    std::string m_name;
+    std::string m_description;
+    std::vector<uint8_t> m_artwork;
 };
 
 } // namespace detail
