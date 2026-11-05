@@ -87,6 +87,7 @@ public:
             m_saveKeyCallbackStorage = std::move(other.m_saveKeyCallbackStorage);
             m_loadKeyCallbackStorage = std::move(other.m_loadKeyCallbackStorage);
             m_pendingSwitches = std::move(other.m_pendingSwitches);
+            m_pendingMatches = std::move(other.m_pendingMatches);
             m_handle = std::move(other.m_handle);
         }
         return *this;
@@ -348,6 +349,44 @@ public:
         }
         sb_switch_machine(m_handle.get(), venueMachineUuid.c_str(),
                           &GameState::switch_machine_callback_c, pending);
+    }
+
+    /// Receives the outcome of @ref matchTableMapping and a copy of the answer.
+    using TableMatchCallback =
+            std::function<void(TableMatchResult result, const TableMatch &match)>;
+
+    /**
+     * @brief Ask the server which VPIN machine a table maps to; see @ref sb_match_table_mapping
+     * for the refusals and the wait for authentication.
+     *
+     * @note The callback runs at most once, on an SDK thread. Once the game state is being
+     * destroyed it runs with TableMatchResult::Failed or not at all, and is then released.
+     */
+    void matchTableMapping(const TableMatchRequest &request, TableMatchCallback callback)
+    {
+        auto *r = sb_table_match_request_create();
+        sb_table_match_request_set_key(r, request.keyType.c_str(), request.tableKey.c_str());
+        sb_table_match_request_set_firmware_id(r, request.firmwareId.c_str());
+        if (request.signaturesJson) {
+            sb_table_match_request_set_signatures_json(r, request.signaturesJson->c_str());
+        }
+        if (request.signatureUnavailable) {
+            sb_table_match_request_set_signature_unavailable(r,
+                                                             request.signatureUnavailable->c_str());
+        }
+
+        // Owned here rather than by the callback, which shutdown may cut short.
+        PendingMatch *pending = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingMatches->mutex);
+            m_pendingMatches->list.emplace_back();
+            pending = &m_pendingMatches->list.back();
+            pending->owner = m_pendingMatches.get();
+            pending->self = std::prev(m_pendingMatches->list.end());
+            pending->callback = std::move(callback);
+        }
+        sb_match_table_mapping(m_handle.get(), r, &GameState::table_match_callback_c, pending);
+        sb_table_match_request_free(r);
     }
 
     /**
@@ -743,6 +782,34 @@ private:
         }
     }
 
+    struct PendingMatches;
+    struct PendingMatch {
+        PendingMatches *owner {nullptr};
+        std::list<PendingMatch>::iterator self;
+        TableMatchCallback callback;
+    };
+    /// Lookup callbacks not yet answered; whatever shutdown leaves here is freed with this object.
+    struct PendingMatches {
+        std::mutex mutex;
+        std::list<PendingMatch> list;
+    };
+
+    static void table_match_callback_c(sb_table_match_result_t result, sb_table_match_t match,
+                                       void *user_data)
+    {
+        auto *pending = static_cast<PendingMatch *>(user_data);
+        auto *owner = pending->owner;
+        TableMatchCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            callback = std::move(pending->callback);
+            owner->list.erase(pending->self);
+        }
+        if (callback) {
+            callback(static_cast<TableMatchResult>(result), TableMatch::fromC(match));
+        }
+    }
+
 private:
     static void leaderboard_callback_c(sb_error_t error, sb_leaderboard_t *leaderboard,
                                        void *user_data)
@@ -859,6 +926,7 @@ private:
     std::unique_ptr<SaveKeyCallback> m_saveKeyCallbackStorage;
     std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
     std::unique_ptr<PendingSwitches> m_pendingSwitches {new PendingSwitches};
+    std::unique_ptr<PendingMatches> m_pendingMatches {new PendingMatches};
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;

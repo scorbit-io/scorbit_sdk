@@ -4521,6 +4521,73 @@ void Net::postSwitchMachine(const std::string &target,
     m_worker.post(createSwitchMachineTask(target, std::move(reply)));
 }
 
+void Net::matchTableMapping(TableMatchRequestData request, TableMatchCallback callback)
+{
+    auto body = tableMatchBody(request);
+    if (!body) {
+        WRN("API table match for key type '{}' refused: both kinds of evidence, or signatures "
+            "that are not a non-empty JSON array",
+            request.keyType);
+        // Answered on the worker, as a sent request is, never on the caller's thread.
+        m_worker.post([callback = std::move(callback)] {
+            if (callback) {
+                callback(SB_TABLE_MATCH_INVALID, TableMatchAnswer {});
+            }
+        });
+        return;
+    }
+    DBG("API table match request: {}", *body);
+    m_worker.post(createTableMatchTask(std::move(*body), std::move(callback)));
+}
+
+task_t Net::createTableMatchTask(std::string body, TableMatchCallback callback)
+{
+    auto reply = [this, callback = std::move(callback)](Error error, int httpStatus,
+                                                        const std::string &text) {
+        TableMatchAnswer answer;
+        auto result = SB_TABLE_MATCH_FAILED;
+        if (m_stop) {
+            // Shutting down: whatever the gate or the request said, the lookup did not finish.
+        } else if (error == Error::AuthFailed || error == Error::NotPaired) {
+            // The auth gate's terminal answer or deadline; never a reply from the server.
+            result = SB_TABLE_MATCH_NOT_AUTHENTICATED;
+        } else if (httpStatus == 200) {
+            if (auto parsed = parseTableMatch(text)) {
+                answer = std::move(*parsed);
+                result = SB_TABLE_MATCH_MAPPED;
+            } else {
+                ERR("API table match reply is malformed");
+            }
+        } else {
+            result = tableMatchFailure(httpStatus, text);
+            answer.errorCode = apiErrorCode(text);
+            answer.errorAttr = apiErrorAttr(text);
+        }
+        answer.httpStatus = httpStatus;
+        DBG("API table match reply: {}", text);
+        INF("API table match: result {}, HTTP {}, code '{}'", static_cast<int>(result), httpStatus,
+            answer.errorCode);
+        if (callback) {
+            callback(result, answer);
+        }
+    };
+
+    return createHttpRequestTask(
+            REST_POST, HttpStatusCallback {std::move(reply)},
+            [this, body = std::move(body)] {
+                return make_tuple(url(URL_SCORBITRON_TABLE_MAPPINGS), cpr::Body {body});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.post ? m_vpinTransport.post(url, body, header)
+                                            : HttpSessionPool::instance().Post(
+                                                    url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired},
+            false, false, false); // bodies are large: logged above, at debug level only
+}
+
 void Net::adoptSwitchedMachine(const std::string &target, const std::string &token,
                                MachineSwitch::Done done)
 {
@@ -4781,8 +4848,15 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
                 break;
             }
 
-            ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
-                r.status_code, r.error.message, reply);
+            if (logReply) {
+                ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
+                    r.status_code, r.error.message, reply);
+            } else {
+                // Its bodies stay at debug level, failures included
+                ERR("API {} request to {} FAILED: code={}, {}", requestType, url.str(),
+                    r.status_code, r.error.message);
+                DBG("API {} request to {} FAILED, reply: {}", requestType, url.str(), reply);
+            }
 
             if (r.status_code == 0) {
                 std::this_thread::sleep_for(1000ms);
@@ -5156,6 +5230,17 @@ bool NetTestAccess::tableMappingsFetchQueued(Net &net)
 {
     std::scoped_lock lock(net.m_tableMappingsFetchMutex);
     return net.m_tableMappingsFetchInFlight;
+}
+
+void NetTestAccess::startWorker(Net &net)
+{
+    net.m_worker.start();
+}
+
+void NetTestAccess::setStatusAndNotify(Net &net, AuthStatus status)
+{
+    net.m_status = status;
+    net.notifyAuthStatusChanged();
 }
 
 void NetTestAccess::runSwitchMachine(

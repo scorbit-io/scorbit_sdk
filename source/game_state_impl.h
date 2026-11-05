@@ -102,6 +102,7 @@ public:
     void refreshTableMappings();
     /// Refuses GAME_ACTIVE between setGameStarted() and setGameFinished(); see sb_switch_machine.
     void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback);
+    void matchTableMapping(TableMatchRequestData request, TableMatchCallback callback);
 
     void download(StringCallback callback, const std::string &url, const std::string &filename,
                   const HttpHeaders &headers = {});

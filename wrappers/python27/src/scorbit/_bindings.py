@@ -83,6 +83,15 @@ sb_switch_machine_callback_t = CFUNCTYPE(None, c_int, c_char_p, c_void_p)
 # struct sb_table_mappings_struct * (opaque, owned by the caller)
 sb_table_mappings_t = c_void_p
 
+# struct sb_table_match_request_struct * (opaque, owned by the caller)
+sb_table_match_request_t = c_void_p
+
+# struct sb_table_match_struct * (opaque, valid only during the callback)
+sb_table_match_t = c_void_p
+
+# void (*sb_table_match_callback_t)(sb_table_match_result_t, sb_table_match_t, void *user_data)
+sb_table_match_callback_t = CFUNCTYPE(None, c_int, sb_table_match_t, c_void_p)
+
 # int (*sb_signer_callback_t)(uint8_t signature[72], size_t *signature_len,
 #                              const uint8_t digest[32], void *user_data)
 sb_signer_callback_t = CFUNCTYPE(
@@ -335,6 +344,60 @@ _lib.sb_table_mapping_table_key.restype = c_char_p
 _lib.sb_table_mapping_table_key.argtypes = [sb_table_mappings_t, c_size_t]
 _lib.sb_table_mapping_venuemachine.restype = c_char_p
 _lib.sb_table_mapping_venuemachine.argtypes = [sb_table_mappings_t, c_size_t]
+
+# VPIN table-mapping lookup
+_lib.sb_match_table_mapping.restype = None
+_lib.sb_match_table_mapping.argtypes = [
+    sb_game_handle_t, sb_table_match_request_t, sb_table_match_callback_t, c_void_p
+]
+_lib.sb_table_match_request_create.restype = sb_table_match_request_t
+_lib.sb_table_match_request_create.argtypes = []
+_lib.sb_table_match_request_free.restype = None
+_lib.sb_table_match_request_free.argtypes = [sb_table_match_request_t]
+_lib.sb_table_match_request_set_key.restype = None
+_lib.sb_table_match_request_set_key.argtypes = [sb_table_match_request_t, c_char_p, c_char_p]
+_lib.sb_table_match_request_set_firmware_id.restype = None
+_lib.sb_table_match_request_set_firmware_id.argtypes = [sb_table_match_request_t, c_char_p]
+_lib.sb_table_match_request_set_signatures_json.restype = None
+_lib.sb_table_match_request_set_signatures_json.argtypes = [sb_table_match_request_t, c_char_p]
+_lib.sb_table_match_request_set_signature_unavailable.restype = None
+_lib.sb_table_match_request_set_signature_unavailable.argtypes = [
+    sb_table_match_request_t, c_char_p
+]
+_lib.sb_table_match_http_status.restype = c_int
+_lib.sb_table_match_http_status.argtypes = [sb_table_match_t]
+_lib.sb_table_match_error_code.restype = c_char_p
+_lib.sb_table_match_error_code.argtypes = [sb_table_match_t]
+_lib.sb_table_match_error_attr.restype = c_char_p
+_lib.sb_table_match_error_attr.argtypes = [sb_table_match_t]
+_lib.sb_table_match_key_type.restype = c_char_p
+_lib.sb_table_match_key_type.argtypes = [sb_table_match_t]
+_lib.sb_table_match_table_key.restype = c_char_p
+_lib.sb_table_match_table_key.argtypes = [sb_table_match_t]
+_lib.sb_table_match_mapping_id.restype = c_char_p
+_lib.sb_table_match_mapping_id.argtypes = [sb_table_match_t]
+_lib.sb_table_match_venuemachine.restype = c_char_p
+_lib.sb_table_match_venuemachine.argtypes = [sb_table_match_t]
+_lib.sb_table_match_venuemachine_name.restype = c_char_p
+_lib.sb_table_match_venuemachine_name.argtypes = [sb_table_match_t]
+_lib.sb_table_match_machine.restype = c_char_p
+_lib.sb_table_match_machine.argtypes = [sb_table_match_t]
+_lib.sb_table_match_machine_name.restype = c_char_p
+_lib.sb_table_match_machine_name.argtypes = [sb_table_match_t]
+_lib.sb_table_match_has_verdict.restype = c_bool
+_lib.sb_table_match_has_verdict.argtypes = [sb_table_match_t]
+_lib.sb_table_match_verdict_status.restype = c_char_p
+_lib.sb_table_match_verdict_status.argtypes = [sb_table_match_t]
+_lib.sb_table_match_verdict_accepted_version.restype = c_char_p
+_lib.sb_table_match_verdict_accepted_version.argtypes = [sb_table_match_t]
+_lib.sb_table_match_verdict_changed_sections_count.restype = c_size_t
+_lib.sb_table_match_verdict_changed_sections_count.argtypes = [sb_table_match_t]
+_lib.sb_table_match_verdict_changed_section.restype = c_char_p
+_lib.sb_table_match_verdict_changed_section.argtypes = [sb_table_match_t, c_size_t]
+_lib.sb_table_match_verdict_changed_procedures_count.restype = c_size_t
+_lib.sb_table_match_verdict_changed_procedures_count.argtypes = [sb_table_match_t]
+_lib.sb_table_match_verdict_changed_procedure.restype = c_char_p
+_lib.sb_table_match_verdict_changed_procedure.argtypes = [sb_table_match_t, c_size_t]
 
 # uint64_t sb_get_machine_serial(sb_game_handle_t)
 _lib.sb_get_machine_serial.restype = c_uint64
