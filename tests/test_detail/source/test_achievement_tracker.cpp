@@ -78,7 +78,7 @@ struct Session {
 
 } // namespace
 
-TEST_CASE("The ball-end report worked example (§7.7)", "[achievements]")
+TEST_CASE("The ball-end report worked example (contract 7.7)", "[achievements]")
 {
     Baselines baselines;
     baselines["game-cv-marathon"] = Baseline {false, {{0, RuleProgress {7400, false}}}};
@@ -395,7 +395,7 @@ TEST_CASE("Nothing is reported for achievements with nothing measured", "[achiev
     CHECK(report[0].rules.at(0) == RuleProgress {1, false});
 }
 
-TEST_CASE("What the machine tracks (§7.7)", "[achievements]")
+TEST_CASE("What the machine tracks (contract 7.7)", "[achievements]")
 {
     Baselines baselines;
     baselines["game-held"] = Baseline {true, {{0, RuleProgress {1, true}}}};

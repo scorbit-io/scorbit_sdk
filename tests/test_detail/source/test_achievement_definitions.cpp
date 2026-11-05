@@ -464,7 +464,7 @@ TEST_CASE("An empty progress response means nothing started", "[achievements]")
     CHECK_FALSE(parseProgressResponse("progress"));
 }
 
-TEST_CASE("Parse the per-rule values of a §10.4 progress response", "[achievements]")
+TEST_CASE("Parse the per-rule values of a progress response (contract 10.4)", "[achievements]")
 {
     const auto document = json::parse(R"({
         "user_id": "3f1c",

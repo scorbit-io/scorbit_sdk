@@ -335,7 +335,7 @@ TEST_CASE("Stack Attack: two modes together, three times", "[achievements]")
     CHECK(ev(def).rules.at(0) == RuleProgress {3, true});
 }
 
-TEST_CASE("LE rules are not paired implicitly (§6.3)", "[achievements]")
+TEST_CASE("LE rules are not paired implicitly (contract 6.3)", "[achievements]")
 {
     Evaluator ev;
     ev.timeline.at(0).commit();
