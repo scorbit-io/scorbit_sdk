@@ -96,6 +96,14 @@ int main(int argc, char **argv)
         fixtures.push_back(f);
     }
     {
+        Fixture f = fixture("continued_helper",
+                            "the script loads a literal name with a suffix appended: no signature",
+                            table());
+        f.table.inputs.script += "LoadScript (\"Helper.vbs\") & suffix\r\n";
+        f.code = vpx::Code::unnamed_helper;
+        fixtures.push_back(f);
+    }
+    {
         Fixture f = fixture("protected", "legacy table protection with script editing disabled",
                             table());
         f.table.inputs.tableFields.push_back(protectionRecord());
