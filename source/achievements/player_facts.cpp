@@ -49,8 +49,9 @@ int64_t PlayerFacts::elapsed(int64_t startMs, int64_t endMs, bool open) const
 
 std::vector<Occurrence> PlayerFacts::activations(const std::string &mode) const
 {
+    const auto body = modeBody(mode);
     std::vector<Occurrence> rv;
-    for (const auto &a : entriesOf(m_activations, mode)) {
+    for (const auto &a : entriesOf(m_activations, body)) {
         rv.push_back(
                 Occurrence {a.startMs, a.ball, a.span, 1, until(a.presenceEndMs, a.presenceOpen)});
     }
@@ -59,7 +60,8 @@ std::vector<Occurrence> PlayerFacts::activations(const std::string &mode) const
 
 std::vector<Occurrence> PlayerFacts::completions(const std::string &mode) const
 {
-    return entriesOf(m_completions, mode);
+    const auto body = modeBody(mode);
+    return entriesOf(m_completions, body);
 }
 
 std::vector<Occurrence> PlayerFacts::eventOps(const std::string &name) const
@@ -69,8 +71,9 @@ std::vector<Occurrence> PlayerFacts::eventOps(const std::string &name) const
 
 std::vector<Duration> PlayerFacts::activationDurations(const std::string &mode) const
 {
+    const auto body = modeBody(mode);
     std::vector<Duration> rv;
-    for (const auto &a : entriesOf(m_activations, mode)) {
+    for (const auto &a : entriesOf(m_activations, body)) {
         rv.push_back(Duration {elapsed(a.startMs, a.endMs, a.open), a.ball, a.span, a.startMs,
                                until(a.presenceEndMs, a.presenceOpen)});
     }
@@ -144,9 +147,11 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
         return rv;
     };
 
-    auto overlaps = overlapsOf(entriesOf(m_presence, modes.front()));
+    const auto front = modeBody(modes.front());
+    auto overlaps = overlapsOf(entriesOf(m_presence, front));
     for (size_t m = 1; m < modes.size() && !overlaps.empty(); ++m) {
-        const auto runs = overlapsOf(entriesOf(m_presence, modes[m]));
+        const auto body = modeBody(modes[m]);
+        const auto runs = overlapsOf(entriesOf(m_presence, body));
         std::vector<Overlap> next;
         for (size_t i = 0, j = 0; i < overlaps.size() && j < runs.size();) {
             const auto &a = overlaps[i];
@@ -174,8 +179,9 @@ std::vector<Occurrence> SessionFacts::stacks(const std::vector<std::string> &mod
 
 std::vector<ModeRun> SessionFacts::modeRuns(const std::string &mode, PlayerNumber player) const
 {
+    const auto body = modeBody(mode);
     std::vector<ModeRun> rv;
-    for (const auto &run : entriesOf(m_presence, mode)) {
+    for (const auto &run : entriesOf(m_presence, body)) {
         if (run.player != player) {
             continue;
         }
@@ -334,7 +340,7 @@ void SessionFacts::apply(const TimelineRow &row)
     std::set<std::string> current;
     for (const auto &mode : row.modes) {
         if (isValidTimelineName(mode)) {
-            current.insert(mode);
+            current.insert(modeBody(mode));
         }
     }
     for (const auto &mode : current) {
@@ -366,10 +372,13 @@ void SessionFacts::apply(const TimelineRow &row)
     }
 
     // Completions and events: edges of this row only
+    std::set<std::string> completed;
     for (const auto &mode : row.completedModes) {
-        if (!isValidTimelineName(mode)) {
-            continue;
+        if (isValidTimelineName(mode)) {
+            completed.insert(modeBody(mode));
         }
+    }
+    for (const auto &mode : completed) {
         if (active) {
             active->m_completions[mode].push_back(
                     Occurrence {row.timeMs, row.ball, span, 1, row.timeMs + 1});
