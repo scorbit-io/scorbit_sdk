@@ -332,6 +332,10 @@ bool sb_realtime_connected(sb_game_handle_t handle);
 
 /**
  * @brief Seconds since the last REST call that got a 2xx or 304 answer, on a monotonic clock.
+ *
+ * REST calls here and in @ref sb_rest_transport_failures are every request to the Scorbit API,
+ * the realtime token's included. File and artwork downloads, which may be served from other hosts,
+ * are not.
  * @param handle The game handle created by @ref sb_create_game_state.
  * @return The seconds, or -1 if no REST call has succeeded yet.
  */
@@ -344,7 +348,7 @@ int64_t sb_seconds_since_rest_success(sb_game_handle_t handle);
  * A transport failure is an attempt with no response: DNS, connect, TLS or timeout. Any HTTP
  * response, whatever its status (401 and 5xx included), neither counts nor resets the count;
  * only a 2xx or 304 resets it to 0. Every attempt counts, the SDK's own retries included, across
- * all REST calls.
+ * all REST calls (see @ref sb_seconds_since_rest_success).
  * @param handle The game handle created by @ref sb_create_game_state.
  * @return The count.
  */

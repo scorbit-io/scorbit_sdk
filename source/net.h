@@ -139,6 +139,8 @@ struct NetTestAccess {
     static void setStatus(Net &net, AuthStatus status);
     /// Stands in for the Centrifugo client's connection callbacks: Connected or Disconnected.
     static void setRealtimeConnected(Net &net, bool connected);
+    /// What a REST call made outside the shared helper (the Centrifugo token) does with its reply.
+    static void noteRestOutcome(Net &net, const cpr::Response &r);
     /// Disarms the auth retry a test armed (the test Net's worker never runs it anyway).
     static void cancelAuthRetry(Net &net);
     /// Records a deferral at @p now; true the one time deferrals have spanned the threshold.
@@ -898,6 +900,16 @@ private:
     void noteRestTransportFailure()
     {
         m_restTransportFailures.fetch_add(1, std::memory_order_relaxed);
+    }
+    /// Either of the above for a REST call made outside the shared helper; any other HTTP status
+    /// is neither.
+    void noteRestOutcome(const cpr::Response &r)
+    {
+        if ((r.status_code >= 200 && r.status_code < 300) || r.status_code == 304) {
+            noteRestSuccess(r.header);
+        } else if (r.status_code == 0) {
+            noteRestTransportFailure();
+        }
     }
 
     void checkSystemTimeAccuracy(int64_t timestamp) const;

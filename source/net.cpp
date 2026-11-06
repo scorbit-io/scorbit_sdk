@@ -328,8 +328,10 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
 }
 
 /// @p serverNow, when given, receives the reply's Date as Unix seconds, or 0 if it has none.
+/// @p onResponse, when given, sees the raw response first (connectivity accounting).
 std::string getJwtToken(const std::string &url, const std::string &authToken,
-                        const cpr::SslOptions &&sslOptions, std::int64_t *serverNow = nullptr)
+                        const cpr::SslOptions &&sslOptions, std::int64_t *serverNow = nullptr,
+                        const std::function<void(const cpr::Response &)> &onResponse = {})
 {
     INF("API-CF getting JWT token from: {}", url);
 
@@ -340,6 +342,9 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
     const auto r = HttpSessionPool::instance().Get(
             cpr::Url {url}, cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
             cpr::Timeout {NET_TIMEOUT}, sslOptions);
+    if (onResponse) {
+        onResponse(r);
+    }
 
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
@@ -5288,6 +5293,11 @@ void NetTestAccess::setStatus(Net &net, AuthStatus status)
     net.m_status = status;
 }
 
+void NetTestAccess::noteRestOutcome(Net &net, const cpr::Response &r)
+{
+    net.noteRestOutcome(r);
+}
+
 void NetTestAccess::setRealtimeConnected(Net &net, bool connected)
 {
     net.m_cfState = connected ? centrifugo::ConnectionState::Connected
@@ -6254,7 +6264,8 @@ void Net::fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf)
         const auto cfUrl = url(URL_SCORBITRON_CF_TOKEN).str();
         token = m_authTransport.centrifugoToken
                       ? m_authTransport.centrifugoToken(cfUrl, authToken)
-                      : getJwtToken(cfUrl, authToken, sslOptions(), &serverNow);
+                      : getJwtToken(cfUrl, authToken, sslOptions(), &serverNow,
+                                    [this](const cpr::Response &r) { noteRestOutcome(r); });
     }
 
     {

@@ -117,6 +117,22 @@ TEST_CASE("Any REST success resets the transport failures", "[connectivity]")
     CHECK(c.net->secondsSinceRestSuccess() >= 0);
 }
 
+TEST_CASE("A REST call outside the shared helper feeds the same evidence", "[connectivity]")
+{
+    // The Centrifugo token request reports each reply through this
+    ConnectivityNet c;
+    NetTestAccess::noteRestOutcome(*c.net, response(0));
+    NetTestAccess::noteRestOutcome(*c.net, response(0));
+    CHECK(c.net->restTransportFailures() == 2);
+    NetTestAccess::noteRestOutcome(*c.net, response(401));
+    NetTestAccess::noteRestOutcome(*c.net, response(502));
+    CHECK(c.net->restTransportFailures() == 2);
+    CHECK(c.net->secondsSinceRestSuccess() == -1);
+    NetTestAccess::noteRestOutcome(*c.net, response(200, R"({"token":"t"})"));
+    CHECK(c.net->restTransportFailures() == 0);
+    CHECK(c.net->secondsSinceRestSuccess() >= 0);
+}
+
 TEST_CASE("The realtime state is true only while connected", "[connectivity]")
 {
     ConnectivityNet c;
