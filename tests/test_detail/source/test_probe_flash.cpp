@@ -22,6 +22,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "nfc_flash.h"
 #include <scorbit_sdk/scorbit_sdk.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
@@ -771,6 +772,33 @@ TEST_CASE("A redelivery of the run in progress is ignored even once it is no lon
     net.handle(flashPayload(RUN_A)); // its redelivery: neither a second start nor a refusal
     CHECK(net.requests.size() == 1);
     CHECK(net.posts.size() == refused);
+}
+
+TEST_CASE("Before the resume starts, its run and those with undelivered results are known")
+{
+    // The resume claims its run only once the pad is found; a redelivery may come first
+    NfcStateDir state;
+    const nfc_flash::RecordStore store {{state.dir}};
+    const auto dir = store.pick();
+    REQUIRE(dir);
+    REQUIRE(store.commit(*dir, {RUN_A, "/dev/ttyACM0", 20261025091656u, SHA}));
+    REQUIRE(store.keepResult(RUN_B, R"({"status":"succeeded"})"));
+
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::setNfcStateDirs(net, {state.dir});
+    NetTestAccess::markKnownNfcRunsSeen(net);
+
+    for (const auto *run : {RUN_A, RUN_B}) {
+        NetTestAccess::requestOpenProbeFlash(net, true);
+        net.answerOpen(Error::Success, 200, openRunBody(flashPayload(run, "nfc")));
+    }
+    CHECK(net.nfcRuns.empty());
+    CHECK(net.requests.empty());
+    CHECK(net.posts.empty()); // no busy failure, no refusal: the server run stays open
+
+    // Any other run is still accepted
+    net.handle(flashPayload(RUN_C, "dmd"));
+    CHECK(net.requests.size() == 1);
 }
 
 TEST_CASE("A run resumed at start is ignored when redelivered")

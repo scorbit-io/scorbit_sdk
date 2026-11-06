@@ -152,6 +152,7 @@ struct NetTestAccess {
     static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
                                       const std::string &body);
     static void markProbeFlashRunSeen(Net &net, const std::string &runId);
+    static void markKnownNfcRunsSeen(Net &net);
     static void setNfcFlashable(Net &net, bool flashable);
     static bool nfcFlashIdle(Net &net);
     /// Runs the result resend pass as if the clock read @p now.
@@ -831,6 +832,8 @@ private:
     void onProbeFlashOpenReply(Error error, int httpStatus, const std::string &body);
     /// A run this process already holds, so a redelivery of it is ignored without a result.
     void markProbeFlashRunSeen(const std::string &runId);
+    /// Marks seen the NFC run a restart will resume and those whose kept result is undelivered.
+    void markKnownNfcRunsSeen();
     /// Queues @p result for @p runId and sends it, resending with backoff until a final answer.
     void sendProbeFlashResult(const std::string &runId, const nlohmann::json &result,
                               HttpStatusCallback callback);

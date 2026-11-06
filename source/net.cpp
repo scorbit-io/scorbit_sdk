@@ -1278,6 +1278,9 @@ void Net::setProbesManager(std::shared_ptr<nfc::ProbesManager> manager)
     refreshNfcFirmware();
     refreshNfcFlashable();
     if (SDK_NFC_FLASH_ROUTINE && m_probesManager) {
+        // Before the resume is queued: a redelivery that arrives while it waits for the pad must
+        // not start the run beside it, nor one whose result is still being delivered.
+        markKnownNfcRunsSeen();
         // Off the host's thread: its startup may run under a watchdog.
         runOnNfcThread([this] { resumeNfcFlash(); });
     }
@@ -2088,6 +2091,22 @@ void Net::markProbeFlashRunSeen(const std::string &runId)
     m_seenProbeFlashRunIds.insert(toLowerAscii(runId));
 }
 
+void Net::markKnownNfcRunsSeen()
+{
+    try {
+        const auto store = nfcResultStore();
+        if (const auto pending = store.load()) {
+            markProbeFlashRunSeen(pending->second.runId); // the run the resume will take up
+        }
+        for (const auto &kept : store.pendingResults()) {
+            markProbeFlashRunSeen(kept.runId); // finished, its result not yet delivered
+        }
+    } catch (const std::exception &e) {
+        WRN("NFC flash: earlier runs not read, a redelivery of one is not recognised: {}",
+            e.what());
+    }
+}
+
 void Net::requestOpenProbeFlash(bool startup)
 {
     if (m_stop) {
@@ -2111,7 +2130,8 @@ void Net::getProbeFlashOpen(HttpStatusCallback callback, bool startup)
             },
             // Only a paired unit has runs; a check still pending waits for its answer
             {AuthStatus::AuthenticatedPaired}, false, false, true,
-            false); // one attempt: the next auth or reconnect asks again
+            false); // no retry after no response: the next auth or reconnect asks again. A 401
+                    // still refreshes the token and asks once more; a run it repeats is a dup.
     if (startup) {
         m_worker.postStartupQueue(std::move(task));
     } else {
@@ -5732,6 +5752,11 @@ void NetTestAccess::onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
 void NetTestAccess::markProbeFlashRunSeen(Net &net, const std::string &runId)
 {
     net.markProbeFlashRunSeen(runId);
+}
+
+void NetTestAccess::markKnownNfcRunsSeen(Net &net)
+{
+    net.markKnownNfcRunsSeen();
 }
 
 void NetTestAccess::setNfcFlashable(Net &net, bool flashable)
