@@ -16,6 +16,9 @@
 #include <thread>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
 #include "Util.h"
 #include "Cable.h"
 #include "ListUsbDevices.h"
@@ -41,6 +44,8 @@ namespace date = std::chrono;
 #include <unistd.h>
 #include <sys/mount.h>
 #endif
+
+namespace spb::sdk {
 
 typedef enum
 {
@@ -68,9 +73,36 @@ class ProbeBase
     ProbeBase() {}
     virtual ~ProbeBase() { Cable.Close(); }
 
+    typedef enum { Unknown = 0, PowerOnReset, BootloaderRestart, SoftRestart, WatchdogTimer, WatchdogTimerAcknoledged } BootReason_t;
+    typedef struct
+    {
+        int DeviceIndex;
+
+        uint16_t Magic;
+        std::string Id, Name;
+        int VersionMajor, VersionMinor, VersionRevision;
+        uint32_t TimestampHeader;
+        uint64_t TimestampUTC;
+        std::string Timestamp;
+        BootReason_t BootReason;
+        uint8_t WatchdogCount;
+        long TimeMs;
+        uint32_t SysClockFrequency;
+        uint8_t UsbFlags;
+        uint8_t Reserved3ForAlignment;
+        uint32_t UID;
+        uint8_t TpmSerial[9];
+        uint8_t TpmType; // 0:None, 1:Hard, 2:Soft
+        uint8_t TpmUUID[16];
+        uint16_t Reserved4ForAlignment;
+        uint64_t TpmScorbitSerial;
+        uint8_t Reserved5[24];
+    } ProbeInformations_t;
+
     protected:
-    virtual bool OnInitialized() { return true; }
-    
+    ProbeBase::ProbeInformations_t BaseInfos {};
+    virtual bool OnInitialized() { BaseInfos = {}; GetInformations(&BaseInfos); return true; }
+
     public:
     virtual bool Initialize(int DeviceIndex, const std::string& DeviceName)
     {
@@ -105,36 +137,10 @@ class ProbeBase
         return OnInitialized();
     }
 
-    typedef enum { Unknown = 0, PowerOnReset, BootloaderRestart, SoftRestart, WatchdogTimer, WatchdogTimerAcknoledged } BootReason_t;
-    typedef struct
-    { 
-        int DeviceIndex;
-
-        uint16_t Magic;
-        std::string Id, Name; 
-        int VersionMajor, VersionMinor, VersionRevision; 
-        uint32_t TimestampHeader;
-        uint64_t TimestampUTC;
-        std::string Timestamp;  
-        BootReason_t BootReason;
-        uint8_t WatchdogCount;
-        long TimeMs;
-        uint32_t SysClockFrequency;
-        uint8_t UsbFlags;
-        uint8_t Reserved3ForAlignment;
-        uint32_t UID;
-        uint8_t TpmSerial[9];
-        uint8_t TpmType; // 0:None, 1:Hard, 2:Soft
-        uint8_t TpmUUID[16];
-        uint16_t Reserved4ForAlignment;
-        uint64_t TpmScorbitSerial;
-        uint8_t Reserved5[24];
-    } ProbeInformations_t;
-
     static std::vector<ProbeInformations_t> FindAllProbes(const std::string& sType = "")
     {
         std::vector<ProbeBase::ProbeInformations_t> ProbeInfos;
-        const auto devices = nfc::listUsbDevices();
+        const auto devices = listUsbDevices();
 
         // Browse the devices
         for (const auto& device : devices)
@@ -155,7 +161,7 @@ class ProbeBase
 
     bool FindProbe(const std::string &sType, uint32_t UID = 0)
     {
-        const auto devices = nfc::listUsbDevices();
+        const auto devices = listUsbDevices();
         // Browse the devices
         for (const auto& device : devices)
         {
@@ -556,7 +562,7 @@ class ProbeNFC : public ProbeBase
 {
     public:
     typedef enum : uint8_t { READER = 0, TAG = 1 } NfcType_t;
-    typedef enum : uint8_t { None=0x00, Tag=0x01, FactoryMode = 0x02, Ext_LM = 0x04 } NfcFlags_t;
+    typedef enum : uint8_t { None=0x00, Tag=0x01, FactoryMode = 0x02, Ext_LM = 0x04, MeasureAmplitude = 0x08, FieldDetector = 0x10 } NfcFlags_t;
 
     typedef struct
     {
@@ -583,8 +589,288 @@ class ProbeNFC : public ProbeBase
         Infos->RSSI = Util::ReadUInt16LE(NfcInfos, 264);
         return true;
     }
+
+    #pragma warning(push)
+    #pragma warning(disable: 4200)
+    #pragma pack(push, 1)
+    typedef struct
+    {
+        uint32_t Duration;
+        uint8_t Colors[][3];
+    } WS281xAnimationFrame;
+    const uint32_t AnimationMagic = 0x5344454C;
+    // size if given by WS281x::Sizeof_WS281xAnimationFrame(int nLeds)
+    typedef struct
+    {
+        uint32_t Magic;
+        uint32_t Version;
+        const char Id[31 + 1];
+        uint32_t nLedsPerFrame;
+        uint32_t nFrames;
+        uint32_t nLoops;
+        uint8_t bBlankAtEnd;
+        uint8_t Data[]; // Array of variable length WS281xAnimationFrame 
+    } WS281xAnimation;
+    #pragma pack(pop)
+    #pragma warning(pop)
+    static int Sizeof_WS281xAnimationFrame(int nLeds) { return 4 + 3 * nLeds; }
+    static int Sizeof_WS281xAnimation(int nLeds, int nFrames) { return (int)sizeof(WS281xAnimation) + nFrames * Sizeof_WS281xAnimationFrame(nLeds); }
+    static WS281xAnimationFrame *GetAnimationFrame(int n, WS281xAnimation * Animation)
+    {
+        if (n < 0 || n >= (int)Animation->nFrames) return NULL;
+        // Compute the frame address in the Data array (the sizeof Frame is variable and based on the number of leds)
+        return (WS281xAnimationFrame*)(Animation->Data + (n * Sizeof_WS281xAnimationFrame(Animation->nLedsPerFrame)));
+    }
+
+	public:
+    bool DisplayErrorExternal(int ErrorCode, uint32_t DurationMs = 0) // ErrorCode=-1 to cancel the error animation, DurationMs=0 for an infinite animation
+    {
+        // Log this call
+        ERR("ProbeNFC::DisplayErrorExternal(%d)\n", ErrorCode);
+
+        // Cancel the error animation ?
+        if (ErrorCode < 0) return SetLedsAnimation({});
+        
+        // Define the animation
+		// Having a static structure here is not thread safe but it is fine for our use case
+        const uint8_t Duration1 = 62, Duration2 = 63;
+        static WS281xAnimation ErrorAnimation =
+        {
+            .Magic = 0x5344454C,
+            .Version = 1,
+            .Id = "Error",
+            .nLedsPerFrame = 30,
+            .nFrames = 16,
+            .nLoops = 0,
+            .bBlankAtEnd = 0,
+            .Data =
+            {
+                // Frame #1
+                Duration1,0, 0, 0, // Duration 
+                0, 0, 0, // Colors
+                 0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,  0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #2
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                32, 0, 0,  32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #3
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                64, 0, 0,  64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #4
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                96, 0, 0,  96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #5
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #6
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                160, 0, 0,  160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #7
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #8
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                224, 0, 0,  224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #9
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #10
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                224, 0, 0,  224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0, 224, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #11
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0, 192, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #12
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                160, 0, 0,  160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0, 160, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #13
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0, 128, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #14
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                96, 0, 0,  96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0, 96, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #15
+                Duration1,0, 0, 0,
+                0, 0, 0,
+                64, 0, 0,  64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0, 64, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                // Frame #16
+                Duration2,0, 0, 0,
+                0, 0, 0,
+                32, 0, 0,  32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0, 32, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            }
+        };
+
+		uint32_t ErrorLeds[] = { 0, 20, 24 }; // The leds to use for the error code
+        int n = ErrorCode;
+		for (int i = 0; i< sizeof(ErrorLeds) / sizeof(ErrorLeds[0]); i++)
+		{
+            uint32_t iLed = ErrorLeds[i];
+
+			// Check that the led index is valid
+			if (iLed >= ErrorAnimation.nLedsPerFrame) { ERR("ProbeNFC error led %d is invalid\n", iLed); return false; }
+
+            // Determine the RGB values to display on this LED
+            /*
+            - Same Colors for RGB1 and RGB2
+            #0:  Solid black / black
+            #1:  Solid blue / blue
+            #2:  Solid green / green
+            #3:  Solid red / red
+            #4:  Solid cyan / cyan
+            #5:  Solid magenta / magenta
+            #6:  Solid yellow / yellow
+            #7:  Solid white / white
+            - Unordered pairs of different colors for RGB1 and RGB2
+            #8:  Blinking black / blue
+            #9:  Blinking black / green
+            #10: Blinking black / red
+            #11: Blinking black / cyan
+            #12: Blinking black / magenta
+            #13: Blinking black / yellow
+            #14: Blinking black / white
+            #15: Blinking blue / green
+            #16: Blinking blue / red
+            #17: Blinking blue / cyan
+            #18: Blinking blue / magenta
+            #19: Blinking blue / yellow
+            #20: Blinking blue / white
+            #21: Blinking green / red
+            #22: Blinking green / cyan
+            #23: Blinking green / magenta
+            #24: Blinking green / yellow
+            #25: Blinking green / white
+            #26: Blinking red / cyan
+            #27: Blinking red / magenta
+            #28: Blinking red / yellow
+            #29: Blinking red / white
+            #30: Blinking cyan / magenta
+            #31: Blinking cyan / yellow
+            #32: Blinking cyan / white
+            #33: Blinking magenta / yellow
+            #34: Blinking magenta / white
+            #35: Blinking yellow / white
+            */
+            uint32_t RGB1 = 0, RGB2 = 0;
+            const uint32_t Colors[8] = { 0x000000, 0x0000ff, 0x00ff00, 0xff0000, 0x00ffff, 0xff00ff, 0xffff00, 0xffffff };
+            const int nColors = (int)(sizeof(Colors) / sizeof(Colors[0]));
+            const int nPairs = nColors * (nColors - 1) / 2; // unordered pairs
+            const int nMax = nColors + nPairs; // solids + pairs
+            int LedCode = n % nMax;
+            // 0..7: RGB1==RGB2 (palette). 8..35: unordered pairs (i < j).
+            if (LedCode < nColors)
+                RGB1 = RGB2 = Colors[LedCode];
+            else
+            {
+                // Only keep the unordered pairs
+                int m = LedCode - nColors;
+                int i = 0, j = 0;
+                for (i = 0; i < nColors; i++)
+                {
+                    int nWithI = nColors - 1 - i; // j = i+1 .. nColors-1
+                    if (m < nWithI) { j = i + 1 + m; break; }
+                    m -= nWithI;
+                }
+                RGB1 = Colors[i];
+                RGB2 = Colors[j];
+            }
+
+            // Browse all frames to set the RGB value for this LED
+            for (uint32_t iFrame = 0; iFrame < ErrorAnimation.nFrames; iFrame++)
+            {
+                WS281xAnimationFrame* Frame = GetAnimationFrame(iFrame, &ErrorAnimation);
+                // When we have 2 different colors, we want the LED to be black on the first and middle frames to better see the change of color
+                if (RGB1 != RGB2 && (iFrame == 0 || iFrame == ErrorAnimation.nFrames / 2))
+                {
+                    Frame->Colors[iLed][0] = 0;
+                    Frame->Colors[iLed][1] = 0;
+                    Frame->Colors[iLed][2] = 0;
+                    continue;
+                }
+                // Set the color of the requested LED to the requested RGB value
+                uint32_t RGB = (iFrame < ErrorAnimation.nFrames / 2) ? RGB1 : RGB2;
+                Frame->Colors[iLed][0] = (uint8_t)(RGB >> 16); // Red]
+                Frame->Colors[iLed][1] = (uint8_t)(RGB >> 8);  // Green]
+                Frame->Colors[iLed][2] = (uint8_t)(RGB);       // Blue]
+            }
+
+            // Next LED
+			n /= nMax;
+		}
+		// ErrorCode must have been consumed entirely by the leds, otherwise it is invalid
+        if (n > 0) { ERR("ProbeNFC error code %d is invalid\n", ErrorCode); return false; }
+
+		// Browse all frames to determine the duration of the animation
+        uint32_t AnimationDuration = 0;
+        for (uint32_t iFrame = 0; iFrame < ErrorAnimation.nFrames; iFrame++)
+        {
+            WS281xAnimationFrame* Frame = GetAnimationFrame(iFrame, &ErrorAnimation);
+            AnimationDuration += Frame->Duration;
+        }
+        // Set the number of loops to match the requested duration
+		// (an unlikely overflow will lead to an infinite loop which is OK)
+        ErrorAnimation.nLoops = (DurationMs + (AnimationDuration - 1)) / AnimationDuration;
+
+        // Start the error animation
+        const int Size = Sizeof_WS281xAnimation(ErrorAnimation.nLedsPerFrame, ErrorAnimation.nFrames);
+        return SetLedsAnimation(std::vector<uint8_t>((uint8_t*)&ErrorAnimation, (uint8_t*)&ErrorAnimation + Size));
+
+    }
+    bool DisplayErrorInternal(int ErrorCode, uint32_t DurationMs = 0)
+    {
+        // Log this call
+        ERR("ProbeNFC::DisplayErrorInternal(%d)\n", ErrorCode);
+
+        return Cable.CommandWrite(ProbeCommand_t::WriteNfcLedsAnimation, 0,
+            {
+                static_cast<uint8_t>(ErrorCode >> 0),
+                static_cast<uint8_t>(ErrorCode >> 8),
+                static_cast<uint8_t>(ErrorCode >> 16),
+                static_cast<uint8_t>(ErrorCode >> 24),
+                static_cast<uint8_t>(DurationMs >> 0),
+                static_cast<uint8_t>(DurationMs >> 8),
+                static_cast<uint8_t>(DurationMs >> 16),
+                static_cast<uint8_t>(DurationMs >> 24)
+            });
+    }
+    bool DisplayError(int ErrorCode, uint32_t DurationMs = 0) // ErrorCode=-1 to cancel the error animation, DurationMs=0 for an infinite animation
+    {
+		// Use the internal error display if the probe is able to do it
+        if (BaseInfos.TimestampUTC >= 20260915164401)
+			return DisplayErrorInternal(ErrorCode, DurationMs);
+        else
+            return DisplayErrorExternal(ErrorCode, DurationMs);
+    }
     bool SetLedsAnimation(const std::vector<uint8_t> &AnimationStruct)
     {
+		// An empty animation is valid and will stop the current animation
         return Cable.CommandWrite(ProbeCommand_t::WriteNfcLedsAnimation, 0, AnimationStruct);
     }
     bool SetType(NfcType_t Type) { return SetFlags(NfcFlags_t::Tag, (Type==NfcType_t::TAG) ? NfcFlags_t::Tag : NfcFlags_t::None); }
@@ -610,3 +896,5 @@ class ProbeNFC : public ProbeBase
 };
 #endif // USE_PROBE_NFC
 
+
+} // namespace spb::sdk

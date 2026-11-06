@@ -23,6 +23,8 @@
 #include <cstdarg>
 #include <cstring>
 #include <limits>
+#include <chrono>
+#include <thread>
 #ifdef __linux__
 #include <cerrno>
 #include <unistd.h>
@@ -40,6 +42,8 @@
 #include <sys/mman.h>
 #include <elf.h>
 #elif defined(__APPLE__)
+#include <cerrno>
+#include <sys/file.h>
 #include <unistd.h>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
@@ -48,20 +52,22 @@
 #endif
 
 #ifndef DBG
-#define DBG(...) std::cerr << Util::Format(__VA_ARGS__)
+#define DBG(...) std::cerr << ::spb::sdk::Util::Format(__VA_ARGS__)
 #endif
 
 #ifndef INF
-#define INF(...) std::cerr << Util::Format(__VA_ARGS__)
+#define INF(...) std::cerr << ::spb::sdk::Util::Format(__VA_ARGS__)
 #endif
 
 #ifndef WRN
-#define WRN(...) std::cerr << Util::Format(__VA_ARGS__)
+#define WRN(...) std::cerr << ::spb::sdk::Util::Format(__VA_ARGS__)
 #endif
 
 #ifndef ERR
-#define ERR(...) std::cerr << Util::Format(__VA_ARGS__)
+#define ERR(...) std::cerr << ::spb::sdk::Util::Format(__VA_ARGS__)
 #endif
+
+namespace spb::sdk {
 
 class HardwareDebug
 {
@@ -409,7 +415,7 @@ inline std::string GetLockFile(const std::string& LockName)
     std::string path;
     std::error_code ec;
 
-#ifdef __linux__
+    #ifdef __linux__
     {
         std::string candidate = "/var/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
         std::string fallback = "/run/lock/" + std::filesystem::path(LockName).filename().string() + ".lock";
@@ -432,9 +438,9 @@ inline std::string GetLockFile(const std::string& LockName)
             path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
         }
     }
-#else
+    #else
     path = "/tmp/" + std::filesystem::path(LockName).filename().string() + ".lock";
-#endif
+    #endif
 
     return path;
 }
@@ -473,14 +479,17 @@ class InterprocessLock
             return;
         }
 
-        DWORD waitResult = ::WaitForSingleObject(m_handle, INFINITE);
+        DWORD waitResult = ::WaitForSingleObject(m_handle, LockTimeoutMs);
         if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED)
             m_locked = true;
         else
         {
             ::CloseHandle(m_handle);
             m_handle = nullptr;
-            ERR("Can't lock mutex !\n");
+            if (waitResult == WAIT_TIMEOUT)
+                ERR("Timed out acquiring lock %s after %u ms\n", LockName.c_str(), LockTimeoutMs);
+            else
+                ERR("Can't lock mutex %s (wait result %lu)\n", LockName.c_str(), static_cast<unsigned long>(waitResult));
             return;
         }
 
@@ -502,15 +511,39 @@ class InterprocessLock
         // Widen the permissions for others
         ::fchmod(m_fd, 0666);
 
-        // Lock the file (and wait if it's already locked)
-        if (::flock(m_fd, LOCK_EX) == 0)
-            m_locked = true;
-        else
+        // Retry without blocking, up to a monotonic deadline.
+        const auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(LockTimeoutMs);
+        for (;;)
+        {
+            if (::flock(m_fd, LOCK_EX | LOCK_NB) == 0)
+            {
+                m_locked = true;
+                break;
+            }
+
+            const int lockError = errno;
+            if (lockError != EWOULDBLOCK && lockError != EAGAIN && lockError != EINTR)
+            {
+                ERR("Can't flock(%s): %s\n", path.c_str(), std::strerror(lockError));
+                break;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= deadline)
+            {
+                ERR("Timed out acquiring lock %s after %u ms\n", LockName.c_str(), LockTimeoutMs);
+                break;
+            }
+
+            // Always retry after sleeping, including the final sleep to the deadline.
+            const auto nextAttempt = now + std::chrono::milliseconds(10);
+            std::this_thread::sleep_until(nextAttempt < deadline ? nextAttempt : deadline);
+        }
+        if (!m_locked)
         {
             ::close(m_fd);
             m_fd = -1;
-            ERR("Can't flock(%s): %s\n", path.c_str(), std::strerror(errno));
-            return;
         }
         #endif
     }
@@ -537,6 +570,7 @@ class InterprocessLock
     bool IsLocked() const { return m_locked; }
 
     private:
+    static constexpr unsigned int LockTimeoutMs = 2000;
     bool m_locked = false;
     #ifdef _WIN32
     HANDLE m_handle = nullptr;
@@ -544,3 +578,5 @@ class InterprocessLock
     int m_fd = -1;
     #endif
 };
+
+} // namespace spb::sdk

@@ -20,6 +20,12 @@
 
 namespace nfc {
 
+using spb::sdk::listUsbDevices;
+using spb::sdk::NetworkDiscovery;
+using spb::sdk::ProbeBase;
+using spb::sdk::ProbeCommand_t;
+using spb::sdk::ProbeNFC;
+
 constexpr auto NFC_PROBE_ID = "NFC";
 
 constexpr int NFC_SESSION_BRIGHTNESS = 0;

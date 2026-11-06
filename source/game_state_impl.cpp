@@ -33,9 +33,9 @@ using namespace std::placeholders;
 
 namespace {
 
-void displayProbeInfo(ProbeBase *probe, const std::string &device)
+void displayProbeInfo(spb::sdk::ProbeBase *probe, const std::string &device)
 {
-    ProbeBase::ProbeInformations_t probeInfo;
+    spb::sdk::ProbeBase::ProbeInformations_t probeInfo;
     if (probe->GetInformations(&probeInfo) && !probeInfo.Id.empty()) {
         INF("Found probe: port {} = {} ({}) / v{}.{}.{} ({})", device, probeInfo.Id, probeInfo.Name,
             probeInfo.VersionMajor, probeInfo.VersionMinor, probeInfo.VersionRevision,

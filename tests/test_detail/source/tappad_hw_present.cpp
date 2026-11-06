@@ -35,7 +35,7 @@ namespace tappad_lock_test {
 
 bool tapPadMayBePresent()
 {
-    if (!nfc::listUsbDevices().empty()) {
+    if (!spb::sdk::listUsbDevices().empty()) {
         return true;
     }
     // The probe's HID interface, as Tpm's HID fallback opens it (tpm.cpp).

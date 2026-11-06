@@ -147,7 +147,7 @@ std::unique_ptr<LibusbTransport> LibusbTransport::open(const BootselDevice &devi
                                                        OpenError &error)
 {
     error = OpenError::Failed;
-    libusb_context *ctx = probeLibusbContext();
+    libusb_context *ctx = spb::sdk::probeLibusbContext();
     if (!ctx) {
         return nullptr;
     }

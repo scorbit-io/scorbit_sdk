@@ -17,7 +17,9 @@
 #include <mutex>
 #include <optional>
 
+namespace spb::sdk {
 class ProbeBase;
+}
 
 namespace nfc {
 
@@ -35,7 +37,7 @@ enum class NfcLedMode {
     GameSession,
 };
 
-using ProbeDisplayCallback = std::function<void(ProbeBase *probe, const std::string &device)>;
+using ProbeDisplayCallback = std::function<void(spb::sdk::ProbeBase *probe, const std::string &device)>;
 
 /** Finds an NFC probe (USB scan in production); nullptr when none is found. */
 using NfcProbeScanner = std::function<std::shared_ptr<NfcProbeDevice>(
@@ -157,8 +159,8 @@ private:
     // Last non-zero tap id seen by any read (poll, info, enumeration) and when
     uint32_t m_lastSeenTapId {0};
     uint64_t m_lastSeenTapUnixMs {0};
-    std::shared_ptr<NetworkDiscovery> m_discovery;
-    NetworkDiscovery::DeviceInfo_t m_discoveryInfo;
+    std::shared_ptr<spb::sdk::NetworkDiscovery> m_discovery;
+    spb::sdk::NetworkDiscovery::DeviceInfo_t m_discoveryInfo;
 };
 
 class ProbesManager::FlashHold
