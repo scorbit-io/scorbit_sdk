@@ -63,6 +63,49 @@ TEST_CASE("A completion ends the activation and is recorded as an edge", "[achie
     CHECK(p1.activationDurations("NA:Reactor")[0].ms == 1500);
 }
 
+TEST_CASE("Modes are matched by body alone: category and color are ignored", "[achievements]")
+{
+    Timeline t;
+    t.at(0).commit();
+    t.at(1000).modes({"NA{blue}:Escape the Kraken", "MB{blue}:Viking Raid"}).commit();
+    t.at(2000).modes({"NA{red}:Escape the Kraken", "MB{blue}:Viking Raid"}).commit(); // recolored
+    t.at(3000).modes({"WM:Escape the Kraken"}).completed({"MB{blue}:Viking Raid"}).commit();
+    t.at(4000).modes({"Kraken", "NA:x:y"}).commit();
+
+    const auto &p1 = t.facts.player(1);
+    // A new category or color is the same mode, still running: not a new activation
+    for (const auto *name : {"NA:Escape the Kraken", "WM:Escape the Kraken", "Escape the Kraken",
+                             "NA{blue}:Escape the Kraken"}) {
+        CAPTURE(name);
+        CHECK(p1.activations(name).size() == 1);
+        CHECK(p1.activationDurations(name).at(0).ms == 3000);
+    }
+    CHECK(p1.activations("MB:Viking Raid").size() == 1);
+    CHECK(p1.completions("MB:Viking Raid").size() == 1);
+    CHECK(p1.completions("Viking Raid").size() == 1);
+    CHECK(t.facts.modeRuns("NA:Escape the Kraken", 1).size() == 1);
+    CHECK(t.facts.stacks({"NA:Escape the Kraken", "MB:Viking Raid"}, 1).size() == 1);
+
+    // No `:` is all body; only the first `:` ends the prefix
+    CHECK(p1.activations("NA:Kraken").size() == 1);
+    CHECK(p1.activations("MB:x:y").size() == 1);
+    CHECK(p1.activations("x").empty());
+}
+
+TEST_CASE("Completions that share a body in one row are one completion", "[achievements]")
+{
+    Timeline t;
+    t.at(0).commit();
+    t.at(1000).modes({"MB:Viking Raid"}).commit();
+    t.at(2000).modes({}).completed({"NA:Viking Raid", "MB{blue}:Viking Raid"}).commit();
+
+    const auto &p1 = t.facts.player(1);
+    REQUIRE(p1.completions("Viking Raid").size() == 1);
+    CHECK(p1.completions("Viking Raid")[0].timeMs == 2000);
+    REQUIRE(p1.activationDurations("Viking Raid").size() == 1);
+    CHECK(p1.activationDurations("Viking Raid")[0].ms == 1000);
+}
+
 TEST_CASE("A running activation is closed at ball end with its real duration", "[achievements]")
 {
     Timeline t;

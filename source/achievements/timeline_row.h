@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -31,6 +32,17 @@ namespace achievements {
 
 using PlayerNumber = unsigned int;
 using BallNumber = unsigned int;
+
+/**
+ * The body of @p mode, what follows its first `:`, e.g. `NA{blue}:Kraken` -> `Kraken`: modes are
+ * matched by body alone, so a game's category or display color doesn't break its achievements.
+ * A name without a `:` is all body.
+ */
+inline std::string modeBody(std::string_view mode)
+{
+    const auto colon = mode.find(':');
+    return std::string {colon == std::string_view::npos ? mode : mode.substr(colon + 1)};
+}
 
 /** One committed row of the session timeline (§4.1), as seen by the fact model. */
 struct TimelineRow {

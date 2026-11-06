@@ -96,6 +96,18 @@ TEST_CASE("Grand Finale: complete the mode", "[achievements]")
     CHECK(ev(def).allSatisfied);
 }
 
+TEST_CASE("Escape the Kraken: a mode matches its reference by body", "[achievements]")
+{
+    const auto def = unlimited("game-lov-escape-the-kraken",
+                               {rule(RuleType::Mode, GE, 1, "NA:Escape the Kraken")});
+    Evaluator ev;
+    ev.timeline.at(0).commit();
+    CHECK_FALSE(ev(def).allSatisfied);
+
+    ev.timeline.at(1000).modes({"MB{blue}:Escape the Kraken"}).commit();
+    CHECK(ev(def).allSatisfied);
+}
+
 TEST_CASE("Marathon Multiball: one activation for sixty seconds", "[achievements]")
 {
     const auto def =

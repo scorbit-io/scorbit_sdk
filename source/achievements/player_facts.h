@@ -107,7 +107,8 @@ struct ScoreSample {
 
 /**
  * Every fact of §4.4 for one player in one session, stored raw so that any rule can be derived
- * from it. Built incrementally by @ref SessionFacts.
+ * from it. Built incrementally by @ref SessionFacts. Modes are matched by body, what follows the
+ * first `:`: `NA{blue}:Kraken` and `MB:Kraken` are the same mode.
  */
 class PlayerFacts
 {

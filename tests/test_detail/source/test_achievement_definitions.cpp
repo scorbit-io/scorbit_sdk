@@ -216,6 +216,20 @@ TEST_CASE("MODE_STACK reference is split, trimmed and de-duplicated", "[achievem
           == std::vector<std::string> {"multiball", "wizard"});
 }
 
+TEST_CASE("MODE_STACK names that share a body are one mode", "[achievements]")
+{
+    const auto set = parse({
+            achievement("game-stack-aliased", {rule("MODE_STACK", ">=", 1, "NA:a, MB:a ,b")}),
+            achievement("game-stack-of-aliases",
+                        {rule("MODE_STACK", ">=", 1, "NA:Viking Raid, MB:Viking Raid")}),
+    });
+
+    const auto *def = set.find("game-stack-aliased");
+    REQUIRE(def);
+    CHECK(def->rules[0].stackModes == std::vector<std::string> {"NA:a", "b"});
+    CHECK_FALSE(set.contains("game-stack-of-aliases")); // a single mode is not a stack
+}
+
 TEST_CASE("MODE_SCORE names one mode", "[achievements]")
 {
     const auto set = parse({

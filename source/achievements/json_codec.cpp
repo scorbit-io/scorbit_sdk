@@ -19,6 +19,7 @@
 
 #include "json_codec.h"
 #include "definition_check.h"
+#include "timeline_row.h"
 #include <fmt/format.h>
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
@@ -144,7 +145,8 @@ std::string trimmed(std::string_view str)
 
 /**
  * Splits a MODE_STACK reference on commas. Each name is trimmed, as the API does when it validates
- * the list; otherwise names are compared byte-for-byte.
+ * the list, and a name whose body (see @ref modeBody) is already listed is dropped: `NA:X` and
+ * `MB:X` are one mode, so a stack can't be formed by a single mode. Names keep their spelling.
  */
 std::vector<std::string> splitStack(const std::string &reference)
 {
@@ -154,7 +156,9 @@ std::vector<std::string> splitStack(const std::string &reference)
         const auto comma = reference.find(',', start);
         const auto end = comma == std::string::npos ? reference.size() : comma;
         auto mode = trimmed(std::string_view {reference}.substr(start, end - start));
-        if (std::ranges::find(modes, mode) == modes.end()) {
+        if (std::ranges::none_of(modes, [body = modeBody(mode)](const std::string &listed) {
+                return modeBody(listed) == body;
+            })) {
             modes.push_back(std::move(mode));
         }
         if (comma == std::string::npos) {
