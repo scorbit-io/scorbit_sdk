@@ -97,6 +97,28 @@ TEST_CASE("Create and destroy game state with signer callback", "[GameState]")
     sb_config_destroy(cfg);
 }
 
+TEST_CASE("The connectivity getters answer at once, in range", "[GameState]")
+{
+    sb_config_t cfg = sb_config_create();
+    sb_config_set_provider(cfg, "vscorbitron");
+    sb_config_set_machine_id(cfg, 4419);
+    sb_config_set_game_code_version(cfg, "0.1.0");
+    sb_config_set_signer(cfg, dummySigner, nullptr);
+
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    // Authentication runs in the background, so only the ranges are fixed here; the meaning of
+    // each value is covered against a stand-in transport in test_net_connectivity.
+    (void)sb_realtime_connected(h);
+    CHECK(sb_seconds_since_rest_success(h) >= -1);
+    (void)sb_rest_transport_failures(h);
+    CHECK(sb_seconds_since_heartbeat_reply(h) >= -1);
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}
+
 TEST_CASE("Create game state with software key from callback", "[GameState][SoftKey]")
 {
     sb_config_t cfg = sb_config_create();

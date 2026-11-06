@@ -91,6 +91,11 @@ public:
 
     AuthStatus getStatus() const;
 
+    bool realtimeConnected() const { return m_net->realtimeConnected(); }
+    int64_t secondsSinceRestSuccess() const { return m_net->secondsSinceRestSuccess(); }
+    uint32_t restTransportFailures() const { return m_net->restTransportFailures(); }
+    int64_t secondsSinceHeartbeatReply() const { return m_net->secondsSinceHeartbeatReply(); }
+
     /** Nice / thread scheduling value from config (see @ref sb_config_set_threads_priority). */
     int configuredSdkThreadsNice() const { return m_net->deviceInfo().threadsNice; }
 

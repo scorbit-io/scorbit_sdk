@@ -700,6 +700,26 @@ sb_auth_status_t sb_get_status(sb_game_handle_t handle)
     return static_cast<sb_auth_status_t>(handle->gameState.getStatus());
 }
 
+bool sb_realtime_connected(sb_game_handle_t handle)
+{
+    return handle->gameState.realtimeConnected();
+}
+
+int64_t sb_seconds_since_rest_success(sb_game_handle_t handle)
+{
+    return handle->gameState.secondsSinceRestSuccess();
+}
+
+uint32_t sb_rest_transport_failures(sb_game_handle_t handle)
+{
+    return handle->gameState.restTransportFailures();
+}
+
+int64_t sb_seconds_since_heartbeat_reply(sb_game_handle_t handle)
+{
+    return handle->gameState.secondsSinceHeartbeatReply();
+}
+
 void sb_request_unpair(sb_game_handle_t handle, sb_string_callback_t callback, void *user_data)
 {
     handle->postApiJob(JobRequestUnpair {handle, callback, user_data});

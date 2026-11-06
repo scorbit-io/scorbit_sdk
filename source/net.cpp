@@ -328,8 +328,10 @@ string getSignature(const SignerCallback &signer, const std::string &uuid,
 }
 
 /// @p serverNow, when given, receives the reply's Date as Unix seconds, or 0 if it has none.
+/// @p onResponse, when given, sees the raw response first (connectivity accounting).
 std::string getJwtToken(const std::string &url, const std::string &authToken,
-                        const cpr::SslOptions &&sslOptions, std::int64_t *serverNow = nullptr)
+                        const cpr::SslOptions &&sslOptions, std::int64_t *serverNow = nullptr,
+                        const std::function<void(const cpr::Response &)> &onResponse = {})
 {
     INF("API-CF getting JWT token from: {}", url);
 
@@ -340,6 +342,9 @@ std::string getJwtToken(const std::string &url, const std::string &authToken,
     const auto r = HttpSessionPool::instance().Get(
             cpr::Url {url}, cpr::Header {{HDR_KEY_AUTHORIZATION, HDR_VAL_BEARER + authToken}},
             cpr::Timeout {NET_TIMEOUT}, sslOptions);
+    if (onResponse) {
+        onResponse(r);
+    }
 
     if (r.status_code != 200) {
         ERR("API-CF failed to get JWT token: HTTP {} - {}", r.status_code, r.error.message);
@@ -659,6 +664,40 @@ Net::~Net()
 AuthStatus Net::status() const
 {
     return m_status;
+}
+
+namespace {
+/// Seconds from a steady_clock stamp in seconds to now; -1 for 0, which means never.
+int64_t secondsSinceSteady(int64_t stamp)
+{
+    if (stamp <= 0) {
+        return -1;
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                             std::chrono::steady_clock::now().time_since_epoch())
+                             .count();
+    return std::max<int64_t>(0, now - stamp);
+}
+} // namespace
+
+bool Net::realtimeConnected() const
+{
+    return m_cfState.load(std::memory_order_relaxed) == centrifugo::ConnectionState::Connected;
+}
+
+int64_t Net::secondsSinceRestSuccess() const
+{
+    return secondsSinceSteady(m_lastRestSuccessSteady.load(std::memory_order_relaxed));
+}
+
+uint32_t Net::restTransportFailures() const
+{
+    return m_restTransportFailures.load(std::memory_order_relaxed);
+}
+
+int64_t Net::secondsSinceHeartbeatReply() const
+{
+    return secondsSinceSteady(m_heartbeat.lastReplySteadySeconds());
 }
 
 const string &Net::hostname() const
@@ -2647,6 +2686,7 @@ void Net::noteRestSuccess(const cpr::Header &header)
     m_lastRestSuccessSteady.store(
             duration_cast<seconds>(steady_clock::now().time_since_epoch()).count(),
             std::memory_order_relaxed);
+    m_restTransportFailures.store(0, std::memory_order_relaxed);
 
     // The Date header is a free server clock reading on every single REST call, which is what
     // lets the `clock` chip be passive. checkSystemTimeAccuracy() reads the same header but runs
@@ -3039,6 +3079,8 @@ task_t Net::createAuthenticateTask()
                 // never sees it. Without this call a capture overlapping a token refresh could
                 // age rest443 to intermittent while REST was demonstrably working.
                 noteRestSuccess(noopReply.header);
+            } else if (noopReply.status_code == 0) {
+                noteRestTransportFailure(); // outside createHttpRequestTask() too
             }
 
             if (timestampUtc > MIN_VIABLE_SERVER_TIME) {
@@ -3116,6 +3158,9 @@ task_t Net::createAuthenticateTask()
                 m_isRefreshingToken = false;
                 notifyAuthStatusChanged();
                 return;
+            }
+            if (r.status_code == 0) {
+                noteRestTransportFailure(); // outside createHttpRequestTask(), as the noop
             }
 
             // Check system time and timestamp from response header
@@ -5048,6 +5093,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
             }
 
             if (r.status_code == 0) {
+                noteRestTransportFailure();
                 if (!retryNoResponse) {
                     break; // one attempt: the server may have acted on a request it never answered
                 }
@@ -5342,6 +5388,17 @@ void NetTestAccess::setSignerBusyCheck(Net &net, std::function<bool()> busy)
 void NetTestAccess::setStatus(Net &net, AuthStatus status)
 {
     net.m_status = status;
+}
+
+void NetTestAccess::noteRestOutcome(Net &net, const cpr::Response &r)
+{
+    net.noteRestOutcome(r);
+}
+
+void NetTestAccess::setRealtimeConnected(Net &net, bool connected)
+{
+    net.m_cfState = connected ? centrifugo::ConnectionState::Connected
+                              : centrifugo::ConnectionState::Disconnected;
 }
 
 void NetTestAccess::cancelAuthRetry(Net &net)
@@ -6315,7 +6372,8 @@ void Net::fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf)
         const auto cfUrl = url(URL_SCORBITRON_CF_TOKEN).str();
         token = m_authTransport.centrifugoToken
                       ? m_authTransport.centrifugoToken(cfUrl, authToken)
-                      : getJwtToken(cfUrl, authToken, sslOptions(), &serverNow);
+                      : getJwtToken(cfUrl, authToken, sslOptions(), &serverNow,
+                                    [this](const cpr::Response &r) { noteRestOutcome(r); });
     }
 
     {

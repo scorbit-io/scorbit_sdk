@@ -287,6 +287,36 @@ class GameState(object):
         """Current authentication / pairing status."""
         return AuthStatus(_lib.sb_get_status(self._handle))
 
+    # Connectivity evidence: polled by a host that reports "offline" before the next token
+    # refresh would change status. Cheap and non-blocking.
+
+    @property
+    def realtime_connected(self):
+        # type: () -> bool
+        """True only while the realtime (Centrifugo) connection is up."""
+        return bool(_lib.sb_realtime_connected(self._handle))
+
+    @property
+    def seconds_since_rest_success(self):
+        # type: () -> int
+        """Seconds since the last REST 2xx/304 answer, or -1 if none yet."""
+        return int(_lib.sb_seconds_since_rest_success(self._handle))
+
+    @property
+    def rest_transport_failures(self):
+        # type: () -> int
+        """REST attempts with no HTTP response since the last success.
+
+        Any HTTP status (401 and 5xx included) neither counts nor resets it.
+        """
+        return int(_lib.sb_rest_transport_failures(self._handle))
+
+    @property
+    def seconds_since_heartbeat_reply(self):
+        # type: () -> int
+        """Seconds since the last heartbeat reply, or -1 if none yet; keeps counting after a stop."""
+        return int(_lib.sb_seconds_since_heartbeat_reply(self._handle))
+
     @property
     def machine_uuid(self):
         # type: () -> str

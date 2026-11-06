@@ -316,6 +316,58 @@ void sb_commit(sb_game_handle_t handle);
 SCORBIT_SDK_EXPORT
 sb_auth_status_t sb_get_status(sb_game_handle_t handle);
 
+/*
+ * Connectivity evidence. sb_get_status() changes after the network is lost only when the token next
+ * refreshes, so a host that wants to report "offline" sooner polls these instead and applies
+ * its own thresholds. All are cheap, non-blocking and safe from any thread.
+ */
+
+/**
+ * @brief Whether the realtime (Centrifugo) connection is up.
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @return true only while connected; false while connecting or disconnected.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_realtime_connected(sb_game_handle_t handle);
+
+/**
+ * @brief Seconds since the last REST call that got a 2xx or 304 answer, on a monotonic clock.
+ *
+ * REST calls here and in @ref sb_rest_transport_failures are the requests to the Scorbit API that
+ * authenticate the device and use its session, the realtime token's included. Not counted:
+ * soft-key provisioning, which runs only while the device has no identity yet, and file and
+ * artwork downloads, which may be served from other hosts.
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @return The seconds, or -1 if no REST call has succeeded yet.
+ */
+SCORBIT_SDK_EXPORT
+int64_t sb_seconds_since_rest_success(sb_game_handle_t handle);
+
+/**
+ * @brief Consecutive REST attempts that got no HTTP response at all, since the last success.
+ *
+ * A transport failure is an attempt with no response: DNS, connect, TLS or timeout. Any HTTP
+ * response, whatever its status (401 and 5xx included), neither counts nor resets the count;
+ * only a 2xx or 304 resets it to 0. Every attempt counts, the SDK's own retries included, across
+ * all REST calls (see @ref sb_seconds_since_rest_success).
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @return The count.
+ */
+SCORBIT_SDK_EXPORT
+uint32_t sb_rest_transport_failures(sb_game_handle_t handle);
+
+/**
+ * @brief Seconds since the last reply from the heartbeat server, on a monotonic clock.
+ *
+ * Keeps counting after the heartbeat stops (the SDK stops it after an authentication failure and
+ * restarts it on the next success); it never returns to -1. -1 means no reply has arrived yet,
+ * which is no evidence either way, not evidence of lost connectivity.
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @return The seconds, or -1 if no reply has arrived yet.
+ */
+SCORBIT_SDK_EXPORT
+int64_t sb_seconds_since_heartbeat_reply(sb_game_handle_t handle);
+
 /**
  * @brief Retrieve the machine's UUID.
  *

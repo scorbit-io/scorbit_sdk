@@ -47,6 +47,10 @@ OUT_OF_SCOPE = {
     "venueMachine": "VPIN host plumbing",
     "switchMachine": "VPIN host plumbing",
     "matchTableMapping": "VPIN host plumbing",
+    "realtimeConnected": "host connectivity: the daemon reports offline, not the table",
+    "secondsSinceRestSuccess": "host connectivity",
+    "restTransportFailures": "host connectivity",
+    "secondsSinceHeartbeatReply": "host connectivity",
 }
 # The "no event" value, which ScorbitPollEvent returns when there is nothing to report.
 SENTINEL_EVENTS = {"None"}

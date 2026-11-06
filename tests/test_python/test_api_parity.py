@@ -120,6 +120,16 @@ for _name in [
     EXCEPTIONS.setdefault(_name, {})["godot"] = "VPIN host plumbing"
 
 
+# Connectivity evidence for a host daemon that reports "offline": not bound in the add-on yet.
+for _name in [
+    "sb_realtime_connected",
+    "sb_rest_transport_failures",
+    "sb_seconds_since_heartbeat_reply",
+    "sb_seconds_since_rest_success",
+]:
+    EXCEPTIONS.setdefault(_name, {})["godot"] = "host connectivity, not bound in the add-on yet"
+
+
 def strip_comments(text, line_comment):
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S) if line_comment == "//" else text
     return re.sub(re.escape(line_comment) + r"[^\n]*", " ", text)

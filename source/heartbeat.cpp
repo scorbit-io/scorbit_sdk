@@ -238,6 +238,12 @@ void Heartbeat::onReply(const boost::system::error_code &ec, std::size_t bytes)
         return;
     }
 
+    // A whole reply from the server, ack flag or not: it is reachable
+    m_lastReplySteady.store(std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch())
+                                    .count(),
+                            std::memory_order_relaxed);
+
     const auto flags = m_reply[0];
     DBG("API-HB reply from {}, flags: {:#04x}", toString(m_senderEndpoint),
         static_cast<unsigned>(flags));
