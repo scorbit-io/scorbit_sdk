@@ -43,6 +43,9 @@ constexpr auto URL_SCORBITRON_TABLE_MAPPINGS {
         "api/v2/scorbitrons/{scorbitron_uuid}/table-mappings/"};
 constexpr auto URL_SCORBITRON_SWITCH_MACHINE {
         "api/v2/scorbitrons/{scorbitron_uuid}/switch-machine/"};
+// The unit's open, unstarted probe flash run, redelivered after auth or a reconnect
+constexpr auto URL_SCORBITRON_PROBE_FLASH_OPEN {
+        "api/v2/scorbitrons/{scorbitron_uuid}/probe-flash-open/"};
 constexpr auto URL_DIAGNOSTICS_ACK_PATH {"internal/api/diagnostics/ack/"};
 constexpr auto URL_DIAGNOSTICS_WIFI_SAMPLE_PATH {
         "internal/api/diagnostics/wifi-sample/{run_id}/"};

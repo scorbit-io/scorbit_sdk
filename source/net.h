@@ -148,6 +148,10 @@ struct NetTestAccess {
     static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
     static void handleProbeFlash(Net &net, const nlohmann::json &payload);
+    static void requestOpenProbeFlash(Net &net, bool startup);
+    static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
+                                      const std::string &body);
+    static void markProbeFlashRunSeen(Net &net, const std::string &runId);
     static void setNfcFlashable(Net &net, bool flashable);
     static bool nfcFlashIdle(Net &net);
     /// Runs the result resend pass as if the clock read @p now.
@@ -821,6 +825,12 @@ private:
     /// The probes the API may send probe_flash for: the host's, plus NFC when the SDK runs it.
     std::vector<std::string> probeFlashProbes() const;
     void handleProbeFlash(const nlohmann::json &payload);
+    /// Asks the api for the open probe flash run a missed push left (after auth, on reconnect).
+    void requestOpenProbeFlash(bool startup);
+    /// A 200 is the probe_flash control message: its payload goes through handleProbeFlash.
+    void onProbeFlashOpenReply(Error error, int httpStatus, const std::string &body);
+    /// A run this process already holds, so a redelivery of it is ignored without a result.
+    void markProbeFlashRunSeen(const std::string &runId);
     /// Queues @p result for @p runId and sends it, resending with backoff until a final answer.
     void sendProbeFlashResult(const std::string &runId, const nlohmann::json &result,
                               HttpStatusCallback callback);
@@ -873,6 +883,10 @@ protected:
     /// One POST of @p body to @p pathTemplate's endpoint for @p runId. Virtual so tests capture it.
     virtual void postProbeFlash(const char *pathTemplate, const std::string &runId,
                                 std::string body, HttpStatusCallback callback);
+
+    /// One GET of the unit's open, unstarted probe flash run, while paired; on the startup queue
+    /// when @p startup, so after the scorbitron PATCH. Virtual so tests capture it.
+    virtual void getProbeFlashOpen(HttpStatusCallback callback, bool startup);
 
 private:
     // Halves of the result POST, split so NetTestAccess can run them over a scripted transport.

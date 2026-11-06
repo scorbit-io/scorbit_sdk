@@ -2001,8 +2001,9 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
     runId = toLowerAscii(runId);
     {
         std::lock_guard<std::mutex> lock(m_seenProbeFlashRunIdsMutex);
+        // A push and a redelivery can both bring the same run: ignored, with no result
         if (!m_seenProbeFlashRunIds.insert(runId)) {
-            WRN("DIAG: probe flash run_id={} already seen, refusing duplicate", runId);
+            INF("DIAG: probe flash run_id={} already seen, ignoring duplicate", runId);
             return;
         }
     }
@@ -2050,6 +2051,11 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
             m_probeFlashRunExpires = now + untilDeadline + MAX_FLASH_WINDOW;
         }
     }
+    if (running && *running == runId) {
+        // The run this unit holds, e.g. one resumed at start: a refusal would end it on the api
+        INF("DIAG: probe flash run_id={} is the run in progress, ignoring redelivery", runId);
+        return;
+    }
     if (running) {
         WRN("DIAG: probe flash run_id={} refused: run_id={} is still running", runId, *running);
         sendProbeFlashResult(runId,
@@ -2074,6 +2080,61 @@ void Net::handleProbeFlash(const nlohmann::json &payload)
         return;
     }
     m_eventManager->push(std::make_shared<ProbeFlashRequestedEvent>(runId, request.dump()));
+}
+
+void Net::markProbeFlashRunSeen(const std::string &runId)
+{
+    std::lock_guard<std::mutex> lock(m_seenProbeFlashRunIdsMutex);
+    m_seenProbeFlashRunIds.insert(toLowerAscii(runId));
+}
+
+void Net::requestOpenProbeFlash(bool startup)
+{
+    if (m_stop) {
+        return;
+    }
+    getProbeFlashOpen(
+            [this](Error error, int httpStatus, const std::string &body) {
+                onProbeFlashOpenReply(error, httpStatus, body);
+            },
+            startup);
+}
+
+void Net::getProbeFlashOpen(HttpStatusCallback callback, bool startup)
+{
+    auto task = createHttpRequestTask(
+            REST_GET, std::move(callback),
+            [this] { return make_tuple(url(URL_SCORBITRON_PROBE_FLASH_OPEN), cpr::Parameters {}); },
+            [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
+            },
+            // Only a paired unit has runs; a check still pending waits for its answer
+            {AuthStatus::AuthenticatedPaired}, false, false, true,
+            false); // one attempt: the next auth or reconnect asks again
+    if (startup) {
+        m_worker.postStartupQueue(std::move(task));
+    } else {
+        m_worker.post(std::move(task));
+    }
+}
+
+void Net::onProbeFlashOpenReply(Error error, int httpStatus, const std::string &body)
+{
+    // Governing: the SB-6154 redelivery contract. Failure is silent; the next auth or
+    // reconnect asks again.
+    if (m_stop || error != Error::Success || httpStatus != 200) {
+        DBG("DIAG: open probe flash run: none (HTTP {})", httpStatus);
+        return;
+    }
+    const auto message = json::parse(body, nullptr, false);
+    const auto payload = message.is_object() ? message.find(JKEY_CHN_PAYLOAD) : message.end();
+    if (!message.is_object() || payload == message.end() || !payload->is_object()) {
+        WRN("DIAG: open probe flash run: malformed reply, ignored");
+        return;
+    }
+    INF("DIAG: open probe flash run redelivered");
+    handleProbeFlash(*payload);
 }
 
 namespace {
@@ -2309,12 +2370,19 @@ void Net::resumeNfcFlash()
     // another process finishes first must not leave a hold here. A flash accepted meanwhile owns
     // the unit, so the resume waits for the next start rather than run beside it.
     const auto claimed = [this](const std::string &runId) {
-        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
-        if (!m_probeFlashRunId) {
-            m_probeFlashRunId = runId;
-            m_probeFlashRunExpires = std::chrono::steady_clock::now() + NFC_FLASH_RESUME_WINDOW;
+        bool ours = false;
+        {
+            std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+            if (!m_probeFlashRunId) {
+                m_probeFlashRunId = runId;
+                m_probeFlashRunExpires = std::chrono::steady_clock::now() + NFC_FLASH_RESUME_WINDOW;
+            }
+            ours = m_probeFlashRunId == runId;
         }
-        return m_probeFlashRunId == runId;
+        if (ours) {
+            markProbeFlashRunSeen(runId); // a redelivery of the resumed run must not restart it
+        }
+        return ours;
     };
     std::optional<nfc_flash::Flasher::Resumed> resumed;
     try {
@@ -3921,6 +3989,8 @@ void Net::initializeConnectionState()
     // loop. A dedicated strand runs them one at a time, in order, and keeps a slow one from
     // holding up leaderboard or session work on the other queues.
     m_worker.postStartupQueue(createSendScorbitronObjectTask());
+    // After the PATCH, so the api answers from this unit's current probes and versions
+    requestOpenProbeFlash(true);
     m_worker.postStartupQueue(createRequestReleaseTrackInfoTask());
     m_worker.postStartupQueue(createGetConfigTask()); // Get template
     if (auto task = createRequestFirmwaresListTask()) {
@@ -5648,6 +5718,22 @@ void NetTestAccess::handleProbeFlash(Net &net, const nlohmann::json &payload)
     net.handleProbeFlash(payload);
 }
 
+void NetTestAccess::requestOpenProbeFlash(Net &net, bool startup)
+{
+    net.requestOpenProbeFlash(startup);
+}
+
+void NetTestAccess::onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
+                                          const std::string &body)
+{
+    net.onProbeFlashOpenReply(error, httpStatus, body);
+}
+
+void NetTestAccess::markProbeFlashRunSeen(Net &net, const std::string &runId)
+{
+    net.markProbeFlashRunSeen(runId);
+}
+
 void NetTestAccess::setNfcFlashable(Net &net, bool flashable)
 {
     net.m_nfcFlashable = flashable;
@@ -6532,6 +6618,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         INF("API-CF Connected to Centrifugo!");
         pruneRetiredCentrifugoClients();
         requestCreditsStatusIfReady();
+        // A probe_flash pushed while the channel was down is otherwise lost (SB-6154 contract)
+        requestOpenProbeFlash(false);
     }));
 
     m_centrifugo->onDisconnected(withActiveClient([this, withActiveClient](
