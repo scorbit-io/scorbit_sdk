@@ -32,6 +32,7 @@ from ._bindings import (
     sb_leaderboard_callback_t,
     sb_switch_machine_callback_t,
     sb_string_callback_t,
+    sb_table_match_callback_t,
 )
 from ._enums import (
     AuthStatus,
@@ -41,12 +42,13 @@ from ._enums import (
     LeaderboardScope,
     SwitchMachineResult,
     TableMappingsResult,
+    TableMatchResult,
     LeaderboardVpinFilter,
 )
 from . import config as _config_mod
 from .config import Config, _encode
 from ._types import LeaderboardEntry, LeaderboardPlayer, LeaderboardResult
-from ._types import TableMapping, TableMappings
+from ._types import SignatureVerdict, TableMapping, TableMappings, TableMatch
 
 
 def _header_array(headers):
@@ -525,6 +527,97 @@ class GameState(object):
 
         self._async_callbacks.append(_trampoline)
         _lib.sb_switch_machine(self._handle, _encode(venue_machine), _trampoline, None)
+
+    def match_table_mapping(
+        self,
+        key_type,
+        table_key,
+        *,
+        firmware_id=None,
+        signatures=None,
+        signature_unavailable=None,
+        callback
+    ):
+        # type: (str, str, str | None, list | None, str | None, ...) -> None
+        """Ask the server which VPIN machine a table maps to, without blocking.
+
+        A lookup only: one request per call, no retries, no switch and no event.
+        Refused with ``Invalid``, without sending, when both *signatures* and
+        *signature_unavailable* are given or *signatures* is not a non-empty
+        list. A call before authentication waits for it.
+
+        Args:
+            key_type: The key type, e.g. ``"rom"``, ``"script_id"`` or ``"signature"``.
+            table_key: The table key of that type.
+            firmware_id: Sent with the key when given.
+            signatures: The table's signatures, a list, serialised to JSON once.
+                Anything else serialises to something other than an array, which
+                is refused with ``Invalid``.
+            signature_unavailable: Why the table has no signatures, a code.
+            callback: ``(result: TableMatchResult, match: TableMatch) -> None``,
+                called once on an SDK thread.
+        """
+        if signatures is not None:
+            signatures = json.dumps(signatures)
+
+        @sb_table_match_callback_t
+        def _trampoline(result, match, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                callback(TableMatchResult(result), self._table_match_from_handle(match))
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        request = _lib.sb_table_match_request_create()
+        try:
+            _lib.sb_table_match_request_set_key(request, _encode(key_type), _encode(table_key))
+            if firmware_id:
+                _lib.sb_table_match_request_set_firmware_id(request, _encode(firmware_id))
+            if signatures is not None:
+                _lib.sb_table_match_request_set_signatures_json(request, _encode(signatures))
+            if signature_unavailable is not None:
+                _lib.sb_table_match_request_set_signature_unavailable(
+                    request, _encode(signature_unavailable)
+                )
+            _lib.sb_match_table_mapping(self._handle, request, _trampoline, None)
+        finally:
+            _lib.sb_table_match_request_free(request)
+
+    def _table_match_from_handle(self, match):
+        # type: (int) -> TableMatch
+        """Copies the answer, which is valid only during the callback."""
+        decode = self._decode_c_string
+        verdict = None
+        if _lib.sb_table_match_has_verdict(match):
+            verdict = SignatureVerdict(
+                decode(_lib.sb_table_match_verdict_status(match)),
+                decode(_lib.sb_table_match_verdict_accepted_version(match)),
+                [
+                    decode(_lib.sb_table_match_verdict_changed_section(match, i))
+                    for i in range(int(_lib.sb_table_match_verdict_changed_sections_count(match)))
+                ],
+                [
+                    decode(_lib.sb_table_match_verdict_changed_procedure(match, i))
+                    for i in range(
+                        int(_lib.sb_table_match_verdict_changed_procedures_count(match))
+                    )
+                ],
+            )
+        return TableMatch(
+            int(_lib.sb_table_match_http_status(match)),
+            decode(_lib.sb_table_match_error_code(match)),
+            decode(_lib.sb_table_match_error_attr(match)),
+            decode(_lib.sb_table_match_key_type(match)),
+            decode(_lib.sb_table_match_table_key(match)),
+            decode(_lib.sb_table_match_mapping_id(match)),
+            decode(_lib.sb_table_match_venuemachine(match)),
+            decode(_lib.sb_table_match_venuemachine_name(match)),
+            decode(_lib.sb_table_match_machine(match)),
+            decode(_lib.sb_table_match_machine_name(match)),
+            verdict,
+        )
 
     def request_top_scores(self, scope, period, since, vpin_filter, callback):
         # type: (LeaderboardScope | int, LeaderboardPeriod | int, str | None, LeaderboardVpinFilter | int, ...) -> None

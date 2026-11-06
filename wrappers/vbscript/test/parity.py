@@ -46,6 +46,7 @@ OUT_OF_SCOPE = {
     "refreshTableMappings": "VPIN host plumbing",
     "venueMachine": "VPIN host plumbing",
     "switchMachine": "VPIN host plumbing",
+    "matchTableMapping": "VPIN host plumbing",
 }
 # The "no event" value, which ScorbitPollEvent returns when there is nothing to report.
 SENTINEL_EVENTS = {"None"}

@@ -168,6 +168,27 @@ constexpr auto JVAL_ERR_NOT_VPIN_DEVICE {"not_vpin_device"};
 constexpr auto JVAL_ERR_VENUEMACHINE_NOT_FOUND {"venuemachine_not_found"};
 constexpr auto JVAL_ERR_VENUEMACHINE_NOT_OWNED {"venuemachine_not_owned"};
 constexpr auto JVAL_ERR_VENUEMACHINE_NOT_VPIN {"venuemachine_not_vpin"};
+
+// VPIN table-mapping lookup: a POST to URL_SCORBITRON_TABLE_MAPPINGS
+constexpr auto JKEY_API_ERROR_ATTR {"attr"};
+constexpr auto JKEY_TMATCH_KEY_TYPE {"key_type"};
+constexpr auto JKEY_TMATCH_TABLE_KEY {"table_key"};
+constexpr auto JKEY_TMATCH_FIRMWARE_ID {"firmware_id"};
+constexpr auto JKEY_TMATCH_SIGNATURES {"signatures"};
+constexpr auto JKEY_TMATCH_SIGNATURE_UNAVAILABLE {"signature_unavailable"};
+constexpr auto JKEY_TMATCH_MAPPING {"mapping"};
+constexpr auto JKEY_TMATCH_VENUEMACHINE {"venuemachine"};
+constexpr auto JKEY_TMATCH_MACHINE {"machine"};
+constexpr auto JKEY_TMATCH_ID {"id"};
+constexpr auto JKEY_TMATCH_NAME {"name"};
+constexpr auto JKEY_TMATCH_SIGNATURE {"signature"};
+constexpr auto JKEY_TMATCH_VERDICT_STATUS {"status"};
+constexpr auto JKEY_TMATCH_ACCEPTED_VERSION {"accepted_version"};
+constexpr auto JKEY_TMATCH_CHANGED_SECTIONS {"changed_sections"};
+constexpr auto JKEY_TMATCH_CHANGED_PROCEDURES {"changed_procedures"};
+constexpr auto JVAL_ERR_VENUEMACHINE_NEEDED {"venuemachine_needed"};
+constexpr auto JVAL_ERR_UNKNOWN_ROM {"unknown_rom"};
+constexpr auto JVAL_ERR_UNKNOWN_SIGNATURE {"unknown_signature"};
 constexpr auto JKEY_USERNAME {"username"};
 constexpr auto JKEY_AVATAR {"avatar"};
 

@@ -53,6 +53,7 @@ from ._enums import (
     LeaderboardVpinFilter,
     SwitchMachineResult,
     TableMappingsResult,
+    TableMatchResult,
     LogLevel,
 )
 from ._types import (
@@ -63,6 +64,8 @@ from ._types import (
     LeaderboardResult,
     TableMapping,
     TableMappings,
+    TableMatch,
+    SignatureVerdict,
     PlayerInfo,
     PricingInfo,
 )
@@ -149,6 +152,9 @@ __all__ = [
     "TableMappingsResult",
     "TableMapping",
     "TableMappings",
+    "TableMatchResult",
+    "TableMatch",
+    "SignatureVerdict",
     "LogLevel",
     # Types
     "AchievementUnlock",

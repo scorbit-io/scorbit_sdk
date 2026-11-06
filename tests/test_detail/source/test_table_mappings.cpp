@@ -23,14 +23,21 @@
 #include "net.h"
 #include <scorbit_sdk/event.h>
 #include <scorbit_sdk/event_helpers_c.h>
+#include <scorbit_sdk/table_mappings.h>
 #include <boost/asio/io_context.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <deque>
+#include <future>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1087,4 +1094,554 @@ TEST_CASE("While a switch holds the gate, an agreeing reply still fetches the ma
     CHECK(NetTestAccess::machineObjectRequests(*v.net) == objects + 1);
     CHECK(v.net->venueMachine() == TARGET);
     NetTestAccess::releaseSwitchGate(*v.net);
+}
+
+// ---------------------------------- table-mapping lookup ---------------------------------
+
+namespace {
+
+constexpr auto MAPPING_ID = "3c9e2a71-5d40-4b8f-a1e6-7f2d0c8b9a15";
+constexpr auto MACHINE = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
+/// Keys out of sorted order, odd spacing and a number the JSON type would reprint: only a splice
+/// sends this as it is.
+constexpr auto SIGNATURES = R"([ {"version": 1.50, "digest":"ab12",  "sections": {"script":"s1",
+"items":"i1","physics":"p1"}, "procedures":[["Zeta","00ff"], ["Alpha","0a0b"]]} ])";
+
+std::string matchBody(const nlohmann::json &signature)
+{
+    return nlohmann::json {{"status", "already_mapped"},
+                           {"mapping",
+                            {{"id", MAPPING_ID},
+                             {"key_type", "script_id"},
+                             {"table_key", "abc123"},
+                             {"venuemachine", TARGET}}},
+                           {"venuemachine",
+                            {{"id", TARGET},
+                             {"name", "Left cabinet"},
+                             {"machine", {{"id", MACHINE}, {"name", "Table One"}}}}},
+                           {"signature", signature}}
+            .dump();
+}
+
+nlohmann::json verdict(const nlohmann::json &acceptedVersion)
+{
+    return {{"status", "modified"},
+            {"accepted_version", acceptedVersion},
+            {"changed_sections", {"script", "physics"}},
+            {"changed_procedures", {"StartGame", "Drain"}}};
+}
+
+std::string drfError(const std::string &code, const std::string &attr)
+{
+    return nlohmann::json {{"type", "validation_error"},
+                           {"errors", {{{"code", code}, {"detail", "x"}, {"attr", attr}}}}}
+            .dump();
+}
+
+TableMatchRequestData request(std::string keyType = "script_id", std::string tableKey = "abc123")
+{
+    TableMatchRequestData r;
+    r.keyType = std::move(keyType);
+    r.tableKey = std::move(tableKey);
+    return r;
+}
+
+/// A VpinNet whose worker runs, so lookups are posted, parked and answered as in production.
+struct MatchNet : VpinNet {
+    struct Outcome {
+        sb_table_match_result_t result {SB_TABLE_MATCH_FAILED};
+        TableMatchAnswer answer;
+        std::thread::id thread;
+    };
+
+    std::mutex mutex;
+    std::vector<std::string> posted;
+    std::string postedUrl;
+    cpr::Response reply;
+    std::deque<cpr::Response> script; // answered first, in order, before `reply`
+
+    MatchNet()
+        : VpinNet(false) // the table-mappings opt-in does not gate a lookup
+    {
+        NetTestAccess::setVpinTransport(
+                *net,
+                {.post = [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &) {
+                    std::scoped_lock lock(mutex);
+                    postedUrl = url.str();
+                    posted.push_back(body.str());
+                    if (!script.empty()) {
+                        auto next = script.front();
+                        script.pop_front();
+                        return next;
+                    }
+                    return reply;
+                }});
+        NetTestAccess::startWorker(*net);
+    }
+
+    /// The re-authentication a 401 runs inline: the token POST answers @p token. With no signer
+    /// (and no resolvers) it fails for good. No retry timer ever fires.
+    void stubAuthentication(int token, bool withSigner)
+    {
+        NetTestAccess::setAuthTransport(
+                *net,
+                {.noop =
+                         [](const cpr::Url &) {
+                             // Dated now, or authentication waits for a viable server time
+                             char date[64];
+                             const auto now = std::time(nullptr);
+                             std::tm tm {};
+#ifdef _WIN32
+                             gmtime_s(&tm, &now);
+#else
+                             gmtime_r(&now, &tm);
+#endif
+                             std::strftime(date, sizeof date, "%a, %d %b %Y %H:%M:%S GMT", &tm);
+                             return response(200, {}, {{"Date", date}});
+                         },
+                 .token = [token](const cpr::Url &, const cpr::Body &,
+                                  const cpr::Header &) { return response(token); },
+                 .centrifugoToken = [](const std::string &,
+                                       const std::string &) { return std::string {}; },
+                 .setSystemTime = [](std::int64_t) { return true; }},
+                {.start = [](AuthRetryKind, std::chrono::seconds, detail::task_t) {},
+                 .stop = [] {},
+                 .random = [] { return 0.0; }});
+        if (withSigner) {
+            NetTestAccess::setSigner(*net, [](const Digest &) { return Signature {0x01}; });
+        }
+    }
+
+    ~MatchNet()
+    {
+        net.reset();
+    } // before the transport's members go
+
+    std::size_t postCount()
+    {
+        std::scoped_lock lock(mutex);
+        return posted.size();
+    }
+
+    std::future<Outcome> start(TableMatchRequestData r)
+    {
+        auto promise = std::make_shared<std::promise<Outcome>>();
+        net->matchTableMapping(std::move(r), [promise](sb_table_match_result_t result,
+                                                       const TableMatchAnswer &answer) {
+            promise->set_value({result, answer, std::this_thread::get_id()});
+        });
+        return promise->get_future();
+    }
+
+    Outcome run(TableMatchRequestData r, cpr::Response next)
+    {
+        {
+            std::scoped_lock lock(mutex);
+            reply = std::move(next);
+        }
+        auto outcome = start(std::move(r));
+        REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+        return outcome.get();
+    }
+};
+
+} // namespace
+
+TEST_CASE("A lookup's errors map by status, then by code")
+{
+    CHECK(tableMatchFailure(400, errorBody("invalid_table_key")) == SB_TABLE_MATCH_INVALID);
+    CHECK(tableMatchFailure(400, "") == SB_TABLE_MATCH_INVALID);
+    CHECK(tableMatchFailure(401, "") == SB_TABLE_MATCH_NOT_AUTHENTICATED);
+    CHECK(tableMatchFailure(403, errorBody("not_vpin_device")) == SB_TABLE_MATCH_NOT_VPIN_DEVICE);
+    CHECK(tableMatchFailure(403, errorBody("no_owner")) == SB_TABLE_MATCH_NO_OWNER);
+    CHECK(tableMatchFailure(403, "") == SB_TABLE_MATCH_FAILED);
+    CHECK(tableMatchFailure(404, errorBody("unknown_rom")) == SB_TABLE_MATCH_UNKNOWN_ROM);
+    CHECK(tableMatchFailure(404, errorBody("unknown_signature"))
+          == SB_TABLE_MATCH_UNKNOWN_SIGNATURE);
+    CHECK(tableMatchFailure(404, R"({"detail":"Not found."})") == SB_TABLE_MATCH_FAILED);
+    CHECK(tableMatchFailure(405, "") == SB_TABLE_MATCH_FAILED);
+    CHECK(tableMatchFailure(409, errorBody("venuemachine_needed")) == SB_TABLE_MATCH_NEEDS_MAPPING);
+    CHECK(tableMatchFailure(409, errorBody("venuemachine_archived")) == SB_TABLE_MATCH_FAILED);
+    CHECK(tableMatchFailure(413, errorBody("signature_too_large"))
+          == SB_TABLE_MATCH_SIGNATURE_TOO_LARGE);
+    // A proxy's body limit carries no code
+    CHECK(tableMatchFailure(413, "<html>413 Request Entity Too Large</html>")
+          == SB_TABLE_MATCH_SIGNATURE_TOO_LARGE);
+    CHECK(tableMatchFailure(413, "") == SB_TABLE_MATCH_SIGNATURE_TOO_LARGE);
+    CHECK(tableMatchFailure(418, "") == SB_TABLE_MATCH_FAILED);
+    CHECK(tableMatchFailure(429, "") == SB_TABLE_MATCH_NETWORK);
+    CHECK(tableMatchFailure(500, "") == SB_TABLE_MATCH_NETWORK);
+    CHECK(tableMatchFailure(503, errorBody("no_owner")) == SB_TABLE_MATCH_NETWORK);
+    CHECK(tableMatchFailure(0, "") == SB_TABLE_MATCH_NETWORK);
+}
+
+TEST_CASE("apiErrorAttr reads errors[0].attr, empty when null")
+{
+    CHECK(apiErrorAttr(drfError("invalid_choice", "key_type")) == "key_type");
+    CHECK(apiErrorAttr(errorBody("no_owner")).empty()); // attr: null
+    CHECK(apiErrorAttr(R"({"code":"x","attr":"top_level_is_not_read"})").empty());
+    CHECK(apiErrorAttr("<html>").empty());
+}
+
+TEST_CASE("The lookup body splices the caller's signatures and omits what is unset")
+{
+    auto r = request();
+    r.firmwareId = "fw-1";
+    r.signaturesJson = SIGNATURES;
+    CHECK(tableMatchBody(r)
+          == std::string {R"({"firmware_id":"fw-1","key_type":"script_id","table_key":"abc123",)"}
+                     + R"("signatures":)" + SIGNATURES + "}");
+
+    auto unavailable = request("rom", "mm_109c");
+    unavailable.signatureUnavailable = "table_unreadable_permission";
+    CHECK(tableMatchBody(unavailable)
+          == R"({"key_type":"rom","signature_unavailable":"table_unreadable_permission",)"
+             R"("table_key":"mm_109c"})");
+
+    CHECK(tableMatchBody(request("rom", "mm_109c"))
+          == R"({"key_type":"rom","table_key":"mm_109c"})");
+}
+
+TEST_CASE("The lookup body is refused for both kinds of evidence or bad signatures")
+{
+    auto both = request();
+    both.signaturesJson = SIGNATURES;
+    both.signatureUnavailable = "missing_helper";
+    CHECK_FALSE(tableMatchBody(both));
+
+    for (const auto *bad : {"", "not json", "{}", "[]", "[1] trailing", R"({"a":[1]})"}) {
+        INFO(bad);
+        auto r = request();
+        r.signaturesJson = bad;
+        CHECK_FALSE(tableMatchBody(r));
+    }
+}
+
+TEST_CASE("A 200 lookup body fills every field, with or without a verdict")
+{
+    const auto full = parseTableMatch(matchBody(verdict("2")));
+    REQUIRE(full);
+    CHECK(full->keyType == "script_id");
+    CHECK(full->tableKey == "abc123");
+    CHECK(full->mappingId == MAPPING_ID);
+    CHECK(full->venueMachine == TARGET);
+    CHECK(full->venueMachineName == "Left cabinet");
+    CHECK(full->machine == MACHINE);
+    CHECK(full->machineName == "Table One");
+    CHECK(full->hasVerdict);
+    CHECK(full->verdictStatus == "modified");
+    CHECK(full->verdictAcceptedVersion == "2");
+    CHECK(full->changedSections == std::vector<std::string> {"script", "physics"});
+    CHECK(full->changedProcedures == std::vector<std::string> {"StartGame", "Drain"});
+
+    const auto nullVersion = parseTableMatch(matchBody(verdict(nullptr)));
+    REQUIRE(nullVersion);
+    CHECK(nullVersion->hasVerdict);
+    CHECK(nullVersion->verdictAcceptedVersion.empty());
+
+    const auto none = parseTableMatch(matchBody(nullptr));
+    REQUIRE(none);
+    CHECK_FALSE(none->hasVerdict);
+    CHECK(none->verdictStatus.empty());
+    CHECK(none->venueMachine == TARGET);
+}
+
+TEST_CASE("A malformed 200 lookup body is refused rather than read in part")
+{
+    CHECK_FALSE(parseTableMatch("<html>"));
+    CHECK_FALSE(parseTableMatch(R"({"status":"already_mapped"})"));
+    CHECK_FALSE(parseTableMatch(R"({"mapping":{"id":"m","key_type":"rom","table_key":"k"},)"
+                                R"("venuemachine":{"name":"no id"}})"));
+    CHECK_FALSE(parseTableMatch(R"({"mapping":{"id":"m","key_type":"rom","table_key":"k"},)"
+                                R"("venuemachine":{"id":""}})"));
+    CHECK_FALSE(parseTableMatch(matchBody("modified")));
+    CHECK_FALSE(parseTableMatch(matchBody({{"status", "match"}, {"changed_sections", "script"}})));
+}
+
+TEST_CASE("The lookup answer's C accessors and the C++ copy read every field")
+{
+    auto answer = *parseTableMatch(matchBody(verdict("2")));
+    answer.httpStatus = 200;
+    auto *m = &answer;
+    CHECK(sb_table_match_http_status(m) == 200);
+    CHECK(std::string {sb_table_match_venuemachine(m)} == TARGET);
+    CHECK(std::string {sb_table_match_machine_name(m)} == "Table One");
+    CHECK(sb_table_match_has_verdict(m));
+    REQUIRE(sb_table_match_verdict_changed_sections_count(m) == 2);
+    CHECK(std::string {sb_table_match_verdict_changed_section(m, 1)} == "physics");
+    CHECK(std::string {sb_table_match_verdict_changed_section(m, 2)}.empty());
+    CHECK(std::string {sb_table_match_verdict_changed_procedure(m, 0)} == "StartGame");
+    CHECK(std::string {sb_table_match_verdict_changed_procedure(m, 2)}.empty());
+
+    const auto copy = TableMatch::fromC(m);
+    CHECK(copy.httpStatus == 200);
+    CHECK(copy.keyType == "script_id");
+    CHECK(copy.tableKey == "abc123");
+    CHECK(copy.mappingId == MAPPING_ID);
+    CHECK(copy.venueMachine == TARGET);
+    CHECK(copy.venueMachineName == "Left cabinet");
+    CHECK(copy.machine == MACHINE);
+    CHECK(copy.machineName == "Table One");
+    REQUIRE(copy.hasVerdict);
+    CHECK(copy.verdict.status == "modified");
+    CHECK(copy.verdict.acceptedVersion == "2");
+    CHECK(copy.verdict.changedSections == std::vector<std::string> {"script", "physics"});
+    CHECK(copy.verdict.changedProcedures == std::vector<std::string> {"StartGame", "Drain"});
+
+    CHECK_FALSE(TableMatch::fromC(nullptr).hasVerdict);
+
+    sb_table_match_request_t r = sb_table_match_request_create();
+    sb_table_match_request_set_key(r, "rom", "mm_109c");
+    sb_table_match_request_set_firmware_id(r, "fw-1");
+    sb_table_match_request_set_signatures_json(r, SIGNATURES);
+    sb_table_match_request_set_signatures_json(r, nullptr);
+    sb_table_match_request_set_signature_unavailable(r, "");
+    CHECK(r->keyType == "rom");
+    CHECK(r->tableKey == "mm_109c");
+    CHECK(r->firmwareId == "fw-1");
+    CHECK_FALSE(r->signaturesJson);
+    CHECK(r->signatureUnavailable == std::string {});
+    sb_table_match_request_free(r);
+}
+
+TEST_CASE("A lookup through Net posts the request and reads a 200 into every field")
+{
+    MatchNet n;
+    auto r = request();
+    r.firmwareId = "fw-1";
+    r.signaturesJson = SIGNATURES;
+    const auto out = n.run(std::move(r), response(200, matchBody(verdict("2"))));
+
+    CHECK(out.result == SB_TABLE_MATCH_MAPPED);
+    CHECK(out.thread != std::this_thread::get_id());
+    CHECK(out.answer.httpStatus == 200);
+    CHECK(out.answer.errorCode.empty());
+    CHECK(out.answer.venueMachine == TARGET);
+    CHECK(out.answer.machine == MACHINE);
+    CHECK(out.answer.verdictStatus == "modified");
+    CHECK(n.postedUrl.find("/api/v2/scorbitrons/") != std::string::npos);
+    CHECK(n.postedUrl.find("/table-mappings/") != std::string::npos);
+    REQUIRE(n.posted.size() == 1);
+    // The caller's signatures text arrives byte for byte, after the other fields.
+    CHECK(n.posted[0]
+          == std::string {R"({"firmware_id":"fw-1","key_type":"script_id","table_key":"abc123",)"}
+                     + R"("signatures":)" + SIGNATURES + "}");
+
+    // No side effects: no event, and the mappings snapshot is untouched.
+    n.drain();
+    CHECK(n.events.empty());
+    CHECK(n.net->tableMappings().result == SB_TABLE_MAPPINGS_NONE);
+}
+
+TEST_CASE("A lookup through Net maps every answer and keeps the api's code and attr")
+{
+    struct Row {
+        const char *name;
+        int status;
+        std::string body;
+        sb_table_match_result_t expected;
+        std::string code;
+        std::string attr;
+    };
+    const std::vector<Row> rows {
+            {"400 invalid_table_key", 400, errorBody("invalid_table_key"), SB_TABLE_MATCH_INVALID,
+             "invalid_table_key", ""},
+            {"400 invalid_signature", 400, drfError("invalid_signature", "signatures"),
+             SB_TABLE_MATCH_INVALID, "invalid_signature", "signatures"},
+            {"400 signature_conflict", 400, drfError("signature_conflict", "signatures"),
+             SB_TABLE_MATCH_INVALID, "signature_conflict", "signatures"},
+            {"400 required", 400, drfError("required", "table_key"), SB_TABLE_MATCH_INVALID,
+             "required", "table_key"},
+            {"400 invalid_choice on key_type", 400, drfError("invalid_choice", "key_type"),
+             SB_TABLE_MATCH_INVALID, "invalid_choice", "key_type"},
+            {"403 not_vpin_device", 403, errorBody("not_vpin_device"),
+             SB_TABLE_MATCH_NOT_VPIN_DEVICE, "not_vpin_device", ""},
+            {"403 no_owner", 403, errorBody("no_owner"), SB_TABLE_MATCH_NO_OWNER, "no_owner", ""},
+            {"404 unknown_rom", 404, errorBody("unknown_rom"), SB_TABLE_MATCH_UNKNOWN_ROM,
+             "unknown_rom", ""},
+            {"404 unknown_signature", 404, errorBody("unknown_signature"),
+             SB_TABLE_MATCH_UNKNOWN_SIGNATURE, "unknown_signature", ""},
+            {"404 with no code", 404, R"({"detail":"Not found."})", SB_TABLE_MATCH_FAILED, "", ""},
+            {"405 with no code", 405, R"({"detail":"Method not allowed."})", SB_TABLE_MATCH_FAILED,
+             "", ""},
+            {"409 venuemachine_needed", 409, errorBody("venuemachine_needed"),
+             SB_TABLE_MATCH_NEEDS_MAPPING, "venuemachine_needed", ""},
+            {"409 other", 409, errorBody("venuemachine_archived"), SB_TABLE_MATCH_FAILED,
+             "venuemachine_archived", ""},
+            {"413 signature_too_large", 413, errorBody("signature_too_large"),
+             SB_TABLE_MATCH_SIGNATURE_TOO_LARGE, "signature_too_large", ""},
+            {"429", 429, R"({"code":"throttled"})", SB_TABLE_MATCH_NETWORK, "throttled", ""},
+            {"500", 500, "<html>", SB_TABLE_MATCH_NETWORK, "", ""},
+            {"503", 503, "", SB_TABLE_MATCH_NETWORK, "", ""},
+            {"an unknown 4xx", 418, errorBody("teapot"), SB_TABLE_MATCH_FAILED, "teapot", ""},
+            {"a malformed 200", 200, R"({"status":"already_mapped"})", SB_TABLE_MATCH_FAILED, "",
+             ""},
+    };
+
+    MatchNet n;
+    for (const auto &row : rows) {
+        INFO(row.name);
+        const auto out = n.run(request(), response(row.status, row.body));
+        CHECK(out.result == row.expected);
+        CHECK(out.answer.httpStatus == row.status);
+        CHECK(out.answer.errorCode == row.code);
+        CHECK(out.answer.errorAttr == row.attr);
+        CHECK(out.answer.venueMachine.empty());
+        CHECK_FALSE(out.answer.hasVerdict);
+    }
+    // One request per call: none is retried, cached or folded into another.
+    CHECK(n.postCount() == rows.size());
+}
+
+TEST_CASE("A lookup that gets no response is NETWORK with no status")
+{
+    MatchNet n;
+    const auto out = n.run(request(), response(0));
+    CHECK(out.result == SB_TABLE_MATCH_NETWORK);
+    CHECK(out.answer.httpStatus == 0);
+    CHECK(out.answer.errorCode.empty());
+    // One request: the server may have acted on one it never answered
+    CHECK(n.postCount() == 1);
+}
+
+TEST_CASE("A lookup whose 401 leaves authentication pending waits for it, then is sent again")
+{
+    MatchNet n;
+    n.stubAuthentication(503, true); // the re-authentication fails, for now
+    {
+        std::scoped_lock lock(n.mutex);
+        n.script = {response(401, errorBody("not_authenticated"))};
+        n.reply = response(200, matchBody(nullptr));
+    }
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    CHECK(n.postCount() == 1);
+    REQUIRE(NetTestAccess::status(*n.net) == AuthStatus::NotAuthenticated);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK(outcome.get().result == SB_TABLE_MATCH_MAPPED);
+    CHECK(n.postCount() == 2);
+}
+
+TEST_CASE("A lookup keeps waiting through a second 401 while its first wait has not expired")
+{
+    MatchNet n;
+    n.stubAuthentication(503, true); // every re-authentication fails, for now
+    {
+        std::scoped_lock lock(n.mutex);
+        n.script = {response(401, errorBody("not_authenticated")),
+                    response(401, errorBody("not_authenticated"))};
+        n.reply = response(200, matchBody(nullptr));
+    }
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    REQUIRE(n.postCount() == 1);
+
+    // Authentication completes; the lookup is sent again and meets a second 401
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    REQUIRE(n.postCount() == 2);
+    REQUIRE(NetTestAccess::status(*n.net) == AuthStatus::NotAuthenticated);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK(outcome.get().result == SB_TABLE_MATCH_MAPPED);
+    CHECK(n.postCount() == 3);
+}
+
+TEST_CASE("A lookup whose 401 ends authentication for good keeps the api's code and attr")
+{
+    MatchNet n;
+    n.stubAuthentication(503, false); // no key at all: it fails for good
+    {
+        std::scoped_lock lock(n.mutex);
+        n.reply = response(
+                401, nlohmann::json {{"type", "client_error"},
+                                     {"errors",
+                                      {{{"code", "token_not_valid"}, {"attr", "authorization"}}}}}
+                             .dump());
+    }
+    auto outcome = n.start(request());
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    const auto out = outcome.get();
+    CHECK(out.result == SB_TABLE_MATCH_NOT_AUTHENTICATED);
+    CHECK(out.answer.httpStatus == 401);
+    CHECK(out.answer.errorCode == "token_not_valid");
+    CHECK(out.answer.errorAttr == "authorization");
+    CHECK(n.postCount() == 1);
+}
+
+TEST_CASE("A lookup sends only the evidence it was given")
+{
+    MatchNet n;
+    auto unavailable = request("script_id", "abc123");
+    unavailable.signatureUnavailable = "legacy_protected";
+    n.run(std::move(unavailable), response(409, errorBody("venuemachine_needed")));
+    n.run(request("rom", "mm_109c"), response(404, errorBody("unknown_rom")));
+
+    REQUIRE(n.posted.size() == 2);
+    CHECK(nlohmann::json::parse(n.posted[0])
+          == nlohmann::json {{"key_type", "script_id"},
+                             {"table_key", "abc123"},
+                             {"signature_unavailable", "legacy_protected"}});
+    CHECK(nlohmann::json::parse(n.posted[1])
+          == nlohmann::json {{"key_type", "rom"}, {"table_key", "mm_109c"}});
+}
+
+TEST_CASE("A refused lookup sends nothing and is answered on the worker")
+{
+    MatchNet n;
+    std::vector<TableMatchRequestData> refused;
+    auto both = request();
+    both.signaturesJson = SIGNATURES;
+    both.signatureUnavailable = "missing_helper";
+    refused.push_back(both);
+    for (const auto *bad : {"not json", R"({"version":1})", "[]", ""}) {
+        auto r = request();
+        r.signaturesJson = bad;
+        refused.push_back(r);
+    }
+
+    for (auto &r : refused) {
+        const auto out = n.run(std::move(r), response(200, matchBody(nullptr)));
+        CHECK(out.result == SB_TABLE_MATCH_INVALID);
+        CHECK(out.answer.httpStatus == 0);
+        CHECK(out.thread != std::this_thread::get_id());
+    }
+    CHECK(n.postCount() == 0);
+}
+
+TEST_CASE("A lookup before authentication waits for it, then is sent")
+{
+    MatchNet n;
+    NetTestAccess::setStatus(*n.net, AuthStatus::NotAuthenticated);
+    {
+        std::scoped_lock lock(n.mutex);
+        n.reply = response(200, matchBody(nullptr));
+    }
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout);
+    CHECK(n.postCount() == 0);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedCheckingPairing);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK(outcome.get().result == SB_TABLE_MATCH_MAPPED);
+    CHECK(n.postCount() == 1);
+}
+
+TEST_CASE("A lookup waiting for authentication is NOT_AUTHENTICATED when it fails for good")
+{
+    MatchNet n;
+    NetTestAccess::setStatus(*n.net, AuthStatus::Authenticating);
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticationFailed);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    const auto out = outcome.get();
+    CHECK(out.result == SB_TABLE_MATCH_NOT_AUTHENTICATED);
+    CHECK(out.answer.httpStatus == 0);
+    CHECK(n.postCount() == 0);
 }

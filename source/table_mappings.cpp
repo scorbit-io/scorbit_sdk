@@ -21,6 +21,7 @@
 #include "identifiers.h"
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
+#include <new>
 #include <utility>
 
 namespace scorbit {
@@ -32,8 +33,13 @@ constexpr int HTTP_OK_FIRST = 200;
 constexpr int HTTP_OK_LAST = 299;
 constexpr int HTTP_OK = 200;
 constexpr int HTTP_NOT_MODIFIED = 304;
+constexpr int HTTP_BAD_REQUEST = 400;
+constexpr int HTTP_UNAUTHORIZED = 401;
 constexpr int HTTP_FORBIDDEN = 403;
 constexpr int HTTP_NOT_FOUND = 404;
+constexpr int HTTP_CONFLICT = 409;
+constexpr int HTTP_PAYLOAD_TOO_LARGE = 413;
+constexpr int HTTP_TOO_MANY_REQUESTS = 429;
 constexpr int HTTP_SERVER_ERROR = 500;
 
 std::optional<nlohmann::json> parseObject(const std::string &body)
@@ -43,6 +49,40 @@ std::optional<nlohmann::json> parseObject(const std::string &body)
         return std::nullopt;
     }
     return j;
+}
+
+/// Reads @p obj's string @p key into @p out. False if it is not a string, or is missing or null
+/// while @p required.
+bool stringField(const nlohmann::json &obj, const char *key, std::string &out, bool required)
+{
+    const auto it = obj.find(key);
+    if (it == obj.end() || it->is_null()) {
+        return !required;
+    }
+    if (!it->is_string()) {
+        return false;
+    }
+    out = it->get<std::string>();
+    return true;
+}
+
+/// Reads @p obj's list of strings @p key, if any, into @p out. False if it is not one.
+bool stringList(const nlohmann::json &obj, const char *key, std::vector<std::string> &out)
+{
+    const auto it = obj.find(key);
+    if (it == obj.end() || it->is_null()) {
+        return true;
+    }
+    if (!it->is_array()) {
+        return false;
+    }
+    for (const auto &item : *it) {
+        if (!item.is_string()) {
+            return false;
+        }
+        out.push_back(item.get<std::string>());
+    }
+    return true;
 }
 
 } // namespace
@@ -65,6 +105,135 @@ std::string apiErrorCode(const std::string &body)
         return code->get<std::string>();
     }
     return {};
+}
+
+std::string apiErrorAttr(const std::string &body)
+{
+    const auto j = parseObject(body);
+    if (!j) {
+        return {};
+    }
+    std::string attr;
+    if (const auto it = j->find(JKEY_API_ERRORS);
+        it != j->end() && it->is_array() && !it->empty() && it->front().is_object()) {
+        stringField(it->front(), JKEY_API_ERROR_ATTR, attr, false);
+    }
+    return attr;
+}
+
+std::optional<std::string> tableMatchBody(const TableMatchRequestData &request)
+{
+    if (request.signaturesJson && request.signatureUnavailable) {
+        return std::nullopt;
+    }
+    if (request.signaturesJson) {
+        const auto parsed = nlohmann::json::parse(*request.signaturesJson, nullptr, false);
+        if (parsed.is_discarded() || !parsed.is_array() || parsed.empty()) {
+            return std::nullopt;
+        }
+    }
+
+    nlohmann::json j {{JKEY_TMATCH_KEY_TYPE, request.keyType},
+                      {JKEY_TMATCH_TABLE_KEY, request.tableKey}};
+    if (!request.firmwareId.empty()) {
+        j[JKEY_TMATCH_FIRMWARE_ID] = request.firmwareId;
+    }
+    if (request.signatureUnavailable) {
+        j[JKEY_TMATCH_SIGNATURE_UNAVAILABLE] = *request.signatureUnavailable;
+    }
+    auto body = j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+
+    if (request.signaturesJson) {
+        // Spliced, not re-encoded: the JSON type would sort the keys and reprint the numbers.
+        body.pop_back();
+        body += ",\"";
+        body += JKEY_TMATCH_SIGNATURES;
+        body += "\":";
+        body += *request.signaturesJson;
+        body += '}';
+    }
+    return body;
+}
+
+std::optional<TableMatchAnswer> parseTableMatch(const std::string &body)
+{
+    const auto j = parseObject(body);
+    if (!j) {
+        return std::nullopt;
+    }
+    const auto mapping = j->find(JKEY_TMATCH_MAPPING);
+    const auto target = j->find(JKEY_TMATCH_VENUEMACHINE);
+    if (mapping == j->end() || !mapping->is_object() || target == j->end()
+        || !target->is_object()) {
+        return std::nullopt;
+    }
+
+    TableMatchAnswer out;
+    if (!stringField(*mapping, JKEY_TMATCH_KEY_TYPE, out.keyType, true)
+        || !stringField(*mapping, JKEY_TMATCH_TABLE_KEY, out.tableKey, true)
+        || !stringField(*mapping, JKEY_TMATCH_ID, out.mappingId, true)
+        || !stringField(*target, JKEY_TMATCH_ID, out.venueMachine, true) || out.venueMachine.empty()
+        || !stringField(*target, JKEY_TMATCH_NAME, out.venueMachineName, false)) {
+        return std::nullopt;
+    }
+    if (const auto machine = target->find(JKEY_TMATCH_MACHINE);
+        machine != target->end() && !machine->is_null()) {
+        if (!machine->is_object() || !stringField(*machine, JKEY_TMATCH_ID, out.machine, false)
+            || !stringField(*machine, JKEY_TMATCH_NAME, out.machineName, false)) {
+            return std::nullopt;
+        }
+    }
+    if (const auto verdict = j->find(JKEY_TMATCH_SIGNATURE);
+        verdict != j->end() && !verdict->is_null()) {
+        if (!verdict->is_object()
+            || !stringField(*verdict, JKEY_TMATCH_VERDICT_STATUS, out.verdictStatus, true)
+            || !stringField(*verdict, JKEY_TMATCH_ACCEPTED_VERSION, out.verdictAcceptedVersion,
+                            false)
+            || !stringList(*verdict, JKEY_TMATCH_CHANGED_SECTIONS, out.changedSections)
+            || !stringList(*verdict, JKEY_TMATCH_CHANGED_PROCEDURES, out.changedProcedures)) {
+            return std::nullopt;
+        }
+        out.hasVerdict = true;
+    }
+    return out;
+}
+
+sb_table_match_result_t tableMatchFailure(int httpStatus, const std::string &body)
+{
+    if (httpStatus == 0 || httpStatus == HTTP_TOO_MANY_REQUESTS
+        || httpStatus >= HTTP_SERVER_ERROR) {
+        return SB_TABLE_MATCH_NETWORK;
+    }
+    if (httpStatus == HTTP_UNAUTHORIZED) {
+        return SB_TABLE_MATCH_NOT_AUTHENTICATED;
+    }
+    if (httpStatus == HTTP_BAD_REQUEST) {
+        return SB_TABLE_MATCH_INVALID;
+    }
+    // A proxy's body limit answers 413 with no code: the set is too large either way
+    if (httpStatus == HTTP_PAYLOAD_TOO_LARGE) {
+        return SB_TABLE_MATCH_SIGNATURE_TOO_LARGE;
+    }
+
+    // Otherwise the code decides; without a known one (an api that lacks the route answers 404
+    // or 405 with none), it failed.
+    const auto code = apiErrorCode(body);
+    if (httpStatus == HTTP_FORBIDDEN && code == JVAL_ERR_NOT_VPIN_DEVICE) {
+        return SB_TABLE_MATCH_NOT_VPIN_DEVICE;
+    }
+    if (httpStatus == HTTP_FORBIDDEN && code == JVAL_ERR_NO_OWNER) {
+        return SB_TABLE_MATCH_NO_OWNER;
+    }
+    if (httpStatus == HTTP_NOT_FOUND && code == JVAL_ERR_UNKNOWN_ROM) {
+        return SB_TABLE_MATCH_UNKNOWN_ROM;
+    }
+    if (httpStatus == HTTP_NOT_FOUND && code == JVAL_ERR_UNKNOWN_SIGNATURE) {
+        return SB_TABLE_MATCH_UNKNOWN_SIGNATURE;
+    }
+    if (httpStatus == HTTP_CONFLICT && code == JVAL_ERR_VENUEMACHINE_NEEDED) {
+        return SB_TABLE_MATCH_NEEDS_MAPPING;
+    }
+    return SB_TABLE_MATCH_FAILED;
 }
 
 std::optional<TableMappingsSnapshot> parseTableMappings(const std::string &body)
@@ -395,4 +564,156 @@ const char *sb_table_mapping_table_key(sb_table_mappings_t mappings, size_t inde
 const char *sb_table_mapping_venuemachine(sb_table_mappings_t mappings, size_t index)
 {
     return rowField(mappings, index, &sb_table_mappings_struct::Row::venueMachine);
+}
+
+// ------------------------------------ table-mapping lookup ---------------------------------
+
+namespace {
+
+const char *matchField(sb_table_match_t m, std::string sb_table_match_struct::*field)
+{
+    return m ? (m->*field).c_str() : "";
+}
+
+const char *listItem(sb_table_match_t m, std::vector<std::string> sb_table_match_struct::*list,
+                     size_t index)
+{
+    if (!m || index >= (m->*list).size()) {
+        return "";
+    }
+    return (m->*list)[index].c_str();
+}
+
+std::optional<std::string> optionalCopy(const char *p)
+{
+    return p ? std::optional<std::string> {p} : std::nullopt;
+}
+
+} // namespace
+
+sb_table_match_request_t sb_table_match_request_create(void)
+{
+    return new (std::nothrow) sb_table_match_request_struct();
+}
+
+void sb_table_match_request_free(sb_table_match_request_t request)
+{
+    delete request;
+}
+
+void sb_table_match_request_set_key(sb_table_match_request_t request, const char *key_type,
+                                    const char *table_key)
+{
+    if (request) {
+        request->keyType = key_type ? key_type : "";
+        request->tableKey = table_key ? table_key : "";
+    }
+}
+
+void sb_table_match_request_set_firmware_id(sb_table_match_request_t request,
+                                            const char *firmware_id)
+{
+    if (request) {
+        request->firmwareId = firmware_id ? firmware_id : "";
+    }
+}
+
+void sb_table_match_request_set_signatures_json(sb_table_match_request_t request, const char *json)
+{
+    if (request) {
+        request->signaturesJson = optionalCopy(json);
+    }
+}
+
+void sb_table_match_request_set_signature_unavailable(sb_table_match_request_t request,
+                                                      const char *code)
+{
+    if (request) {
+        request->signatureUnavailable = optionalCopy(code);
+    }
+}
+
+int sb_table_match_http_status(sb_table_match_t match)
+{
+    return match ? match->httpStatus : 0;
+}
+
+const char *sb_table_match_error_code(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::errorCode);
+}
+
+const char *sb_table_match_error_attr(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::errorAttr);
+}
+
+const char *sb_table_match_key_type(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::keyType);
+}
+
+const char *sb_table_match_table_key(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::tableKey);
+}
+
+const char *sb_table_match_mapping_id(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::mappingId);
+}
+
+const char *sb_table_match_venuemachine(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::venueMachine);
+}
+
+const char *sb_table_match_venuemachine_name(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::venueMachineName);
+}
+
+const char *sb_table_match_machine(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::machine);
+}
+
+const char *sb_table_match_machine_name(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::machineName);
+}
+
+bool sb_table_match_has_verdict(sb_table_match_t match)
+{
+    return match && match->hasVerdict;
+}
+
+const char *sb_table_match_verdict_status(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::verdictStatus);
+}
+
+const char *sb_table_match_verdict_accepted_version(sb_table_match_t match)
+{
+    return matchField(match, &sb_table_match_struct::verdictAcceptedVersion);
+}
+
+size_t sb_table_match_verdict_changed_sections_count(sb_table_match_t match)
+{
+    return match ? match->changedSections.size() : 0;
+}
+
+const char *sb_table_match_verdict_changed_section(sb_table_match_t match, size_t index)
+{
+    return listItem(match, &sb_table_match_struct::changedSections, index);
+}
+
+size_t sb_table_match_verdict_changed_procedures_count(sb_table_match_t match)
+{
+    return match ? match->changedProcedures.size() : 0;
+}
+
+const char *sb_table_match_verdict_changed_procedure(sb_table_match_t match, size_t index)
+{
+    return listItem(match, &sb_table_match_struct::changedProcedures, index);
 }

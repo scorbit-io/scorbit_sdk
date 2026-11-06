@@ -4689,6 +4689,93 @@ void Net::postSwitchMachine(const std::string &target,
     m_worker.post(createSwitchMachineTask(target, std::move(reply)));
 }
 
+void Net::matchTableMapping(TableMatchRequestData request, TableMatchCallback callback)
+{
+    auto body = tableMatchBody(request);
+    if (!body) {
+        WRN("API table match for key type '{}' refused: both kinds of evidence, or signatures "
+            "that are not a non-empty JSON array",
+            request.keyType);
+        // Answered on the worker, as a sent request is, never on the caller's thread. Stopping
+        // drains queued work, so a refusal run after shutdown began is FAILED, as a reply is.
+        m_worker.post([this, callback = std::move(callback)] {
+            if (callback) {
+                callback(m_stop ? SB_TABLE_MATCH_FAILED : SB_TABLE_MATCH_INVALID,
+                         TableMatchAnswer {});
+            }
+        });
+        return;
+    }
+    DBG("API table match request: {}", *body);
+    m_worker.post(createTableMatchTask(std::move(*body), std::move(callback)));
+}
+
+task_t Net::createTableMatchTask(std::string body, TableMatchCallback callback,
+                                 std::optional<std::chrono::steady_clock::time_point> waitUntil)
+{
+    auto reply = [this, body, callback, waitUntil](Error error, int httpStatus,
+                                                   const std::string &text) {
+        // A 401 re-authenticates inline; if that failed only for now, authentication is still
+        // pending and the lookup waits on the gate again. Every such wait shares one deadline,
+        // the gate's own from the first, so a server that keeps answering 401 cannot hold it.
+        const auto now = std::chrono::steady_clock::now();
+        const auto until = waitUntil.value_or(now + AUTH_GATE_TIMEOUT);
+        if (!m_stop && now < until && error == Error::NotPaired && httpStatus == 401
+            && (m_status == AuthStatus::NotAuthenticated
+                || m_status == AuthStatus::Authenticating)) {
+            m_worker.post(createTableMatchTask(body, callback, until));
+            return;
+        }
+
+        TableMatchAnswer answer;
+        auto result = SB_TABLE_MATCH_FAILED;
+        if (m_stop) {
+            // Shutting down: whatever the gate or the request said, the lookup did not finish.
+        } else if (error == Error::AuthFailed || error == Error::NotPaired) {
+            // Authentication failed for good, or the gate's deadline passed.
+            result = SB_TABLE_MATCH_NOT_AUTHENTICATED;
+        } else if (httpStatus == 200) {
+            if (auto parsed = parseTableMatch(text)) {
+                answer = std::move(*parsed);
+                result = SB_TABLE_MATCH_MAPPED;
+            } else {
+                ERR("API table match reply is malformed");
+            }
+        } else {
+            result = tableMatchFailure(httpStatus, text);
+        }
+        if (httpStatus != 200) {
+            // Whatever decided the result, a 401 included
+            answer.errorCode = apiErrorCode(text);
+            answer.errorAttr = apiErrorAttr(text);
+        }
+        answer.httpStatus = httpStatus;
+        DBG("API table match reply: {}", text);
+        INF("API table match: result {}, HTTP {}, code '{}'", static_cast<int>(result), httpStatus,
+            answer.errorCode);
+        if (callback) {
+            callback(result, answer);
+        }
+    };
+
+    return createHttpRequestTask(
+            REST_POST, HttpStatusCallback {std::move(reply)},
+            [this, body = std::move(body)] {
+                return make_tuple(url(URL_SCORBITRON_TABLE_MAPPINGS), cpr::Body {body});
+            },
+            [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return m_vpinTransport.post ? m_vpinTransport.post(url, body, header)
+                                            : HttpSessionPool::instance().Post(
+                                                    url, body, header, timeout, sslOptions());
+            },
+            {AuthStatus::AuthenticatedCheckingPairing, AuthStatus::AuthenticatedUnpaired,
+             AuthStatus::AuthenticatedPaired},
+            false, false,
+            false,  // bodies are large: logged above, at debug level only
+            false); // one request: no retry after no response
+}
+
 void Net::adoptSwitchedMachine(const std::string &target, const std::string &token,
                                MachineSwitch::Done done)
 {
@@ -4877,7 +4964,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
                                   DeferredSetupT deferredSetup, HttpMethodT httpMethod,
                                   std::vector<AuthStatus> allowedStatuses,
                                   bool includeFingerprintHash, bool resilientTransferTimeouts,
-                                  bool logReply)
+                                  bool logReply, bool retryNoResponse)
 {
     // A request that arrives before the status allows it is parked rather than run, and needs to
     // re-enter itself when the gate opens. The weak capture keeps the lambda from owning the
@@ -4888,7 +4975,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
     *run = [this, weakRun, requestType, callback = std::move(replyCallback),
             deferredSetup = std::move(deferredSetup), httpMethod = std::move(httpMethod),
             allowedStatuses = std::move(allowedStatuses), includeFingerprintHash,
-            resilientTransferTimeouts, logReply]() {
+            resilientTransferTimeouts, logReply, retryNoResponse]() {
         switch (authGate(m_status, allowedStatuses, m_stop)) {
         case AuthGate::Ready:
             break;
@@ -4950,10 +5037,20 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
                 break;
             }
 
-            ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
-                r.status_code, r.error.message, reply);
+            if (logReply) {
+                ERR("API {} request to {} FAILED: code={}, {}, reply: {}", requestType, url.str(),
+                    r.status_code, r.error.message, reply);
+            } else {
+                // Its bodies stay at debug level, failures included
+                ERR("API {} request to {} FAILED: code={}, {}", requestType, url.str(),
+                    r.status_code, r.error.message);
+                DBG("API {} request to {} FAILED, reply: {}", requestType, url.str(), reply);
+            }
 
             if (r.status_code == 0) {
+                if (!retryNoResponse) {
+                    break; // one attempt: the server may have acted on a request it never answered
+                }
                 std::this_thread::sleep_for(1000ms);
                 continue;
             }
@@ -5325,6 +5422,17 @@ bool NetTestAccess::tableMappingsFetchQueued(Net &net)
 {
     std::scoped_lock lock(net.m_tableMappingsFetchMutex);
     return net.m_tableMappingsFetchInFlight;
+}
+
+void NetTestAccess::startWorker(Net &net)
+{
+    net.m_worker.start();
+}
+
+void NetTestAccess::setStatusAndNotify(Net &net, AuthStatus status)
+{
+    net.m_status = status;
+    net.notifyAuthStatusChanged();
 }
 
 void NetTestAccess::runSwitchMachine(

@@ -320,3 +320,68 @@ class TableMappings(object):
     def __repr__(self):
         # type: () -> str
         return "TableMappings(result={!r}, mappings={!r})".format(self.result, len(self.mappings))
+
+
+class SignatureVerdict(object):
+    """The server's signature verdict; its strings are opaque to the SDK."""
+
+    __slots__ = ("status", "accepted_version", "changed_sections", "changed_procedures")
+
+    def __init__(self, status="", accepted_version="", changed_sections=None,
+                 changed_procedures=None):
+        # type: (str, str, list | None, list | None) -> None
+        self.status = status
+        self.accepted_version = accepted_version
+        self.changed_sections = changed_sections if changed_sections is not None else []
+        self.changed_procedures = changed_procedures if changed_procedures is not None else []
+
+    def __repr__(self):
+        # type: () -> str
+        return "SignatureVerdict(status={!r}, accepted_version={!r})".format(
+            self.status, self.accepted_version
+        )
+
+
+class TableMatch(object):
+    """A copy of the answer to :meth:`GameState.match_table_mapping`.
+
+    The strings are ``""`` when absent; the mapping fields are filled only for
+    ``TableMatchResult.Mapped``, ``error_code`` and ``error_attr`` only for an
+    answer other than a 200. ``http_status`` is 0 when there was no response.
+    """
+
+    __slots__ = (
+        "http_status",
+        "error_code",
+        "error_attr",
+        "key_type",
+        "table_key",
+        "mapping_id",
+        "venue_machine",
+        "venue_machine_name",
+        "machine",
+        "machine_name",
+        "verdict",
+    )
+
+    def __init__(self, http_status=0, error_code="", error_attr="", key_type="", table_key="",
+                 mapping_id="", venue_machine="", venue_machine_name="", machine="",
+                 machine_name="", verdict=None):
+        # type: (int, str, str, str, str, str, str, str, str, str, SignatureVerdict | None) -> None
+        self.http_status = http_status
+        self.error_code = error_code
+        self.error_attr = error_attr
+        self.key_type = key_type
+        self.table_key = table_key
+        self.mapping_id = mapping_id
+        self.venue_machine = venue_machine
+        self.venue_machine_name = venue_machine_name
+        self.machine = machine
+        self.machine_name = machine_name
+        self.verdict = verdict
+
+    def __repr__(self):
+        # type: () -> str
+        return "TableMatch(http_status={!r}, venue_machine={!r}, error_code={!r})".format(
+            self.http_status, self.venue_machine, self.error_code
+        )
