@@ -22,12 +22,14 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "nfc_flash.h"
 #include <scorbit_sdk/scorbit_sdk.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <random>
 #include <string>
@@ -91,6 +93,25 @@ struct FlashNet : IoHolder, Net {
 
     void startNfcFlash(json request) override { nfcRuns.push_back(std::move(request)); }
 
+    void getProbeFlashOpen(HttpStatusCallback callback, bool startup) override
+    {
+        opens.push_back({std::move(callback), startup});
+    }
+
+    /// Answers the last open-run GET as the API would, then drains the events it raised.
+    void answerOpen(Error error, int httpStatus, const std::string &body)
+    {
+        opens.back().callback(error, httpStatus, body);
+        io.run_for(50ms);
+        io.restart();
+    }
+
+    struct Open {
+        HttpStatusCallback callback;
+        bool startup;
+    };
+    std::vector<Open> opens;
+
     void handle(const json &payload)
     {
         NetTestAccess::handleProbeFlash(*this, payload);
@@ -105,6 +126,14 @@ struct FlashNet : IoHolder, Net {
     std::vector<json> requests;
     std::vector<json> nfcRuns; ///< nfc runs handed to the SDK's own flash
 };
+
+/// The probe-flash-open 200 body: the control-channel probe_flash message, metadata and all.
+std::string openRunBody(const json &payload)
+{
+    return json {{"metadata", {{"machine", "8c1e3f2b-4a57-4d8a-9a3e-2c6f1d0b7e55"}}},
+                 {"payload", payload}}
+            .dump();
+}
 
 DeviceInfo flashesCpuAndDmd()
 {
@@ -673,4 +702,137 @@ TEST_CASE("probe_flash run ids, retry rules and backoff")
     CHECK_FALSE(parseProbeFlashDeadline("1970-01-01T00:00:00Z"));
     CHECK(parseProbeFlashDeadline("2100-12-31T23:59:59Z"));
     CHECK_FALSE(parseProbeFlashDeadline("2026-10-25"));
+}
+
+// ------------------------------- redelivery of a missed push --------------------------------
+
+TEST_CASE("The open run is asked for after auth on the startup queue, and at once on reconnect")
+{
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::requestOpenProbeFlash(net, true);
+    NetTestAccess::requestOpenProbeFlash(net, false);
+    REQUIRE(net.opens.size() == 2);
+    CHECK(net.opens[0].startup);
+    CHECK_FALSE(net.opens[1].startup);
+}
+
+TEST_CASE("A redelivered open run is handled as its push would have been")
+{
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::requestOpenProbeFlash(net, true);
+    net.answerOpen(Error::Success, 200, openRunBody(flashPayload(RUN_A, "dmd")));
+
+    REQUIRE(net.requests.size() == 1);
+    CHECK(net.requests[0].at("run_id") == RUN_A);
+    CHECK(net.requests[0].at("probe") == "dmd");
+    CHECK(net.posts.empty());
+}
+
+TEST_CASE("No open run, a failed ask or a malformed reply does nothing")
+{
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::requestOpenProbeFlash(net, false);
+    net.answerOpen(Error::Success, 204, "");
+    net.answerOpen(Error::ApiError, 0, "");
+    net.answerOpen(Error::ApiError, 503, "");
+    net.answerOpen(Error::Success, 200, "not json");
+    net.answerOpen(Error::Success, 200, R"({"metadata":{}})");
+    net.answerOpen(Error::Success, 200, R"({"payload":"nope"})");
+    CHECK(net.requests.empty());
+    CHECK(net.posts.empty());
+}
+
+TEST_CASE("A run both pushed and redelivered starts once, with no result for the copy")
+{
+    FlashNet net(flashesCpuAndDmd());
+    net.handle(flashPayload(RUN_A));
+    REQUIRE(net.requests.size() == 1);
+
+    NetTestAccess::requestOpenProbeFlash(net, false);
+    net.answerOpen(Error::Success, 200, openRunBody(flashPayload(RUN_A)));
+    CHECK(net.requests.size() == 1);
+    CHECK(net.posts.empty());
+}
+
+TEST_CASE("A redelivery of the run in progress is ignored even once it is no longer remembered")
+{
+    FlashNet net(flashesCpuAndDmd());
+    net.handle(flashPayload(RUN_A));
+    REQUIRE(net.requests.size() == 1);
+
+    // Ten other runs, each refused while RUN_A holds the unit, push RUN_A out of the seen set
+    for (int i = 0; i < 10; ++i) {
+        char id[37];
+        std::snprintf(id, sizeof id, "5c3a9e1d-0000-4000-8000-%012d", i);
+        net.handle(flashPayload(id, "dmd"));
+    }
+    const auto refused = net.posts.size();
+    REQUIRE(refused == 10);
+
+    net.handle(flashPayload(RUN_A)); // its redelivery: neither a second start nor a refusal
+    CHECK(net.requests.size() == 1);
+    CHECK(net.posts.size() == refused);
+}
+
+TEST_CASE("Before the resume starts, its run and those with undelivered results are known")
+{
+    // The resume claims its run only once the pad is found; a redelivery may come first
+    NfcStateDir state;
+    const nfc_flash::RecordStore store {{state.dir}};
+    const auto dir = store.pick();
+    REQUIRE(dir);
+    REQUIRE(store.commit(*dir, {RUN_A, "/dev/ttyACM0", 20261025091656u, SHA}));
+    REQUIRE(store.keepResult(RUN_B, R"({"status":"succeeded"})"));
+
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::setNfcStateDirs(net, {state.dir});
+    NetTestAccess::markKnownNfcRunsSeen(net);
+
+    for (const auto *run : {RUN_A, RUN_B}) {
+        NetTestAccess::requestOpenProbeFlash(net, true);
+        net.answerOpen(Error::Success, 200, openRunBody(flashPayload(run, "nfc")));
+    }
+    CHECK(net.nfcRuns.empty());
+    CHECK(net.requests.empty());
+    CHECK(net.posts.empty()); // no busy failure, no refusal: the server run stays open
+
+    // Any other run is still accepted
+    net.handle(flashPayload(RUN_C, "dmd"));
+    CHECK(net.requests.size() == 1);
+}
+
+TEST_CASE("Many undelivered results never push the recovering run out of the seen set")
+{
+    NfcStateDir state;
+    const nfc_flash::RecordStore store {{state.dir}};
+    const auto dir = store.pick();
+    REQUIRE(dir);
+    REQUIRE(store.commit(*dir, {RUN_A, "/dev/ttyACM0", 20261025091656u, SHA}));
+    for (int i = 0; i < 12; ++i) { // more than the seen set holds
+        char id[37];
+        std::snprintf(id, sizeof id, "7d4e2a9c-0000-4000-8000-%012d", i);
+        REQUIRE(store.keepResult(id, R"({"status":"failed"})"));
+    }
+
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::setNfcStateDirs(net, {state.dir});
+    NetTestAccess::markKnownNfcRunsSeen(net);
+
+    NetTestAccess::requestOpenProbeFlash(net, true);
+    net.answerOpen(Error::Success, 200, openRunBody(flashPayload(RUN_A, "nfc")));
+    CHECK(net.nfcRuns.empty());
+    CHECK(net.posts.empty());
+}
+
+TEST_CASE("A run resumed at start is ignored when redelivered")
+{
+    FlashNet net(flashesCpuAndDmd());
+    // As resumeNfcFlash does once it has claimed the run; the case of the id does not matter
+    NetTestAccess::markProbeFlashRunSeen(net, "3F2B8C1E-8D4A-4A57-9A3E-2C6F1D0B7E55");
+
+    NetTestAccess::requestOpenProbeFlash(net, true);
+    net.answerOpen(Error::Success, 200, openRunBody(flashPayload(RUN_A, "nfc")));
+    CHECK(net.requests.empty());
+    CHECK(net.nfcRuns.empty());
+    CHECK(net.posts.empty());
 }
