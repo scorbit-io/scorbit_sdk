@@ -29,6 +29,8 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
+#include <ctime>
+#include <deque>
 #include <future>
 #include <map>
 #include <memory>
@@ -1157,6 +1159,7 @@ struct MatchNet : VpinNet {
     std::vector<std::string> posted;
     std::string postedUrl;
     cpr::Response reply;
+    std::deque<cpr::Response> script; // answered first, in order, before `reply`
 
     MatchNet()
         : VpinNet(false) // the table-mappings opt-in does not gate a lookup
@@ -1167,12 +1170,53 @@ struct MatchNet : VpinNet {
                     std::scoped_lock lock(mutex);
                     postedUrl = url.str();
                     posted.push_back(body.str());
+                    if (!script.empty()) {
+                        auto next = script.front();
+                        script.pop_front();
+                        return next;
+                    }
                     return reply;
                 }});
         NetTestAccess::startWorker(*net);
     }
 
-    ~MatchNet() { net.reset(); } // before the transport's members go
+    /// The re-authentication a 401 runs inline: the token POST answers @p token. With no signer
+    /// (and no resolvers) it fails for good. No retry timer ever fires.
+    void stubAuthentication(int token, bool withSigner)
+    {
+        NetTestAccess::setAuthTransport(
+                *net,
+                {.noop =
+                         [](const cpr::Url &) {
+                             // Dated now, or authentication waits for a viable server time
+                             char date[64];
+                             const auto now = std::time(nullptr);
+                             std::tm tm {};
+#ifdef _WIN32
+                             gmtime_s(&tm, &now);
+#else
+                             gmtime_r(&now, &tm);
+#endif
+                             std::strftime(date, sizeof date, "%a, %d %b %Y %H:%M:%S GMT", &tm);
+                             return response(200, {}, {{"Date", date}});
+                         },
+                 .token = [token](const cpr::Url &, const cpr::Body &,
+                                  const cpr::Header &) { return response(token); },
+                 .centrifugoToken = [](const std::string &,
+                                       const std::string &) { return std::string {}; },
+                 .setSystemTime = [](std::int64_t) { return true; }},
+                {.start = [](AuthRetryKind, std::chrono::seconds, detail::task_t) {},
+                 .stop = [] {},
+                 .random = [] { return 0.0; }});
+        if (withSigner) {
+            NetTestAccess::setSigner(*net, [](const Digest &) { return Signature {0x01}; });
+        }
+    }
+
+    ~MatchNet()
+    {
+        net.reset();
+    } // before the transport's members go
 
     std::size_t postCount()
     {
@@ -1457,6 +1501,50 @@ TEST_CASE("A lookup that gets no response is NETWORK with no status")
     CHECK(out.result == SB_TABLE_MATCH_NETWORK);
     CHECK(out.answer.httpStatus == 0);
     CHECK(out.answer.errorCode.empty());
+    // One request: the server may have acted on one it never answered
+    CHECK(n.postCount() == 1);
+}
+
+TEST_CASE("A lookup whose 401 leaves authentication pending waits for it, then is sent again")
+{
+    MatchNet n;
+    n.stubAuthentication(503, true); // the re-authentication fails, for now
+    {
+        std::scoped_lock lock(n.mutex);
+        n.script = {response(401, errorBody("not_authenticated"))};
+        n.reply = response(200, matchBody(nullptr));
+    }
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    CHECK(n.postCount() == 1);
+    REQUIRE(NetTestAccess::status(*n.net) == AuthStatus::NotAuthenticated);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK(outcome.get().result == SB_TABLE_MATCH_MAPPED);
+    CHECK(n.postCount() == 2);
+}
+
+TEST_CASE("A lookup whose 401 ends authentication for good keeps the api's code and attr")
+{
+    MatchNet n;
+    n.stubAuthentication(503, false); // no key at all: it fails for good
+    {
+        std::scoped_lock lock(n.mutex);
+        n.reply = response(
+                401, nlohmann::json {{"type", "client_error"},
+                                     {"errors",
+                                      {{{"code", "token_not_valid"}, {"attr", "authorization"}}}}}
+                             .dump());
+    }
+    auto outcome = n.start(request());
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    const auto out = outcome.get();
+    CHECK(out.result == SB_TABLE_MATCH_NOT_AUTHENTICATED);
+    CHECK(out.answer.httpStatus == 401);
+    CHECK(out.answer.errorCode == "token_not_valid");
+    CHECK(out.answer.errorAttr == "authorization");
+    CHECK(n.postCount() == 1);
 }
 
 TEST_CASE("A lookup sends only the evidence it was given")

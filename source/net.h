@@ -556,7 +556,7 @@ private:
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
             bool includeFingerprintHash = false, bool resilientTransferTimeouts = false,
-            bool logReply = true);
+            bool logReply = true, bool retryNoResponse = true);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -705,7 +705,9 @@ private:
     void postSwitchMachine(const std::string &target,
                            std::function<void(int, const std::string &)> reply);
     /// The lookup's POST of @p body, already checked; @p callback gets its mapped result.
-    task_t createTableMatchTask(std::string body, TableMatchCallback callback);
+    /// @p reparked: this is the one re-wait on the auth gate after a 401 (see the definition).
+    task_t createTableMatchTask(std::string body, TableMatchCallback callback,
+                                bool reparked = false);
     void adoptSwitchedMachine(const std::string &target, const std::string &token,
                               MachineSwitch::Done done);
     void adoptSwitchedMachineNow(const std::string &target, const std::string &token,
