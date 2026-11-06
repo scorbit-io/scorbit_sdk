@@ -250,6 +250,41 @@ TEST_CASE("table_signature: a load inside an executed string is followed")
     CHECK(scriptReferences(tokenize("ExecuteGlobal \"Sub \" & n & \"_Hit : AddScore 10 : End Sub\"")).dynamic == 0);
 }
 
+TEST_CASE("table_signature: a literal followed by more of the argument is not a name")
+{
+    // As a statement, the parentheses only group: VPX loads rules.vbs plus a suffix
+    for (const char *script :
+         {"LoadScript (\"rules.vbs\") & suffix", "LoadScript \"rules.vbs\" & suffix",
+          "GetTextFile (\"rules.vbs\") & suffix", "LoadScript(\"rules.vbs\") + \".bak\"",
+          "x = 1\nLoadScript (\"rules.vbs\") & Version()",
+          "If a Then LoadScript (\"rules.vbs\") & s Else b = 1"}) {
+        INFO(script);
+        const auto refs = scriptReferences(tokenize(script));
+        CHECK(refs.names.empty());
+        CHECK(refs.dynamic == 1);
+    }
+    // In an expression the parentheses are the call's: what follows applies to the file's text
+    for (const char *script :
+         {"ExecuteGlobal GetTextFile(\"rules.vbs\") & vbCrLf",
+          "s = GetTextFile(\"rules.vbs\") + extra", "Call LoadScript(\"rules.vbs\")",
+          "If a Then LoadScript (\"rules.vbs\") Else LoadScript (\"rules.vbs\")"}) {
+        INFO(script);
+        const auto refs = scriptReferences(tokenize(script));
+        CHECK(refs.names == std::vector<std::string> {"rules.vbs"});
+        CHECK(refs.dynamic == 0);
+    }
+    // The rejected argument is a file name, not code: a load spelled inside it names nothing
+    const auto spelled =
+            scriptReferences(tokenize("LoadScript (\"LoadScript \"\"x.vbs\"\"\") & suffix"));
+    CHECK(spelled.names.empty());
+    CHECK(spelled.dynamic == 1);
+    // compute() refuses such a script even when the caller passed the literal's file as a helper
+    Inputs in;
+    in.script = "LoadScript (\"rules.vbs\") & suffix";
+    in.helperScripts = {{"rules.vbs", "Sub A : End Sub"}};
+    CHECK(compute(in).unavailable == kUnnamedHelper);
+}
+
 TEST_CASE("table_signature: a literal load before Else is still listed")
 {
     const auto refs = scriptReferences(
