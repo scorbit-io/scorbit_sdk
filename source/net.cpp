@@ -2103,11 +2103,12 @@ void Net::markKnownNfcRunsSeen()
 {
     try {
         const auto store = nfcResultStore();
-        if (const auto pending = store.load()) {
-            markProbeFlashRunSeen(pending->second.runId); // the run the resume will take up
-        }
         for (const auto &kept : store.pendingResults()) {
             markProbeFlashRunSeen(kept.runId); // finished, its result not yet delivered
+        }
+        // Last, so no number of kept results can push it out of the bounded seen set
+        if (const auto pending = store.load()) {
+            markProbeFlashRunSeen(pending->second.runId); // the run the resume will take up
         }
     } catch (const std::exception &e) {
         WRN("NFC flash: earlier runs not read, a redelivery of one is not recognised: {}",

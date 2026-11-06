@@ -801,6 +801,29 @@ TEST_CASE("Before the resume starts, its run and those with undelivered results 
     CHECK(net.requests.size() == 1);
 }
 
+TEST_CASE("Many undelivered results never push the recovering run out of the seen set")
+{
+    NfcStateDir state;
+    const nfc_flash::RecordStore store {{state.dir}};
+    const auto dir = store.pick();
+    REQUIRE(dir);
+    REQUIRE(store.commit(*dir, {RUN_A, "/dev/ttyACM0", 20261025091656u, SHA}));
+    for (int i = 0; i < 12; ++i) { // more than the seen set holds
+        char id[37];
+        std::snprintf(id, sizeof id, "7d4e2a9c-0000-4000-8000-%012d", i);
+        REQUIRE(store.keepResult(id, R"({"status":"failed"})"));
+    }
+
+    FlashNet net(flashesCpuAndDmd());
+    NetTestAccess::setNfcStateDirs(net, {state.dir});
+    NetTestAccess::markKnownNfcRunsSeen(net);
+
+    NetTestAccess::requestOpenProbeFlash(net, true);
+    net.answerOpen(Error::Success, 200, openRunBody(flashPayload(RUN_A, "nfc")));
+    CHECK(net.nfcRuns.empty());
+    CHECK(net.posts.empty());
+}
+
 TEST_CASE("A run resumed at start is ignored when redelivered")
 {
     FlashNet net(flashesCpuAndDmd());
