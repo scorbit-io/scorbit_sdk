@@ -333,9 +333,10 @@ bool sb_realtime_connected(sb_game_handle_t handle);
 /**
  * @brief Seconds since the last REST call that got a 2xx or 304 answer, on a monotonic clock.
  *
- * REST calls here and in @ref sb_rest_transport_failures are every request to the Scorbit API,
- * the realtime token's included. File and artwork downloads, which may be served from other hosts,
- * are not.
+ * REST calls here and in @ref sb_rest_transport_failures are the requests to the Scorbit API that
+ * authenticate the device and use its session, the realtime token's included. Not counted:
+ * soft-key provisioning, which runs only while the device has no identity yet, and file and
+ * artwork downloads, which may be served from other hosts.
  * @param handle The game handle created by @ref sb_create_game_state.
  * @return The seconds, or -1 if no REST call has succeeded yet.
  */
