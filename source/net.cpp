@@ -653,6 +653,14 @@ Net::~Net()
     // Drains all queued handlers while Transport is still alive.
     m_worker.stop();
 
+    // A request that parked on the auth gate after the wake-up above is still here. Its strand
+    // executor must go while the worker's io_context lives: m_authGateWaiters is declared before
+    // m_worker, so member destruction would free it after the context, which crashed.
+    {
+        std::scoped_lock lock(m_authGateMutex);
+        m_authGateWaiters.clear();
+    }
+
     // A probe flash result still waiting for its retry gets a final answer, so its host can keep
     // it for replay instead of losing it with this object.
     finishPendingProbeFlashResults();
