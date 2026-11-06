@@ -273,6 +273,11 @@ TEST_CASE("table_signature: a literal followed by more of the argument is not a 
         CHECK(refs.names == std::vector<std::string> {"rules.vbs"});
         CHECK(refs.dynamic == 0);
     }
+    // The rejected argument is a file name, not code: a load spelled inside it names nothing
+    const auto spelled =
+            scriptReferences(tokenize("LoadScript (\"LoadScript \"\"x.vbs\"\"\") & suffix"));
+    CHECK(spelled.names.empty());
+    CHECK(spelled.dynamic == 1);
     // compute() refuses such a script even when the caller passed the literal's file as a helper
     Inputs in;
     in.script = "LoadScript (\"rules.vbs\") & suffix";

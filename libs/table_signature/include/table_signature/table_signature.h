@@ -625,6 +625,9 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
         }
         // A name is literal only when the string literal is the whole argument
         bool literal = j < tokens.size() && tokens[j].size() >= 2 && tokens[j].front() == '"';
+        if (literal) {
+            arguments.insert(j); // part of a file name either way, never code to scan
+        }
         if (literal && parenthesised) {
             literal = j + 1 < tokens.size() && tokens[j + 1] == ")"
                    && (!statement || endsStatement(j + 2));
@@ -635,7 +638,6 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
             out.dynamic++;
             continue;
         }
-        arguments.insert(j);
         std::string name;
         const auto &t = tokens[j];
         for (size_t k = 1; k + 1 < t.size(); k++) {
