@@ -1525,6 +1525,32 @@ TEST_CASE("A lookup whose 401 leaves authentication pending waits for it, then i
     CHECK(n.postCount() == 2);
 }
 
+TEST_CASE("A lookup keeps waiting through a second 401 while its first wait has not expired")
+{
+    MatchNet n;
+    n.stubAuthentication(503, true); // every re-authentication fails, for now
+    {
+        std::scoped_lock lock(n.mutex);
+        n.script = {response(401, errorBody("not_authenticated")),
+                    response(401, errorBody("not_authenticated"))};
+        n.reply = response(200, matchBody(nullptr));
+    }
+    auto outcome = n.start(request());
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    REQUIRE(n.postCount() == 1);
+
+    // Authentication completes; the lookup is sent again and meets a second 401
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    CHECK(outcome.wait_for(std::chrono::milliseconds(500)) == std::future_status::timeout);
+    REQUIRE(n.postCount() == 2);
+    REQUIRE(NetTestAccess::status(*n.net) == AuthStatus::NotAuthenticated);
+
+    NetTestAccess::setStatusAndNotify(*n.net, AuthStatus::AuthenticatedPaired);
+    REQUIRE(outcome.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+    CHECK(outcome.get().result == SB_TABLE_MATCH_MAPPED);
+    CHECK(n.postCount() == 3);
+}
+
 TEST_CASE("A lookup whose 401 ends authentication for good keeps the api's code and attr")
 {
     MatchNet n;

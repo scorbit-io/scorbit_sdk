@@ -4710,16 +4710,20 @@ void Net::matchTableMapping(TableMatchRequestData request, TableMatchCallback ca
     m_worker.post(createTableMatchTask(std::move(*body), std::move(callback)));
 }
 
-task_t Net::createTableMatchTask(std::string body, TableMatchCallback callback, bool reparked)
+task_t Net::createTableMatchTask(std::string body, TableMatchCallback callback,
+                                 std::optional<std::chrono::steady_clock::time_point> waitUntil)
 {
-    auto reply = [this, body, callback, reparked](Error error, int httpStatus,
-                                                  const std::string &text) {
+    auto reply = [this, body, callback, waitUntil](Error error, int httpStatus,
+                                                   const std::string &text) {
         // A 401 re-authenticates inline; if that failed only for now, authentication is still
-        // pending and the lookup waits on the gate again, once, under the gate's own deadline.
-        if (!m_stop && !reparked && error == Error::NotPaired && httpStatus == 401
+        // pending and the lookup waits on the gate again. Every such wait shares one deadline,
+        // the gate's own from the first, so a server that keeps answering 401 cannot hold it.
+        const auto now = std::chrono::steady_clock::now();
+        const auto until = waitUntil.value_or(now + AUTH_GATE_TIMEOUT);
+        if (!m_stop && now < until && error == Error::NotPaired && httpStatus == 401
             && (m_status == AuthStatus::NotAuthenticated
                 || m_status == AuthStatus::Authenticating)) {
-            m_worker.post(createTableMatchTask(body, callback, true));
+            m_worker.post(createTableMatchTask(body, callback, until));
             return;
         }
 

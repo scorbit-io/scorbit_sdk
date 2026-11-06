@@ -705,9 +705,11 @@ private:
     void postSwitchMachine(const std::string &target,
                            std::function<void(int, const std::string &)> reply);
     /// The lookup's POST of @p body, already checked; @p callback gets its mapped result.
-    /// @p reparked: this is the one re-wait on the auth gate after a 401 (see the definition).
-    task_t createTableMatchTask(std::string body, TableMatchCallback callback,
-                                bool reparked = false);
+    /// @p waitUntil: set by the first re-wait on the auth gate after a 401, and carried across the
+    /// later ones, so none starts once it has passed (see the definition).
+    task_t createTableMatchTask(
+            std::string body, TableMatchCallback callback,
+            std::optional<std::chrono::steady_clock::time_point> waitUntil = std::nullopt);
     void adoptSwitchedMachine(const std::string &target, const std::string &token,
                               MachineSwitch::Done done);
     void adoptSwitchedMachineNow(const std::string &target, const std::string &token,
