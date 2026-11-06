@@ -608,20 +608,36 @@ inline auto scriptReferences(const std::vector<std::string> &tokens, int depth =
             || (i + 1 < tokens.size() && tokens[i + 1] == "=")) {
             continue;
         }
+        // The statement's end, or a single-line If's ':' or Else
+        auto endsStatement = [&](size_t k) {
+            return k >= tokens.size() || tokens[k] == std::string(1, kStatementSep)
+                || tokens[k] == std::string(1, kLineIfSep) || tokens[k] == "else";
+        };
+        // As a statement, LoadScript ("x") & y passes the whole ("x") & y: its parentheses only
+        // group. In an expression they are the call's own, and what follows applies to the result.
+        const bool statement = i == 0 || tokens[i - 1] == std::string(1, kStatementSep)
+                            || tokens[i - 1] == std::string(1, kLineIfSep)
+                            || tokens[i - 1] == "then" || tokens[i - 1] == "else";
         size_t j = i + 1;
-        if (j < tokens.size() && tokens[j] == "(") {
+        const bool parenthesised = j < tokens.size() && tokens[j] == "(";
+        if (parenthesised) {
             j++;
         }
-        // A literal argument ends the call: ")", the statement's end, or a single-line If's ':' or Else
-        const bool literal = j < tokens.size() && tokens[j].size() >= 2 && tokens[j].front() == '"'
-                             && (j + 1 == tokens.size() || tokens[j + 1] == ")"
-                                 || tokens[j + 1] == std::string(1, kStatementSep)
-                                 || tokens[j + 1] == std::string(1, kLineIfSep) || tokens[j + 1] == "else");
+        // A name is literal only when the string literal is the whole argument
+        bool literal = j < tokens.size() && tokens[j].size() >= 2 && tokens[j].front() == '"';
+        if (literal) {
+            arguments.insert(j); // part of a file name either way, never code to scan
+        }
+        if (literal && parenthesised) {
+            literal = j + 1 < tokens.size() && tokens[j + 1] == ")"
+                   && (!statement || endsStatement(j + 2));
+        } else if (literal) {
+            literal = endsStatement(j + 1);
+        }
         if (!literal) {
             out.dynamic++;
             continue;
         }
-        arguments.insert(j);
         std::string name;
         const auto &t = tokens[j];
         for (size_t k = 1; k + 1 < t.size(); k++) {
