@@ -46,6 +46,7 @@ OUT_OF_SCOPE = {
     "refreshTableMappings": "VPIN host plumbing",
     "venueMachine": "VPIN host plumbing",
     "switchMachine": "VPIN host plumbing",
+    "matchTableMapping": "VPIN host plumbing",
     "realtimeConnected": "host connectivity: the daemon reports offline, not the table",
     "secondsSinceRestSuccess": "host connectivity",
     "restTransportFailures": "host connectivity",

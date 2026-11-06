@@ -186,6 +186,13 @@ struct JobSwitchMachine {
     void *user_data;
 };
 
+struct JobMatchTableMapping {
+    sb_game_state_struct *h;
+    sb_table_match_request_struct request;
+    sb_table_match_callback_t callback;
+    void *user_data;
+};
+
 struct JobSetProbeFirmware {
     sb_game_state_struct *h;
     std::string probe;
@@ -283,8 +290,8 @@ using ApiQueueItem =
                      JobSetModeCompleted, JobAddEvent, JobRunOnDispatcher, JobTickModeExpiries,
                      JobRemoveMode, JobClearModes, JobCommit, JobRequestTopScores,
                      JobRequestPairCode, JobRequestUnpair, JobSetCapabilities, JobPairMachine,
-                     JobSwitchMachine, JobCreditsDropped, JobCreditsStatus, JobDownload,
-                     JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
+                     JobSwitchMachine, JobMatchTableMapping, JobCreditsDropped, JobCreditsStatus,
+                     JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
                      JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
                      JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
 
@@ -425,6 +432,17 @@ void dispatchApiJob(ApiQueueItem &&item)
                                                              cb(result, venuemachine.c_str(), ud);
                                                          }
                                                      });
+                    },
+                    [](JobMatchTableMapping &&j) {
+                        j.h->gameState.matchTableMapping(
+                                std::move(j.request),
+                                [cb = j.callback, ud = j.user_data](sb_table_match_result_t result,
+                                                                    const TableMatchAnswer &match) {
+                                    if (cb) {
+                                        // The accessors only read it.
+                                        cb(result, const_cast<TableMatchAnswer *>(&match), ud);
+                                    }
+                                });
                     },
                     [](JobCreditsDropped &&j) {
                         j.h->gameState.setCreditsDropped(j.credits, j.transaction, j.success);
@@ -755,6 +773,19 @@ void sb_switch_machine(sb_game_handle_t handle, const char *venuemachine_uuid,
                        sb_switch_machine_callback_t callback, void *user_data)
 {
     handle->postApiJob(JobSwitchMachine {handle, copyCStr(venuemachine_uuid), callback, user_data});
+}
+
+void sb_match_table_mapping(sb_game_handle_t handle, sb_table_match_request_t request,
+                            sb_table_match_callback_t callback, void *user_data)
+{
+    sb_table_match_request_struct copy;
+    if (request) {
+        copy = *request;
+    } else {
+        copy.signaturesJson =
+                std::string {}; // refused as invalid, like signatures that are not JSON
+    }
+    handle->postApiJob(JobMatchTableMapping {handle, std::move(copy), callback, user_data});
 }
 
 void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool present,

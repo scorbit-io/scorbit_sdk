@@ -297,6 +297,14 @@ public:
             callback(SB_SWITCH_MACHINE_FAILED, venueMachine);
         }
     }
+    /// Looks up which VenueMachine a table maps to (sb_match_table_mapping).
+    virtual void matchTableMapping(TableMatchRequestData request, TableMatchCallback callback)
+    {
+        (void)request;
+        if (callback) {
+            callback(SB_TABLE_MATCH_FAILED, TableMatchAnswer {});
+        }
+    }
 
     void setNumberOfPlayersRequested(int count) { m_numberOfPlayersRequested = count; }
     int numberOfPlayersRequested() const { return m_numberOfPlayersRequested.load(); }

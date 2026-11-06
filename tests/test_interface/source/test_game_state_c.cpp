@@ -319,3 +319,105 @@ TEST_CASE("sb_switch_machine before authentication is refused through the callba
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);
 }
+
+TEST_CASE("The table-match request and answer accept NULL", "[GameState][Vpin]")
+{
+    sb_table_match_request_free(nullptr);
+    sb_table_match_request_set_key(nullptr, "rom", "mm_109c");
+    sb_table_match_request_set_firmware_id(nullptr, "fw");
+    sb_table_match_request_set_signatures_json(nullptr, "[]");
+    sb_table_match_request_set_signature_unavailable(nullptr, "table_unreadable");
+
+    sb_table_match_request_t r = sb_table_match_request_create();
+    REQUIRE(r != nullptr);
+    sb_table_match_request_set_key(r, nullptr, nullptr);
+    sb_table_match_request_set_firmware_id(r, nullptr);
+    sb_table_match_request_set_signatures_json(r, nullptr);
+    sb_table_match_request_set_signature_unavailable(r, nullptr);
+    sb_table_match_request_free(r);
+
+    CHECK(sb_table_match_http_status(nullptr) == 0);
+    CHECK(std::string {sb_table_match_error_code(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_error_attr(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_key_type(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_table_key(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_mapping_id(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_venuemachine(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_venuemachine_name(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_machine(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_machine_name(nullptr)}.empty());
+    CHECK_FALSE(sb_table_match_has_verdict(nullptr));
+    CHECK(std::string {sb_table_match_verdict_status(nullptr)}.empty());
+    CHECK(std::string {sb_table_match_verdict_accepted_version(nullptr)}.empty());
+    CHECK(sb_table_match_verdict_changed_sections_count(nullptr) == 0);
+    CHECK(std::string {sb_table_match_verdict_changed_section(nullptr, 0)}.empty());
+    CHECK(sb_table_match_verdict_changed_procedures_count(nullptr) == 0);
+    CHECK(std::string {sb_table_match_verdict_changed_procedure(nullptr, 0)}.empty());
+}
+
+TEST_CASE("sb_match_table_mapping refuses a bad request through the callback, from a copy",
+          "[GameState][Vpin]")
+{
+    sb_config_t cfg = makeSignerConfig();
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    struct Seen {
+        std::atomic<int> calls {0};
+        std::atomic<int> result {-1};
+        std::atomic<int> httpStatus {-1};
+        std::string errorCode {"unset"};
+        std::string venueMachine {"unset"};
+        bool hasVerdict {true};
+        std::thread::id thread;
+    };
+
+    auto wait = [](Seen &seen) {
+        for (int i = 0; i < 200 && seen.calls == 0; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    };
+    const auto callback = [](sb_table_match_result_t result, sb_table_match_t match,
+                             void *userData) {
+        auto *s = static_cast<Seen *>(userData);
+        s->httpStatus = sb_table_match_http_status(match);
+        s->errorCode = sb_table_match_error_code(match);
+        s->venueMachine = sb_table_match_venuemachine(match);
+        s->hasVerdict = sb_table_match_has_verdict(match);
+        s->thread = std::this_thread::get_id();
+        s->result = result;
+        ++s->calls;
+    };
+
+    SECTION("both kinds of evidence, the request freed before the answer")
+    {
+        Seen seen;
+        sb_table_match_request_t r = sb_table_match_request_create();
+        sb_table_match_request_set_key(r, "script_id", "6a0d1f7e-2b9c-4e8a-9d3f-1c2b3a4d5e6f");
+        sb_table_match_request_set_signatures_json(r, R"([{"version":1}])");
+        sb_table_match_request_set_signature_unavailable(r, "table_unreadable");
+        sb_match_table_mapping(h, r, callback, &seen);
+        sb_table_match_request_free(r);
+
+        wait(seen);
+        REQUIRE(seen.calls == 1);
+        CHECK(seen.result == SB_TABLE_MATCH_INVALID);
+        CHECK(seen.httpStatus == 0);
+        CHECK(seen.errorCode.empty());
+        CHECK(seen.venueMachine.empty());
+        CHECK_FALSE(seen.hasVerdict);
+        CHECK(seen.thread != std::this_thread::get_id());
+    }
+
+    SECTION("no request at all")
+    {
+        Seen seen;
+        sb_match_table_mapping(h, nullptr, callback, &seen);
+        wait(seen);
+        REQUIRE(seen.calls == 1);
+        CHECK(seen.result == SB_TABLE_MATCH_INVALID);
+    }
+
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+}

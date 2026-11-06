@@ -513,6 +513,32 @@ void sb_switch_machine(sb_game_handle_t handle, const char *venuemachine_uuid,
                        sb_switch_machine_callback_t callback, void *user_data);
 
 /**
+ * @brief Ask the server which VPIN machine a table maps to, without blocking.
+ *
+ * A lookup only: the SDK sends one request per call and never retries, caches, switches, raises
+ * an event or touches the table mappings. Calls run concurrently and each gets its own callback.
+ * To move to the answer's machine, pass @ref sb_table_match_venuemachine to
+ * @ref sb_switch_machine.
+ *
+ * Refused at once with @ref SB_TABLE_MATCH_INVALID, without sending anything, when @p request
+ * carries both signatures and a reason they are unavailable, when its signatures are not a
+ * non-empty JSON array, or when it is NULL. A call made before the device has a session with the
+ * server waits for one, and is answered @ref SB_TABLE_MATCH_NOT_AUTHENTICATED only if
+ * authentication fails for good or the wait times out.
+ *
+ * Works whether or not table-mapping reads are enabled. Neither the request nor the reply body
+ * is logged above debug level.
+ *
+ * @param handle The game handle created using @ref sb_create_game_state.
+ * @param request The request; copied, so it may be freed as soon as this returns.
+ * @param callback Receives the result; see @ref sb_table_match_callback_t. May be NULL.
+ * @param user_data Optional user data passed to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_match_table_mapping(sb_game_handle_t handle, sb_table_match_request_t request,
+                            sb_table_match_callback_t callback, void *user_data);
+
+/**
  * @brief Request a pairing short code (6 alphanumeric characters).
  *
  * Requests a pairing short code from the server. The short code is used to pair the device with

@@ -697,5 +697,10 @@ void GameStateImpl::switchMachine(const std::string &venueMachine, MachineSwitch
     m_net->switchMachine(venueMachine, std::move(callback));
 }
 
+void GameStateImpl::matchTableMapping(TableMatchRequestData request, TableMatchCallback callback)
+{
+    m_net->matchTableMapping(std::move(request), std::move(callback));
+}
+
 } // namespace detail
 } // namespace scorbit

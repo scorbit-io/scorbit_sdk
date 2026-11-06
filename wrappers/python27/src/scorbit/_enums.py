@@ -131,6 +131,35 @@ class SwitchMachineResult(IntEnum):
     Failed = 11
 
 
+class TableMatchResult(IntEnum):
+    """How a :meth:`GameState.match_table_mapping` call ended (append-only)."""
+
+    Mapped = 0
+    """The mapping and its target are filled."""
+
+    NeedsMapping = 1
+    """409 venuemachine_needed: map the table first."""
+
+    UnknownRom = 2
+    UnknownSignature = 3
+    SignatureTooLarge = 4
+
+    Invalid = 5
+    """Any 400, or refused before sending: both kinds of evidence, or bad signatures."""
+
+    NotVpinDevice = 6
+    NoOwner = 7
+
+    NotAuthenticated = 8
+    """Authentication failed for good, or its wait ended."""
+
+    Network = 9
+    """No response, timeout, 5xx or 429."""
+
+    Failed = 10
+    """Anything else: a malformed 200, an unknown 4xx, or an api without the route."""
+
+
 class Capability(object):
     """Device capability flags (combine with bitwise OR).
 

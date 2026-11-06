@@ -63,6 +63,9 @@ digest rather than a failure.
 
 The one input with no signature is a script that loads a helper by a name that is not a literal
 (`GetTextFile(name)`, `LoadScript name`): an edit to that helper could not change the digest.
+A name is a literal only when the string is the whole argument. As a statement, `LoadScript
+("x.vbs") & suffix` passes `("x.vbs") & suffix`, since its parentheses only group, so it is not a
+literal; in an expression, `GetTextFile("x.vbs") & vbCrLf` names `x.vbs`.
 `compute` finds such loads itself, in the script and in every helper passed in, so a caller's
 `dynamicLoads` count can only add to them. A string literal that mentions `LoadScript` or `GetTextFile` may be
 executed (`ExecuteGlobal "LoadScript ""x.vbs"""`), so its contents are scanned as code, three

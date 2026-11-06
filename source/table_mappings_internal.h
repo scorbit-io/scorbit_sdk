@@ -41,13 +41,59 @@ struct sb_table_mappings_struct {
     std::vector<Row> rows;
 };
 
+/// The C request builder; copied whole when a lookup is started.
+struct sb_table_match_request_struct {
+    std::string keyType;
+    std::string tableKey;
+    std::string firmwareId;
+    std::optional<std::string> signaturesJson;
+    std::optional<std::string> signatureUnavailable;
+};
+
+/// The answer a lookup's callback reads.
+struct sb_table_match_struct {
+    int httpStatus {0};
+    std::string errorCode;
+    std::string errorAttr;
+    std::string keyType;
+    std::string tableKey;
+    std::string mappingId;
+    std::string venueMachine;
+    std::string venueMachineName;
+    std::string machine;
+    std::string machineName;
+    bool hasVerdict {false};
+    std::string verdictStatus;
+    std::string verdictAcceptedVersion;
+    std::vector<std::string> changedSections;
+    std::vector<std::string> changedProcedures;
+};
+
 namespace scorbit {
 namespace detail {
 
 using TableMappingsSnapshot = sb_table_mappings_struct;
+using TableMatchRequestData = sb_table_match_request_struct;
+using TableMatchAnswer = sb_table_match_struct;
+/// Receives a lookup's result and its answer, which is valid only during the call.
+using TableMatchCallback = std::function<void(sb_table_match_result_t, const TableMatchAnswer &)>;
 
 /// errors[0].code of the api's error envelope, or "" when the body carries none.
 std::string apiErrorCode(const std::string &body);
+
+/// errors[0].attr of the api's error envelope, or "" when it is null or absent.
+std::string apiErrorAttr(const std::string &body);
+
+/// The JSON body of a table-mapping lookup, the caller's signatures text spliced in as it is;
+/// nullopt when the request must be refused (both kinds of evidence, or signatures that are not
+/// a non-empty JSON array).
+std::optional<std::string> tableMatchBody(const TableMatchRequestData &request);
+
+/// The mapping, target and verdict of a 200 lookup body; nullopt when it is malformed.
+std::optional<TableMatchAnswer> parseTableMatch(const std::string &body);
+
+/// The result for a lookup reply other than a 200, with @p httpStatus (0: no response).
+sb_table_match_result_t tableMatchFailure(int httpStatus, const std::string &body);
 
 /// The rows and server_time of a 200 table-mappings body; nullopt when it is malformed.
 std::optional<TableMappingsSnapshot> parseTableMappings(const std::string &body);

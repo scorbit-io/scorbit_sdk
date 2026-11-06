@@ -256,7 +256,7 @@ struct NetTestAccess {
     /// The tournament session @p sessionId has cached for @p player's score.
     static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
 
-    /// Stands in for the table-mappings GET and the switch-machine POST.
+    /// Stands in for the table-mappings GET, and the switch-machine and table-lookup POSTs.
     struct VpinTransport {
         std::function<cpr::Response(const cpr::Url &, const cpr::Header &)> get;
         std::function<cpr::Response(const cpr::Url &, const cpr::Body &, const cpr::Header &)> post;
@@ -269,6 +269,11 @@ struct NetTestAccess {
     static void fetchTableMappingsNow(Net &net);
     /// Whether a mappings read is in flight or queued (the re-read a reply started).
     static bool tableMappingsFetchQueued(Net &net);
+    /// Starts @p net's worker, which a test Net never starts, so posted work and parked requests
+    /// run as in production.
+    static void startWorker(Net &net);
+    /// Sets the auth status to @p status and re-evaluates every request parked on the gate.
+    static void setStatusAndNotify(Net &net, AuthStatus status);
     /// Wires @p net's switch steps up to its own production code, except @p adopt, which stands in
     /// for adopting the token and refreshing the context.
     static void runSwitchMachine(
@@ -457,6 +462,7 @@ public:
     TableMappingsSnapshot tableMappings() const override;
     void refreshTableMappings() override;
     void switchMachine(const std::string &venueMachine, MachineSwitch::Callback callback) override;
+    void matchTableMapping(TableMatchRequestData request, TableMatchCallback callback) override;
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback = {}) override;
 
@@ -558,7 +564,7 @@ private:
             HttpMethodT httpMethod,
             std::vector<AuthStatus> allowedStatuses = {AuthStatus::AuthenticatedPaired},
             bool includeFingerprintHash = false, bool resilientTransferTimeouts = false,
-            bool logReply = true);
+            bool logReply = true, bool retryNoResponse = true);
 
     // Specialized methods for different HTTP methods
     task_t createGetRequestTask(StringCallback replyCallback, deferred_get_setup_t deferredSetup,
@@ -706,6 +712,12 @@ private:
                                    std::function<void(int, const std::string &)> reply);
     void postSwitchMachine(const std::string &target,
                            std::function<void(int, const std::string &)> reply);
+    /// The lookup's POST of @p body, already checked; @p callback gets its mapped result.
+    /// @p waitUntil: set by the first re-wait on the auth gate after a 401, and carried across the
+    /// later ones, so none starts once it has passed (see the definition).
+    task_t createTableMatchTask(
+            std::string body, TableMatchCallback callback,
+            std::optional<std::chrono::steady_clock::time_point> waitUntil = std::nullopt);
     void adoptSwitchedMachine(const std::string &target, const std::string &token,
                               MachineSwitch::Done done);
     void adoptSwitchedMachineNow(const std::string &target, const std::string &token,
