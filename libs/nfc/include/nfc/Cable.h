@@ -45,6 +45,8 @@
 #endif
 #endif
 
+namespace spb::sdk {
+
 class ProbeCable
 {
     public:
@@ -90,7 +92,7 @@ class SerialCable : public ProbeCable
     int hSerial = -1;
     #endif
     #if defined(__linux__)
-    nfc::LinuxCdcBulk usbCdc;
+    LinuxCdcBulk usbCdc;
     #endif
 
     public:
@@ -280,7 +282,7 @@ class SerialCable : public ProbeCable
                 if (Initialize("/dev/ttyACM" + std::to_string(iDevice)))
                     return true;
                 int usbIndex = 0;
-                for (const auto& device : nfc::listUsbDevices())
+                for (const auto& device : listUsbDevices())
                 {
                     if (device.rfind("usb:", 0) != 0)
                         continue;
@@ -301,7 +303,7 @@ class SerialCable : public ProbeCable
                 return true;
             }
             int usbIndex = 0;
-            for (const auto& device : nfc::listUsbDevices())
+            for (const auto& device : listUsbDevices())
             {
                 if (device.rfind("usb:", 0) != 0)
                     continue;
@@ -551,3 +553,5 @@ class SerialCable : public ProbeCable
         return bCrcOk;
     }
 };
+
+} // namespace spb::sdk

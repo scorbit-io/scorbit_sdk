@@ -38,7 +38,7 @@
 #include "LinuxCdcBulk.h"
 #endif
 
-namespace nfc { // not global: a host may define its own CdcTpm (SB-6100)
+namespace spb::sdk {
 
 class CdcTpm
 {
@@ -365,4 +365,4 @@ class CdcTpm
     }
 };
 
-} // namespace nfc
+} // namespace spb::sdk

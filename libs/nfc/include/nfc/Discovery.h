@@ -43,6 +43,8 @@
 #include <string_view>
 #include "Util.h"
 
+namespace spb::sdk {
+
 class NetworkDiscovery
 {
     private:
@@ -674,3 +676,4 @@ class NetworkDiscovery
     std::atomic<SocketHandle> m_ListenSocket;
 };
 
+} // namespace spb::sdk
