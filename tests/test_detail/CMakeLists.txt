@@ -148,6 +148,7 @@ target_sources(
         ../../source/competitions/message_outbox.cpp
         ../../source/competitions/competition_service.h
         ../../source/competitions/competition_service.cpp
+        source/test_competitions.cpp
         source/test_achievement_proximity.cpp
         source/test_achievement_tracker.cpp
         source/test_achievement_reporting.cpp
