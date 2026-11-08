@@ -171,6 +171,8 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
+        ../../source/utils/durable_file.h
+        ../../source/utils/durable_file.cpp
         ../../source/nfc_flash.h
         ../../source/nfc_flash.cpp
         ../../source/nfc_flash_pad.h
