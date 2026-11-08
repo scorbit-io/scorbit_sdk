@@ -3021,13 +3021,17 @@ void Net::setCompetitionGoalCallback(CompetitionGoalCallback callback)
     m_competitionGoalCallback = std::move(callback);
 }
 
+void Net::setSessionPlayersCallback(SessionPlayersCallback callback)
+{
+    std::scoped_lock lock(m_sessionPlayersCallbackMutex);
+    m_sessionPlayersCallback = std::move(callback);
+}
+
 void Net::handleCompetitionGoal(const json &payload)
 {
-    std::string error;
-    auto goal = competitions::parseGoal(payload, error);
-    if (!goal) {
-        // Refused whole, never installed with a part skipped. Whatever names it is passed on.
-        WRN("API-CF competition.goal refused: {}", error);
+    // Refused whole, never installed with a part skipped. Whatever names it is passed on.
+    auto refuse = [&](const std::string &reason) {
+        WRN("API-CF competition.goal refused: {}", reason);
         auto text = [&](const char *key) {
             const auto it = payload.is_object() ? payload.find(key) : payload.end();
             return it != payload.end() && it->is_string() ? it->get<std::string>()
@@ -3038,7 +3042,13 @@ void Net::handleCompetitionGoal(const json &payload)
                 false, text("attempt"), text("player"),
                 position != payload.end() && position->is_number_integer() ? position->get<int>()
                                                                            : 0,
-                error));
+                reason));
+    };
+
+    std::string error;
+    auto goal = competitions::parseGoal(payload, error);
+    if (!goal) {
+        refuse(error);
         return;
     }
 
@@ -3047,7 +3057,7 @@ void Net::handleCompetitionGoal(const json &payload)
     if (m_competitionGoalCallback) {
         m_competitionGoalCallback(std::move(*goal));
     } else {
-        WRN("API-CF competition.goal dropped: nothing installs it");
+        refuse("nothing installs competition goals");
     }
 }
 
@@ -6481,6 +6491,29 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     if (gameSession.machine && gameSession.machine->machineUuid != live) {
         return;
     }
+
+    // Competition starts are decided from this session's own seats, never from the shared
+    // profiles, which a reply for another session may rewrite meanwhile
+    if (!gameSession.sessionUuid.empty() && val.is_array()) {
+        SessionSeats seats;
+        for (const auto &obj : val) {
+            const auto position = obj.is_object() ? obj.find(JKEY_SCR_POSITION) : obj.end();
+            const auto player = obj.is_object() ? obj.find(JKEY_SCR_PLAYER) : obj.end();
+            if (position == obj.end() || !position->is_number_unsigned() || player == obj.end()
+                || !player->is_object()) {
+                continue;
+            }
+            if (const auto id = player->find(JKEY_PLAYER_ID);
+                id != player->end() && id->is_string()) {
+                seats.emplace(position->get<sb_player_t>(), id->get<std::string>());
+            }
+        }
+        std::scoped_lock lock(m_sessionPlayersCallbackMutex);
+        if (m_sessionPlayersCallback) {
+            m_sessionPlayersCallback(gameSession.sessionUuid, std::move(seats));
+        }
+    }
+
     if (auto changedProfiles = m_playersManager.setProfiles(val, live)) {
         {
             std::scoped_lock lock(m_playersChangedCallbackMutex);

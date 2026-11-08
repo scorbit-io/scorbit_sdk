@@ -40,6 +40,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <map>
 
 namespace spb {
 class ProbesManager;
@@ -76,6 +77,13 @@ using ApiReplyCallback = std::function<void(ApiReply reply)>;
 
 /** Called with each `competition.goal` that parsed. */
 using CompetitionGoalCallback = std::function<void(competitions::CompetitionGoal goal)>;
+
+/** Who holds which slot of one session: position → user uuid, claimed slots only. */
+using SessionSeats = std::map<sb_player_t, std::string>;
+
+/** Called with the seats every session reply carries, under that session's uuid. */
+using SessionPlayersCallback =
+        std::function<void(const std::string &sessionUuid, SessionSeats seats)>;
 
 class NetBase
 {
@@ -284,6 +292,12 @@ public:
      * One that didn't is refused by the network layer, which raises the event itself.
      */
     virtual void setCompetitionGoalCallback(CompetitionGoalCallback callback) { (void)callback; }
+
+    /**
+     * @p callback is invoked from a network thread with the seats of each session reply that
+     * carries them, whether or not they changed the machine's profiles.
+     */
+    virtual void setSessionPlayersCallback(SessionPlayersCallback callback) { (void)callback; }
 
     /** `POST competitions/goal-installed/` or `.../attempt-started/` with the JSON @p body. */
     virtual void postCompetitionMessage(competitions::MessageKind kind, std::string body,

@@ -483,6 +483,7 @@ public:
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
     void setCompetitionGoalCallback(CompetitionGoalCallback callback) override;
+    void setSessionPlayersCallback(SessionPlayersCallback callback) override;
     void postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                 ApiReplyCallback callback) override;
     void scheduleCompetitionRetry(std::chrono::steady_clock::duration delay,
@@ -1133,6 +1134,8 @@ private:
     std::mutex m_tokenRefreshedCallbackMutex;
     CompetitionGoalCallback m_competitionGoalCallback;
     std::mutex m_competitionGoalCallbackMutex;
+    SessionPlayersCallback m_sessionPlayersCallback;
+    std::mutex m_sessionPlayersCallbackMutex;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

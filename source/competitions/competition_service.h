@@ -44,11 +44,17 @@ const std::string &bootId();
  *
  * - A goal is saved durably before `goal_installed` is sent. A repeated delivery of an attempt
  *   changes nothing; the same attempt with another player or revision is refused.
- * - An attempt starts in the first game that began after it was installed and in which its
- *   player holds a slot. Who holds which slot is known once the server created the game's
- *   session (its reply carries them), or when a player claims a slot later in that game.
+ * - An attempt starts in the first game that began after it was installed, with a synchronised
+ *   clock, in which its player holds a slot of the positions the API accepts (1 to 6). Who holds
+ *   which slot is known from the game's own session replies: the create reply, then any update
+ *   that seats a player later. The machine-wide profiles are never used, as a late reply for
+ *   another session rewrites them.
  * - The start (the game's original UTC, this boot and a device event ordinal taken at the game
  *   start) is saved before it is sent, and sent once the session uuid is known.
+ * - Only a receipt or a 409 answers a message. Anything else is resent. A 409 ends the attempt
+ *   for the server, so it is forgotten here.
+ * - Without a configured data dir goals are refused: saved to a temporary directory, an
+ *   acknowledged install could be lost.
  *
  * Threading: every method runs on the thread game state lives on. Network replies and timers are
  * brought back to it through the poster.
@@ -59,8 +65,9 @@ public:
     using Poster = std::function<void(std::function<void()>)>;
     using WallClock = std::function<int64_t()>;
 
+    /** @p persistent: the store's data dir survives a restart (one was configured). */
     CompetitionService(NetBase &net, AttemptStore store, Poster poster, WallClock wallClock,
-                       std::string bootId = competitions::bootId());
+                       bool persistent = true, std::string bootId = competitions::bootId());
     ~CompetitionService();
 
     CompetitionService(const CompetitionService &) = delete;
@@ -72,11 +79,11 @@ public:
     /** Game @p gameSessionId (game state's own id) started at @p startedAtMs, device UTC. */
     void onGameStarted(int gameSessionId, int64_t startedAtMs);
 
-    /** The server created game @p gameSessionId's session; its players are now known. */
+    /** The server created game @p gameSessionId's session and assigned it @p sessionUuid. */
     void onSessionCreated(int gameSessionId, const std::string &sessionUuid);
 
-    /** Player profiles changed: someone may have claimed a slot. */
-    void onPlayersChanged();
+    /** A reply for session @p sessionUuid named who holds which of its slots. */
+    void onSessionPlayers(const std::string &sessionUuid, SessionSeats seats);
 
     /** Game @p gameSessionId ended. */
     void onGameFinished(int gameSessionId);
@@ -97,9 +104,12 @@ private:
         std::vector<std::string> candidates;
     };
 
+    /** Games, and seats waiting for their game, kept at most. */
+    static constexpr size_t MAX_KEPT_GAMES = 8;
+
     Game *gameOf(int gameSessionId);
-    /** Starts every candidate of @p game whose player holds a slot now. */
-    void matchPlayers(Game &game);
+    /** Starts every candidate of @p game whose player holds one of @p seats. */
+    void matchPlayers(Game &game, const SessionSeats &seats);
     void dropSettledGames();
 
     void refuse(const CompetitionGoal &goal, const std::string &reason);
@@ -115,11 +125,14 @@ private:
     AttemptStore m_store;
     Poster m_poster;
     WallClock m_wallClock;
+    bool m_persistent;
     std::string m_bootId;
 
     /** attempt → record. */
     std::map<std::string, AttemptRecord> m_attempts;
     std::vector<Game> m_games;
+    /** Seats of a session whose game doesn't know its uuid yet: session uuid → seats. */
+    std::map<std::string, SessionSeats> m_unboundSeats;
     MessageOutbox m_outbox;
 
     /** Guards the service against replies arriving after it was destroyed. */
