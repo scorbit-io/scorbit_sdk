@@ -35,27 +35,24 @@ using json = nlohmann::json;
 
 namespace {
 
-/** Slots a profile may hold, as game state numbers them. */
-constexpr sb_player_t MAX_PLAYERS = 9;
+/** The API's answer that refuses a message for good. */
+constexpr int HTTP_CONFLICT = 409;
 
-/** A transport failure or a server-side one is worth retrying; a refused request is not. */
-bool isRetryable(const ApiReply &reply)
-{
-    return reply.httpStatus == 0 || reply.httpStatus == 408 || reply.httpStatus == 429
-        || reply.httpStatus >= 500;
-}
+/** The positions a game slot may have, as the API bounds them. */
+constexpr sb_player_t MAX_POSITION = 6;
 
-/** The `code` of a refusal's `{code, detail}`, or its status when it carries none. */
-std::string refusalCode(const ApiReply &reply)
+/** The `code: detail` of a refusal's `{code, detail}`, or its body when it carries none. */
+std::string refusalOf(const ApiReply &reply)
 {
     try {
         const auto document = json::parse(reply.body);
-        if (document.is_object() && document.contains("code") && document["code"].is_string()) {
-            return document["code"].get<std::string>();
+        if (document.is_object() && document.contains("code")) {
+            return fmt::format("{}: {}", document.value("code", std::string {}),
+                               document.value("detail", std::string {}));
         }
     } catch (const std::exception &) {
     }
-    return fmt::format("http_{}", reply.httpStatus);
+    return reply.body;
 }
 
 const char *typeOf(MessageKind kind)
@@ -72,11 +69,12 @@ const std::string &bootId()
 }
 
 CompetitionService::CompetitionService(NetBase &net, AttemptStore store, Poster poster,
-                                       WallClock wallClock, std::string bootId)
+                                       WallClock wallClock, bool persistent, std::string bootId)
     : m_net {net}
     , m_store {std::move(store)}
     , m_poster {std::move(poster)}
     , m_wallClock {std::move(wallClock)}
+    , m_persistent {persistent}
     , m_bootId {std::move(bootId)}
 {
     // Whatever the API hasn't answered yet is sent again, as it was saved
@@ -113,6 +111,17 @@ void CompetitionService::onGoal(CompetitionGoal goal)
         }
         // A repeated delivery: already saved, and its install is answered or on its way
         INF("Competitions: attempt {} is already installed", attempt);
+        return;
+    }
+
+    // Saved only to a temporary directory, an install would be acknowledged and then lost
+    if (!m_persistent) {
+        refuse(goal, "no data dir is configured, so it would not survive a restart");
+        return;
+    }
+    if (const auto here = toLowerAscii(m_net.venueMachine());
+        !here.empty() && here != goal.venueMachine) {
+        refuse(goal, fmt::format("it is for venue machine {}, this is {}", goal.venueMachine, here));
         return;
     }
 
@@ -157,9 +166,17 @@ void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
     game.id = gameSessionId;
     game.startedAtMs = startedAtMs;
     for (const auto &[attempt, record] : m_attempts) {
-        if (!record.closed()) {
+        if (!record.start) {
             game.candidates.push_back(attempt);
         }
+    }
+
+    // A start outside the competition's window ends the attempt, so a start time from a clock
+    // that may be wrong is never sent: the attempt waits for a game with a trusted clock
+    if (!game.candidates.empty() && !m_net.isClockSynchronised()) {
+        WRN("Competitions: game {} starts no attempt: the clock isn't synchronised",
+            gameSessionId);
+        game.candidates.clear();
     }
 
     // Only a game that may start an attempt takes an ordinal, so others cost no write
@@ -188,20 +205,32 @@ void CompetitionService::onSessionCreated(int gameSessionId, const std::string &
     }
     game->sessionUuid = sessionUuid;
 
-    // The reply carried the game's players, even when the game has ended since. A start is only
-    // recorded from here on, so it always carries the uuid it is sent with.
-    matchPlayers(*game);
+    // The reply's own seats arrived just before, under its uuid. Matched even when the game has
+    // ended since: they are that game's players. A start is only recorded from here on, so it
+    // always carries the uuid it is sent with.
+    if (const auto seats = m_unboundSeats.find(sessionUuid); seats != m_unboundSeats.end()) {
+        matchPlayers(*game, seats->second);
+        m_unboundSeats.erase(seats);
+    }
     dropSettledGames();
     pump();
 }
 
-void CompetitionService::onPlayersChanged()
+void CompetitionService::onSessionPlayers(const std::string &sessionUuid, SessionSeats seats)
 {
-    // Before the server created the session the profiles may still be the previous game's
-    if (!m_games.empty() && !m_games.back().finished && !m_games.back().sessionUuid.empty()) {
-        matchPlayers(m_games.back());
-        pump();
+    // Only the seats of a game's own session start its attempts: the machine's profiles are
+    // shared, and a late reply for another session rewrites them
+    const auto it = std::ranges::find(m_games, sessionUuid, &Game::sessionUuid);
+    if (it == m_games.end()) {
+        // Most likely the create reply, whose uuid the game learns next; kept until then
+        m_unboundSeats.insert_or_assign(sessionUuid, std::move(seats));
+        while (m_unboundSeats.size() > MAX_KEPT_GAMES) {
+            m_unboundSeats.erase(m_unboundSeats.begin());
+        }
+        return;
     }
+    matchPlayers(*it, seats);
+    pump();
 }
 
 void CompetitionService::onGameFinished(int gameSessionId)
@@ -212,27 +241,35 @@ void CompetitionService::onGameFinished(int gameSessionId)
     dropSettledGames();
 }
 
-void CompetitionService::matchPlayers(Game &game)
+void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
 {
     for (const auto &attempt : game.candidates) {
-        auto &record = m_attempts.at(attempt);
-        if (record.closed()) {
-            continue;
+        const auto it = m_attempts.find(attempt);
+        if (it == m_attempts.end() || it->second.start) {
+            continue; // refused since, or started already
         }
+        auto &record = it->second;
 
-        sb_player_t position = 0;
-        for (sb_player_t slot = 1; slot <= MAX_PLAYERS && position == 0; ++slot) {
-            const auto profile = m_net.playersManager().profile(slot);
-            if (profile && profile->hasInfo() && toLowerAscii(profile->id) == record.goal.player) {
-                position = slot;
+        int position = 0;
+        for (const auto &[slot, userId] : seats) {
+            if (toLowerAscii(userId) != record.goal.player) {
+                continue;
             }
+            if (slot < 1 || slot > MAX_POSITION) {
+                WRN("Competitions: attempt {} not started: its player is at position {}, beyond "
+                    "{}",
+                    attempt, slot, MAX_POSITION);
+                continue;
+            }
+            position = static_cast<int>(slot);
+            break;
         }
         if (position == 0) {
             continue;
         }
 
-        record.start = AttemptStart {game.sessionUuid, static_cast<int>(position),
-                                     game.startedAtMs, m_bootId, game.sequence};
+        record.start =
+                AttemptStart {game.sessionUuid, position, game.startedAtMs, m_bootId, game.sequence};
         if (!m_store.save(record)) {
             // Not started, so that it isn't sent unsaved; a later match may save it
             record.start.reset();
@@ -252,10 +289,13 @@ CompetitionService::Game *CompetitionService::gameOf(int gameSessionId)
 
 void CompetitionService::dropSettledGames()
 {
-    // An ended game is kept until its session uuid arrives: its starts wait for it
-    std::erase_if(m_games, [](const Game &game) {
-        return game.finished && (!game.sessionUuid.empty() || game.candidates.empty());
-    });
+    // An ended game is kept while its session can still name its players: a late update for it
+    // may seat a candidate. Only the latest few are kept, so a session that never got a uuid
+    // (created offline) doesn't stay forever.
+    std::erase_if(m_games, [](const Game &game) { return game.finished && game.candidates.empty(); });
+    while (m_games.size() > MAX_KEPT_GAMES) {
+        m_games.erase(m_games.begin());
+    }
 }
 
 // ---- Delivery ----------------------------------------------------------------------------------
@@ -270,8 +310,7 @@ void CompetitionService::queueInstalled(const AttemptRecord &record)
 
 void CompetitionService::queueStarted(const AttemptRecord &record)
 {
-    if (record.start && !record.start->session.empty() && record.started == Delivery::Pending
-        && record.installed != Delivery::Refused) {
+    if (record.start && !record.start->session.empty() && record.started == Delivery::Pending) {
         m_outbox.add({record.goal.identity.attempt, MessageKind::AttemptStarted,
                       attemptStartedMessage(record.goal.identity, *record.start).dump()});
     }
@@ -318,16 +357,30 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
         delivery = *receipt == ReceiptStatus::Saved ? Delivery::Saved : Delivery::Duplicate;
         INF("Competitions: {} for attempt {}: {}", typeOf(message.kind), message.attempt,
             *receipt == ReceiptStatus::Saved ? "saved" : "duplicate");
-    } else if (reply.error != Error::Success && !isRetryable(reply)) {
-        // A named refusal is final: never resent
-        delivery = Delivery::Refused;
-        record.refusal = refusalCode(reply);
-        WRN("Competitions: {} for attempt {} refused: {}", typeOf(message.kind),
-            message.attempt, reply.body);
+    } else if (reply.httpStatus == HTTP_CONFLICT) {
+        // The only final answer besides a receipt (ADR-0052): the attempt is over for the
+        // server, so nothing of it is sent again, and it is forgotten here
+        WRN("Competitions: {} for attempt {} refused, forgetting the attempt: {}",
+            typeOf(message.kind), message.attempt, refusalOf(reply));
+        m_outbox.drop(message.attempt);
+        m_store.remove(message.attempt);
+        m_attempts.erase(it);
+        m_outbox.answered();
+        pump();
+        return;
     } else {
+        // Anything else is resent: a lost or failed request, but also a 4xx such as a failed
+        // re-authentication, or an API not deployed yet
         const auto delay = m_outbox.failed();
-        WRN("Competitions: {} for attempt {} got no answer (status {}), resending in {} ms",
-            typeOf(message.kind), message.attempt, reply.httpStatus, delay.count());
+        if (reply.error == Error::Success) {
+            ERR("Competitions: {} for attempt {} answered without a receipt, resending in {} "
+                "ms: {}",
+                typeOf(message.kind), message.attempt, delay.count(), reply.body);
+        } else {
+            WRN("Competitions: {} for attempt {} got no final answer (status {}), resending in "
+                "{} ms",
+                typeOf(message.kind), message.attempt, reply.httpStatus, delay.count());
+        }
         m_net.scheduleCompetitionRetry(delay, [this, alive = std::weak_ptr(m_alive)] {
             m_poster([this, alive] {
                 if (!alive.expired()) {

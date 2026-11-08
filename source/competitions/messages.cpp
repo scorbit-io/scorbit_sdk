@@ -37,6 +37,7 @@ namespace {
 
 constexpr int MESSAGE_VERSION = 1;
 constexpr int DEFINITION_FORMAT_VERSION = 1;
+constexpr int EVALUATOR_VERSION = 1;
 constexpr auto TIMER_POLICY = "current_player_turn";
 constexpr int TIMER_POLICY_VERSION = 1;
 
@@ -56,6 +57,7 @@ constexpr auto KEY_VENUEMACHINE = "venuemachine";
 constexpr auto KEY_POSITION = "position";
 constexpr auto KEY_DEFINITION = "definition";
 constexpr auto KEY_FORMAT_VERSION = "format_version";
+constexpr auto KEY_EVALUATOR_VERSION = "evaluator_version";
 constexpr auto KEY_TIMER_POLICY = "timer_policy";
 constexpr auto KEY_NAME = "name";
 constexpr auto KEY_ACHIEVEMENT = "achievement";
@@ -149,6 +151,11 @@ void checkDefinition(const json &definition)
     if (integer(definition, KEY_FORMAT_VERSION) != DEFINITION_FORMAT_VERSION) {
         throw std::invalid_argument(fmt::format("unsupported definition format {}",
                                                 member(definition, KEY_FORMAT_VERSION).dump()));
+    }
+    // Bumped by the API whenever how a saved rule is judged changes (ADR-0051, D3)
+    if (integer(definition, KEY_EVALUATOR_VERSION) != EVALUATOR_VERSION) {
+        throw std::invalid_argument(fmt::format("unsupported evaluator version {}",
+                                                member(definition, KEY_EVALUATOR_VERSION).dump()));
     }
 
     const auto &timer = member(definition, KEY_TIMER_POLICY);

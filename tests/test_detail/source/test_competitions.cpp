@@ -30,6 +30,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/filesystem.hpp>
+#include <fmt/format.h>
 #include <nlohmann/json.hpp>
 #include <deque>
 #include <fstream>
@@ -167,6 +168,9 @@ class FakeNet : public NetBase
 public:
     explicit FakeNet(std::string dataDir) { m_info.dataDir = std::move(dataDir); }
 
+    /** As the SDK runs with no data dir configured. */
+    void forgetDataDir() { m_info.dataDir.clear(); }
+
     AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
     void authenticate() override { }
     void updateConfig(const std::string &, const std::string &, bool, std::optional<std::string>,
@@ -209,14 +213,16 @@ public:
     {
     }
 
-    void setPlayersChangedCallback(PlayersChangedCallback cb) override
+    void setSessionPlayersCallback(SessionPlayersCallback cb) override
     {
-        playersChanged = std::move(cb);
+        sessionPlayers = std::move(cb);
     }
     void setCompetitionGoalCallback(CompetitionGoalCallback cb) override
     {
         goalReceived = std::move(cb);
     }
+    bool isClockSynchronised() const override { return clockSynchronised; }
+    std::string venueMachine() const override { return venue; }
     void postCompetitionMessage(MessageKind kind, std::string body, ApiReplyCallback cb) override
     {
         sent.push_back({kind, json::parse(body), std::move(cb)});
@@ -235,20 +241,10 @@ public:
         }
     }
 
-    /** Seats @p userId at @p position, as a session reply or update would. */
-    void claim(sb_player_t position, const std::string &userId)
+    /** A reply for @p session seats @p userId at @p position. */
+    void seat(const std::string &session, sb_player_t position, const std::string &userId)
     {
-        const json scores = json::array({{{"position", position},
-                                          {"id", 1},
-                                          {"player",
-                                           {{"id", userId},
-                                            {"username", "u"},
-                                            {"display_name", "U"},
-                                            {"initials", "UU"},
-                                            {"url", ""}}}}});
-        if (auto profiles = m_players.setProfiles(scores, "machine")) {
-            playersChanged(*profiles);
-        }
+        sessionPlayers(session, {{position, userId}});
     }
 
     struct Sent {
@@ -258,7 +254,9 @@ public:
     };
 
     SessionCreatedCallback sessionCreated;
-    PlayersChangedCallback playersChanged;
+    SessionPlayersCallback sessionPlayers;
+    bool clockSynchronised {true};
+    std::string venue {"6f1c2d3e-4a5b-4c6d-8e7f-000000000005"};
     CompetitionGoalCallback goalReceived;
     std::deque<Sent> sent;
     std::function<void()> retry;
@@ -295,10 +293,13 @@ struct Fixture {
     Fixture() { boot(); }
 
     /** (Re)starts game state on the same data dir, as after a restart. */
-    void boot()
+    void boot(bool withDataDir = true)
     {
         game.reset();
         auto fake = std::make_unique<FakeNet>(dir.str());
+        if (!withDataDir) {
+            fake->forgetDataDir();
+        }
         net = fake.get();
         game = std::make_unique<GameStateImpl>(std::move(fake));
         run();
@@ -339,14 +340,25 @@ struct Fixture {
         run();
     }
 
-    /** The server created the session, its reply seating @p userId at @p position. */
-    void sessionCreated(const std::string &userId = PLAYER, sb_player_t position = 1)
+    /**
+     * The server created the latest game's session, its reply seating @p userId at @p position,
+     * as Net delivers it: the seats under the session's uuid, then the uuid. The first game's
+     * session is SESSION, each later one another. Returns the uuid.
+     */
+    std::string sessionCreated(const std::string &userId = PLAYER, sb_player_t position = 1)
     {
         REQUIRE(net->sessionCreated);
-        net->claim(position, userId);
-        net->sessionCreated(SESSION);
+        const auto session = sessions++ == 0
+                                     ? std::string {SESSION}
+                                     : fmt::format("6f1c2d3e-4a5b-4c6d-8e7f-0000000001{:02}",
+                                                   sessions);
+        net->seat(session, position, userId);
+        net->sessionCreated(session);
         run();
+        return session;
     }
+
+    int sessions {0};
 
     const AttemptRecord &record() const { return game->competitions().attempts().at(ATTEMPT); }
 };
@@ -386,6 +398,7 @@ TEST_CASE("A competition goal the SDK can't fully judge is refused whole", "[com
     CHECK(refusedFor([](json &m) { m["version"] = 2; }));
     CHECK(refusedFor([](json &m) { m["type"] = "competition.attempt_control"; }));
     CHECK(refusedFor([](json &m) { m["definition"]["format_version"] = 2; }));
+    CHECK(refusedFor([](json &m) { m["definition"]["evaluator_version"] = 2; }));
     CHECK(refusedFor([](json &m) { m["definition"]["timer_policy"]["name"] = "whole_game"; }));
     CHECK(refusedFor([](json &m) { m["definition"]["timer_policy"]["version"] = 2; }));
     CHECK(refusedFor([](json &m) { m["definition"]["rules"] = json::array(); }));
@@ -700,14 +713,68 @@ TEST_CASE("A player seated after the session uuid still starts the attempt", "[c
     Fixture f;
     f.install();
     f.startGame();
-    f.sessionCreated("6f1c2d3e-4a5b-4c6d-8e7f-0000000000ff", 1); // someone else
+    const auto session = f.sessionCreated("6f1c2d3e-4a5b-4c6d-8e7f-0000000000ff", 1); // another
     CHECK_FALSE(f.record().start);
 
-    f.net->claim(3, PLAYER);
+    // A later update of the same session seats them
+    f.net->seat(session, 3, PLAYER);
     f.run();
     REQUIRE(f.record().start);
     CHECK(f.record().start->position == 3);
     CHECK(f.net->sent.size() == 1);
+}
+
+TEST_CASE("Only the game's own session seats its players", "[competitions]")
+{
+    Fixture f;
+    f.install();
+
+    // The player was in the previous game, whose session is answered late
+    f.startGame();
+    const auto previous = f.sessionCreated("6f1c2d3e-4a5b-4c6d-8e7f-0000000000ff", 1);
+    f.game->setGameFinished();
+    f.startGame();
+    f.sessionCreated("6f1c2d3e-4a5b-4c6d-8e7f-0000000000ee", 1);
+
+    // A stale reply for an earlier, unknown session names the player: nothing starts
+    f.net->seat("6f1c2d3e-4a5b-4c6d-8e7f-0000000000dd", 2, PLAYER);
+    f.run();
+    CHECK_FALSE(f.record().start);
+
+    // A late update of the previous game's own session does: they played that game
+    f.net->seat(previous, 2, PLAYER);
+    f.run();
+    REQUIRE(f.record().start);
+    CHECK(f.record().start->session == previous);
+    CHECK(f.record().start->position == 2);
+}
+
+TEST_CASE("A player beyond position 6 doesn't start the attempt", "[competitions]")
+{
+    // The API accepts positions 1 to 6: a start at 7 would be refused, ending the attempt
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated(PLAYER, 7);
+    CHECK_FALSE(f.record().start);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("No attempt starts in a game timed by an unsynchronised clock", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.net->clockSynchronised = false;
+    f.startGame();
+    f.sessionCreated();
+    CHECK_FALSE(f.record().start);
+
+    // It waits for a game with a trusted start time
+    f.game->setGameFinished();
+    f.net->clockSynchronised = true;
+    f.startGame();
+    f.sessionCreated();
+    CHECK(f.record().start);
 }
 
 TEST_CASE("An attempt installed after its game started doesn't start in it", "[competitions]")
@@ -785,7 +852,30 @@ TEST_CASE("A message without an answer is resent unchanged, with backoff", "[com
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("A named refusal stops the resending", "[competitions]")
+TEST_CASE("Only a 409 refuses: any other failure is resent", "[competitions]")
+{
+    // A failed re-authentication, a refused or malformed request, or an API not deployed yet
+    for (const int status : {400, 401, 403, 404, 408, 429}) {
+        Fixture f;
+        f.deliver();
+        f.answer(ApiReply {Error::ApiError, status, R"({"code": "x", "detail": "y"})", {}});
+        CHECK(f.record().installed == Delivery::Pending);
+        REQUIRE(f.net->retry);
+        f.net->retry();
+        f.run();
+        REQUIRE(f.net->sent.size() == 1);
+        CHECK(f.net->sent[0].kind == MessageKind::GoalInstalled);
+    }
+
+    // A 200 that isn't a receipt, as from a captive portal
+    Fixture f;
+    f.deliver();
+    f.answer(receipt("<html>"));
+    CHECK(f.record().installed == Delivery::Pending);
+    CHECK(f.net->retry);
+}
+
+TEST_CASE("A named refusal stops the resending and forgets the attempt", "[competitions]")
 {
     Fixture f;
     f.install();
@@ -793,23 +883,57 @@ TEST_CASE("A named refusal stops the resending", "[competitions]")
     f.sessionCreated();
 
     f.answer(refused(ATTEMPT_REFUSED));
-    CHECK(f.record().started == Delivery::Refused);
-    CHECK(f.record().refusal == "slot_mismatch");
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(AttemptStore {f.dir.str()}.load().empty());
     CHECK(f.net->sent.empty());
     CHECK_FALSE(f.net->retry);
 }
 
-TEST_CASE("A refused install never starts", "[competitions]")
+TEST_CASE("A refused install never starts, nor sends a start queued behind it",
+          "[competitions]")
 {
     Fixture f;
     f.deliver();
-    f.answer(refused(R"({"code": "attempt_ended", "detail": "Ended."})"));
-    CHECK(f.record().installed == Delivery::Refused);
-
+    // The start is queued while the install is still unanswered
     f.startGame();
     f.sessionCreated();
-    CHECK_FALSE(f.record().start);
+    REQUIRE(f.net->sent.size() == 1);
+
+    f.answer(refused(R"({"code": "attempt_ended", "detail": "Ended."})"));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
     CHECK(f.net->sent.empty());
+
+    f.game->setGameFinished();
+    f.startGame();
+    f.sessionCreated();
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("Without a data dir a goal is refused, not acknowledged", "[competitions]")
+{
+    Fixture f;
+    f.boot(false);
+    f.deliver();
+    CHECK(f.net->sent.empty());
+    REQUIRE(f.net->goals.size() == 1);
+    CHECK_FALSE(f.net->goals[0].installed);
+    CHECK(f.net->goals[0].reason.find("data dir") != std::string::npos);
+}
+
+TEST_CASE("A goal for another venue machine is refused", "[competitions]")
+{
+    Fixture f;
+    f.net->venue = "6f1c2d3e-4a5b-4c6d-8e7f-0000000000aa";
+    f.deliver();
+    CHECK(f.net->sent.empty());
+    REQUIRE(f.net->goals.size() == 1);
+    CHECK_FALSE(f.net->goals[0].installed);
+
+    // Compared without regard to case
+    Fixture g;
+    g.net->venue = "6F1C2D3E-4A5B-4C6D-8E7F-000000000005";
+    g.deliver();
+    CHECK(g.net->goals.at(0).installed);
 }
 
 TEST_CASE("Unanswered messages are sent again after a restart, as saved", "[competitions]")

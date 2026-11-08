@@ -64,6 +64,12 @@ public:
     /** The server answered the in-flight message: saved, duplicate, or refused for good. */
     void answered();
 
+    /** Forgets every queued message of @p attempt, one the server refused. */
+    void drop(const std::string &attempt)
+    {
+        std::erase_if(m_queue, [&](const OutgoingMessage &m) { return m.attempt == attempt; });
+    }
+
     /**
      * The in-flight message got no answer. It goes back to the front of the queue; the owner
      * waits for the returned delay, then calls @ref retryReady.

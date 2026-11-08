@@ -35,7 +35,6 @@ enum class Delivery {
     Pending,   ///< Not answered yet: it is sent, and sent again, until it is
     Saved,     ///< The server saved it
     Duplicate, ///< The server had saved it already
-    Refused,   ///< The server refused it for good (a 409 and its code)
 };
 
 /** One installed attempt, as kept on disk. */
@@ -48,12 +47,6 @@ struct AttemptRecord {
     /** Set once, when the attempt's game started; never replaced. */
     std::optional<AttemptStart> start;
     Delivery started {Delivery::Pending};
-
-    /** The code of the refusal that ended the attempt, if one did. */
-    std::string refusal;
-
-    /** The attempt can no longer start: it has, or the server refused it. */
-    bool closed() const { return start.has_value() || installed == Delivery::Refused; }
 };
 
 /**
@@ -74,6 +67,9 @@ public:
 
     /** Saves @p record durably; false if it could not be. */
     bool save(const AttemptRecord &record) const;
+
+    /** Forgets @p attempt, one the server refused. */
+    void remove(const std::string &attempt) const;
 
     /**
      * The next device event ordinal, saved durably before it is returned so that none is ever

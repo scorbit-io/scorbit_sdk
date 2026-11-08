@@ -42,7 +42,6 @@ constexpr auto KEY_INSTALLED_AT_MS = "installed_at_ms";
 constexpr auto KEY_INSTALLED = "installed";
 constexpr auto KEY_START = "start";
 constexpr auto KEY_STARTED = "started";
-constexpr auto KEY_REFUSAL = "refusal";
 constexpr auto KEY_SESSION = "session";
 constexpr auto KEY_POSITION = "position";
 constexpr auto KEY_STARTED_AT_MS = "started_at_ms";
@@ -58,8 +57,6 @@ const char *toString(Delivery delivery)
         return "saved";
     case Delivery::Duplicate:
         return "duplicate";
-    case Delivery::Refused:
-        return "refused";
     }
     return "pending";
 }
@@ -71,9 +68,6 @@ Delivery deliveryFrom(const std::string &text)
     }
     if (text == "duplicate") {
         return Delivery::Duplicate;
-    }
-    if (text == "refused") {
-        return Delivery::Refused;
     }
     return Delivery::Pending;
 }
@@ -93,8 +87,7 @@ json encode(const AttemptRecord &record)
                    {KEY_INSTALLED_AT_MS, record.installedAtMs},
                    {KEY_INSTALLED, toString(record.installed)},
                    {KEY_START, nullptr},
-                   {KEY_STARTED, toString(record.started)},
-                   {KEY_REFUSAL, record.refusal}};
+                   {KEY_STARTED, toString(record.started)}};
     if (const auto &start = record.start) {
         document[KEY_START] = {{KEY_SESSION, start->session},
                                {KEY_POSITION, start->position},
@@ -117,7 +110,6 @@ std::optional<AttemptRecord> decode(const json &document, std::string &error)
         record.installedAtMs = document.at(KEY_INSTALLED_AT_MS).get<int64_t>();
         record.installed = deliveryFrom(document.at(KEY_INSTALLED).get<std::string>());
         record.started = deliveryFrom(document.at(KEY_STARTED).get<std::string>());
-        record.refusal = document.value(KEY_REFUSAL, std::string {});
         if (const auto &start = document.at(KEY_START); !start.is_null()) {
             record.start = AttemptStart {start.at(KEY_SESSION).get<std::string>(),
                                          start.at(KEY_POSITION).get<int>(),
@@ -180,6 +172,15 @@ bool AttemptStore::save(const AttemptRecord &record) const
         return false;
     }
     return true;
+}
+
+void AttemptStore::remove(const std::string &attempt) const
+{
+    std::error_code ec;
+    fs::remove(m_root / ATTEMPTS_DIR / (attempt + RECORD_EXTENSION), ec);
+    if (ec) {
+        WRN("Competitions: can't remove attempt {}: {}", attempt, ec.message());
+    }
 }
 
 std::optional<int64_t> AttemptStore::nextSequence()
