@@ -709,6 +709,16 @@ _lib.sb_event_achievement_artwork.argtypes = [
     c_void_p, POINTER(POINTER(c_uint8)), POINTER(c_size_t)
 ]
 
+# bool sb_event_competition_goal(const sb_event_t*, const char**, const char**, int*, bool*)
+_lib.sb_event_competition_goal.restype = c_bool
+_lib.sb_event_competition_goal.argtypes = [
+    c_void_p, POINTER(c_char_p), POINTER(c_char_p), POINTER(c_int), POINTER(c_bool)
+]
+
+# bool sb_event_competition_goal_reason(const sb_event_t*, const char**)
+_lib.sb_event_competition_goal_reason.restype = c_bool
+_lib.sb_event_competition_goal_reason.argtypes = [c_void_p, POINTER(c_char_p)]
+
 # void sb_upload_diagnostics(sb_game_handle_t, const char**, size_t,
 #                             const char**, size_t, const char*)
 _lib.sb_upload_diagnostics.restype = None

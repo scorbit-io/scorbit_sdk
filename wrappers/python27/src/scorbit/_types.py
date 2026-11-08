@@ -168,6 +168,37 @@ class AchievementUnlock(object):
         return "AchievementUnlock(key={!r}, player={!r})".format(self.key, self.player)
 
 
+class CompetitionGoal(object):
+    """A competition goal the SDK installed or refused (``CompetitionGoalReceived``).
+
+    The SDK installs the goal and starts the attempt itself; the event only
+    says what happened.
+
+    Attributes:
+        installed: Whether the goal was installed.
+        attempt: The attempt token.
+        player: The admitted player's user uuid.
+        position: Where Scorbit expects the player, or 0 when it gave none.
+        reason: Why it was refused; empty when installed.
+    """
+
+    __slots__ = ("installed", "attempt", "player", "position", "reason")
+
+    def __init__(self, installed=False, attempt="", player="", position=0, reason=""):
+        # type: (bool, str, str, int, str) -> None
+        self.installed = installed
+        self.attempt = attempt
+        self.player = player
+        self.position = position
+        self.reason = reason
+
+    def __repr__(self):
+        # type: () -> str
+        return "CompetitionGoal(installed={!r}, attempt={!r})".format(
+            self.installed, self.attempt
+        )
+
+
 class LeaderboardPlayer(object):
     """Leaderboard player information."""
 

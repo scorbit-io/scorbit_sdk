@@ -68,6 +68,8 @@ constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 constexpr auto URL_ACHIEVEMENTS_DEFINITIONS {"api/v2/achievements/scorbitron/"};
 constexpr auto URL_ACHIEVEMENTS_PROGRESS {"api/v2/achievements/scorbitron/progress/"};
 constexpr auto URL_ACHIEVEMENTS_REPORT {"api/v2/achievements/report/"};
+constexpr auto URL_COMPETITIONS_GOAL_INSTALLED {"api/v2/competitions/goal-installed/"};
+constexpr auto URL_COMPETITIONS_ATTEMPT_STARTED {"api/v2/competitions/attempt-started/"};
 constexpr auto QUERY_ACHIEVEMENTS_USER_ID {"user_id"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"
@@ -223,6 +225,7 @@ constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_START {"diag_capture_start"};
 constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_STOP {"diag_capture_stop"};
 constexpr auto JVAL_CHN_TYPE_FIRMWARE_PROBE {"firmware_probe"};
 constexpr auto JVAL_CHN_TYPE_PROBE_FLASH {"probe_flash"};
+constexpr auto JVAL_CHN_TYPE_COMPETITION_GOAL {"competition.goal"};
 
 // probe_flash request (payload of the control message) and the event's request_json
 constexpr auto JKEY_PF_PROBE {"probe"};
