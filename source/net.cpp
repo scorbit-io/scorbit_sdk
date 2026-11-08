@@ -3015,6 +3015,78 @@ void Net::setTokenRefreshedCallback(TokenRefreshedCallback callback)
     m_tokenRefreshedCallback = std::move(callback);
 }
 
+void Net::setCompetitionGoalCallback(CompetitionGoalCallback callback)
+{
+    std::scoped_lock lock(m_competitionGoalCallbackMutex);
+    m_competitionGoalCallback = std::move(callback);
+}
+
+void Net::handleCompetitionGoal(const json &payload)
+{
+    std::string error;
+    auto goal = competitions::parseGoal(payload, error);
+    if (!goal) {
+        // Refused whole, never installed with a part skipped. Whatever names it is passed on.
+        WRN("API-CF competition.goal refused: {}", error);
+        auto text = [&](const char *key) {
+            const auto it = payload.is_object() ? payload.find(key) : payload.end();
+            return it != payload.end() && it->is_string() ? it->get<std::string>()
+                                                          : std::string {};
+        };
+        const auto position = payload.is_object() ? payload.find("position") : payload.end();
+        m_eventManager->push(std::make_shared<CompetitionGoalReceivedEvent>(
+                false, text("attempt"), text("player"),
+                position != payload.end() && position->is_number_integer() ? position->get<int>()
+                                                                           : 0,
+                error));
+        return;
+    }
+
+    INF("API-CF competition.goal for attempt {}", goal->identity.attempt);
+    std::scoped_lock lock(m_competitionGoalCallbackMutex);
+    if (m_competitionGoalCallback) {
+        m_competitionGoalCallback(std::move(*goal));
+    } else {
+        WRN("API-CF competition.goal dropped: nothing installs it");
+    }
+}
+
+void Net::postCompetitionMessage(competitions::MessageKind kind, std::string body,
+                                 ApiReplyCallback callback)
+{
+    const auto *endpoint = kind == competitions::MessageKind::GoalInstalled
+                                   ? URL_COMPETITIONS_GOAL_INSTALLED
+                                   : URL_COMPETITIONS_ATTEMPT_STARTED;
+    auto replyCallback = [callback = std::move(callback), endpoint](Error error, int httpStatus,
+                                                                    const std::string &reply) {
+        if (error == Error::Success) {
+            INF("API {}: ok, {}", endpoint, reply);
+        } else {
+            WRN("API {}: failed, error code: {}, status: {}, reply: {}", endpoint,
+                static_cast<int>(error), httpStatus, reply);
+        }
+        callback(ApiReply {error, httpStatus, reply, {}});
+    };
+
+    auto deferredSetup = [this, kind, endpoint, body = std::move(body)] {
+        INF("API sending {}: {}", endpoint, body);
+        return std::make_tuple(kind == competitions::MessageKind::GoalInstalled
+                                       ? url(URL_COMPETITIONS_GOAL_INSTALLED)
+                                       : url(URL_COMPETITIONS_ATTEMPT_STARTED),
+                               cpr::Body {body});
+    };
+
+    m_worker.post(createPostRequestTask(HttpStatusCallback {std::move(replyCallback)},
+                                        std::move(deferredSetup)));
+}
+
+void Net::scheduleCompetitionRetry(std::chrono::steady_clock::duration delay,
+                                   std::function<void()> fn)
+{
+    m_worker.stopTimer(Worker::Timer::CompetitionRetry);
+    m_worker.startTimer(Worker::Timer::CompetitionRetry, delay, std::move(fn));
+}
+
 void Net::uploadDiagnostics(std::vector<std::string> logPaths,
                             std::vector<std::string> recordingPaths, std::string logString,
                             std::optional<std::uint64_t> requestGeneration)
@@ -5747,6 +5819,11 @@ void NetTestAccess::handleProbeFlash(Net &net, const nlohmann::json &payload)
     net.handleProbeFlash(payload);
 }
 
+void NetTestAccess::handleCompetitionGoal(Net &net, const nlohmann::json &payload)
+{
+    net.handleCompetitionGoal(payload);
+}
+
 void NetTestAccess::requestOpenProbeFlash(Net &net, bool startup)
 {
     net.requestOpenProbeFlash(startup);
@@ -6781,6 +6858,8 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                         handleHardwareProbe(*payloadIt);
                     } else if (type == JVAL_CHN_TYPE_PROBE_FLASH) {
                         handleProbeFlash(*payloadIt);
+                    } else if (type == JVAL_CHN_TYPE_COMPETITION_GOAL) {
+                        handleCompetitionGoal(*payloadIt);
                     } else {
                         WRN("API-CF Unknown publication type: {}", type);
                     }

@@ -184,6 +184,7 @@ class EventType(IntEnum):
     TableMappingsUpdated = 10
     MachineChanged = 11
     AchievementUnlocked = 12
+    CompetitionGoalReceived = 13
 
     # Internal / scorbitd events
     _None = 1000

@@ -489,5 +489,35 @@ private:
     std::vector<uint8_t> m_artwork;
 };
 
+// ---------------- CompetitionGoalReceived implementation ----------------
+
+class CompetitionGoalReceivedEvent : public EventBase
+{
+public:
+    CompetitionGoalReceivedEvent(bool installed, std::string attempt, std::string player,
+                                 int position, std::string reason)
+        : EventBase(EventType::CompetitionGoalReceived, EventPriority::Normal)
+        , m_installed {installed}
+        , m_attempt {std::move(attempt)}
+        , m_player {std::move(player)}
+        , m_position {position}
+        , m_reason {std::move(reason)}
+    {
+    }
+
+    auto installed() const -> bool { return m_installed; }
+    auto attempt() const -> const std::string & { return m_attempt; }
+    auto player() const -> const std::string & { return m_player; }
+    auto position() const -> int { return m_position; }
+    auto reason() const -> const std::string & { return m_reason; }
+
+private:
+    bool m_installed;
+    std::string m_attempt;
+    std::string m_player;
+    int m_position;
+    std::string m_reason;
+};
+
 } // namespace detail
 } // namespace scorbit

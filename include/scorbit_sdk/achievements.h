@@ -50,4 +50,16 @@ struct AchievementUnlock {
     std::vector<uint8_t> artwork; ///< Empty when there is none; see @ref AchievementArtwork
 };
 
+/**
+ * @brief The content of an @ref EventType::CompetitionGoalReceived event: a competition goal the
+ * SDK installed or refused. The SDK starts and reports the attempt itself.
+ */
+struct CompetitionGoal {
+    bool installed {false};
+    std::string attempt; ///< The attempt token
+    std::string player;  ///< The admitted player's user uuid
+    int position {0};    ///< Where Scorbit expects the player; 0 when it gave none
+    std::string reason;  ///< Why it was refused; empty when installed
+};
+
 } // namespace scorbit

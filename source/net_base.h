@@ -30,6 +30,8 @@
 #include "event_queue.h"
 #include "session_flags.h"
 #include "table_mappings_internal.h"
+#include "competitions/message_outbox.h"
+#include "competitions/messages.h"
 #include <boost/signals2.hpp>
 #include <cstdint>
 #include <string>
@@ -71,6 +73,9 @@ struct ApiReply {
 };
 
 using ApiReplyCallback = std::function<void(ApiReply reply)>;
+
+/** Called with each `competition.goal` that parsed. */
+using CompetitionGoalCallback = std::function<void(competitions::CompetitionGoal goal)>;
 
 class NetBase
 {
@@ -271,6 +276,31 @@ public:
 
     /** @p callback is invoked from a network thread after each scheduled token refresh. */
     virtual void setTokenRefreshedCallback(TokenRefreshedCallback callback) { (void)callback; }
+
+    // ---- Competitions (SB-6437) -----------------------------------------------------
+
+    /**
+     * @p callback is invoked from a network thread with each `competition.goal` that parsed.
+     * One that didn't is refused by the network layer, which raises the event itself.
+     */
+    virtual void setCompetitionGoalCallback(CompetitionGoalCallback callback) { (void)callback; }
+
+    /** `POST competitions/goal-installed/` or `.../attempt-started/` with the JSON @p body. */
+    virtual void postCompetitionMessage(competitions::MessageKind kind, std::string body,
+                                        ApiReplyCallback callback)
+    {
+        (void)kind;
+        (void)body;
+        (void)callback;
+    }
+
+    /** Runs @p fn on a worker thread after @p delay, replacing any pending one (resends). */
+    virtual void scheduleCompetitionRetry(std::chrono::steady_clock::duration delay,
+                                          std::function<void()> fn)
+    {
+        (void)delay;
+        (void)fn;
+    }
 
     // ---------------------------------------------------------------------------------
 

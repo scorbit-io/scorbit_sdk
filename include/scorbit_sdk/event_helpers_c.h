@@ -393,6 +393,36 @@ bool sb_event_achievement_description(const sb_event_t *event, const char **desc
 SCORBIT_SDK_EXPORT
 bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data, size_t *size);
 
+/**
+ * @brief Helper function to process a competition goal event.
+ *
+ * The event type must be @ref SB_EVT_COMPETITION_GOAL_RECEIVED, otherwise the function returns
+ * false. The SDK installs the goal itself: saved to disk, then confirmed to Scorbit. The attempt
+ * starts in the first game after it was installed in which its player holds a slot; the game does
+ * nothing for it. Any output pointer may be NULL.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] attempt The attempt token; valid during the callback only.
+ * @param [OUT] player The admitted player's user uuid; valid during the callback only.
+ * @param [OUT] position The position Scorbit expects the player at, or 0 when it gave none.
+ * @param [OUT] installed Whether the goal was installed; when not, see
+ * @ref sb_event_competition_goal_reason.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_competition_goal(const sb_event_t *event, const char **attempt, const char **player,
+                               int *position, bool *installed);
+
+/**
+ * @brief Reads why a competition goal was refused: empty when it was installed.
+ *
+ * @param [IN] event The event.
+ * @param [OUT] reason The reason; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_competition_goal_reason(const sb_event_t *event, const char **reason);
+
 // ------------------ OEM providers can ignore the event helpers below ------------------
 
 SCORBIT_SDK_EXPORT

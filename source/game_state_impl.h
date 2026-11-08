@@ -25,6 +25,7 @@
 #include "net_base.h"
 #include "game_data.h"
 #include "achievements/achievement_service.h"
+#include "competitions/competition_service.h"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -155,6 +156,8 @@ public:
 
     const achievements::AchievementService &achievements() const { return *m_achievements; }
 
+    const competitions::CompetitionService &competitions() const { return *m_competitions; }
+
 private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
@@ -184,6 +187,7 @@ private:
 
     // Declared before m_net so it outlives it: once ~Net() returns no reply can reach it.
     std::unique_ptr<achievements::AchievementService> m_achievements;
+    std::unique_ptr<competitions::CompetitionService> m_competitions;
 
     std::unique_ptr<NetBase> m_net;
 };

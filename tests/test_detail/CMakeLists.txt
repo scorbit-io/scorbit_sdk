@@ -140,6 +140,14 @@ target_sources(
         ../../source/achievements/artwork_store.cpp
         ../../source/achievements/achievement_service.h
         ../../source/achievements/achievement_service.cpp
+        ../../source/competitions/messages.h
+        ../../source/competitions/messages.cpp
+        ../../source/competitions/attempt_store.h
+        ../../source/competitions/attempt_store.cpp
+        ../../source/competitions/message_outbox.h
+        ../../source/competitions/message_outbox.cpp
+        ../../source/competitions/competition_service.h
+        ../../source/competitions/competition_service.cpp
         source/test_achievement_proximity.cpp
         source/test_achievement_tracker.cpp
         source/test_achievement_reporting.cpp

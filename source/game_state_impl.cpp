@@ -134,8 +134,19 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
             },
             artworkKind(m_net->deviceInfo().achievementArtwork),
             presentation(m_net->deviceInfo().achievementPresentation));
+    m_competitions = std::make_unique<competitions::CompetitionService>(
+            *m_net, competitions::AttemptStore {achievementsDataDir(m_net->deviceInfo())},
+            [this](std::function<void()> fn) { post(std::move(fn)); },
+            [] { return toEpochMs(std::chrono::system_clock::now()); });
+    m_net->setCompetitionGoalCallback([this](competitions::CompetitionGoal goal) {
+        post([this, goal = std::move(goal)]() mutable { m_competitions->onGoal(std::move(goal)); });
+    });
+
     m_net->setPlayersChangedCallback([this](const std::vector<PlayerProfile> &) {
-        post([this] { m_achievements->onPlayersChanged(); });
+        post([this] {
+            m_achievements->onPlayersChanged();
+            m_competitions->onPlayersChanged();
+        });
     });
 
     // Definitions are fetched at boot and revalidated with every token refresh (~25 min)
@@ -202,6 +213,7 @@ void GameStateImpl::setGameFinished()
     m_data.isGameActive = false;
     submitGameData(false);
     m_achievements->onSessionFinished(toEpochMs(std::chrono::system_clock::now()));
+    m_competitions->onGameFinished(m_data.id);
 
     // Reset game data
     m_data = GameData {};
@@ -662,6 +674,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
         // Runs on a network thread: bring it back to the thread game state lives on
         post([this, sessionId, uuid] {
             m_achievements->onSessionCreated(sessionId, uuid);
+            m_competitions->onSessionCreated(sessionId, uuid);
             // A reply for a game that has already ended must not publish the next one's state, nor
             // the reset GameData of session id 0 (SB-5673)
             if (m_data.isGameActive && m_data.id == sessionId) {
@@ -671,6 +684,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     });
     m_achievements->onSessionStarted(m_data.id,
                                      toTimelineRow(m_data, m_net->isClockSynchronised()));
+    m_competitions->onGameStarted(m_data.id, toEpochMs(m_data.timestamp));
 
     return true;
 }

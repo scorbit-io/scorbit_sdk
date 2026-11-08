@@ -65,6 +65,7 @@ OUT_OF_SCOPE_EVENTS = {
     "ProbeFlashRequested": "device plumbing",
     "TableMappingsUpdated": "VPIN host plumbing",
     "MachineChanged": "VPIN host plumbing",
+    "CompetitionGoalReceived": "informational: the SDK installs the goal and starts its attempt itself",
 }
 
 # Methods the parser must find, so a header change it cannot follow fails instead of passing.
