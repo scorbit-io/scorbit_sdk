@@ -411,6 +411,22 @@ TEST_CASE("A competition goal the SDK can't fully judge is refused whole", "[com
     CHECK(refusedFor([](json &m) { m["definition"]["rules"][0]["type"] = "SESSION"; }));
     CHECK(refusedFor([](json &m) { m["definition"]["rules"][0]["type"] = "ACHIEVEMENT"; }));
     CHECK(refusedFor([](json &m) { m["definition"]["rules"][0]["comparison"] = "~"; }));
+    // Parses, but the evaluator can't judge it: a MODE rule naming no mode
+    CHECK(refusedFor([](json &m) { m["definition"]["rules"][0]["reference"] = nullptr; }));
+    {
+        auto message = goal();
+        message["definition"]["rules"][0]["reference"] = nullptr;
+        std::string error;
+        CHECK_FALSE(parseGoal(message, error));
+        CHECK(error.find("can't be evaluated") != std::string::npos);
+    }
+    // A CALENDAR window on the venue's clock, with no offsets to place it
+    CHECK(refusedFor([](json &m) {
+        m["definition"]["rules"].push_back({{"type", "CALENDAR"},
+                                            {"comparison", ">="},
+                                            {"target", 1},
+                                            {"reference", "weekday=mon"}});
+    }));
     CHECK(refusedFor([](json &m) { m["attempt"] = "../../etc/passwd"; }));
     CHECK(refusedFor([](json &m) { m["checksum"] = "CA5F"; }));
     CHECK(refusedFor([](json &m) { m["position"] = 7; }));
@@ -577,6 +593,11 @@ TEST_CASE("The device event sequence is monotonic and survives a restart", "[com
     }
     AttemptStore store {dir.str()};
     CHECK(store.nextSequence() == 3);
+
+    // Two stores on one directory never hand out the same ordinal
+    AttemptStore other {dir.str()};
+    CHECK(other.nextSequence() == 4);
+    CHECK(store.nextSequence() == 5);
 }
 
 // ---- Outbox ------------------------------------------------------------------------------------
@@ -747,6 +768,25 @@ TEST_CASE("Only the game's own session seats its players", "[competitions]")
     REQUIRE(f.record().start);
     CHECK(f.record().start->session == previous);
     CHECK(f.record().start->position == 2);
+}
+
+TEST_CASE("An attempt admitted on another machine doesn't start here", "[competitions]")
+{
+    // Installed on the goal's machine, then the device switched to another
+    Fixture f;
+    f.install();
+    f.net->venue = "6f1c2d3e-4a5b-4c6d-8e7f-0000000000aa";
+    f.startGame();
+    f.sessionCreated();
+    CHECK_FALSE(f.record().start);
+    CHECK(f.net->sent.empty());
+
+    // Back on its machine, it starts
+    f.game->setGameFinished();
+    f.net->venue = "6f1c2d3e-4a5b-4c6d-8e7f-000000000005";
+    f.startGame();
+    f.sessionCreated();
+    CHECK(f.record().start);
 }
 
 TEST_CASE("A player beyond position 6 doesn't start the attempt", "[competitions]")

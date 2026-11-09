@@ -165,8 +165,11 @@ void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
     Game game;
     game.id = gameSessionId;
     game.startedAtMs = startedAtMs;
+    // Only this machine's attempts: after a switch, or a restart paired to another machine, one
+    // admitted on the previous machine must not start in this one's game
+    const auto here = toLowerAscii(m_net.venueMachine());
     for (const auto &[attempt, record] : m_attempts) {
-        if (!record.start) {
+        if (!record.start && (here.empty() || record.goal.venueMachine == here)) {
             game.candidates.push_back(attempt);
         }
     }
@@ -208,9 +211,12 @@ void CompetitionService::onSessionCreated(int gameSessionId, const std::string &
     // The reply's own seats arrived just before, under its uuid. Matched even when the game has
     // ended since: they are that game's players. A start is only recorded from here on, so it
     // always carries the uuid it is sent with.
-    if (const auto seats = m_unboundSeats.find(sessionUuid); seats != m_unboundSeats.end()) {
-        matchPlayers(*game, seats->second);
+    if (const auto seats = std::ranges::find(m_unboundSeats, sessionUuid,
+                                             &decltype(m_unboundSeats)::value_type::first);
+        seats != m_unboundSeats.end()) {
+        auto seated = std::move(seats->second);
         m_unboundSeats.erase(seats);
+        matchPlayers(*game, seated);
     }
     dropSettledGames();
     pump();
@@ -222,10 +228,18 @@ void CompetitionService::onSessionPlayers(const std::string &sessionUuid, Sessio
     // shared, and a late reply for another session rewrites them
     const auto it = std::ranges::find(m_games, sessionUuid, &Game::sessionUuid);
     if (it == m_games.end()) {
-        // Most likely the create reply, whose uuid the game learns next; kept until then
-        m_unboundSeats.insert_or_assign(sessionUuid, std::move(seats));
+        // Most likely the create reply, whose uuid a game learns next: kept until then, but only
+        // while some game still waits for its uuid. A late reply for a game already dropped is
+        // let go. The oldest goes first once too many wait.
+        const bool awaited = std::ranges::any_of(
+                m_games, [](const Game &game) { return game.sessionUuid.empty(); });
+        if (!awaited) {
+            return;
+        }
+        std::erase_if(m_unboundSeats, [&](const auto &kept) { return kept.first == sessionUuid; });
+        m_unboundSeats.emplace_back(sessionUuid, std::move(seats));
         while (m_unboundSeats.size() > MAX_KEPT_GAMES) {
-            m_unboundSeats.erase(m_unboundSeats.begin());
+            m_unboundSeats.pop_front();
         }
         return;
     }

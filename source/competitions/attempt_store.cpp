@@ -22,6 +22,7 @@
 #include <logger/logger.h>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <system_error>
 
 namespace scorbit {
@@ -183,29 +184,30 @@ void AttemptStore::remove(const std::string &attempt) const
     }
 }
 
-std::optional<int64_t> AttemptStore::nextSequence()
+std::optional<int64_t> AttemptStore::nextSequence() const
 {
+    // Read again each time, under one lock for the whole process: two game states sharing the
+    // data dir must never hand out the same ordinal
+    static std::mutex sequenceMutex;
+    std::scoped_lock lock(sequenceMutex);
+
     const auto path = m_root / SEQUENCE_FILE;
-    if (!m_lastSequence) {
-        int64_t last = 0;
-        if (const auto body = readFile(path)) {
-            try {
-                last = std::stoll(*body);
-            } catch (const std::exception &) {
-                // Starting over could reuse an ordinal: refuse rather than guess
-                ERR("Competitions: device event sequence {} is unreadable", path.string());
-                return std::nullopt;
-            }
+    int64_t last = 0;
+    if (const auto body = readFile(path)) {
+        try {
+            last = std::stoll(*body);
+        } catch (const std::exception &) {
+            // Starting over could reuse an ordinal: refuse rather than guess
+            ERR("Competitions: device event sequence {} is unreadable", path.string());
+            return std::nullopt;
         }
-        m_lastSequence = last;
     }
 
-    const auto next = *m_lastSequence + 1;
+    const auto next = last + 1;
     if (!replaceDurably(path, std::to_string(next))) {
         ERR("Competitions: can't save the device event sequence to {}", path.string());
         return std::nullopt;
     }
-    m_lastSequence = next;
     return next;
 }
 

@@ -51,6 +51,12 @@ std::optional<DefinitionFeed> parseDefinitionFeed(const nlohmann::json &json);
 std::optional<Definition> parseDefinition(const nlohmann::json &json, std::string &error);
 
 /**
+ * The calendar envelope of a definitions response: `timezone`, `utc_offsets` and `calendar`. Any
+ * part that is malformed is left out with a warning, as for the feed.
+ */
+CalendarData parseCalendarEnvelope(const nlohmann::json &document);
+
+/**
  * Parses the device progress response, `GET achievements/scorbitron/progress/`: a sparse, bare
  * array of `{achievement: {key, ...}, achieved, ...}`. The API carries no per-rule values there,
  * so every @ref Baseline has only its `achieved` latch. Malformed entries are skipped with a

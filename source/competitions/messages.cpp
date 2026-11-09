@@ -19,6 +19,7 @@
 
 #include "messages.h"
 #include "../achievements/definition.h"
+#include "../achievements/definition_check.h"
 #include "../achievements/json_codec.h"
 #include "../net_util.h"
 #include <fmt/format.h>
@@ -61,6 +62,11 @@ constexpr auto KEY_EVALUATOR_VERSION = "evaluator_version";
 constexpr auto KEY_TIMER_POLICY = "timer_policy";
 constexpr auto KEY_NAME = "name";
 constexpr auto KEY_ACHIEVEMENT = "achievement";
+/** The goal's calendar envelope, and the parts the feed's names. */
+constexpr auto KEY_CALENDAR = "calendar";
+constexpr auto KEY_TIMEZONE = "timezone";
+constexpr auto KEY_UTC_OFFSETS = "utc_offsets";
+constexpr auto KEY_RANGES = "ranges";
 constexpr auto KEY_INSTALLED_AT = "installed_at";
 constexpr auto KEY_SESSION = "session";
 constexpr auto KEY_STARTED_AT = "started_at";
@@ -187,8 +193,29 @@ void checkDefinition(const json &definition)
     auto asDefinition = achievement;
     asDefinition[KEY_RULES] = rules;
     std::string error;
-    if (!achievements::parseDefinition(asDefinition, error)) {
+    const auto parsed = achievements::parseDefinition(asDefinition, error);
+    if (!parsed) {
         throw std::invalid_argument(fmt::format("goal doesn't parse: {}", error));
+    }
+
+    // And judged as the feed's are: a goal the evaluator can't judge (a rule without the
+    // reference it needs, a CALENDAR condition without the venue's offsets) is refused, not
+    // acknowledged and then never met. The goal carries its own calendar envelope.
+    achievements::CalendarData calendar;
+    if (const auto it = definition.find(KEY_CALENDAR); it != definition.end() && it->is_object()) {
+        json envelope = json::object();
+        for (const auto *key : {KEY_TIMEZONE, KEY_UTC_OFFSETS}) {
+            if (const auto part = it->find(key); part != it->end()) {
+                envelope[key] = *part;
+            }
+        }
+        if (const auto ranges = it->find(KEY_RANGES); ranges != it->end()) {
+            envelope[KEY_CALENDAR] = *ranges;
+        }
+        calendar = achievements::parseCalendarEnvelope(envelope);
+    }
+    if (const auto problem = achievements::findEvaluationProblem(*parsed, calendar)) {
+        throw std::invalid_argument(fmt::format("goal can't be evaluated: {}", *problem));
     }
 }
 
