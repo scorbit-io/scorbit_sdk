@@ -36,7 +36,11 @@ bool syncFile(const std::filesystem::path &file);
 
 /**
  * Replaces @p file with @p content so that it survives a power cut whole or not at all: written
- * next to it, flushed, renamed into place, then its directory flushed. Creates the directory.
+ * next to it, flushed, renamed into place, then its directory flushed. Creates the directories
+ * leading to it, each flushed into its parent.
+ *
+ * Returns false when it could not be saved; a new file is then left absent. When only the final
+ * directory flush fails, a file that existed is reported saved, as its old content is gone.
  */
 bool replaceDurably(const std::filesystem::path &file, const std::string &content);
 

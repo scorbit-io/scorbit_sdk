@@ -321,7 +321,7 @@ class Event(object):
         def text(out):
             val = out.value
             if isinstance(val, bytes):
-                val = val.decode("utf-8", errors="replace")
+                val = val.decode("utf-8", "replace")
             return val or ""
 
         return CompetitionGoal(

@@ -84,10 +84,37 @@ bool syncFile(const fs::path &file)
 #endif
 }
 
+namespace {
+
+/**
+ * Creates @p dir and any missing parents, flushing each new entry into its parent: a directory
+ * created and never synced can vanish with everything written under it.
+ */
+bool createDirectoriesDurably(const fs::path &dir)
+{
+    std::error_code ec;
+    if (dir.empty() || fs::is_directory(dir, ec)) {
+        return true;
+    }
+    if (!createDirectoriesDurably(dir.parent_path())) {
+        return false;
+    }
+    fs::create_directory(dir, ec);
+    if (ec && !fs::is_directory(dir, ec)) {
+        return false;
+    }
+    return dir.parent_path().empty() || syncDirectory(dir.parent_path());
+}
+
+} // namespace
+
 bool replaceDurably(const fs::path &file, const std::string &content)
 {
     std::error_code ec;
-    fs::create_directories(file.parent_path(), ec);
+    if (!createDirectoriesDurably(file.parent_path())) {
+        return false;
+    }
+    const bool existed = fs::exists(file, ec);
     auto staged = file;
     staged += ".tmp";
     if (!writeDurably(staged, content)) {
@@ -99,7 +126,18 @@ bool replaceDurably(const fs::path &file, const std::string &content)
         fs::remove(staged, ec);
         return false;
     }
-    return syncDirectory(file.parent_path());
+    if (syncDirectory(file.parent_path())) {
+        return true;
+    }
+    // The rename is in place but may not survive a power cut. A new file is taken back, so that
+    // what the caller is told matches what a restart finds; a replaced one can't be, as its old
+    // content is gone, and is reported saved: it reads the same now and after a restart either
+    // way, unless the power fails first.
+    if (!existed) {
+        fs::remove(file, ec);
+        return false;
+    }
+    return true;
 }
 
 } // namespace detail

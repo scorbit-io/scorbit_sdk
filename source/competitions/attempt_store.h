@@ -73,15 +73,15 @@ public:
 
     /**
      * The next device event ordinal, saved durably before it is returned so that none is ever
-     * used twice, across restarts included; nullopt if it could not be saved.
+     * used twice, across restarts and by stores sharing the directory included; nullopt if it
+     * could not be saved.
      */
-    std::optional<int64_t> nextSequence();
+    std::optional<int64_t> nextSequence() const;
 
     const std::filesystem::path &root() const { return m_root; }
 
 private:
     std::filesystem::path m_root;
-    std::optional<int64_t> m_lastSequence;
 };
 
 } // namespace competitions

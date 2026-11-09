@@ -24,6 +24,7 @@
 #include "messages.h"
 #include "../net_base.h"
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -131,8 +132,8 @@ private:
     /** attempt → record. */
     std::map<std::string, AttemptRecord> m_attempts;
     std::vector<Game> m_games;
-    /** Seats of a session whose game doesn't know its uuid yet: session uuid → seats. */
-    std::map<std::string, SessionSeats> m_unboundSeats;
+    /** Seats of a session whose game doesn't know its uuid yet, oldest first. */
+    std::deque<std::pair<std::string, SessionSeats>> m_unboundSeats;
     MessageOutbox m_outbox;
 
     /** Guards the service against replies arriving after it was destroyed. */
