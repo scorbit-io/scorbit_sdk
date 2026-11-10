@@ -144,8 +144,6 @@ target_sources(
         ../../source/achievements/achievement_service.cpp
         ../../source/competitions/messages.h
         ../../source/competitions/messages.cpp
-        ../../source/competitions/attempt_store.h
-        ../../source/competitions/attempt_store.cpp
         ../../source/competitions/message_outbox.h
         ../../source/competitions/message_outbox.cpp
         ../../source/competitions/competition_service.h
@@ -183,8 +181,6 @@ target_sources(
         ../../source/net_util.h
         ../../source/net_util.cpp
         source/test_net_util.cpp
-        ../../source/utils/durable_file.h
-        ../../source/utils/durable_file.cpp
         ../../source/nfc_flash.h
         ../../source/nfc_flash.cpp
         ../../source/nfc_flash_pad.h

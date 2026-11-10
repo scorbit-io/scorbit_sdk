@@ -134,12 +134,9 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
             },
             artworkKind(m_net->deviceInfo().achievementArtwork),
             presentation(m_net->deviceInfo().achievementPresentation));
-    // An attempt kept only in a temporary directory would be acknowledged and then lost
     m_competitions = std::make_unique<competitions::CompetitionService>(
-            *m_net, competitions::AttemptStore {achievementsDataDir(m_net->deviceInfo())},
-            [this](std::function<void()> fn) { post(std::move(fn)); },
-            [] { return toEpochMs(std::chrono::system_clock::now()); },
-            !m_net->deviceInfo().dataDir.empty());
+            *m_net, [this](std::function<void()> fn) { post(std::move(fn)); },
+            [] { return toEpochMs(std::chrono::system_clock::now()); });
     m_net->setCompetitionGoalCallback([this](competitions::CompetitionGoal goal) {
         post([this, goal = std::move(goal)]() mutable { m_competitions->onGoal(std::move(goal)); });
     });

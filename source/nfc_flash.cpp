@@ -21,7 +21,6 @@
 
 #include "identifiers.h"
 #include "net_util.h"
-#include "utils/durable_file.h"
 
 #include <logger/logger.h>
 #include <nfc/Uf2.h>
@@ -191,6 +190,57 @@ std::string uniqueSuffix()
 {
     static std::atomic<unsigned> runs {0};
     return "." + std::to_string(processId()) + "." + std::to_string(++runs);
+}
+
+bool writeDurably(const fs::path &file, const std::string &content)
+{
+    std::FILE *out = std::fopen(file.string().c_str(), "wb");
+    if (!out) {
+        return false;
+    }
+    bool ok = std::fwrite(content.data(), 1, content.size(), out) == content.size()
+           && std::fflush(out) == 0;
+#if defined(_WIN32)
+    ok = ok && ::_commit(::_fileno(out)) == 0;
+#else
+    ok = ok && ::fsync(::fileno(out)) == 0;
+#endif
+    return std::fclose(out) == 0 && ok;
+}
+
+bool syncDirectory([[maybe_unused]] const fs::path &dir)
+{
+#if defined(_WIN32)
+    return true;
+#else
+    // The rename is only durable once the directory entry is on disk.
+    const int fd = ::open(dir.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    const bool ok = ::fsync(fd) == 0;
+    return ::close(fd) == 0 && ok;
+#endif
+}
+
+// Flushes a file written elsewhere, such as the downloaded image.
+bool syncFile(const fs::path &file)
+{
+#if defined(_WIN32)
+    const int fd = ::_open(file.string().c_str(), _O_RDWR | _O_BINARY);
+    if (fd < 0) {
+        return false;
+    }
+    const bool ok = ::_commit(fd) == 0;
+    return ::_close(fd) == 0 && ok;
+#else
+    const int fd = ::open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    const bool ok = ::fsync(fd) == 0;
+    return ::close(fd) == 0 && ok;
+#endif
 }
 
 // Removes @p file only while it is the version written at @p written. Another process keeping a
