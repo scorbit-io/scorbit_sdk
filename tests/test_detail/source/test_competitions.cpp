@@ -909,6 +909,25 @@ TEST_CASE("A goal for another venue machine is refused", "[competitions]")
     CHECK(g.net->goals.at(0).installed);
 }
 
+TEST_CASE("A game the host found already running starts no attempt", "[competitions]")
+{
+    // The host restarted mid-game; the goal arrived before its first poll saw the game
+    Fixture f;
+    f.install();
+    f.game->setGameStarted(GameStartOrigin::AlreadyRunning);
+    f.run();
+    f.sessionCreated();
+    CHECK_FALSE(f.record().start);
+    CHECK(f.net->sent.empty());
+
+    // The attempt waits for the next real start, which takes the first sequence of this boot
+    f.game->setGameFinished();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.record().start);
+    CHECK(f.record().start->sequence == 1);
+}
+
 TEST_CASE("A restart loses the attempt", "[competitions]")
 {
     // Installed and started, its start still unanswered

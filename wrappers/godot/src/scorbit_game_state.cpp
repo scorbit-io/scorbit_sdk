@@ -1277,6 +1277,8 @@ void ScorbitGameState::_bind_methods()
                                    SB_GAME_STARTED_BY_BUTTON);
     ClassDB::bind_integer_constant(cls, "GameStartOrigin", "STARTED_FROM_LOBBY",
                                    SB_GAME_STARTED_FROM_LOBBY);
+    ClassDB::bind_integer_constant(cls, "GameStartOrigin", "STARTED_ALREADY_RUNNING",
+                                   SB_GAME_STARTED_ALREADY_RUNNING);
     ClassDB::bind_integer_constant(cls, "Capability", "CAPABILITY_START_GAME",
                                    SB_CAPABILITY_START_GAME, true);
     ClassDB::bind_integer_constant(cls, "Capability", "CAPABILITY_CREDIT_DROP",

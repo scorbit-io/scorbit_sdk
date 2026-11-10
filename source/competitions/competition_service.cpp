@@ -133,7 +133,7 @@ void CompetitionService::publishGoal(const CompetitionGoal &goal, bool installed
 
 // ---- Games -------------------------------------------------------------------------------------
 
-void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
+void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs, bool alreadyRunning)
 {
     // A game that never saw its end (a new one replaced it) can't start anything any more
     for (auto &game : m_games) {
@@ -150,6 +150,13 @@ void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
         if (!record.start && (here.empty() || record.goal.venueMachine == here)) {
             game.candidates.push_back(attempt);
         }
+    }
+
+    // A game the host found already in progress, as after its own restart, began before anything
+    // installed now: its real start is unknown, so nothing starts in it
+    if (!game.candidates.empty() && alreadyRunning) {
+        INF("Competitions: game {} was already running, it starts no attempt", gameSessionId);
+        game.candidates.clear();
     }
 
     // A start outside the competition's window ends the attempt, so a start time from a clock

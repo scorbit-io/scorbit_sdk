@@ -67,7 +67,8 @@ struct AttemptRecord {
  *
  * - A goal is held in memory, then `goal_installed` is sent. A repeated delivery of an attempt
  *   changes nothing; the same attempt with another player or revision is refused.
- * - An attempt starts in the first game that began after it was installed, with a synchronised
+ * - An attempt starts in the first game that began after it was installed, not one the host found
+ *   already running (GameStartOrigin::AlreadyRunning), with a synchronised
  *   clock, in which its player holds a slot of the positions the API accepts (1 to 6). Who holds
  *   which slot is known from the game's own session replies: the create reply, then any update
  *   that seats a player later. The machine-wide profiles are never used, as a late reply for
@@ -97,8 +98,12 @@ public:
     /** A `competition.goal` arrived and parsed. Raises CompetitionGoalReceived unless repeated. */
     void onGoal(CompetitionGoal goal);
 
-    /** Game @p gameSessionId (game state's own id) started at @p startedAtMs, device UTC. */
-    void onGameStarted(int gameSessionId, int64_t startedAtMs);
+    /**
+     * Game @p gameSessionId (game state's own id) started at @p startedAtMs, device UTC. When
+     * @p alreadyRunning, the host found it in progress (GameStartOrigin::AlreadyRunning): no
+     * attempt starts in it.
+     */
+    void onGameStarted(int gameSessionId, int64_t startedAtMs, bool alreadyRunning = false);
 
     /** The server created game @p gameSessionId's session and assigned it @p sessionUuid. */
     void onSessionCreated(int gameSessionId, const std::string &sessionUuid);

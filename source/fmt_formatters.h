@@ -35,6 +35,9 @@ struct fmt::formatter<scorbit::GameStartOrigin> : fmt::formatter<std::string_vie
         case GameStartOrigin::FromLobby:
             name = "FromLobby";
             break;
+        case GameStartOrigin::AlreadyRunning:
+            name = "AlreadyRunning";
+            break;
         }
         return fmt::formatter<std::string_view>::format(name, ctx);
     }

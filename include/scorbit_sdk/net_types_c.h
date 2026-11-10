@@ -57,6 +57,9 @@ typedef enum {
 typedef enum {
     SB_GAME_STARTED_BY_BUTTON = 0,  // started by the machine when player press Start button
     SB_GAME_STARTED_FROM_LOBBY = 1, // started explicitly via Scorbit app request
+    // The host found the game already in progress when it started (as after its own restart).
+    // The session opens as usual; no competition attempt starts in this game.
+    SB_GAME_STARTED_ALREADY_RUNNING = 2,
 } sb_game_start_origin_t;
 
 typedef enum {
