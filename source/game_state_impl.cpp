@@ -685,7 +685,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     });
     m_achievements->onSessionStarted(m_data.id,
                                      toTimelineRow(m_data, m_net->isClockSynchronised()));
-    m_competitions->onGameStarted(m_data.id, toEpochMs(m_data.timestamp));
+    m_competitions->onGameStarted(m_data.id, toEpochMs(m_data.timestamp),
+                                  origin == GameStartOrigin::AlreadyRunning);
 
     return true;
 }

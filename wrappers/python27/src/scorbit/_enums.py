@@ -46,6 +46,9 @@ class GameStartOrigin(IntEnum):
     FromLobby = 1
     """Game started explicitly via Scorbit app request."""
 
+    AlreadyRunning = 2
+    """The game was already in progress when the host started; no competition attempt starts."""
+
 
 class LeaderboardScope(IntEnum):
     """Leaderboard source to query."""

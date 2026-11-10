@@ -107,9 +107,11 @@ public:
      * modified.
      *
      * @param origin The origin of the game start. This indicates how the game was started, such as
-     * by pressing the start button or via a request from the lobby (mobile app). See
-     * @ref scorbit::GameStartOrigin for details and @ref scobit::EventType::GameStartRequested
-     * event.
+     * by pressing the start button or via a request from the lobby (mobile app). A host that finds
+     * a game already in progress when it starts, as after its own restart, passes
+     * @ref scorbit::GameStartOrigin::AlreadyRunning: no competition attempt starts in that game.
+     * See @ref scorbit::GameStartOrigin for details and
+     * @ref scobit::EventType::GameStartRequested event.
      */
     void setGameStarted(GameStartOrigin origin)
     {

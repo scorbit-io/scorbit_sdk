@@ -55,6 +55,9 @@ enum class AuthStatus {
 enum class GameStartOrigin {
     StartButton = SB_GAME_STARTED_BY_BUTTON, // started by machine when player press Start button
     FromLobby = SB_GAME_STARTED_FROM_LOBBY,  // started explicitly via Scorbit app request
+    // The host found the game already in progress when it started (e.g. after its own restart):
+    // the session opens as usual, but no competition attempt starts in this game
+    AlreadyRunning = SB_GAME_STARTED_ALREADY_RUNNING,
 };
 
 enum class LeaderboardScope {
