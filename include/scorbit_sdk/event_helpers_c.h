@@ -397,7 +397,8 @@ bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data,
  * @brief Helper function to process a competition goal event.
  *
  * The event type must be @ref SB_EVT_COMPETITION_GOAL_RECEIVED, otherwise the function returns
- * false. The SDK installs the goal itself: saved to disk, then confirmed to Scorbit. The attempt
+ * false. The SDK installs the goal itself: held in memory, then confirmed to Scorbit; a restart
+ * ends the attempt. The attempt
  * starts in the first game after it was installed in which its player holds a slot; the game does
  * nothing for it. Any output pointer may be NULL.
  *

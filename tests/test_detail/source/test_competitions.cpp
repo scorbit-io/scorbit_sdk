@@ -19,7 +19,7 @@
 
 #include "game_state_impl.h"
 #include "net.h"
-#include "competitions/attempt_store.h"
+#include "competitions/competition_service.h"
 #include "competitions/message_outbox.h"
 #include "competitions/messages.h"
 #include "net_base.h"
@@ -168,9 +168,6 @@ class FakeNet : public NetBase
 public:
     explicit FakeNet(std::string dataDir) { m_info.dataDir = std::move(dataDir); }
 
-    /** As the SDK runs with no data dir configured. */
-    void forgetDataDir() { m_info.dataDir.clear(); }
-
     AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
     void authenticate() override { }
     void updateConfig(const std::string &, const std::string &, bool, std::optional<std::string>,
@@ -293,13 +290,10 @@ struct Fixture {
     Fixture() { boot(); }
 
     /** (Re)starts game state on the same data dir, as after a restart. */
-    void boot(bool withDataDir = true)
+    void boot()
     {
         game.reset();
         auto fake = std::make_unique<FakeNet>(dir.str());
-        if (!withDataDir) {
-            fake->forgetDataDir();
-        }
         net = fake.get();
         game = std::make_unique<GameStateImpl>(std::move(fake));
         run();
@@ -536,70 +530,6 @@ TEST_CASE("Net refuses a competition.goal it can't judge, and says so", "[compet
     CHECK(net.events[0].reason.find("timer policy") != std::string::npos);
 }
 
-// ---- Store -------------------------------------------------------------------------------------
-
-TEST_CASE("Attempts are kept on disk, several at once", "[competitions]")
-{
-    TempDir dir;
-    AttemptStore store {dir.str()};
-
-    AttemptRecord first;
-    first.goal = parsed();
-    first.installedAtMs = STARTED_AT_MS - 2130;
-    first.installed = Delivery::Saved;
-    first.start = AttemptStart {SESSION, 1, STARTED_AT_MS, "boot", 7};
-    REQUIRE(store.save(first));
-
-    auto message = goal();
-    message["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
-    AttemptRecord second;
-    second.goal = parsed(message);
-    REQUIRE(store.save(second));
-
-    // Kept apart from the ordinary definitions cache
-    CHECK(boost::filesystem::exists(boost::filesystem::path(dir.str()) / "competitions"
-                                    / "attempts" / (std::string(ATTEMPT) + ".json")));
-
-    auto loaded = AttemptStore {dir.str()}.load();
-    REQUIRE(loaded.size() == 2);
-    std::ranges::sort(loaded, {}, [](const auto &r) { return r.goal.identity.attempt; });
-    CHECK(loaded[0].goal.message == first.goal.message);
-    CHECK(loaded[0].installedAtMs == first.installedAtMs);
-    CHECK(loaded[0].installed == Delivery::Saved);
-    CHECK(loaded[0].start == first.start);
-    CHECK(loaded[0].started == Delivery::Pending);
-    CHECK_FALSE(loaded[1].start);
-}
-
-TEST_CASE("A file that doesn't parse is skipped, not fatal", "[competitions]")
-{
-    TempDir dir;
-    AttemptStore store {dir.str()};
-    AttemptRecord record;
-    record.goal = parsed();
-    REQUIRE(store.save(record));
-    std::ofstream {(store.root() / "attempts" / "broken.json").string()} << "{";
-
-    CHECK(AttemptStore {dir.str()}.load().size() == 1);
-}
-
-TEST_CASE("The device event sequence is monotonic and survives a restart", "[competitions]")
-{
-    TempDir dir;
-    {
-        AttemptStore store {dir.str()};
-        CHECK(store.nextSequence() == 1);
-        CHECK(store.nextSequence() == 2);
-    }
-    AttemptStore store {dir.str()};
-    CHECK(store.nextSequence() == 3);
-
-    // Two stores on one directory never hand out the same ordinal
-    AttemptStore other {dir.str()};
-    CHECK(other.nextSequence() == 4);
-    CHECK(store.nextSequence() == 5);
-}
-
 // ---- Outbox ------------------------------------------------------------------------------------
 
 TEST_CASE("Outbox sends one message at a time, in order, resent unchanged", "[competitions]")
@@ -640,13 +570,15 @@ TEST_CASE("Outbox sends one message at a time, in order, resent unchanged", "[co
 
 // ---- Service -----------------------------------------------------------------------------------
 
-TEST_CASE("A goal is saved before goal_installed is sent", "[competitions]")
+TEST_CASE("A goal is held, then goal_installed is sent", "[competitions]")
 {
     Fixture f;
     f.deliver();
 
-    // On disk by the time it is acknowledged
-    REQUIRE(AttemptStore {f.dir.str()}.load().size() == 1);
+    // Held in memory, with nothing written, by the time it is acknowledged
+    REQUIRE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(f.record().goal.message == goal());
+    CHECK_FALSE(boost::filesystem::exists(boost::filesystem::path(f.dir.str()) / "competitions"));
     REQUIRE(f.net->sent.size() == 1);
     CHECK(f.net->sent[0].kind == MessageKind::GoalInstalled);
     CHECK(f.net->sent[0].body["type"] == "competition.goal_installed");
@@ -660,7 +592,21 @@ TEST_CASE("A goal is saved before goal_installed is sent", "[competitions]")
 
     f.answer(receipt(GOAL_INSTALLED_SAVED));
     CHECK(f.record().installed == Delivery::Saved);
-    CHECK(AttemptStore {f.dir.str()}.load()[0].installed == Delivery::Saved);
+}
+
+TEST_CASE("Several competitions' goals are held at once", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    auto other = goal();
+    other["tournament"] = "0193a5e0-0000-7000-8000-000000000011";
+    other["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
+    f.deliver(other);
+
+    const auto &attempts = f.game->competitions().attempts();
+    CHECK(attempts.size() == 2);
+    CHECK(attempts.contains(ATTEMPT));
+    CHECK(attempts.contains("0193a5e0-0000-7000-8000-000000000013"));
 }
 
 TEST_CASE("A repeated delivery of the same attempt changes nothing", "[competitions]")
@@ -712,8 +658,7 @@ TEST_CASE("The start is recorded once the session reply names the player", "[com
     CHECK(f.record().start->position == 2);
     CHECK(f.record().start->bootId == bootId());
     CHECK(f.record().start->sequence == 1);
-    // Saved before it was sent
-    CHECK(AttemptStore {f.dir.str()}.load()[0].start == f.record().start);
+    CHECK(f.record().started == Delivery::Pending); // kept until confirmed
 
     REQUIRE(f.net->sent.size() == 1);
     const auto &body = f.net->sent[0].body;
@@ -924,7 +869,6 @@ TEST_CASE("A named refusal stops the resending and forgets the attempt", "[compe
 
     f.answer(refused(ATTEMPT_REFUSED));
     CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
-    CHECK(AttemptStore {f.dir.str()}.load().empty());
     CHECK(f.net->sent.empty());
     CHECK_FALSE(f.net->retry);
 }
@@ -949,17 +893,6 @@ TEST_CASE("A refused install never starts, nor sends a start queued behind it",
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("Without a data dir a goal is refused, not acknowledged", "[competitions]")
-{
-    Fixture f;
-    f.boot(false);
-    f.deliver();
-    CHECK(f.net->sent.empty());
-    REQUIRE(f.net->goals.size() == 1);
-    CHECK_FALSE(f.net->goals[0].installed);
-    CHECK(f.net->goals[0].reason.find("data dir") != std::string::npos);
-}
-
 TEST_CASE("A goal for another venue machine is refused", "[competitions]")
 {
     Fixture f;
@@ -976,35 +909,54 @@ TEST_CASE("A goal for another venue machine is refused", "[competitions]")
     CHECK(g.net->goals.at(0).installed);
 }
 
-TEST_CASE("Unanswered messages are sent again after a restart, as saved", "[competitions]")
+TEST_CASE("A restart loses the attempt", "[competitions]")
 {
+    // Installed and started, its start still unanswered
     Fixture f;
     f.install();
     f.startGame();
     f.sessionCreated();
     REQUIRE(f.net->sent.size() == 1);
-    const auto body = f.net->sent[0].body;
 
+    // Nothing comes back: the attempt is over, and nothing of it is sent again
     f.boot();
-    REQUIRE(f.net->sent.size() == 1);
-    CHECK(f.net->sent[0].body == body);
-    f.answer(receipt(ATTEMPT_STARTED_SAVED));
-
-    // The sequence carries on from where it was
-    f.boot();
+    CHECK(f.game->competitions().attempts().empty());
     CHECK(f.net->sent.empty());
-    auto message = goal();
-    message["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
-    f.deliver(message);
-    f.answer(receipt(R"({"version": 1, "type": "competition.goal_installed_saved",
-        "attempt": "0193a5e0-0000-7000-8000-000000000013",
-        "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
-        "status": "saved"})"));
+
+    // Its player playing again starts nothing, until the API sends a new goal
     f.startGame();
     f.sessionCreated();
-    CHECK(f.game->competitions()
-                  .attempts()
-                  .at("0193a5e0-0000-7000-8000-000000000013")
-                  .start->sequence
-          == 2);
+    CHECK(f.game->competitions().attempts().empty());
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("The device event sequence counts game starts from 1 each boot", "[competitions]")
+{
+    auto second = goal();
+    second["tournament"] = "0193a5e0-0000-7000-8000-000000000011";
+    second["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
+    const auto secondAttempt = [](const Fixture &f) -> const AttemptRecord & {
+        return f.game->competitions().attempts().at("0193a5e0-0000-7000-8000-000000000013");
+    };
+
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    CHECK(f.record().start->sequence == 1);
+
+    // A later game with an attempt to start takes the next one
+    f.game->setGameFinished();
+    f.deliver(second);
+    f.startGame();
+    f.sessionCreated();
+    CHECK(secondAttempt(f).start->sequence == 2);
+
+    // A new boot counts from 1 again; its boot id tells it apart
+    f.boot();
+    f.deliver(second);
+    f.startGame();
+    f.sessionCreated();
+    CHECK(secondAttempt(f).start->sequence == 1);
+    CHECK(secondAttempt(f).start->bootId == bootId());
 }

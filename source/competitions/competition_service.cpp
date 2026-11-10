@@ -68,26 +68,13 @@ const std::string &bootId()
     return id;
 }
 
-CompetitionService::CompetitionService(NetBase &net, AttemptStore store, Poster poster,
-                                       WallClock wallClock, bool persistent, std::string bootId)
+CompetitionService::CompetitionService(NetBase &net, Poster poster, WallClock wallClock,
+                                       std::string bootId)
     : m_net {net}
-    , m_store {std::move(store)}
     , m_poster {std::move(poster)}
     , m_wallClock {std::move(wallClock)}
-    , m_persistent {persistent}
     , m_bootId {std::move(bootId)}
 {
-    // Whatever the API hasn't answered yet is sent again, as it was saved
-    for (auto &record : m_store.load()) {
-        auto attempt = record.goal.identity.attempt;
-        const auto &[it, inserted] = m_attempts.emplace(std::move(attempt), std::move(record));
-        queueInstalled(it->second);
-        queueStarted(it->second);
-    }
-    if (!m_attempts.empty()) {
-        INF("Competitions: {} attempts kept on this machine", m_attempts.size());
-    }
-    pump();
 }
 
 CompetitionService::~CompetitionService()
@@ -109,16 +96,11 @@ void CompetitionService::onGoal(CompetitionGoal goal)
                                  : "the attempt is installed with another revision");
             return;
         }
-        // A repeated delivery: already saved, and its install is answered or on its way
+        // A repeated delivery: already held, and its install is answered or on its way
         INF("Competitions: attempt {} is already installed", attempt);
         return;
     }
 
-    // Saved only to a temporary directory, an install would be acknowledged and then lost
-    if (!m_persistent) {
-        refuse(goal, "no data dir is configured, so it would not survive a restart");
-        return;
-    }
     if (const auto here = toLowerAscii(m_net.venueMachine());
         !here.empty() && here != goal.venueMachine) {
         refuse(goal, fmt::format("it is for venue machine {}, this is {}", goal.venueMachine, here));
@@ -128,10 +110,6 @@ void CompetitionService::onGoal(CompetitionGoal goal)
     AttemptRecord record;
     record.goal = std::move(goal);
     record.installedAtMs = m_wallClock();
-    if (!m_store.save(record)) {
-        refuse(record.goal, "it could not be saved");
-        return;
-    }
 
     INF("Competitions: installed attempt {} for player {}", attempt, record.goal.player);
     const auto &[it, inserted] = m_attempts.emplace(attempt, std::move(record));
@@ -182,18 +160,12 @@ void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
         game.candidates.clear();
     }
 
-    // Only a game that may start an attempt takes an ordinal, so others cost no write
+    // Only a game that may start an attempt takes an ordinal. Counted from 1 each boot: the boot
+    // id tells one boot's from another's.
     if (!game.candidates.empty()) {
-        const auto sequence = m_store.nextSequence();
-        if (!sequence) {
-            ERR("Competitions: game {} starts no attempt: no device event ordinal",
-                gameSessionId);
-            game.candidates.clear();
-        } else {
-            game.sequence = *sequence;
-            INF("Competitions: game {} may start {} attempts, sequence {}", gameSessionId,
-                game.candidates.size(), game.sequence);
-        }
+        game.sequence = ++m_lastSequence;
+        INF("Competitions: game {} may start {} attempts, sequence {}", gameSessionId,
+            game.candidates.size(), game.sequence);
     }
 
     m_games.push_back(std::move(game));
@@ -284,11 +256,6 @@ void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
 
         record.start =
                 AttemptStart {game.sessionUuid, position, game.startedAtMs, m_bootId, game.sequence};
-        if (!m_store.save(record)) {
-            // Not started, so that it isn't sent unsaved; a later match may save it
-            record.start.reset();
-            continue;
-        }
         INF("Competitions: attempt {} started in game {} at position {}", attempt, game.id,
             position);
         queueStarted(record);
@@ -377,7 +344,6 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
         WRN("Competitions: {} for attempt {} refused, forgetting the attempt: {}",
             typeOf(message.kind), message.attempt, refusalOf(reply));
         m_outbox.drop(message.attempt);
-        m_store.remove(message.attempt);
         m_attempts.erase(it);
         m_outbox.answered();
         pump();
@@ -405,9 +371,6 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
         return;
     }
 
-    // Saved after the answer: if it can't be, the message is sent again after a restart and
-    // answered `duplicate`, which is harmless
-    m_store.save(record);
     m_outbox.answered();
     pump();
 }

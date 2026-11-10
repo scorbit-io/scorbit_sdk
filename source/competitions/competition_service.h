@@ -19,7 +19,6 @@
 
 #pragma once
 
-#include "attempt_store.h"
 #include "message_outbox.h"
 #include "messages.h"
 #include "../net_base.h"
@@ -28,6 +27,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,27 +35,48 @@ namespace scorbit {
 namespace detail {
 namespace competitions {
 
-/** This run's boot id: a random uuid, generated once per process. */
+/** This run's boot id: a random uuid, generated once per process and never stored. */
 const std::string &bootId();
+
+/** Where a message to the API stands. */
+enum class Delivery {
+    Pending,   ///< Not answered yet: it is sent, and sent again, until it is
+    Saved,     ///< The server saved it
+    Duplicate, ///< The server had saved it already
+};
+
+/** One installed attempt, held in memory: a restart ends it (SB-6369). */
+struct AttemptRecord {
+    CompetitionGoal goal;
+    /** When the goal was installed here, device UTC: `installed_at`. */
+    int64_t installedAtMs {0};
+    Delivery installed {Delivery::Pending};
+
+    /** Set once, when the attempt's game started; never replaced. */
+    std::optional<AttemptStart> start;
+    Delivery started {Delivery::Pending};
+};
 
 /**
  * The machine side of a competition attempt (SB-6437, ADR-0052): installs the goals the API
  * sends, records the game start of each attempt once, and resends both to the API until it
  * answers.
  *
- * - A goal is saved durably before `goal_installed` is sent. A repeated delivery of an attempt
+ * Nothing is written to disk (decided 2026-11-09): a restart or power loss ends any attempt,
+ * which never resumes. The boot id on each start tells the API a restart cut one off.
+ *
+ * - A goal is held in memory, then `goal_installed` is sent. A repeated delivery of an attempt
  *   changes nothing; the same attempt with another player or revision is refused.
  * - An attempt starts in the first game that began after it was installed, with a synchronised
  *   clock, in which its player holds a slot of the positions the API accepts (1 to 6). Who holds
  *   which slot is known from the game's own session replies: the create reply, then any update
  *   that seats a player later. The machine-wide profiles are never used, as a late reply for
  *   another session rewrites them.
- * - The start (the game's original UTC, this boot and a device event ordinal taken at the game
- *   start) is saved before it is sent, and sent once the session uuid is known.
+ * - The start (the game's original UTC, this boot's id and a device event ordinal taken at the
+ *   game start, counted from 1 each boot) is kept until confirmed, and sent once the session
+ *   uuid is known.
  * - Only a receipt or a 409 answers a message. Anything else is resent. A 409 ends the attempt
  *   for the server, so it is forgotten here.
- * - Without a configured data dir goals are refused: saved to a temporary directory, an
- *   acknowledged install could be lost.
  *
  * Threading: every method runs on the thread game state lives on. Network replies and timers are
  * brought back to it through the poster.
@@ -66,9 +87,8 @@ public:
     using Poster = std::function<void(std::function<void()>)>;
     using WallClock = std::function<int64_t()>;
 
-    /** @p persistent: the store's data dir survives a restart (one was configured). */
-    CompetitionService(NetBase &net, AttemptStore store, Poster poster, WallClock wallClock,
-                       bool persistent = true, std::string bootId = competitions::bootId());
+    CompetitionService(NetBase &net, Poster poster, WallClock wallClock,
+                       std::string bootId = competitions::bootId());
     ~CompetitionService();
 
     CompetitionService(const CompetitionService &) = delete;
@@ -89,7 +109,7 @@ public:
     /** Game @p gameSessionId ended. */
     void onGameFinished(int gameSessionId);
 
-    /** The attempts installed here, as kept on disk; for tests and diagnostics. */
+    /** The attempts installed here; for tests and diagnostics. */
     const std::map<std::string, AttemptRecord> &attempts() const { return m_attempts; }
 
 private:
@@ -123,11 +143,11 @@ private:
     void onRetryTimer();
 
     NetBase &m_net;
-    AttemptStore m_store;
     Poster m_poster;
     WallClock m_wallClock;
-    bool m_persistent;
     std::string m_bootId;
+    /** The last device event ordinal used this boot. */
+    int64_t m_lastSequence {0};
 
     /** attempt → record. */
     std::map<std::string, AttemptRecord> m_attempts;

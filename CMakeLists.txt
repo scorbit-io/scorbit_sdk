@@ -244,8 +244,6 @@ target_sources(
         source/achievements/achievement_service.cpp
         source/competitions/messages.h
         source/competitions/messages.cpp
-        source/competitions/attempt_store.h
-        source/competitions/attempt_store.cpp
         source/competitions/message_outbox.h
         source/competitions/message_outbox.cpp
         source/competitions/competition_service.h
@@ -277,8 +275,6 @@ target_sources(
         source/utils/decrypt.cpp
         source/utils/thread_priority.h
         source/utils/thread_priority.cpp
-        source/utils/durable_file.h
-        source/utils/durable_file.cpp
 
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
