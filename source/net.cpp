@@ -416,6 +416,7 @@ Net::Net(DeviceInfo deviceInfo, std::vector<std::unique_ptr<IKeyResolver>> resol
     , m_authRetryBackoff(seconds {AUTH_RETRY_INITIAL_BACKOFF}.count())
     , m_scorbitronRetryBackoff(SCORBITRON_RETRY_INITIAL_BACKOFF)
     , m_deviceInfo(std::move(deviceInfo))
+    , m_bootId(detail::generateBootId())
     , m_updater(*this, m_deviceInfo.usesEncryptedKey(), m_deviceInfo.scorbitdVersion,
                 m_deviceInfo.scorbitdPlatformId)
     , m_worker(m_deviceInfo.threadsNice, m_deviceInfo.workerThreadCount)
@@ -4060,6 +4061,7 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_SDK_VERSION] = SCORBIT_SDK_VERSION;
     m_scorbitronObject[JKEY_SOBJ_SCORBITD_VERSION] = m_deviceInfo.scorbitdVersion;
     m_scorbitronObject[JKEY_SOBJ_GAME_CODE_VERSION] = m_deviceInfo.gameCodeVersion;
+    m_scorbitronObject[JKEY_SOBJ_BOOT_ID] = m_bootId;
 
     // Only what the host set: an omitted key leaves the API's value alone (SB-4880).
     for (const auto &[key, value] : {

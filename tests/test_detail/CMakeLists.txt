@@ -178,6 +178,7 @@ target_sources(
         source/test_nfc_flash.cpp
         ../../source/config_c.cpp
         source/test_game_firmware.cpp
+        source/test_boot_id.cpp
         source/test_probe_firmware.cpp
         source/test_probe_flash.cpp
         ../../source/http_session_pool.h

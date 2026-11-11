@@ -108,6 +108,17 @@ TEST_CASE("Derive UUID v5 from given source", "[deriveUuid]")
     CHECK(uuid2 == "f4de2fc0-36bf-5209-b019-d40c961d079e");
 }
 
+TEST_CASE("A boot ID is a fresh random UUID on every call", "[boot_id]")
+{
+    const auto first = generateBootId();
+    const auto second = generateBootId();
+
+    CHECK(isUuid(first));
+    CHECK(first[14] == '4'); // version 4: random, so it doesn't depend on the device's clock
+    CHECK(isUuid(second));
+    CHECK(first != second);
+}
+
 TEST_CASE("Parse UUID", "[parseUuid]")
 {
     const auto uuid = parseUuid("f4de2fc0-36bf-5209-b019-d40c961d079e");

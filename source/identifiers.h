@@ -425,6 +425,7 @@ constexpr auto JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE {"diag_sdk_probe_capable"};
 constexpr auto JKEY_SOBJ_PROBE_FLASH_CAPABLE {"probe_flash_capable"};
 constexpr auto JKEY_SOBJ_PROBE_FLASH_PROBES {"probe_flash_probes"};
 constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
+constexpr auto JKEY_SOBJ_BOOT_ID {"boot_id"};
 
 constexpr auto JKEY_SOBJ_RELEASE_TRACK {"release_track"};
 constexpr auto JKEY_SOBJ_RELEASE_URL {"url"};

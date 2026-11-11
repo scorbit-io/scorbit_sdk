@@ -1074,6 +1074,7 @@ private:
     std::vector<std::string> m_nonces;
     mutable std::mutex m_noncesMutex;
 
+    const std::string m_bootId;
     mutable std::mutex m_scorbitronObjectMutex;
     nlohmann::json m_scorbitronObject;
     /// A field whose last update failed: its next report resends it once retryAt has passed.

@@ -908,6 +908,35 @@ TEST_CASE("A switch that ends with the pairing unresolved asks for it again")
     CHECK(NetTestAccess::scorbitronObjectQueued(*v.net)); // the pairing is asked for again
 }
 
+TEST_CASE("A switch's reconciling PATCH carries the Net's boot ID", "[boot_id]")
+{
+    VpinNet v(false);
+    NetTestAccess::setMachineUuid(*v.net, CURRENT);
+    const auto bootId = NetTestAccess::scorbitronObject(*v.net).at("boot_id");
+    std::vector<nlohmann::json> patched;
+    NetTestAccess::setVpinTransport(
+            *v.net,
+            {.post = [](const cpr::Url &, const cpr::Body &,
+                        const cpr::Header &) { return response(502); }, // no answer: reconcile
+             .patch =
+                     [&](const cpr::Url &, const cpr::Body &body, const cpr::Header &) {
+                         patched.push_back(nlohmann::json::parse(body.str()));
+                         return response(200, scorbitronReply(TARGET).dump());
+                     }});
+    NetTestAccess::runSwitchMachine(
+            *v.net, TARGET, [](sb_switch_machine_result_t, const std::string &) {},
+            [&](const std::string &target, const std::string &, MachineSwitch::Done done) {
+                NetTestAccess::adoptForTest(*v.net, target);
+                done();
+            });
+    v.drain();
+
+    REQUIRE_FALSE(patched.empty());
+    for (const auto &body : patched) {
+        CHECK(body.at("boot_id") == bootId);
+    }
+}
+
 TEST_CASE("A switch that ends during a re-authentication raises no pairing event")
 {
     VpinNet v(false);

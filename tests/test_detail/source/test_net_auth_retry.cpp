@@ -1546,3 +1546,25 @@ TEST_CASE("The clock is synchronised once a server reading agrees with it")
     NetTestAccess::noteRestSuccess(h.net, atServer(system_clock::now()));
     CHECK(h.net.isClockSynchronised());
 }
+
+TEST_CASE("A re-authentication's Scorbitron object carries the same boot ID", "[boot_id]")
+{
+    AuthHarness h;
+    NetTestAccess::scorbitronObject(h.net);
+    const auto bootId = [&] {
+        return nlohmann::json::parse(NetTestAccess::scorbitronObjectBody(h.net))
+                .at("boot_id")
+                .get<std::string>();
+    };
+    h.replies({tokenReply(jwt(1h))});
+    h.run();
+    REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing); // the object is queued
+    NetTestAccess::setStatus(h.net, AuthStatus::AuthenticatedPaired);
+    const auto first = bootId();
+
+    // A request's 401 re-authenticates in full, which queues the object again.
+    NetTestAccess::reauthenticateAfterUnauthorized(h.net);
+    REQUIRE(h.tokenCalls == 2);
+    REQUIRE(h.status() == AuthStatus::AuthenticatedCheckingPairing);
+    CHECK(bootId() == first);
+}
