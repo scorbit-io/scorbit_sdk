@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <utility>
 
 namespace nfc {
@@ -137,7 +138,15 @@ public:
         const auto target = usb::resetTargetOf(m_devicePath);
         const auto usbfs = target ? usb::UsbfsReset::open(*target) : nullptr;
         std::function<bool()> overUsb;
+        // The per-port lock every serial command takes, so the detach cuts off no other process's
+        // command. Only on this route: the fallback's CommandWrite takes it itself.
+        std::optional<spb::sdk::InterprocessLock> portLock;
         if (usbfs) {
+            portLock.emplace(m_probe->Cable.DeviceName);
+            if (!portLock->IsLocked()) {
+                ERR("NFC: bootloader command not sent: the probe's port is busy\n");
+                return;
+            }
             overUsb = [&usbfs] { return usbfs->send(usb::bootloaderFrame()); };
         }
         switch (usb::sendReset(
