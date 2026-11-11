@@ -16,7 +16,7 @@ permissions:
 jobs:
   publish-pypi:
     name: Publish to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNNER_AMD64 || '"ubuntu-latest"') }}
     environment: pypi
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
