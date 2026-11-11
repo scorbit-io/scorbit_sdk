@@ -11,6 +11,7 @@
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
 #include "nfc/ListUsbDevices.h"
+#include "nfc/UsbCommandChannel.h"
 
 #include <fmt/format.h>
 
@@ -125,8 +126,32 @@ public:
 
     void enterBootloader() override
     {
-        // The probe resets before it can acknowledge, so the missing reply is expected.
-        m_probe->Cable.CommandWrite(ProbeCommand_t::Bootloader, 0, {0x05, 0xC0, 0x4B, 0x17});
+        // The probe resets instead of replying. A cdc-acm port open across that reset can take
+        // the USB host down on some hosts, so on Linux it is closed first and the command goes
+        // over usbfs, written once with nothing left to read.
+        const std::vector<uint8_t> payload {0x05, 0xC0, 0x4B, 0x17};
+        const auto target = usb::commandTargetOf(m_devicePath);
+        auto channel = target ? usb::openCommandChannel(*target) : nullptr;
+        const auto route = usb::sendResetCommand(
+                std::move(channel), usb::commandFrame(ProbeCommand_t::Bootloader, 0, payload),
+                [this] { m_probe->Cable.Close(); },
+                [this, &payload] {
+                    m_probe->Cable.CommandWrite(ProbeCommand_t::Bootloader, 0, payload);
+                });
+        switch (route) {
+        case usb::ResetRoute::Usb:
+            INF("NFC: bootloader command sent over usbfs, serial port closed\n");
+            break;
+        case usb::ResetRoute::UsbFailed:
+            ERR("NFC: bootloader command not sent: the usbfs send failed\n");
+            break;
+        case usb::ResetRoute::SerialPort:
+#if defined(__linux__)
+            WRN("NFC: bootloader command sent over the serial port (usbfs unavailable); a serial "
+                "port open while the probe resets can hang the USB host on some boards\n");
+#endif
+            break;
+        }
     }
 
     std::string devicePath() const override { return m_devicePath; }
