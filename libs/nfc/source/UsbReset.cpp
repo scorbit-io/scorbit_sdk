@@ -92,33 +92,39 @@ libusb_device_handle *handleOf(void *handle)
     return static_cast<libusb_device_handle *>(handle);
 }
 
-// The bulk OUT endpoint of the data interface, or 0.
-uint8_t dataEndpointOut(libusb_device *device, int dataInterface)
+struct Interfaces {
+    uint8_t endpointOut {0}; ///< the data interface's bulk OUT, or 0
+    std::vector<int> cdc;    ///< every CDC comm and data interface of the probe
+};
+
+Interfaces scanInterfaces(libusb_device *device, int dataInterface)
 {
+    Interfaces found;
     libusb_config_descriptor *cfg = nullptr;
     if (libusb_get_active_config_descriptor(device, &cfg) != 0) {
-        return 0;
+        return found;
     }
-    uint8_t endpoint = 0;
-    for (int i = 0; i < cfg->bNumInterfaces && !endpoint; ++i) {
+    for (int i = 0; i < cfg->bNumInterfaces; ++i) {
         if (cfg->interface[i].num_altsetting < 1) {
             continue;
         }
         const auto &alt = cfg->interface[i].altsetting[0];
+        if (alt.bInterfaceClass == LIBUSB_CLASS_COMM || alt.bInterfaceClass == LIBUSB_CLASS_DATA) {
+            found.cdc.push_back(alt.bInterfaceNumber);
+        }
         if (alt.bInterfaceNumber != dataInterface || alt.bInterfaceClass != LIBUSB_CLASS_DATA) {
             continue;
         }
-        for (int e = 0; e < alt.bNumEndpoints; ++e) {
+        for (int e = 0; e < alt.bNumEndpoints && !found.endpointOut; ++e) {
             const auto &ep = alt.endpoint[e];
             if ((ep.bmAttributes & LIBUSB_TRANSFER_TYPE_MASK) == LIBUSB_TRANSFER_TYPE_BULK
                 && !(ep.bEndpointAddress & LIBUSB_ENDPOINT_IN)) {
-                endpoint = ep.bEndpointAddress;
-                break;
+                found.endpointOut = ep.bEndpointAddress;
             }
         }
     }
     libusb_free_config_descriptor(cfg);
-    return endpoint;
+    return found;
 }
 
 } // namespace
@@ -140,21 +146,24 @@ std::unique_ptr<UsbfsReset> UsbfsReset::open(const ResetTarget &target)
             found = *it;
         }
     }
-    const uint8_t endpointOut = found ? dataEndpointOut(found, target.dataInterface) : 0;
+    auto interfaces = found ? scanInterfaces(found, target.dataInterface) : Interfaces {};
     libusb_device_handle *handle = nullptr;
-    const int rc = endpointOut ? libusb_open(found, &handle) : LIBUSB_ERROR_NOT_FOUND;
+    const int rc = interfaces.endpointOut ? libusb_open(found, &handle) : LIBUSB_ERROR_NOT_FOUND;
     libusb_free_device_list(list, 1);
     if (rc != 0) {
         ERR("NFC: can't open the probe over usbfs (%s)\n", libusb_error_name(rc));
         return nullptr;
     }
-    return std::unique_ptr<UsbfsReset>(new UsbfsReset(handle, target, endpointOut));
+    return std::unique_ptr<UsbfsReset>(
+            new UsbfsReset(handle, target, interfaces.endpointOut, std::move(interfaces.cdc)));
 }
 
-UsbfsReset::UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut)
+UsbfsReset::UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut,
+                       std::vector<int> cdcInterfaces)
     : m_handle {handle}
     , m_target {target}
     , m_endpointOut {endpointOut}
+    , m_cdcInterfaces {std::move(cdcInterfaces)}
 {
 }
 
@@ -175,8 +184,10 @@ bool UsbfsReset::send(const std::vector<uint8_t> &frame)
         return false;
     };
 
-    for (const int iface : {m_target.dataInterface - 1, m_target.dataInterface}) {
-        if (iface < 0 || libusb_kernel_driver_active(handle, iface) != 1) {
+    // Every CDC interface, not just this port's pair: another serial port of the probe (its TPM)
+    // may be open elsewhere between that holder's tap-pad-locked steps, with transfers pending.
+    for (const int iface : m_cdcInterfaces) {
+        if (libusb_kernel_driver_active(handle, iface) != 1) {
             continue;
         }
         if (const int rc = libusb_detach_kernel_driver(handle, iface); rc != 0) {
@@ -206,10 +217,12 @@ std::unique_ptr<UsbfsReset> UsbfsReset::open(const ResetTarget &)
     return nullptr;
 }
 
-UsbfsReset::UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut)
+UsbfsReset::UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut,
+                       std::vector<int> cdcInterfaces)
     : m_handle {handle}
     , m_target {target}
     , m_endpointOut {endpointOut}
+    , m_cdcInterfaces {std::move(cdcInterfaces)}
 {
 }
 

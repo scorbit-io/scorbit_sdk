@@ -41,7 +41,7 @@ constexpr std::array<uint8_t, 4> BOOTLOADER_PAYLOAD {0x05, 0xC0, 0x4B, 0x17};
 /** The bootloader command frame: header, command, address 0, length, payload, checksum. */
 std::vector<uint8_t> bootloaderFrame();
 
-/** Where a probe's data interface sits; its comm interface is the one before it. */
+/** Where the data interface the command is written to sits. */
 struct ResetTarget {
     unsigned bus {0};
     unsigned address {0};
@@ -71,18 +71,21 @@ public:
     UsbfsReset &operator=(const UsbfsReset &) = delete;
 
     /**
-     * Detaches any kernel driver from the comm and data interfaces, claims the data interface and
+     * Detaches any kernel driver from every CDC interface of the probe, so none of its serial
+     * ports has a transfer pending, wherever it is held open. Then claims the data interface and
      * writes @p frame as one bulk OUT, with no read. On failure the drivers are re-attached, so the
-     * probe's serial port comes back.
+     * probe's serial ports come back.
      */
     bool send(const std::vector<uint8_t> &frame);
 
 private:
-    UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut);
+    UsbfsReset(void *handle, ResetTarget target, uint8_t endpointOut,
+               std::vector<int> cdcInterfaces);
 
     void *m_handle;
     ResetTarget m_target;
     uint8_t m_endpointOut;
+    std::vector<int> m_cdcInterfaces;
 };
 
 enum class ResetRoute {
