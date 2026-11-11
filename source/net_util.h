@@ -57,6 +57,13 @@ std::string removeSymbols(std::string_view str, std::string_view symbols);
 
 std::string deriveUuid(const std::string &source);
 
+/**
+ * A fresh random (v4) UUID on every call. Net keeps one for its lifetime as the Scorbitron
+ * object's boot_id (SB-6523). Random rather than time-ordered: a device may boot before its clock
+ * is set, and the API only needs to see that the value changed.
+ */
+std::string generateBootId();
+
 std::string parseUuid(const std::string &str);
 
 std::string gameHistoryToCsv(const GameHistory &history);
