@@ -154,7 +154,7 @@ target_sources(
         source/test_game_state.cpp
         source/test_probes_manager.cpp
         source/test_nfc_usb_port.cpp
-        source/test_nfc_usb_command_channel.cpp
+        source/test_nfc_usb_reset.cpp
         ../../source/game_data.h
         source/trompeloeil_printer.h
         ../../source/updater.h

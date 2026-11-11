@@ -20,6 +20,7 @@
 // SB-5759: a tap pad's USB port path, from a fake sysfs tree.
 
 #include <nfc/UsbPort.h>
+#include <nfc/UsbReset.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -84,6 +85,20 @@ TEST_CASE("usb port: a ttyACM probe maps to the port of its interface", "[nfc][u
     CHECK(nfc::usb::portOfDevice("/dev/ttyACM0", sys.root) == "1-1.3");
     CHECK_FALSE(nfc::usb::portOfDevice("/dev/ttyACM1", sys.root));
     CHECK_FALSE(nfc::usb::portOfDevice("ttyACM0", sys.root));
+}
+
+TEST_CASE("usb port: a ttyACM probe resets through the data interface after its tty's",
+          "[nfc][usb]")
+{
+    FakeSysfs sys;
+    const auto dir = sys.device("1-1", "cafe", "4002", 1, 30);
+    fs::create_directories(dir / "1-1:1.2");
+    std::ofstream(dir / "1-1:1.2" / "bInterfaceNumber") << "02\n";
+    fs::create_directories(sys.root / "class/tty/ttyACM1");
+    fs::create_directory_symlink(dir / "1-1:1.2", sys.root / "class/tty/ttyACM1/device");
+
+    CHECK(nfc::usb::resetTargetOf("/dev/ttyACM1", sys.root) == nfc::usb::ResetTarget {1, 30, 3});
+    CHECK_FALSE(nfc::usb::resetTargetOf("/dev/ttyACM5", sys.root));
 }
 #endif
 

@@ -33,6 +33,18 @@ namespace nfc::usb {
 /** A sysfs attribute holding one number, e.g. idVendor (base 16) or busnum (base 10). */
 std::optional<unsigned> readSysfsNumber(const std::filesystem::path &file, int base);
 
+/** A libusb probe path, "usb:<bus>:<addr>:<iface>". */
+struct UsbPath {
+    unsigned bus {0};
+    unsigned address {0};
+    unsigned iface {0};
+};
+std::optional<UsbPath> parseUsbPath(const std::string &device);
+
+/** sysfs directory of the USB interface "/dev/ttyACM<n>" is bound to, e.g. ".../1-1/1-1:1.0". */
+std::optional<std::filesystem::path> ttyInterfaceDir(const std::string &device,
+                                                     const std::filesystem::path &sys = "/sys");
+
 /**
  * Port path of the USB device a probe was opened on: @p device is "/dev/ttyACM<n>" or
  * "usb:<bus>:<addr>:<iface>".

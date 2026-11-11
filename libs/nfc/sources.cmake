@@ -12,7 +12,7 @@ set(headers
     include/nfc/Picoboot.h
     include/nfc/PicobootUsb.h
     include/nfc/UsbPort.h
-    include/nfc/UsbCommandChannel.h
+    include/nfc/UsbReset.h
 )
 
 set(sources
@@ -21,5 +21,5 @@ set(sources
     source/Picoboot.cpp
     source/PicobootUsb.cpp
     source/UsbPort.cpp
-    source/UsbCommandChannel.cpp
+    source/UsbReset.cpp
 )

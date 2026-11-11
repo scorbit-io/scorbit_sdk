@@ -46,33 +46,51 @@ std::optional<unsigned> readSysfsNumber(const fs::path &file, int base)
     }
 }
 
+std::optional<UsbPath> parseUsbPath(const std::string &device)
+{
+    UsbPath path;
+    if (std::sscanf(device.c_str(), "usb:%u:%u:%u", &path.bus, &path.address, &path.iface) != 3) {
+        return std::nullopt;
+    }
+    return path;
+}
+
+std::optional<fs::path> ttyInterfaceDir(const std::string &device, const fs::path &sys)
+{
+    // A tty's "device" link points at its USB interface, e.g. ".../usb1/1-1/1-1:1.0".
+    const auto tty = fs::path(device).filename();
+    if (tty.empty() || device.rfind("/dev/", 0) != 0) {
+        return std::nullopt;
+    }
+    std::error_code ec;
+    auto interface = fs::canonical(sys / "class/tty" / tty / "device", ec);
+    if (ec) {
+        return std::nullopt;
+    }
+    return interface;
+}
+
 std::optional<std::string> portOfDevice(const std::string &device, const fs::path &sys)
 {
-    std::error_code ec;
-    unsigned bus = 0, address = 0, iface = 0;
-    if (std::sscanf(device.c_str(), "usb:%u:%u:%u", &bus, &address, &iface) == 3) {
+    if (const auto usb = parseUsbPath(device)) {
+        std::error_code ec;
         for (fs::directory_iterator it(sys / "bus/usb/devices", ec), end; !ec && it != end;
              it.increment(ec)) {
             const auto name = it->path().filename().string();
             if (name.find(':') == std::string::npos
-                && readSysfsNumber(it->path() / "busnum", 10) == bus
-                && readSysfsNumber(it->path() / "devnum", 10) == address) {
+                && readSysfsNumber(it->path() / "busnum", 10) == usb->bus
+                && readSysfsNumber(it->path() / "devnum", 10) == usb->address) {
                 return name;
             }
         }
         return std::nullopt;
     }
 
-    // A tty's "device" link points at its USB interface, e.g. ".../usb1/1-1/1-1:1.0".
-    const auto tty = fs::path(device).filename();
-    if (tty.empty() || device.rfind("/dev/", 0) != 0) {
+    const auto interface = ttyInterfaceDir(device, sys);
+    if (!interface) {
         return std::nullopt;
     }
-    const auto interface = fs::canonical(sys / "class/tty" / tty / "device", ec);
-    if (ec) {
-        return std::nullopt;
-    }
-    const auto name = interface.filename().string();
+    const auto name = interface->filename().string();
     const auto colon = name.find(':');
     if (colon == std::string::npos || colon == 0) {
         return std::nullopt;
