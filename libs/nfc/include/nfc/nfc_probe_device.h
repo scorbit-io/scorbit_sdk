@@ -97,7 +97,8 @@ public:
 
     /**
      * Sends the bootloader command. The probe reboots into its RP2040 boot ROM (BOOTSEL) without
-     * replying, so only a BOOTSEL device appearing shows that it worked.
+     * replying, so only a BOOTSEL device appearing shows that it worked. On Linux it closes the
+     * serial port first (nfc/UsbReset.h), so nothing else can be sent to the probe afterwards.
      */
     virtual void enterBootloader() {}
 

@@ -11,11 +11,13 @@
 #include "nfc/probes_manager.h"
 #include "nfc/Probe.h"
 #include "nfc/ListUsbDevices.h"
+#include "nfc/UsbReset.h"
 
 #include <fmt/format.h>
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <utility>
 
 namespace nfc {
@@ -125,8 +127,43 @@ public:
 
     void enterBootloader() override
     {
-        // The probe resets before it can acknowledge, so the missing reply is expected.
-        m_probe->Cable.CommandWrite(ProbeCommand_t::Bootloader, 0, {0x05, 0xC0, 0x4B, 0x17});
+        // The probe resets instead of replying.
+        const auto overPort = [this] {
+            m_probe->Cable.CommandWrite(
+                    ProbeCommand_t::Bootloader, 0,
+                    {usb::BOOTLOADER_PAYLOAD.begin(), usb::BOOTLOADER_PAYLOAD.end()});
+        };
+#if defined(__linux__)
+        // Over usbfs with the serial port closed: see nfc/UsbReset.h.
+        const auto target = usb::resetTargetOf(m_devicePath);
+        const auto usbfs = target ? usb::UsbfsReset::open(*target) : nullptr;
+        std::function<bool()> overUsb;
+        // The per-port lock every serial command takes, so the detach cuts off no other process's
+        // command. Only on this route: the fallback's CommandWrite takes it itself.
+        std::optional<spb::sdk::InterprocessLock> portLock;
+        if (usbfs) {
+            portLock.emplace(m_probe->Cable.DeviceName);
+            if (!portLock->IsLocked()) {
+                ERR("NFC: bootloader command not sent: the probe's port is busy\n");
+                return;
+            }
+            overUsb = [&usbfs] { return usbfs->send(usb::bootloaderFrame()); };
+        }
+        switch (usb::sendReset(
+                overUsb, [this] { m_probe->Cable.Close(); }, overPort)) {
+        case usb::ResetRoute::Usb:
+            INF("NFC: bootloader command sent over usbfs, serial port closed\n");
+            break;
+        case usb::ResetRoute::UsbFailed:
+            break; // UsbfsReset::send logged why
+        case usb::ResetRoute::SerialPort:
+            WRN("NFC: bootloader command sent over the serial port (usbfs unavailable); a serial "
+                "port open while the probe resets can hang the USB host on some boards\n");
+            break;
+        }
+#else
+        overPort();
+#endif
     }
 
     std::string devicePath() const override { return m_devicePath; }
