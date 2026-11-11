@@ -3400,6 +3400,21 @@ task_t Net::createAuthenticateTask()
     };
 }
 
+void Net::reauthenticateAfterUnauthorized()
+{
+    {
+        std::scoped_lock lock(m_authMutex);
+        if (m_status == AuthStatus::NotAuthenticated || m_status == AuthStatus::Authenticating
+            || m_status == AuthStatus::AuthenticationFailed) {
+            return;
+        }
+        m_status = AuthStatus::NotAuthenticated;
+    }
+    stopTokenRefreshTimer();
+    auto auth = createAuthenticateTask();
+    auth();
+}
+
 void Net::retryAuthenticationLater(AuthRetryKind kind, bool refresh,
                                    std::optional<std::chrono::seconds> retryAfter, bool serverError)
 {
@@ -4093,6 +4108,12 @@ void Net::sendScorbitronObject()
     m_worker.postStartupQueue(createSendScorbitronObjectTask());
 }
 
+std::string Net::scorbitronObjectBody() const
+{
+    std::scoped_lock lock(m_scorbitronObjectMutex);
+    return m_scorbitronObject.dump();
+}
+
 task_t Net::createSendScorbitronObjectTask()
 {
     return createPatchRequestTask(
@@ -4108,11 +4129,7 @@ task_t Net::createSendScorbitronObjectTask()
                 parseScorbitronObject(error, reply, gen);
             },
             [this]() {
-                std::string body;
-                {
-                    std::scoped_lock lock(m_scorbitronObjectMutex);
-                    body = m_scorbitronObject.dump();
-                }
+                auto body = scorbitronObjectBody();
                 const auto endpoint = url(URL_SCORBITRON_OBJECT);
                 INF("API patching Scorbitron with {}", body);
 
@@ -4810,12 +4827,7 @@ task_t Net::createSwitchReconcileTask(std::function<void(std::optional<std::stri
                 done(scorbitronMachine(reply));
             }},
             [this]() {
-                std::string body;
-                {
-                    std::scoped_lock lock(m_scorbitronObjectMutex);
-                    body = m_scorbitronObject.dump();
-                }
-                return make_tuple(url(URL_SCORBITRON_OBJECT), cpr::Body {body});
+                return make_tuple(url(URL_SCORBITRON_OBJECT), cpr::Body {scorbitronObjectBody()});
             },
             [this](const cpr::Url &url, const cpr::Body &body, const cpr::Header &header,
                    const cpr::Timeout &timeout, bool /*resilient*/) {
@@ -5204,18 +5216,7 @@ task_t Net::createHttpRequestTask(const char *requestType, CallbackT replyCallba
                 break;
             }
 
-            {
-                std::scoped_lock lock(m_authMutex);
-                if (m_status == AuthStatus::NotAuthenticated
-                    || m_status == AuthStatus::Authenticating
-                    || m_status == AuthStatus::AuthenticationFailed) {
-                    continue;
-                }
-                m_status = AuthStatus::NotAuthenticated;
-            }
-            stopTokenRefreshTimer();
-            auto auth = createAuthenticateTask();
-            auth();
+            reauthenticateAfterUnauthorized();
         }
 
         invokeReply(callback, error, std::move(reply), httpStatus);
@@ -5285,6 +5286,11 @@ std::unique_lock<std::mutex> NetTestAccess::holdAuthLock(Net &net)
 void NetTestAccess::runAuthentication(Net &net)
 {
     net.createAuthenticateTask()();
+}
+
+void NetTestAccess::reauthenticateAfterUnauthorized(Net &net)
+{
+    net.reauthenticateAfterUnauthorized();
 }
 
 void NetTestAccess::setSigner(Net &net, SignerCallback signer)
@@ -5386,6 +5392,11 @@ nlohmann::json NetTestAccess::scorbitronObject(Net &net)
 {
     net.initScorbitronObject();
     return currentScorbitronObject(net);
+}
+
+std::string NetTestAccess::scorbitronObjectBody(const Net &net)
+{
+    return net.scorbitronObjectBody();
 }
 
 void NetTestAccess::checkNfcBootReason(Net &net)

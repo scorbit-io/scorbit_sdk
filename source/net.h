@@ -213,6 +213,8 @@ struct NetTestAccess {
     static std::unique_lock<std::mutex> holdAuthLock(Net &net);
     /// Runs the production authentication task on the calling thread.
     static void runAuthentication(Net &net);
+    /// What a request's 401 does, on the calling thread.
+    static void reauthenticateAfterUnauthorized(Net &net);
     static void setSigner(Net &net, SignerCallback signer);
     /// Puts @p net mid token refresh, as the TokenRefresh timer does, holding @p token.
     static void startTokenRefresh(Net &net, AuthStatus status, std::string token);
@@ -242,6 +244,8 @@ struct NetTestAccess {
     static nlohmann::json scorbitronObject(Net &net);
     /// The Scorbitron object as it stands, without rebuilding it.
     static nlohmann::json currentScorbitronObject(Net &net);
+    /// The body the full Scorbitron object's PATCH sends now.
+    static std::string scorbitronObjectBody(const Net &net);
     /// One run of the NFC pad's periodic check, as its timer would fire it.
     static void checkNfcBootReason(Net &net);
     /// Makes every failed Scorbitron field's retry due, as if its backoff had passed.
@@ -529,6 +533,8 @@ protected:
 
 private:
     void sendScorbitronObject();
+    /// The full Scorbitron object's PATCH body, as it stands when the request runs.
+    std::string scorbitronObjectBody() const;
 
     void requestReleaseTrackInfo();
     void requestMachineObject();
@@ -745,6 +751,11 @@ private:
     void onEmptySignature(bool normalAuthentication);
     bool noteKeyResolutionDeferred(std::chrono::steady_clock::time_point now);
     void clearKeyResolutionDeferral();
+    /**
+     * What a request's 401 does: authenticate again from scratch, as at startup, unless an
+     * authentication is already under way or has failed. Runs on the calling thread.
+     */
+    void reauthenticateAfterUnauthorized();
     /**
      * Schedule the next authentication attempt after one that did not succeed (SB-5165). Sets the
      * status @p kind calls for, picks the delay (the backoff, at least @p retryAfter, or the slow
