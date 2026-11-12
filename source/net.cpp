@@ -6505,7 +6505,13 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
             }
             if (const auto id = player->find(JKEY_PLAYER_ID);
                 id != player->end() && id->is_string()) {
-                seats.emplace(position->get<sb_player_t>(), id->get<std::string>());
+                // The slot's chosen competition: a player may hold attempts for several
+                const auto tournament = obj.find(JKEY_SCR_TOURNAMENT_UUID);
+                seats.emplace(position->get<sb_player_t>(),
+                              SessionSeat {id->get<std::string>(),
+                                           tournament != obj.end() && tournament->is_string()
+                                                   ? tournament->get<std::string>()
+                                                   : std::string {}});
             }
         }
         std::scoped_lock lock(m_sessionPlayersCallbackMutex);

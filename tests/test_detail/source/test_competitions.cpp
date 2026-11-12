@@ -127,6 +127,7 @@ const char *ATTEMPT_REFUSED = R"({
   "detail": "This attempt already started on another game or position."
 })";
 
+constexpr auto TOURNAMENT = "0193a5e0-0000-7000-8000-000000000001";
 constexpr auto ATTEMPT = "0193a5e0-0000-7000-8000-000000000003";
 constexpr auto PLAYER = "6f1c2d3e-4a5b-4c6d-8e7f-000000000004";
 constexpr auto SESSION = "6f1c2d3e-4a5b-4c6d-8e7f-000000000006";
@@ -238,10 +239,11 @@ public:
         }
     }
 
-    /** A reply for @p session seats @p userId at @p position. */
-    void seat(const std::string &session, sb_player_t position, const std::string &userId)
+    /** A reply for @p session seats @p userId at @p position, its Entry for @p tournament. */
+    void seat(const std::string &session, sb_player_t position, const std::string &userId,
+              const std::string &tournament = TOURNAMENT)
     {
-        sessionPlayers(session, {{position, userId}});
+        sessionPlayers(session, {{position, SessionSeat {userId, tournament}}});
     }
 
     struct Sent {
@@ -339,14 +341,15 @@ struct Fixture {
      * as Net delivers it: the seats under the session's uuid, then the uuid. The first game's
      * session is SESSION, each later one another. Returns the uuid.
      */
-    std::string sessionCreated(const std::string &userId = PLAYER, sb_player_t position = 1)
+    std::string sessionCreated(const std::string &userId = PLAYER, sb_player_t position = 1,
+                               const std::string &tournament = TOURNAMENT)
     {
         REQUIRE(net->sessionCreated);
         const auto session = sessions++ == 0
                                      ? std::string {SESSION}
                                      : fmt::format("6f1c2d3e-4a5b-4c6d-8e7f-0000000001{:02}",
                                                    sessions);
-        net->seat(session, position, userId);
+        net->seat(session, position, userId, tournament);
         net->sessionCreated(session);
         run();
         return session;
@@ -734,6 +737,56 @@ TEST_CASE("An attempt admitted on another machine doesn't start here", "[competi
     CHECK(f.record().start);
 }
 
+TEST_CASE("Only the competition the player's slot is for starts", "[competitions]")
+{
+    // The player chose competition A, then re-tapped for B before playing: A's attempt is still
+    // open, and both goals are installed. A's token sorts first, as UUIDv7s issued earlier do.
+    constexpr auto TOURNAMENT_B = "0193a5e0-0000-7000-8000-000000000011";
+    constexpr auto ATTEMPT_B = "0193a5e0-0000-7000-8000-000000000013";
+    Fixture f;
+    f.install();
+    auto b = goal();
+    b["tournament"] = TOURNAMENT_B;
+    b["attempt"] = ATTEMPT_B;
+    f.deliver(b);
+    f.answer(receipt(R"({"version": 1, "type": "competition.goal_installed_saved",
+        "attempt": "0193a5e0-0000-7000-8000-000000000013",
+        "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+        "status": "saved"})"));
+    REQUIRE(f.net->sent.empty());
+
+    // The slot's Entry is for B: only B starts, so A can't take the slot from it
+    f.startGame();
+    f.sessionCreated(PLAYER, 1, TOURNAMENT_B);
+    const auto &attempts = f.game->competitions().attempts();
+    CHECK_FALSE(attempts.at(ATTEMPT).start);
+    REQUIRE(attempts.at(ATTEMPT_B).start);
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["attempt"] == ATTEMPT_B);
+    CHECK(f.net->sent[0].body["tournament"] == TOURNAMENT_B);
+}
+
+TEST_CASE("A slot with no competition yet starts nothing until a reply names it",
+          "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    const auto session = f.sessionCreated(PLAYER, 1, "");
+    CHECK_FALSE(f.record().start);
+    CHECK(f.net->sent.empty());
+
+    // A later reply for the same session shows the slot's Entry: it starts then, with the
+    // game's own start time and sequence
+    const auto startedAt = f.game->competitions().attempts().at(ATTEMPT).installedAtMs;
+    f.net->seat(session, 1, PLAYER, "0193A5E0-0000-7000-8000-000000000001");
+    f.run();
+    REQUIRE(f.record().start);
+    CHECK(f.record().start->sequence == 1);
+    CHECK(f.record().start->startedAtMs >= startedAt);
+    CHECK(f.net->sent.size() == 1);
+}
+
 TEST_CASE("A player beyond position 6 doesn't start the attempt", "[competitions]")
 {
     // The API accepts positions 1 to 6: a start at 7 would be refused, ending the attempt
@@ -951,8 +1004,9 @@ TEST_CASE("A restart loses the attempt", "[competitions]")
 
 TEST_CASE("The device event sequence counts game starts from 1 each boot", "[competitions]")
 {
+    constexpr auto SECOND_TOURNAMENT = "0193a5e0-0000-7000-8000-000000000011";
     auto second = goal();
-    second["tournament"] = "0193a5e0-0000-7000-8000-000000000011";
+    second["tournament"] = SECOND_TOURNAMENT;
     second["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
     const auto secondAttempt = [](const Fixture &f) -> const AttemptRecord & {
         return f.game->competitions().attempts().at("0193a5e0-0000-7000-8000-000000000013");
@@ -962,20 +1016,23 @@ TEST_CASE("The device event sequence counts game starts from 1 each boot", "[com
     f.install();
     f.startGame();
     f.sessionCreated();
+    REQUIRE(f.record().start);
     CHECK(f.record().start->sequence == 1);
 
     // A later game with an attempt to start takes the next one
     f.game->setGameFinished();
     f.deliver(second);
     f.startGame();
-    f.sessionCreated();
+    f.sessionCreated(PLAYER, 1, SECOND_TOURNAMENT);
+    REQUIRE(secondAttempt(f).start);
     CHECK(secondAttempt(f).start->sequence == 2);
 
     // A new boot counts from 1 again; its boot id tells it apart
     f.boot();
     f.deliver(second);
     f.startGame();
-    f.sessionCreated();
+    f.sessionCreated(PLAYER, 1, SECOND_TOURNAMENT);
+    REQUIRE(secondAttempt(f).start);
     CHECK(secondAttempt(f).start->sequence == 1);
     CHECK(secondAttempt(f).start->bootId == bootId());
 }
