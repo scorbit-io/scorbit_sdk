@@ -243,9 +243,17 @@ void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
         }
         auto &record = it->second;
 
+        // The slot's player and the competition its Entry is for. A player may hold open attempts
+        // for several competitions, e.g. after re-tapping to choose another before playing: only
+        // the chosen one starts, or the first sent would take the slot from it (slot_taken).
         int position = 0;
-        for (const auto &[slot, userId] : seats) {
-            if (toLowerAscii(userId) != record.goal.player) {
+        for (const auto &[slot, seat] : seats) {
+            if (toLowerAscii(seat.userId) != record.goal.player) {
+                continue;
+            }
+            if (toLowerAscii(seat.tournament) != record.goal.identity.tournament) {
+                INF("Competitions: attempt {} not started: its player's slot {} is for {}", attempt,
+                    slot, seat.tournament.empty() ? std::string {"no competition"} : seat.tournament);
                 continue;
             }
             if (slot < 1 || slot > MAX_POSITION) {

@@ -69,9 +69,10 @@ struct AttemptRecord {
  *   changes nothing; the same attempt with another player or revision is refused.
  * - An attempt starts in the first game that began after it was installed, not one the host found
  *   already running (GameStartOrigin::AlreadyRunning), with a synchronised
- *   clock, in which its player holds a slot of the positions the API accepts (1 to 6). Who holds
- *   which slot is known from the game's own session replies: the create reply, then any update
- *   that seats a player later. The machine-wide profiles are never used, as a late reply for
+ *   clock, in which its player holds a slot of the positions the API accepts (1 to 6) for its
+ *   competition (the slot's Entry, `tournament_id`). Who holds which slot, and for what, is known
+ *   from the game's own session replies: the create reply, then any update that seats a player
+ *   later. The machine-wide profiles are never used, as a late reply for
  *   another session rewrites them.
  * - The start (the game's original UTC, this boot's id and a device event ordinal taken at the
  *   game start, counted from 1 each boot) is kept until confirmed, and sent once the session

@@ -78,8 +78,15 @@ using ApiReplyCallback = std::function<void(ApiReply reply)>;
 /** Called with each `competition.goal` that parsed. */
 using CompetitionGoalCallback = std::function<void(competitions::CompetitionGoal goal)>;
 
-/** Who holds which slot of one session: position → user uuid, claimed slots only. */
-using SessionSeats = std::map<sb_player_t, std::string>;
+/** One claimed slot of a session, as a session reply's `scores` names it. */
+struct SessionSeat {
+    std::string userId;
+    /** The competition the slot's Entry is for (`tournament_id`); empty when it has none. */
+    std::string tournament;
+};
+
+/** Who holds which slot of one session: position → seat, claimed slots only. */
+using SessionSeats = std::map<sb_player_t, SessionSeat>;
 
 /** Called with the seats every session reply carries, under that session's uuid. */
 using SessionPlayersCallback =
