@@ -502,14 +502,16 @@ void dispatchApiJob(ApiQueueItem &&item)
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
                     },
                     [](JobPublish &&j) {
-                        j.h->gameState.publish(j.channel, j.data,
-                                               [cb = j.callback,
-                                                ud = j.user_data](PublishResult result, int code) {
-                                                   if (cb) {
-                                                       cb(static_cast<sb_publish_result_t>(result),
-                                                          code, ud);
-                                                   }
-                                               });
+                        j.h->gameState.publish(
+                                j.channel, j.data,
+                                [h = j.h, cb = j.callback, ud = j.user_data](PublishResult result,
+                                                                             int code) {
+                                    // Not once destruction has begun; see
+                                    // sb_publish.
+                                    if (cb && h->cApiAccepting.load(std::memory_order_relaxed)) {
+                                        cb(static_cast<sb_publish_result_t>(result), code, ud);
+                                    }
+                                });
                     },
             },
             std::move(item));

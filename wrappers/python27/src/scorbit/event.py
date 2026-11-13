@@ -371,7 +371,7 @@ class Event(object):
         if _lib.sb_event_live_dmd_requested(self._ptr, byref(channel), byref(until)):
             val = channel.value
             if isinstance(val, bytes):
-                val = val.decode("utf-8", errors="replace")
+                val = val.decode("utf-8", "replace")
             return (val or ""), int(until.value)
         return None
 

@@ -184,6 +184,66 @@ TEST_CASE("sb_publish answers every call once, refusing bad input and failing of
     CHECK(r.results == expectedC);
 }
 
+namespace {
+
+struct TeardownProbe {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool firstEntered = false;
+    bool release = false;
+    std::atomic<int> late {0};
+};
+
+void blockFirst(sb_publish_result_t, int, void *user_data)
+{
+    auto *p = static_cast<TeardownProbe *>(user_data);
+    std::unique_lock<std::mutex> lock(p->mutex);
+    p->firstEntered = true;
+    p->cv.notify_all();
+    p->cv.wait(lock, [&] { return p->release; });
+}
+
+void countLate(sb_publish_result_t, int, void *user_data)
+{
+    ++static_cast<TeardownProbe *>(user_data)->late;
+}
+
+} // namespace
+
+TEST_CASE("sb_publish calls back nothing once destruction has begun", "[GameState][Publish]")
+{
+    sb_config_t cfg = sb_config_create();
+    sb_config_set_provider(cfg, "vscorbitron");
+    sb_config_set_machine_id(cfg, 4419);
+    sb_config_set_game_code_version(cfg, "0.1.0");
+    sb_config_set_signer(cfg, dummySigner, nullptr);
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    TeardownProbe probe;
+    // The first answer holds the dispatcher, so the rest are still queued when destruction starts.
+    sb_publish(h, "live_dmd:x", "{not json", blockFirst, &probe);
+    {
+        std::unique_lock<std::mutex> lock(probe.mutex);
+        REQUIRE(probe.cv.wait_for(lock, std::chrono::seconds(5),
+                                  [&] { return probe.firstEntered; }));
+    }
+    for (int i = 0; i < 20; ++i) {
+        sb_publish(h, "live_dmd:x", "{not json", countLate, &probe);
+    }
+    std::thread destroyer([h] { sb_destroy_game_state(h); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // destruction has begun
+    {
+        std::lock_guard<std::mutex> lock(probe.mutex);
+        probe.release = true;
+    }
+    probe.cv.notify_all();
+    destroyer.join();
+    sb_config_destroy(cfg);
+
+    CHECK(probe.late.load() == 0);
+}
+
 TEST_CASE("GameState::publish delivers each result to its own callback", "[GameState][Publish]")
 {
     scorbit::Config config;
