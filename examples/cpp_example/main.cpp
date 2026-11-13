@@ -322,6 +322,15 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::LiveDmdRequested: {
+        // Scorbitron daemon only: publish the display with GameState::publish until the deadline.
+        std::string channel;
+        std::int64_t until = 0;
+        if (event.eventLiveDmdRequested(channel, until)) {
+            cout << "Live DMD requested: " << channel << " until " << until << endl;
+        }
+    } break;
+
     case scorbit::EventType::AchievementUnlocked: {
         // Achievements are evaluated by the SDK on every commit; this is one Scorbit granted.
         scorbit::AchievementUnlock unlock;

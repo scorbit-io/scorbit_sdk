@@ -459,6 +459,26 @@ private:
     std::string m_venueMachine;
 };
 
+// ---------------- LiveDmdRequested implementation ----------------
+
+class LiveDmdRequestedEvent : public EventBase
+{
+public:
+    LiveDmdRequestedEvent(std::string channel, int64_t until)
+        : EventBase(EventType::LiveDmdRequested, EventPriority::Normal)
+        , m_channel {std::move(channel)}
+        , m_until {until}
+    {
+    }
+
+    auto channel() const -> const std::string & { return m_channel; }
+    auto until() const -> int64_t { return m_until; }
+
+private:
+    std::string m_channel;
+    int64_t m_until;
+};
+
 // ---------------- AchievementUnlocked implementation ----------------
 
 class AchievementUnlockedEvent : public EventBase

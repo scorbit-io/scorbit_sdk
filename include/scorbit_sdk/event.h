@@ -359,6 +359,23 @@ public:
         return true;
     }
 
+    /**
+     * @brief Helper function to process a live DMD request; see @ref sb_event_live_dmd_requested.
+     *
+     * @param channel [OUT] The channel to publish the display to.
+     * @param until [OUT] Publish until this wall-clock time, in Unix seconds.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool eventLiveDmdRequested(std::string &channel, std::int64_t &until) const
+    {
+        const char *channelCStr = nullptr;
+        if (!::sb_event_live_dmd_requested(m_event, &channelCStr, &until)) {
+            return false;
+        }
+        channel = channelCStr ? std::string(channelCStr) : std::string {};
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

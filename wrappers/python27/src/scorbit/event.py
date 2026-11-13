@@ -15,7 +15,7 @@ Do **not** store it for later use; extract the data you need inside the callback
 
 from __future__ import absolute_import
 
-from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_size_t, c_uint, c_uint8
+from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint, c_uint8
 
 from ._bindings import _lib
 from ._enums import EventType
@@ -357,6 +357,22 @@ class Event(object):
                     raw = raw.decode("utf-8", "replace")
                 vals.append(raw or "")
             return vals[0], vals[1]
+        return None
+
+    def get_live_dmd_requested(self):
+        # type: () -> tuple[str, int] | None
+        """Extract ``(channel, until)`` from a ``LiveDmdRequested`` event.
+
+        Publish the display to ``channel`` with :meth:`GameState.publish` until
+        ``until`` (wall-clock Unix seconds); each new event replaces both.
+        """
+        channel = c_char_p()
+        until = c_int64(0)
+        if _lib.sb_event_live_dmd_requested(self._ptr, byref(channel), byref(until)):
+            val = channel.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", "replace")
+            return (val or ""), int(until.value)
         return None
 
     # ------------------------------------------------------------------

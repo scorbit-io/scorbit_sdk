@@ -188,6 +188,22 @@ bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id
     return true;
 }
 
+bool sb_event_live_dmd_requested(const sb_event_t *event, const char **channel, int64_t *until)
+{
+    if (!event || !channel || !until) {
+        return false;
+    }
+
+    auto derived = dynamic_cast<const scorbit::detail::LiveDmdRequestedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+
+    *channel = derived->channel().c_str();
+    *until = derived->until();
+    return true;
+}
+
 // ----------------------- PlayersUpdated helpers -----------------------
 
 static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,

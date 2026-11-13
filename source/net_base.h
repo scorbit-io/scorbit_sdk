@@ -185,6 +185,18 @@ public:
     virtual void submitHardwareProbeResult(const std::string &runId, const std::string &resultJson,
                                            HttpStatusCallback callback = {}) = 0;
 
+    /// Publishes @p data (JSON text) to @p channel on the realtime connection, once; see
+    /// sb_publish.
+    virtual void publishRealtime(const std::string &channel, const std::string &data,
+                                 PublishCallback callback)
+    {
+        (void)channel;
+        (void)data;
+        if (callback) {
+            callback(PublishResult::NotConnected, 0);
+        }
+    }
+
     /// POSTs a probe flash stage for @p runId, once; see sb_submit_probe_flash_stage.
     virtual void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
                                        HttpStatusCallback callback = {})

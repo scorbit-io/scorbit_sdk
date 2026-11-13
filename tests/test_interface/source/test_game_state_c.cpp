@@ -18,14 +18,19 @@
  */
 
 #include <scorbit_sdk/game_state_c.h>
+#include <scorbit_sdk/scorbit_sdk.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 // clazy:excludeall=non-pod-global-static
 
@@ -117,6 +122,158 @@ TEST_CASE("The connectivity getters answer at once, in range", "[GameState]")
 
     sb_destroy_game_state(h);
     sb_config_destroy(cfg);
+}
+
+namespace {
+
+struct PublishResults {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<std::pair<sb_publish_result_t, int>> results;
+};
+
+void onPublish(sb_publish_result_t result, int code, void *user_data)
+{
+    auto *r = static_cast<PublishResults *>(user_data);
+    {
+        std::lock_guard<std::mutex> lock(r->mutex);
+        r->results.emplace_back(result, code);
+    }
+    r->cv.notify_all();
+}
+
+} // namespace
+
+TEST_CASE("sb_publish answers every call once, refusing bad input and failing offline",
+          "[GameState][Publish]")
+{
+    sb_config_t cfg = sb_config_create();
+    sb_config_set_provider(cfg, "vscorbitron");
+    sb_config_set_machine_id(cfg, 4419);
+    sb_config_set_game_code_version(cfg, "0.1.0");
+    sb_config_set_signer(cfg, dummySigner, nullptr); // never authenticates: no realtime connection
+
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    PublishResults r;
+    const std::string channel = "live_dmd:2f0d6f2e-5a43-4c55-9d6e-0c4a2b7f8e11";
+    const std::string tooLarge = "\"" + std::string(SB_PUBLISH_MAX_BYTES, 'x') + "\"";
+    sb_publish(h, channel.c_str(), "{not json", onPublish, &r);
+    sb_publish(h, "", "{}", onPublish, &r);
+    sb_publish(h, channel.c_str(), tooLarge.c_str(), onPublish, &r);
+    sb_publish(h, channel.c_str(), R"({"seq":1})", onPublish, &r);
+    sb_publish(h, channel.c_str(), R"({"seq":2})", nullptr, nullptr); // no callback is fine
+
+    {
+        std::unique_lock<std::mutex> lock(r.mutex);
+        REQUIRE(r.cv.wait_for(lock, std::chrono::seconds(5),
+                              [&] { return r.results.size() >= 4; }));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // a second answer would show
+    sb_destroy_game_state(h);
+    sb_config_destroy(cfg);
+
+    // The calls are dispatched in order, so the answers line up with them.
+    const std::vector<std::pair<sb_publish_result_t, int>> expectedC {
+            {SB_PUBLISH_INVALID, 0},
+            {SB_PUBLISH_INVALID, 0},
+            {SB_PUBLISH_TOO_LARGE, 0},
+            {SB_PUBLISH_NOT_CONNECTED, 0},
+    };
+    CHECK(r.results == expectedC);
+}
+
+namespace {
+
+struct TeardownProbe {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool firstEntered = false;
+    bool release = false;
+    std::atomic<int> late {0};
+};
+
+void blockFirst(sb_publish_result_t, int, void *user_data)
+{
+    auto *p = static_cast<TeardownProbe *>(user_data);
+    std::unique_lock<std::mutex> lock(p->mutex);
+    p->firstEntered = true;
+    p->cv.notify_all();
+    p->cv.wait(lock, [&] { return p->release; });
+}
+
+void countLate(sb_publish_result_t, int, void *user_data)
+{
+    ++static_cast<TeardownProbe *>(user_data)->late;
+}
+
+} // namespace
+
+TEST_CASE("sb_publish calls back nothing once destruction has begun", "[GameState][Publish]")
+{
+    sb_config_t cfg = sb_config_create();
+    sb_config_set_provider(cfg, "vscorbitron");
+    sb_config_set_machine_id(cfg, 4419);
+    sb_config_set_game_code_version(cfg, "0.1.0");
+    sb_config_set_signer(cfg, dummySigner, nullptr);
+    sb_game_handle_t h = sb_create_game_state(cfg);
+    REQUIRE(h != nullptr);
+
+    TeardownProbe probe;
+    // The first answer holds the dispatcher, so the rest are still queued when destruction starts.
+    sb_publish(h, "live_dmd:x", "{not json", blockFirst, &probe);
+    {
+        std::unique_lock<std::mutex> lock(probe.mutex);
+        REQUIRE(probe.cv.wait_for(lock, std::chrono::seconds(5),
+                                  [&] { return probe.firstEntered; }));
+    }
+    for (int i = 0; i < 20; ++i) {
+        sb_publish(h, "live_dmd:x", "{not json", countLate, &probe);
+    }
+    std::thread destroyer([h] { sb_destroy_game_state(h); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(200)); // destruction has begun
+    {
+        std::lock_guard<std::mutex> lock(probe.mutex);
+        probe.release = true;
+    }
+    probe.cv.notify_all();
+    destroyer.join();
+    sb_config_destroy(cfg);
+
+    CHECK(probe.late.load() == 0);
+}
+
+TEST_CASE("GameState::publish delivers each result to its own callback", "[GameState][Publish]")
+{
+    scorbit::Config config;
+    config.setProvider("vscorbitron").setMachineId(4419).setGameCodeVersion("0.1.0");
+    config.setSigner(dummySigner);
+    auto gameState = scorbit::createGameState(config);
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<std::pair<std::string, scorbit::PublishResult>> results;
+    auto record = [&](std::string tag) {
+        return [&, tag](scorbit::PublishResult result, int) {
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                results.emplace_back(tag, result);
+            }
+            cv.notify_all();
+        };
+    };
+    gameState.publish("live_dmd:x", "{not json", record("invalid"));
+    gameState.publish("live_dmd:x", R"({"seq":1})", record("offline"));
+    gameState.publish("live_dmd:x", R"({"seq":2})");
+
+    std::unique_lock<std::mutex> lock(mutex);
+    REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return results.size() >= 2; }));
+    const std::vector<std::pair<std::string, scorbit::PublishResult>> expected {
+            {"invalid", scorbit::PublishResult::Invalid},
+            {"offline", scorbit::PublishResult::NotConnected},
+    };
+    CHECK(results == expected);
 }
 
 TEST_CASE("Create game state with software key from callback", "[GameState][SoftKey]")

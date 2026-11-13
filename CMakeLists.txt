@@ -198,6 +198,7 @@ target_sources(
         include/scorbit_sdk/event.h
         source/net_base.h
         source/net.h
+        source/live_dmd.h
         source/leaderboard_internal.h
         source/leaderboard_c.cpp
         source/table_mappings_internal.h

@@ -176,6 +176,13 @@ def events_callback(event):
         if venue_machine is not None:
             print(f"Machine changed: {venue_machine}")
 
+    elif event.type == scorbit.EventType.LiveDmdRequested:
+        # Scorbitron daemon only: publish the display with game_state.publish() until the deadline.
+        live = event.get_live_dmd_requested()
+        if live is not None:
+            channel, until = live
+            print(f"Live DMD requested: {channel} until {until}")
+
     elif event.type == scorbit.EventType.DiagnosticsUploadRequested:
         include_recordings = event.get_diagnostics_upload_requested()
         if include_recordings is not None:

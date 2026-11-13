@@ -433,6 +433,20 @@ SCORBIT_SDK_EXPORT
 bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id,
                                     const char **request_json);
 
+/**
+ * @brief Helper function to process a @ref SB_EVT_LIVE_DMD_REQUESTED event.
+ *
+ * Both values are passed on as the server sent them. Publish the display to @p channel with
+ * @ref sb_publish until @p until; each new event replaces both.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] channel Receives the channel to publish to; valid only during the event callback.
+ * @param [OUT] until Receives the deadline, in wall-clock Unix seconds.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_live_dmd_requested(const sb_event_t *event, const char **channel, int64_t *until);
+
 #ifdef __cplusplus
 }
 #endif

@@ -192,6 +192,13 @@ def events_callback(event):
         if venue_machine is not None:
             print("Machine changed: %s" % venue_machine)
 
+    elif event.type == scorbit.EventType.LiveDmdRequested:
+        # Scorbitron daemon only: publish the display with game_state.publish() until the deadline.
+        live = event.get_live_dmd_requested()
+        if live is not None:
+            channel, until = live
+            print("Live DMD requested: %s until %d" % (channel, until))
+
     elif event.type == scorbit.EventType.ConfigReceived:
         config_json = event.get_config_received()
         if config_json is not None:

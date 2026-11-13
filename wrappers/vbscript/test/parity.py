@@ -39,6 +39,7 @@ OUT_OF_SCOPE = {
     "submitHardwareProbeResult": "device plumbing",
     "submitProbeFlashStage": "device plumbing",
     "submitProbeFlashResult": "device plumbing",
+    "publish": "device plumbing",
     "download": "device plumbing",
     "downloadWithOptions": "device plumbing",
     "downloadBuffer": "device plumbing",
@@ -63,6 +64,7 @@ OUT_OF_SCOPE_EVENTS = {
     "FirmwaresListReceived": "device plumbing",
     "HardwareProbeRequested": "device plumbing",
     "ProbeFlashRequested": "device plumbing",
+    "LiveDmdRequested": "device plumbing",
     "TableMappingsUpdated": "VPIN host plumbing",
     "MachineChanged": "VPIN host plumbing",
 }

@@ -101,6 +101,20 @@ using VectorCallback = std::function<void(Error error, const std::vector<uint8_t
 using HttpStatusCallback =
         std::function<void(Error error, int httpStatus, const std::string &reply)>;
 
+/// @copydoc sb_publish_result_t
+enum class PublishResult {
+    Ok = SB_PUBLISH_OK,
+    Invalid = SB_PUBLISH_INVALID,
+    TooLarge = SB_PUBLISH_TOO_LARGE,
+    NotConnected = SB_PUBLISH_NOT_CONNECTED,
+    Refused = SB_PUBLISH_REFUSED,
+};
+
+constexpr auto PUBLISH_MAX_BYTES = SB_PUBLISH_MAX_BYTES;
+
+/// Receives the outcome of a publish; @p code is the server's error code when refused, else 0.
+using PublishCallback = std::function<void(PublishResult result, int code)>;
+
 /// HTTP header list for download functions.
 using HttpHeaders = std::vector<std::pair<std::string, std::string>>;
 

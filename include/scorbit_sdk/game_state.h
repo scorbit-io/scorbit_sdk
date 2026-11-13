@@ -89,6 +89,7 @@ public:
             m_loadKeyCallbackStorage = std::move(other.m_loadKeyCallbackStorage);
             m_pendingSwitches = std::move(other.m_pendingSwitches);
             m_pendingMatches = std::move(other.m_pendingMatches);
+            m_pendingPublishes = std::move(other.m_pendingPublishes);
             m_handle = std::move(other.m_handle);
         }
         return *this;
@@ -737,6 +738,30 @@ public:
     }
 
     /**
+     * @brief Internal use. Publish @p jsonData to @p channel on the realtime connection; see
+     * @ref sb_publish.
+     *
+     * @note The callback runs at most once, on an SDK thread; not at all if the game state is
+     * destroyed first, which then releases it. Never retried.
+     */
+    void publish(const std::string &channel, const std::string &jsonData,
+                 PublishCallback callback = {})
+    {
+        // Owned here rather than by the callback, which shutdown may cut short.
+        PendingPublish *pending = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_pendingPublishes->mutex);
+            m_pendingPublishes->list.emplace_back();
+            pending = &m_pendingPublishes->list.back();
+            pending->owner = m_pendingPublishes.get();
+            pending->self = std::prev(m_pendingPublishes->list.end());
+            pending->callback = std::move(callback);
+        }
+        sb_publish(m_handle.get(), channel.c_str(), jsonData.c_str(),
+                   &GameState::publish_callback_c, pending);
+    }
+
+    /**
      * @brief Download a file from a URL and save it to local storage.
      *
      * @note The callback function is invoked asynchronously when the operation completes, running
@@ -821,6 +846,33 @@ private:
         if (callback) {
             callback(static_cast<SwitchMachineResult>(result),
                      venuemachine ? std::string(venuemachine) : std::string {});
+        }
+    }
+
+    struct PendingPublishes;
+    struct PendingPublish {
+        PendingPublishes *owner {nullptr};
+        std::list<PendingPublish>::iterator self;
+        PublishCallback callback;
+    };
+    /// Publish callbacks not yet answered; whatever shutdown leaves here is freed with this object.
+    struct PendingPublishes {
+        std::mutex mutex;
+        std::list<PendingPublish> list;
+    };
+
+    static void publish_callback_c(sb_publish_result_t result, int code, void *user_data)
+    {
+        auto *pending = static_cast<PendingPublish *>(user_data);
+        auto *owner = pending->owner;
+        PublishCallback callback;
+        {
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            callback = std::move(pending->callback);
+            owner->list.erase(pending->self);
+        }
+        if (callback) {
+            callback(static_cast<PublishResult>(result), code);
         }
     }
 
@@ -969,6 +1021,7 @@ private:
     std::unique_ptr<LoadKeyCallback> m_loadKeyCallbackStorage;
     std::unique_ptr<PendingSwitches> m_pendingSwitches {new PendingSwitches};
     std::unique_ptr<PendingMatches> m_pendingMatches {new PendingMatches};
+    std::unique_ptr<PendingPublishes> m_pendingPublishes {new PendingPublishes};
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;

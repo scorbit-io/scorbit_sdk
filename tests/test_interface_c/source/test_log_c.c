@@ -83,15 +83,36 @@ static MunitResult test_achievement_event_helpers_reject_null(const MunitParamet
     return MUNIT_OK;
 }
 
+static MunitResult test_live_dmd_c_surface(const MunitParameter params[], void *user_data)
+{
+    (void)params;
+    (void)user_data;
+
+    const char *channel = NULL;
+    int64_t until = 0;
+    munit_assert(!sb_event_live_dmd_requested(NULL, &channel, &until));
+
+    // Appended after the last event, and the publish results keep their values.
+    munit_assert_int(SB_EVT_LIVE_DMD_REQUESTED, ==, SB_EVT_PROBE_FLASH_REQUESTED + 1);
+    munit_assert_int(SB_PUBLISH_OK, ==, 0);
+    munit_assert_int(SB_PUBLISH_REFUSED, ==, 4);
+    munit_assert_int(SB_PUBLISH_MAX_BYTES, ==, 48 * 1024);
+    sb_publish_callback_t callback = NULL;
+    (void)callback;
+    (void)&sb_publish;
+    return MUNIT_OK;
+}
+
 // Test suite setup
 static MunitTest tests[] = {
-    {"/sb_add_logger_callback/add_callback", test_sb_add_logger_callback, NULL, NULL,
-     MUNIT_TEST_OPTION_NONE, NULL},
-    {"/sb_logger_callbacks_supported/matches_build", test_sb_logger_callbacks_supported, NULL, NULL,
-     MUNIT_TEST_OPTION_NONE, NULL},
-    {"/achievements/event_helpers_reject_null", test_achievement_event_helpers_reject_null, NULL,
-     NULL, MUNIT_TEST_OPTION_NONE, NULL},
-    {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+        {"/sb_add_logger_callback/add_callback", test_sb_add_logger_callback, NULL, NULL,
+         MUNIT_TEST_OPTION_NONE, NULL},
+        {"/sb_logger_callbacks_supported/matches_build", test_sb_logger_callbacks_supported, NULL,
+         NULL, MUNIT_TEST_OPTION_NONE, NULL},
+        {"/achievements/event_helpers_reject_null", test_achievement_event_helpers_reject_null,
+         NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+        {"/live_dmd/c_surface", test_live_dmd_c_surface, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+        {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };
 
 // =======================================================================================

@@ -147,6 +147,7 @@ struct NetTestAccess {
     static bool noteKeyResolutionDeferred(Net &net, std::chrono::steady_clock::time_point now);
     static void setEventManager(Net &net, std::shared_ptr<EventManager> eventManager);
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
+    static void handleControlScorbitron(Net &net, const nlohmann::json &message);
     static void handleProbeFlash(Net &net, const nlohmann::json &payload);
     static void requestOpenProbeFlash(Net &net, bool startup);
     static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
@@ -466,6 +467,8 @@ public:
                                    HttpStatusCallback callback = {}) override;
     void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
                                HttpStatusCallback callback = {}) override;
+    void publishRealtime(const std::string &channel, const std::string &data,
+                         PublishCallback callback) override;
 
     std::string venueMachine() const override;
     TableMappingsSnapshot tableMappings() const override;
@@ -825,6 +828,8 @@ private:
     void handleDiagnosticCaptureStart(const nlohmann::json &payload);
     void handleDiagnosticCaptureStop(const nlohmann::json &payload);
     void handleHardwareProbe(const nlohmann::json &payload);
+    /// Dispatches a publication on the device's control_scorbitron channel.
+    void handleControlScorbitron(const nlohmann::json &message);
 
     // probe_flash (SB-5764): the router, and the result POSTs it and the host make
     struct PendingProbeFlashResult {

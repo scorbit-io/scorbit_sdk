@@ -202,6 +202,32 @@ typedef void (*sb_http_status_callback_t)(sb_error_t error, int http_status, con
 typedef void (*sb_buffer_callback_t)(sb_error_t error, const uint8_t *data, size_t size,
                                      void *user_data);
 
+/** @brief The largest data @ref sb_publish sends, in bytes of its JSON text. */
+enum { SB_PUBLISH_MAX_BYTES = 48 * 1024 };
+
+/**
+ * @brief Outcome of @ref sb_publish.
+ *
+ * Every value but @ref SB_PUBLISH_OK is a plain failure; the SDK never retries.
+ */
+typedef enum {
+    SB_PUBLISH_OK = 0,            ///< The server accepted the publication.
+    SB_PUBLISH_INVALID = 1,       ///< Empty channel, or data that is not JSON; nothing was sent.
+    SB_PUBLISH_TOO_LARGE = 2,     ///< Data over @ref SB_PUBLISH_MAX_BYTES; nothing was sent.
+    SB_PUBLISH_NOT_CONNECTED = 3, ///< No realtime connection, or it dropped before the reply.
+    SB_PUBLISH_REFUSED = 4,       ///< The server refused it, e.g. its publish proxy; see code.
+} sb_publish_result_t;
+
+/**
+ * Publish result callback.
+ *
+ * - **result**: The outcome; see @ref sb_publish_result_t.
+ * - **code**: The server's error code for @ref SB_PUBLISH_REFUSED (e.g. 100 when its publish
+ *   proxy failed, 103 for permission denied), otherwise 0.
+ * - **user_data**: The user data passed to @ref sb_publish.
+ */
+typedef void (*sb_publish_callback_t)(sb_publish_result_t result, int code, void *user_data);
+
 /**
  * Save key callback function type.
  *
