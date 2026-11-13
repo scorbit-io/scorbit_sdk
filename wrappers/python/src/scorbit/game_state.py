@@ -18,8 +18,11 @@ The object supports the context-manager protocol for automatic cleanup::
         gs.commit()
 """
 
+import itertools
 import json
+import threading
 import traceback
+import weakref
 import warnings
 from ctypes import create_string_buffer
 from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c_uint8, c_uint64
@@ -30,6 +33,7 @@ from ._bindings import (
     sb_http_header_t,
     sb_http_status_callback_t,
     sb_leaderboard_callback_t,
+    sb_publish_callback_t,
     sb_switch_machine_callback_t,
     sb_string_callback_t,
     sb_table_match_callback_t,
@@ -40,6 +44,7 @@ from ._enums import (
     GameStartOrigin,
     LeaderboardPeriod,
     LeaderboardScope,
+    PublishResult,
     SwitchMachineResult,
     TableMappingsResult,
     TableMatchResult,
@@ -109,6 +114,19 @@ class GameState(object):
         self._config = config
         # Async callback trampolines that must not be GC'd while in-flight
         self._async_callbacks = []  # type: list
+        # One trampoline for every publish: per-call ones would pile up at frame rates.
+        self._publish_callbacks = {}  # type: dict
+        self._publish_lock = threading.Lock()
+        self._publish_ids = itertools.count(1)
+        # Weak, so the trampoline does not keep this object (which has __del__) alive.
+        owner = weakref.ref(self)
+
+        def _on_publish(result, code, user_data):
+            game_state = owner()
+            if game_state is not None:
+                game_state._on_publish_result(result, code, user_data)
+
+        self._publish_trampoline = sb_publish_callback_t(_on_publish)
 
     # ------------------------------------------------------------------
     # Context manager
@@ -964,6 +982,42 @@ class GameState(object):
         _lib.sb_submit_probe_flash_result(
             self._handle, _encode(run_id), _encode(result_json), cb, None
         )
+
+    def publish(self, channel, json_data, callback=None):
+        # type: (str, str, ...) -> None
+        """Internal use: publish ``json_data`` to ``channel`` on the realtime connection.
+
+        For the live display requested by a ``LiveDmdRequested`` event. Never retried;
+        see ``sb_publish``.
+
+        Args:
+            channel: The channel, e.g. from :meth:`Event.get_live_dmd_requested`.
+            json_data: The publication, as JSON text (at most 48 KB).
+            callback: Optional ``(result: PublishResult, code: int) -> None``, called at
+                most once on an SDK thread; ``code`` is the server's error code when
+                refused, else 0.
+        """
+        if callback is None:
+            _lib.sb_publish(
+                self._handle, _encode(channel), _encode(json_data), sb_publish_callback_t(), None
+            )
+            return
+        with self._publish_lock:
+            key = next(self._publish_ids)
+            self._publish_callbacks[key] = callback
+        _lib.sb_publish(
+            self._handle, _encode(channel), _encode(json_data), self._publish_trampoline, key
+        )
+
+    def _on_publish_result(self, result, code, user_data):
+        with self._publish_lock:
+            callback = self._publish_callbacks.pop(user_data, None)
+        if callback is None or _config_mod._shutting_down:
+            return
+        try:
+            callback(PublishResult(result), code)
+        except Exception:
+            traceback.print_exc()
 
 
 def create_game_state(config):

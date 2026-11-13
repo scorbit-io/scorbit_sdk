@@ -100,6 +100,8 @@ target_sources(
         ../../source/table_mappings_internal.h
         ../../source/table_mappings.cpp
         source/test_table_mappings.cpp
+        ../../source/live_dmd.h
+        source/test_live_dmd.cpp
         source/test_leaderboard.cpp
         source/test_player_state.cpp
         ../../source/modes.h

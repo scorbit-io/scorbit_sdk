@@ -377,6 +377,15 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_LIVE_DMD_REQUESTED: {
+        // Scorbitron daemon only: publish the display with sb_publish until the deadline.
+        const char *channel = NULL;
+        int64_t until = 0;
+        if (sb_event_live_dmd_requested(event, &channel, &until)) {
+            printf("Live DMD requested: %s until %" PRId64 "\n", channel ? channel : "NULL", until);
+        }
+    } break;
+
     case SB_EVT_ACHIEVEMENT_UNLOCKED: {
         // Achievements are evaluated by the SDK on every commit; this is one Scorbit granted.
         const char *key = NULL;

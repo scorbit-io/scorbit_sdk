@@ -477,6 +477,12 @@ constexpr auto JVAL_ACTION_CONFIG_REFRESH {"scorbitronConfigRefresh"};
 constexpr auto JVAL_ACTION_SCORBITRON_PAIRED {"scorbitronPaired"};
 constexpr auto JVAL_ACTION_SCORBITRON_UNPAIRED {"scorbitronUnpaired"};
 constexpr auto JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED {"vpinTableMappingsChanged"};
+constexpr auto JVAL_ACTION_LIVE_DMD {"scorbitronLiveDmd"};
+
+// Live DMD signal metadata
+constexpr auto JKEY_CHN_METADATA {"metadata"};
+constexpr auto JKEY_LIVE_DMD_CHANNEL {"channel"};
+constexpr auto JKEY_LIVE_DMD_UNTIL {"until"};
 
 constexpr auto JVAL_NONCES {"nonces"};
 

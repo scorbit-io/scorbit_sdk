@@ -134,6 +134,13 @@ typedef enum {
      */
     SB_EVT_PROBE_FLASH_REQUESTED,
 
+    /**
+     * @brief Someone is watching this machine's display live: publish it until a deadline.
+     * Use @ref sb_event_live_dmd_requested to get the channel and the deadline, and
+     * @ref sb_publish to send frames. Each arrival replaces both; there is no stop signal.
+     */
+    SB_EVT_LIVE_DMD_REQUESTED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

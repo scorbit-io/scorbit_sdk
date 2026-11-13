@@ -284,6 +284,14 @@ struct JobSubmitProbeFlashResult {
     void *user_data;
 };
 
+struct JobPublish {
+    sb_game_state_struct *h;
+    std::string channel;
+    std::string data;
+    sb_publish_callback_t callback;
+    void *user_data;
+};
+
 using ApiQueueItem =
         std::variant<Poison, JobSetGameStarted, JobSetGameFinished, JobSetCurrentBall,
                      JobSetActivePlayer, JobSetScore, JobAddMode, JobAddModeExpiring,
@@ -293,7 +301,7 @@ using ApiQueueItem =
                      JobSwitchMachine, JobMatchTableMapping, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
                      JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
-                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult>;
+                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult, JobPublish>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -492,6 +500,16 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.submitProbeFlashResult(
                                 j.run_id, j.result_json,
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobPublish &&j) {
+                        j.h->gameState.publish(j.channel, j.data,
+                                               [cb = j.callback,
+                                                ud = j.user_data](PublishResult result, int code) {
+                                                   if (cb) {
+                                                       cb(static_cast<sb_publish_result_t>(result),
+                                                          code, ud);
+                                                   }
+                                               });
                     },
             },
             std::move(item));
@@ -923,4 +941,11 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
 {
     handle->postApiJob(JobSubmitProbeFlashResult {handle, copyCStr(run_id), copyCStr(result_json),
                                                   callback, user_data});
+}
+
+void sb_publish(sb_game_handle_t handle, const char *channel, const char *json_data,
+                sb_publish_callback_t callback, void *user_data)
+{
+    handle->postApiJob(
+            JobPublish {handle, copyCStr(channel), copyCStr(json_data), callback, user_data});
 }

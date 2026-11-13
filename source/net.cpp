@@ -19,6 +19,7 @@
 
 #include "net.h"
 #include "net_util.h"
+#include "live_dmd.h"
 #include "nfc_flash.h"
 #include "nfc_flash_pad.h"
 #include "http_session_pool.h"
@@ -5755,6 +5756,11 @@ void NetTestAccess::handleHardwareProbe(Net &net, const nlohmann::json &payload)
     net.handleHardwareProbe(payload);
 }
 
+void NetTestAccess::handleControlScorbitron(Net &net, const nlohmann::json &message)
+{
+    net.handleControlScorbitron(message);
+}
+
 void NetTestAccess::handleProbeFlash(Net &net, const nlohmann::json &payload)
 {
     net.handleProbeFlash(payload);
@@ -6799,49 +6805,53 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                     }
                 }
             } else if (channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
-                const auto &j = pub.data;
-                if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
-                    payloadIt != j.end() && payloadIt->is_object()) {
-                    const auto type = j.value(JKEY_CHN_TYPE, "");
-                    if (type == JVAL_TYPE_ACTION) {
-                        const auto method = payloadIt->value(JKEY_METHOD, "");
-                        const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
-                        if (method == JVAL_METHOD_SIGNAL
-                            && name == JVAL_ACTION_UPLOAD_DIAGNOSTICS) {
-                            INF("API-CF Diagnostics upload requested via control channel");
-                            m_eventManager->push(
-                                    std::make_shared<DiagnosticsUploadRequestedEvent>(false));
-                        } else if (method == JVAL_METHOD_SIGNAL
-                                   && (name == JVAL_ACTION_SCORBITRON_PAIRED
-                                       || name == JVAL_ACTION_SCORBITRON_UNPAIRED)
-                                   && foldIntoSwitch()) {
-                            // Most likely the switch's own re-pair, whose context it adopts
-                            // itself; kept so a failed switch can still act on it.
-                            INF("API-CF {} signal folded into the machine switch", name);
-                        } else if (method == JVAL_METHOD_SIGNAL
-                                   && name == JVAL_ACTION_SCORBITRON_PAIRED) {
-                            INF("API-CF Scorbitron paired signal received");
-                            onPaired();
-                        } else if (method == JVAL_METHOD_SIGNAL
-                                   && name == JVAL_ACTION_SCORBITRON_UNPAIRED) {
-                            INF("API-CF Scorbitron unpaired signal received");
-                            onUnpaired();
-                        } else if (method == JVAL_METHOD_SIGNAL
-                                   && name == JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED) {
-                            INF("API-CF table mappings changed signal received");
-                            fetchTableMappings(false);
-                        } else if (method == JVAL_METHOD_GET
-                                   && name == JVAL_ACTION_CONFIG_REFRESH) {
-                            INF("API-CF Config refresh requested via control channel");
-                            getConfig();
-                        }
-                    }
-                }
+                handleControlScorbitron(pub.data);
             }
         } catch (const std::exception &e) {
             ERR("API-CF Error parsing publication data: {}", e.what());
         }
     }));
+}
+
+void Net::handleControlScorbitron(const nlohmann::json &j)
+{
+    const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+    if (payloadIt == j.end() || !payloadIt->is_object()
+        || j.value(JKEY_CHN_TYPE, "") != JVAL_TYPE_ACTION) {
+        return;
+    }
+    const auto method = payloadIt->value(JKEY_METHOD, "");
+    const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
+    if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_UPLOAD_DIAGNOSTICS) {
+        INF("API-CF Diagnostics upload requested via control channel");
+        m_eventManager->push(std::make_shared<DiagnosticsUploadRequestedEvent>(false));
+    } else if (method == JVAL_METHOD_SIGNAL
+               && (name == JVAL_ACTION_SCORBITRON_PAIRED || name == JVAL_ACTION_SCORBITRON_UNPAIRED)
+               && foldIntoSwitch()) {
+        // Most likely the switch's own re-pair, whose context it adopts itself; kept so a failed
+        // switch can still act on it.
+        INF("API-CF {} signal folded into the machine switch", name);
+    } else if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_SCORBITRON_PAIRED) {
+        INF("API-CF Scorbitron paired signal received");
+        onPaired();
+    } else if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_SCORBITRON_UNPAIRED) {
+        INF("API-CF Scorbitron unpaired signal received");
+        onUnpaired();
+    } else if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED) {
+        INF("API-CF table mappings changed signal received");
+        fetchTableMappings(false);
+    } else if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_LIVE_DMD) {
+        if (auto signal = parseLiveDmdSignal(j)) {
+            DBG("API-CF live DMD signal: channel {}, until {}", signal->channel, signal->until);
+            m_eventManager->push(std::make_shared<LiveDmdRequestedEvent>(std::move(signal->channel),
+                                                                         signal->until));
+        } else {
+            WRN("API-CF live DMD signal without a valid channel and until");
+        }
+    } else if (method == JVAL_METHOD_GET && name == JVAL_ACTION_CONFIG_REFRESH) {
+        INF("API-CF Config refresh requested via control channel");
+        getConfig();
+    }
 }
 
 void Net::centrifugoConnect()
@@ -6886,6 +6896,49 @@ void Net::publishToMachineChannel(std::string what, nlohmann::json payload, std:
         if (const auto r = m_centrifugo->publish(channel, payload); !r) {
             WRN("API-CF failed to send {}: code:{}, error: {}", what, r.error().ec.value(),
                 r.error().message);
+        }
+    });
+}
+
+void Net::publishRealtime(const std::string &channel, const std::string &data,
+                          PublishCallback callback)
+{
+    auto done = [this, channel, callback = std::move(callback)](PublishResult result, int code) {
+        // Shutdown fails every publish still in flight; the host may be tearing down already.
+        if (m_stop) {
+            return;
+        }
+        // Per frame and never retried, so only at debug level; the caller sees every result.
+        if (result != PublishResult::Ok) {
+            DBG("API-CF publish to {} failed: result {}, code {}", channel,
+                static_cast<int>(result), code);
+        }
+        if (callback) {
+            callback(result, code);
+        }
+    };
+
+    json parsed;
+    if (const auto checked = checkPublishData(channel, data, parsed);
+        checked != PublishResult::Ok) {
+        done(checked, 0);
+        return;
+    }
+
+    onCentrifugoStrand([this, channel, parsed = std::move(parsed), done = std::move(done)] {
+        if (m_stop || !m_centrifugo) {
+            done(PublishResult::NotConnected, 0);
+            return;
+        }
+        const auto sent = m_centrifugo->publish(
+                channel, parsed,
+                [done](const centrifugo::outcome::result<void, centrifugo::Error> &r) {
+                    const auto [result, code] = toPublishResult(r ? nullptr : &r.error());
+                    done(result, code);
+                });
+        if (!sent) {
+            const auto [result, code] = toPublishResult(&sent.error());
+            done(result, code);
         }
     });
 }

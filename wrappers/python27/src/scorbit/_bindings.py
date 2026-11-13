@@ -92,6 +92,9 @@ sb_table_match_t = c_void_p
 # void (*sb_table_match_callback_t)(sb_table_match_result_t, sb_table_match_t, void *user_data)
 sb_table_match_callback_t = CFUNCTYPE(None, c_int, sb_table_match_t, c_void_p)
 
+# void (*sb_publish_callback_t)(sb_publish_result_t, int code, void *user_data)
+sb_publish_callback_t = CFUNCTYPE(None, c_int, c_int, c_void_p)
+
 # int (*sb_signer_callback_t)(uint8_t signature[72], size_t *signature_len,
 #                              const uint8_t digest[32], void *user_data)
 sb_signer_callback_t = CFUNCTYPE(
@@ -627,6 +630,10 @@ _lib.sb_event_hardware_probe_requested.argtypes = [c_void_p, POINTER(c_char_p), 
 _lib.sb_event_probe_flash_requested.restype = c_bool
 _lib.sb_event_probe_flash_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
 
+# bool sb_event_live_dmd_requested(const sb_event_t*, const char**, int64_t*)
+_lib.sb_event_live_dmd_requested.restype = c_bool
+_lib.sb_event_live_dmd_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_int64)]
+
 # bool sb_event_diagnostics_upload_requested(const sb_event_t*, bool*)
 _lib.sb_event_diagnostics_upload_requested.restype = c_bool
 _lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)]
@@ -747,6 +754,12 @@ _lib.sb_submit_probe_flash_stage.argtypes = [
 _lib.sb_submit_probe_flash_result.restype = None
 _lib.sb_submit_probe_flash_result.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# void sb_publish(sb_game_handle_t, const char*, const char*, sb_publish_callback_t, void*)
+_lib.sb_publish.restype = None
+_lib.sb_publish.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, sb_publish_callback_t, c_void_p
 ]
 
 # ---------------------------------------------------------------------------

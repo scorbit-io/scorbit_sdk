@@ -498,6 +498,12 @@ void GameStateImpl::submitProbeFlashStage(const std::string &runId, const std::s
     m_net->submitProbeFlashStage(runId, stageJson, std::move(callback));
 }
 
+void GameStateImpl::publish(const std::string &channel, const std::string &data,
+                            PublishCallback callback)
+{
+    m_net->publishRealtime(channel, data, std::move(callback));
+}
+
 void GameStateImpl::submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                            HttpStatusCallback callback)
 {

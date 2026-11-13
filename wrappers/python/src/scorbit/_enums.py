@@ -112,6 +112,19 @@ class TableMappingsResult(IntEnum):
     """Network, server or reply error; the last good list is kept."""
 
 
+class PublishResult(IntEnum):
+    """How a :meth:`GameState.publish` call ended (append-only).
+
+    Every value but ``Ok`` is a plain failure; the SDK never retries.
+    """
+
+    Ok = 0
+    Invalid = 1
+    TooLarge = 2
+    NotConnected = 3
+    Refused = 4
+
+
 class SwitchMachineResult(IntEnum):
     """How a :meth:`GameState.switch_machine` call ended (append-only)."""
 
@@ -192,6 +205,7 @@ class EventType(IntEnum):
     FirmwaresListReceived = 1003
     HardwareProbeRequested = 1004
     ProbeFlashRequested = 1005
+    LiveDmdRequested = 1006
 
 
 class LogLevel(IntEnum):

@@ -148,6 +148,7 @@ public:
                                    HttpStatusCallback callback);
     void submitProbeFlashStage(const std::string &runId, const std::string &stageJson,
                                HttpStatusCallback callback);
+    void publish(const std::string &channel, const std::string &data, PublishCallback callback);
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback);
 

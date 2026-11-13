@@ -821,6 +821,28 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
                                   void *user_data);
 
 /**
+ * @brief Internal use. Publish @p json_data to @p channel on the device's realtime connection,
+ * e.g. the live display for @ref SB_EVT_LIVE_DMD_REQUESTED.
+ *
+ * No subscription is needed: the server decides whether this device may publish there. Data over
+ * @ref SB_PUBLISH_MAX_BYTES or not valid JSON, and an empty channel, are refused before anything
+ * is sent.
+ *
+ * @note The SDK never retries. Every result but @ref SB_PUBLISH_OK is a plain failure, including a
+ * refusal the server marks temporary; the caller drops that data. The callback runs at most once,
+ * on an SDK thread, and not at all once the game state is being destroyed. Keep it short.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param channel The channel, e.g. from @ref sb_event_live_dmd_requested.
+ * @param json_data The publication, as JSON text.
+ * @param callback Optional callback receiving the result. Pass NULL if not needed.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_publish(sb_game_handle_t handle, const char *channel, const char *json_data,
+                sb_publish_callback_t callback, void *user_data);
+
+/**
  * @brief Download a file from a URL and save it to local storage.
  *
  * @note The callback function is invoked asynchronously when the operation completes, running in
