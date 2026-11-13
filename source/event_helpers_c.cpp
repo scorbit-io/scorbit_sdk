@@ -560,6 +560,42 @@ bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data,
     return true;
 }
 
+bool sb_event_competition_goal(const sb_event_t *event, const char **attempt, const char **player,
+                               int *position, bool *installed)
+{
+    const auto *derived =
+            dynamic_cast<const scorbit::detail::CompetitionGoalReceivedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    if (attempt) {
+        *attempt = derived->attempt().c_str();
+    }
+    if (player) {
+        *player = derived->player().c_str();
+    }
+    if (position) {
+        *position = derived->position();
+    }
+    if (installed) {
+        *installed = derived->installed();
+    }
+    return true;
+}
+
+bool sb_event_competition_goal_reason(const sb_event_t *event, const char **reason)
+{
+    const auto *derived =
+            dynamic_cast<const scorbit::detail::CompetitionGoalReceivedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    if (reason) {
+        *reason = derived->reason().c_str();
+    }
+    return true;
+}
+
 bool sb_event_pairing_status_changed(const sb_event_t *event, bool *is_paired)
 {
     if (!event || !is_paired) {

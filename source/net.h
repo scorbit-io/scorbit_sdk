@@ -149,6 +149,7 @@ struct NetTestAccess {
     static void handleHardwareProbe(Net &net, const nlohmann::json &payload);
     static void handleControlScorbitron(Net &net, const nlohmann::json &message);
     static void handleProbeFlash(Net &net, const nlohmann::json &payload);
+    static void handleCompetitionGoal(Net &net, const nlohmann::json &payload);
     static void requestOpenProbeFlash(Net &net, bool startup);
     static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
                                       const std::string &body);
@@ -488,6 +489,12 @@ public:
                                          std::function<void()> fn) override;
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
+    void setCompetitionGoalCallback(CompetitionGoalCallback callback) override;
+    void setSessionPlayersCallback(SessionPlayersCallback callback) override;
+    void postCompetitionMessage(competitions::MessageKind kind, std::string body,
+                                ApiReplyCallback callback) override;
+    void scheduleCompetitionRetry(std::chrono::steady_clock::duration delay,
+                                  std::function<void()> fn) override;
     void publishEvent(EventPtr event) override;
     bool isClockSynchronised() const override;
 
@@ -842,6 +849,8 @@ private:
     /// The probes the API may send probe_flash for: the host's, plus NFC when the SDK runs it.
     std::vector<std::string> probeFlashProbes() const;
     void handleProbeFlash(const nlohmann::json &payload);
+    /// A `competition.goal` from control_machine: parsed, then handed over or refused.
+    void handleCompetitionGoal(const nlohmann::json &payload);
     /// Asks the api for the open probe flash run a missed push left (after auth, on reconnect).
     void requestOpenProbeFlash(bool startup);
     /// A 200 is the probe_flash control message: its payload goes through handleProbeFlash.
@@ -1140,6 +1149,10 @@ private:
     std::mutex m_playersChangedCallbackMutex;
     TokenRefreshedCallback m_tokenRefreshedCallback;
     std::mutex m_tokenRefreshedCallbackMutex;
+    CompetitionGoalCallback m_competitionGoalCallback;
+    std::mutex m_competitionGoalCallbackMutex;
+    SessionPlayersCallback m_sessionPlayersCallback;
+    std::mutex m_sessionPlayersCallbackMutex;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

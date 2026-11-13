@@ -114,7 +114,7 @@ with scorbit.create_game_state(config) as gs:
 |-------------------|--------|
 | `Error`           | `Success`, `Unknown`, `AuthFailed`, `NotPaired`, `ApiError`, `FileError`, `LimitExceeded` |
 | `AuthStatus`      | `NotAuthenticated`, `Authenticating`, `AuthenticatedCheckingPairing`, `AuthenticatedUnpaired`, `AuthenticatedPaired`, `AuthenticationFailed` |
-| `GameStartOrigin` | `StartButton`, `FromLobby` |
+| `GameStartOrigin` | `StartButton`, `FromLobby`, `AlreadyRunning` |
 | `Capability`      | `StartGame`, `CreditDrop` - integer constants; combine with `|` (`enum34` has no `IntFlag`) |
 | `EventType`       | `GameStartRequested`, `CreditsAddRequested`, `CreditsStatusRequested`, `ConfigReceived`, `PlayersUpdated`, `PlayerPictureReady` |
 | `LogLevel`        | `Debug`, `Info`, `Warn`, `Error` |

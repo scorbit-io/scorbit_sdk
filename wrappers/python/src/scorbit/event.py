@@ -17,7 +17,7 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c
 
 from ._bindings import _lib
 from ._enums import EventType
-from ._types import AchievementUnlock, BundlePrice, PlayerInfo, PricingInfo
+from ._types import AchievementUnlock, BundlePrice, CompetitionGoal, PlayerInfo, PricingInfo
 
 
 class Event(object):
@@ -303,6 +303,39 @@ class Event(object):
         if isinstance(raw_key, bytes):
             raw_key = raw_key.decode("utf-8", errors="replace")
         return AchievementUnlock(raw_key or "", int(player.value), name, description, artwork)
+
+    # ------------------------------------------------------------------
+    # Competitions
+    # ------------------------------------------------------------------
+
+    def get_competition_goal(self):
+        # type: () -> CompetitionGoal | None
+        """Parse a ``CompetitionGoalReceived`` event.
+
+        Returns:
+            A :class:`CompetitionGoal`, or ``None`` if the event type does not
+            match.
+        """
+        attempt = c_char_p()
+        player = c_char_p()
+        position = c_int(0)
+        installed = c_bool(False)
+        if not _lib.sb_event_competition_goal(
+            self._ptr, byref(attempt), byref(player), byref(position), byref(installed)
+        ):
+            return None
+        reason = c_char_p()
+        _lib.sb_event_competition_goal_reason(self._ptr, byref(reason))
+
+        def text(out):
+            val = out.value
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", errors="replace")
+            return val or ""
+
+        return CompetitionGoal(
+            bool(installed.value), text(attempt), text(player), int(position.value), text(reason)
+        )
 
     # ------------------------------------------------------------------
     # Internal / scorbitd events

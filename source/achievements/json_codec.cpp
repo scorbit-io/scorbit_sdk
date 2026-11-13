@@ -340,6 +340,11 @@ std::optional<Definition> parseDefinition(const json &object, std::string &error
     }
 }
 
+CalendarData parseCalendarEnvelope(const json &document)
+{
+    return parseCalendarData(document);
+}
+
 std::optional<DefinitionFeed> parseDefinitionFeed(const json &document)
 {
     const auto results = document.is_object() ? document.find(KEY_RESULTS) : document.end();
