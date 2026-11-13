@@ -1,7 +1,7 @@
 CPMAddPackage(
     NAME centrifugo-cpp
-    URL https://github.com/scorbit-io/centrifugo-cpp/archive/a954718a699f1a27fb994116582943321e9578ab.tar.gz
-    URL_HASH SHA256=e2eb501da79846b89567bb4fb73e671b8df007b424bbf9517540c1b80424c0d2
+    URL https://github.com/scorbit-io/centrifugo-cpp/archive/refs/tags/v0.10.0.tar.gz
+    URL_HASH SHA256=4890d42b6b90f7225a115a0e3ead06c7a5763f969785398e63107c8274bc2c86
 )
 
 # centrifugo-cpp's own CMakeLists.txt applies `-Wall -Wextra` unconditionally.
