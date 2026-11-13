@@ -154,6 +154,9 @@ class GameState(object):
         if self._handle:
             _lib.sb_destroy_game_state(self._handle)
             self._handle = None
+            # Teardown suppresses the results of publishes still in flight.
+            with self._publish_lock:
+                self._publish_callbacks.clear()
 
     def __del__(self):
         self.destroy()
