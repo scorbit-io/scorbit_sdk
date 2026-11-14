@@ -9,6 +9,13 @@ on:
     branches:
       - master
       - main
+  # A trial on another runner before RUNNER_WINDOWS points at it.
+  workflow_dispatch:
+    inputs:
+      windows_runner:
+        description: "Runner label for this run (empty: RUNNER_WINDOWS, else windows-latest)"
+        required: false
+        default: ""
 
 # A Windows round costs ~15 minutes, so a push that supersedes an in-flight run
 # should stop it rather than race it. Not applied to main: a push there should
@@ -37,7 +44,9 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # RUNNER_WINDOWS (a JSON string, like RUNNER_AMD64) picks the runner; fork PRs
+    # stay on GitHub-hosted, since this repo is public.
+    runs-on: ${{ inputs.windows_runner || fromJSON((github.event.pull_request.head.repo.fork != true && vars.RUNNER_WINDOWS) || '"windows-latest"') }}
     timeout-minutes: 120
 
     steps:
@@ -64,8 +73,10 @@ jobs:
           try {
             $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
             if (Test-Path $vswhere) {
-              $vs = (& $vswhere -latest -property catalog_productSemanticVersion)
-              $root = (& $vswhere -latest -property installationPath)
+              # -products *: Blacksmith's image has VS Build Tools only, which
+              # vswhere lists only when asked.
+              $vs = (& $vswhere -latest -products * -property catalog_productSemanticVersion)
+              $root = (& $vswhere -latest -products * -property installationPath)
               $exe = Get-ChildItem "$root\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe" |
                 Sort-Object FullName | Select-Object -Last 1
               if ($exe) { $cl = $exe.VersionInfo.ProductVersion }
