@@ -34,6 +34,17 @@
 using logger::redact;
 using namespace std::chrono_literals;
 
+namespace {
+
+// Raw strings holding a backslash go through a function, not a CHECK argument: MSVC 2022
+// mis-lexes them inside a macro argument (C2017).
+void checkRedact(const std::string &in, const std::string &expected)
+{
+    CHECK(redact(in) == expected);
+}
+
+} // namespace
+
 TEST_CASE("redact: replaces the short code in a JSON reply", "[logger][redact]")
 {
     CHECK(redact(R"({"shortcode":"AB12CD","paired":false})")
@@ -45,32 +56,32 @@ TEST_CASE("redact: replaces the short code in a JSON reply", "[logger][redact]")
 
 TEST_CASE("redact: replaces the short code in JSON escaped inside a string", "[logger][redact]")
 {
-    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB12CD\"}"})")
-          == R"({"detail":"{\"shortcode\":\"<redacted>\"}"})");
+    checkRedact(R"({"detail":"{\"shortcode\":\"AB12CD\"}"})",
+                R"({"detail":"{\"shortcode\":\"<redacted>\"}"})");
 }
 
 TEST_CASE("redact: any JSON whitespace around the colon", "[logger][redact]")
 {
     CHECK(redact("{\"shortcode\"\n:\r\n\t\"AB12CD\"}") == "{\"shortcode\"\n:\r\n\t\"<redacted>\"}");
     // Escaped inside a string, the same layout carries \n and \t escapes.
-    CHECK(redact(R"({"detail":"{\"shortcode\"\n:\t\"AB12CD\"}"})")
-          == R"({"detail":"{\"shortcode\"\n:\t\"<redacted>\"}"})");
+    checkRedact(R"({"detail":"{\"shortcode\"\n:\t\"AB12CD\"}"})",
+                R"({"detail":"{\"shortcode\"\n:\t\"<redacted>\"}"})");
 }
 
 TEST_CASE("redact: the whole value, through its own escapes", "[logger][redact]")
 {
-    CHECK(redact(R"({"shortcode":"\u0041B12CD","x":1})") == R"({"shortcode":"<redacted>","x":1})");
-    CHECK(redact(R"({"shortcode":"AB\"12CD"})") == R"({"shortcode":"<redacted>"})");
+    checkRedact(R"({"shortcode":"\u0041B12CD","x":1})", R"({"shortcode":"<redacted>","x":1})");
+    checkRedact(R"({"shortcode":"AB\"12CD"})", R"({"shortcode":"<redacted>"})");
     // Escaped inside a string, the value's escapes have a doubled backslash.
-    CHECK(redact(R"({"detail":"{\"shortcode\":\"\\u0041B12CD\",\"x\":1}"})")
-          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    checkRedact(R"({"detail":"{\"shortcode\":\"\\u0041B12CD\",\"x\":1}"})",
+                R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
     // There, an escaped quote in the value, and a backslash before one, do not end it.
-    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\"12CD\",\"x\":1}"})")
-          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
-    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\\\\\"12CD\",\"x\":1}"})")
-          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
-    CHECK(redact(R"({"detail":"{\"shortcode\":\"AB\\\\\",\"x\":1}"})")
-          == R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    checkRedact(R"({"detail":"{\"shortcode\":\"AB\\\"12CD\",\"x\":1}"})",
+                R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    checkRedact(R"({"detail":"{\"shortcode\":\"AB\\\\\\\"12CD\",\"x\":1}"})",
+                R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
+    checkRedact(R"({"detail":"{\"shortcode\":\"AB\\\\\",\"x\":1}"})",
+                R"({"detail":"{\"shortcode\":\"<redacted>\",\"x\":1}"})");
 }
 
 TEST_CASE("redact: only the key itself, not a longer one ending in it", "[logger][redact]")
