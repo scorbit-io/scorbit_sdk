@@ -223,8 +223,9 @@ void GameStateImpl::setGameFinished()
 
     m_data.isGameActive = false;
     submitGameData(false);
-    m_achievements->onSessionFinished(toEpochMs(std::chrono::system_clock::now()));
-    m_competitions->onGameFinished(m_data.id);
+    const auto finishedAtMs = toEpochMs(std::chrono::system_clock::now());
+    m_achievements->onSessionFinished(finishedAtMs);
+    m_competitions->onGameFinished(m_data.id, finishedAtMs);
 
     // Reset game data
     m_data = GameData {};
@@ -643,9 +644,12 @@ void GameStateImpl::submitGameData(bool forceSending)
 
 void GameStateImpl::emitRow(const GameData &data, SessionFlags flags)
 {
-    // Every row of the session history also feeds achievements, so both see the same timeline
+    // Every row of the session history also feeds achievements and competition goals, so all see
+    // the same timeline
     m_net->submitGameData(data, flags);
-    m_achievements->onRow(toTimelineRow(data, m_net->isClockSynchronised()));
+    const auto row = toTimelineRow(data, m_net->isClockSynchronised());
+    m_achievements->onRow(row);
+    m_competitions->onRow(row);
 }
 
 bool GameStateImpl::isChanged() const
@@ -710,9 +714,11 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
             }
         });
     });
-    m_achievements->onSessionStarted(m_data.id,
-                                     toTimelineRow(m_data, m_net->isClockSynchronised()));
+    const auto firstRow = toTimelineRow(m_data, m_net->isClockSynchronised());
+    m_achievements->onSessionStarted(m_data.id, firstRow);
     m_competitions->onGameStarted(m_data.id, toEpochMs(m_data.timestamp));
+    // The game's facts start from its first row, as achievements' do
+    m_competitions->onRow(firstRow);
 
     return true;
 }

@@ -22,12 +22,15 @@
 #include "message_outbox.h"
 #include "messages.h"
 #include "../net_base.h"
+#include "../achievements/player_facts.h"
+#include "../achievements/timeline_row.h"
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,6 +48,19 @@ enum class Delivery {
     Duplicate, ///< The server had saved it already
 };
 
+/**
+ * The moment an attempt met its goal (SB-6366): the first row of its game on which every rule of
+ * the saved definition held together, for the attempt's own player at its own position.
+ */
+struct AttemptQualification {
+    /** That row's time, device UTC. */
+    int64_t qualifiedAtMs {0};
+    /** The device event ordinal of that row, from the same count as the game starts. */
+    int64_t sequence {0};
+
+    bool operator==(const AttemptQualification &) const = default;
+};
+
 /** One installed attempt, held in memory: a restart ends it (SB-6369). */
 struct AttemptRecord {
     CompetitionGoal goal;
@@ -55,6 +71,12 @@ struct AttemptRecord {
     /** Set once, when the attempt's game started; never replaced. */
     std::optional<AttemptStart> start;
     Delivery started {Delivery::Pending};
+
+    /**
+     * Set once, when the attempt's game first met its goal; never replaced. Its report, with the
+     * duration of B02C (SB-6367), is sent by B02F (SB-6370).
+     */
+    std::optional<AttemptQualification> qualification;
 };
 
 /**
@@ -76,6 +98,13 @@ struct AttemptRecord {
  * - The start (the game's original UTC, this boot's id and a device event ordinal taken at the
  *   game start, counted from 1 each boot) is kept until confirmed, and sent once the session
  *   uuid is known.
+ * - Each game judges the goals of the attempts that may start in it from that game's own facts,
+ *   gathered from its first row: nothing from an earlier game, an earlier attempt, or what the
+ *   player's profile holds counts (SB-6366). On every row, and once more when the game ends, each
+ *   goal is judged for every player in the game, as the attempt's position is only known once a
+ *   session reply seats its player, possibly after the goal was met. The first row on which all of
+ *   a goal's rules hold together is kept per position; the attempt qualifies at the one for its
+ *   position, once.
  * - Only a receipt or a 409 answers a message. Anything else is resent. A 409 ends the attempt
  *   for the server, so it is forgotten here.
  *
@@ -110,8 +139,14 @@ public:
     /** A reply for session @p sessionUuid named who holds which of its slots. */
     void onSessionPlayers(const std::string &sessionUuid, SessionSeats seats);
 
-    /** Game @p gameSessionId ended. */
-    void onGameFinished(int gameSessionId);
+    /** A row was committed to the timeline of the game in progress. */
+    void onRow(const achievements::TimelineRow &row);
+
+    /**
+     * Game @p gameSessionId ended, at @p finishedAtMs device UTC when known: what closes then (a
+     * turn, a mode) is judged once more.
+     */
+    void onGameFinished(int gameSessionId, std::optional<int64_t> finishedAtMs = std::nullopt);
 
     /** The attempts installed here; for tests and diagnostics. */
     const std::map<std::string, AttemptRecord> &attempts() const { return m_attempts; }
@@ -127,6 +162,13 @@ private:
         bool finished {false};
         /** The attempts installed before the game started, and not started yet. */
         std::vector<std::string> candidates;
+
+        /** This game's facts, from its first row; gathered only while it may start an attempt. */
+        achievements::SessionFacts facts;
+        /** The positions that have appeared on its rows. */
+        std::set<achievements::PlayerNumber> players;
+        /** attempt → position → the first row on which every rule of its goal held there. */
+        std::map<std::string, std::map<achievements::PlayerNumber, AttemptQualification>> metAt;
     };
 
     /** Games, and seats waiting for their game, kept at most. */
@@ -136,6 +178,11 @@ private:
     /** Starts every candidate of @p game whose player holds one of @p seats. */
     void matchPlayers(Game &game, const SessionSeats &seats);
     void dropSettledGames();
+
+    /** Judges the goals of @p game's candidates on its latest row, at @p timeMs. */
+    void judgeGoals(Game &game, int64_t timeMs);
+    /** Qualifies @p attempt, started in @p game, if its goal was met at its position there. */
+    void qualify(const Game &game, const std::string &attempt, AttemptRecord &record);
 
     void refuse(const CompetitionGoal &goal, const std::string &reason);
     /** Tells the host Scorbit confirmed @p goal is installed: CompetitionGoalReceived. */
