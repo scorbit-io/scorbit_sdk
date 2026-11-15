@@ -231,8 +231,45 @@ public:
         retryDelay = delay;
         retry = std::move(fn);
     }
+    void fetchAchievementDefinitions(std::string, ApiReplyCallback cb) override
+    {
+        definitionsReply = std::move(cb);
+    }
+    void fetchAchievementProgress(std::string userId, ApiReplyCallback cb) override
+    {
+        progressUserId = std::move(userId);
+        progressReply = std::move(cb);
+    }
+    void postAchievementReport(std::string body, ApiReplyCallback) override
+    {
+        reports.push_back(json::parse(body));
+    }
+    void setPlayersChangedCallback(PlayersChangedCallback cb) override
+    {
+        playersChanged = std::move(cb);
+    }
+
+    /** The shared profiles seat @p userId at @p position, as ordinary achievements see it. */
+    void claim(sb_player_t position, const std::string &userId)
+    {
+        const json scores = json::array({{{"position", position},
+                                          {"id", 1},
+                                          {"player",
+                                           {{"id", userId},
+                                            {"username", "u"},
+                                            {"display_name", "U"},
+                                            {"initials", "UU"},
+                                            {"url", ""}}}}});
+        if (auto profiles = m_players.setProfiles(scores, "machine")) {
+            playersChanged(*profiles);
+        }
+    }
+
     void publishEvent(EventPtr event) override
     {
+        if (auto *e = dynamic_cast<AchievementUnlockedEvent *>(event.get())) {
+            unlocks.push_back(e->key());
+        }
         if (auto *e = dynamic_cast<CompetitionGoalReceivedEvent *>(event.get())) {
             goals.push_back({e->attempt(), e->player(), e->position(), e->name()});
         }
@@ -260,6 +297,12 @@ public:
     std::function<void()> retry;
     std::chrono::steady_clock::duration retryDelay {};
     std::vector<scorbit::CompetitionGoal> goals;
+    ApiReplyCallback definitionsReply;
+    ApiReplyCallback progressReply;
+    std::string progressUserId;
+    PlayersChangedCallback playersChanged;
+    std::vector<json> reports;
+    std::vector<std::string> unlocks;
 
 private:
     DeviceInfo m_info;
@@ -1105,4 +1148,589 @@ TEST_CASE("The device event sequence counts game starts from 1 each boot", "[com
     REQUIRE(secondAttempt(f).start);
     CHECK(secondAttempt(f).start->sequence == 1);
     CHECK(secondAttempt(f).start->bootId == bootId());
+}
+
+// ---- Goals judged afresh in each designated game (SB-6366) -------------------------------------
+
+namespace {
+
+constexpr auto ALI_BABA = "NA:Tale of Ali Baba";
+constexpr auto OTHER_PLAYER = "6f1c2d3e-4a5b-4c6d-8e7f-0000000000ff";
+constexpr auto SECOND = "0193a5e0-0000-7000-8000-000000000023";
+
+json rule(const char *type, const char *comparison, int64_t target, json reference = nullptr)
+{
+    return {{"type", type},
+            {"comparison", comparison},
+            {"target", target},
+            {"reference", std::move(reference)}};
+}
+
+/** The example goal, for @p attempt, with @p rules instead of goal 115's when given. */
+json goalFor(const std::string &attempt, std::optional<json> rules = std::nullopt)
+{
+    auto message = goal();
+    message["attempt"] = attempt;
+    if (rules) {
+        message["definition"]["rules"] = std::move(*rules);
+    }
+    return message;
+}
+
+const AttemptRecord &attemptOf(const Fixture &f, const std::string &attempt)
+{
+    return f.game->competitions().attempts().at(attempt);
+}
+
+void activate(Fixture &f, const std::string &mode = ALI_BABA)
+{
+    f.game->addMode(mode);
+    f.game->commit();
+    f.run();
+}
+
+void deactivate(Fixture &f, const std::string &mode = ALI_BABA)
+{
+    f.game->removeMode(mode);
+    f.game->commit();
+    f.run();
+}
+
+void score(Fixture &f, sb_score_t value, sb_player_t player = 1)
+{
+    f.game->setScore(player, value);
+    f.game->commit();
+    f.run();
+}
+
+void addSpins(Fixture &f, int64_t value)
+{
+    f.game->addEvent("spins", value);
+    f.game->commit();
+    f.run();
+}
+
+void activePlayer(Fixture &f, sb_player_t player)
+{
+    f.game->setActivePlayer(player);
+    f.game->commit();
+    f.run();
+}
+
+int64_t nowMs()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+/** Goal 115's original, as the profile's definitions feed delivers it. */
+std::string ordinaryFeed(int64_t modeTarget = 1)
+{
+    const json modeRule = {{"type", "MODE"},
+                           {"comparison", ">="},
+                           {"target", modeTarget},
+                           {"reference", ALI_BABA},
+                           {"subachievement", nullptr}};
+    const json scoreRule = {{"type", "SCORE"},
+                            {"comparison", ">="},
+                            {"target", 1},
+                            {"reference", nullptr},
+                            {"subachievement", nullptr}};
+    const json original = {{"key", "game-totan-achievement-tournament"},
+                           {"name", "Ali Baba Express"},
+                           {"scope", "game"},
+                           {"is_single_session", true},
+                           {"frame", nullptr},
+                           {"frame_version", 0},
+                           {"rules", json::array({modeRule, scoreRule})}};
+    return json {{"game", "totan"},
+                 {"timezone", nullptr},
+                 {"utc_offsets", nullptr},
+                 {"calendar", json::object()},
+                 {"results", json::array({original})}}
+            .dump();
+}
+
+/** The progress reply: the player holds goal 115's original. */
+std::string originalHeld()
+{
+    return json::array({{{"id", "6d1f2a90"},
+                         {"achievement",
+                          {{"id", "0b7c4f0e"},
+                           {"key", "game-totan-achievement-tournament"},
+                           {"scope", "game"}}},
+                         {"current_value", 1},
+                         {"achieved", true},
+                         {"achieved_time", nullptr},
+                         {"progress", 0}}})
+            .dump();
+}
+
+} // namespace
+
+TEST_CASE("Ali Baba then the score: the goal is met at the score", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.record().start);
+
+    activate(f);
+    CHECK_FALSE(f.record().qualification); // the score is still 0
+
+    const auto before = nowMs();
+    score(f, 10);
+    REQUIRE(f.record().qualification);
+    CHECK(f.record().qualification->qualifiedAtMs >= before);
+    CHECK(f.record().qualification->qualifiedAtMs <= nowMs());
+    // The game start took 1: the completing row is the next device event
+    CHECK(f.record().qualification->sequence == 2);
+}
+
+TEST_CASE("The score then Ali Baba: the goal is met at Ali Baba", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+
+    score(f, 10);
+    CHECK_FALSE(f.record().qualification);
+
+    activate(f);
+    REQUIRE(f.record().qualification);
+    CHECK(f.record().qualification->sequence == 2);
+}
+
+TEST_CASE("Ali Baba needn't still be running when the score is reached", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+
+    activate(f);
+    deactivate(f);
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    f.run();
+    CHECK_FALSE(f.record().qualification);
+
+    score(f, 1);
+    CHECK(f.record().qualification);
+}
+
+TEST_CASE("Owning the original badge gives no credit and never suppresses the goal",
+          "[competitions]")
+{
+    Fixture f;
+    REQUIRE(f.net->definitionsReply);
+    f.net->definitionsReply(ApiReply {Error::Success, 200, ordinaryFeed(), {}});
+    f.run();
+    f.install();
+    f.startGame();
+    f.net->claim(1, PLAYER);
+    f.sessionCreated();
+    REQUIRE(f.record().start);
+    REQUIRE(f.net->progressUserId == PLAYER);
+    f.net->progressReply(ApiReply {Error::Success, 200, originalHeld(), {}});
+    f.run();
+    const auto view = f.game->achievements().view();
+    REQUIRE(view->players.count(1));
+    CHECK(view->players.at(1).userId == PLAYER);
+
+    // Nothing fresh: no qualification
+    f.game->setCurrentBall(2);
+    f.game->commit();
+    f.run();
+    CHECK_FALSE(f.record().qualification);
+
+    // Fresh play still meets it, though the original is held
+    activate(f);
+    score(f, 10);
+    CHECK(f.record().qualification);
+
+    // The qualification is no ordinary award: nothing is reported or unlocked for the original
+    f.game->setGameFinished();
+    f.run();
+    CHECK(f.net->reports.empty());
+    CHECK(f.net->unlocks.empty());
+}
+
+TEST_CASE("Owning the original and playing nothing never qualifies", "[competitions]")
+{
+    Fixture f;
+    REQUIRE(f.net->definitionsReply);
+    f.net->definitionsReply(ApiReply {Error::Success, 200, ordinaryFeed(), {}});
+    f.run();
+    f.install();
+    f.startGame();
+    f.net->claim(1, PLAYER);
+    f.sessionCreated();
+    f.net->progressReply(ApiReply {Error::Success, 200, originalHeld(), {}});
+    f.run();
+
+    f.game->setGameFinished();
+    f.run();
+    REQUIRE(f.record().start);
+    CHECK_FALSE(f.record().qualification);
+}
+
+TEST_CASE("Progress split across games never qualifies", "[competitions]")
+{
+    Fixture f;
+    f.install();
+
+    // Game 1 is the first attempt's: only the score
+    f.startGame();
+    f.sessionCreated();
+    score(f, 10);
+    f.game->setGameFinished();
+    f.run();
+
+    // Game 2 is the second attempt's: only Ali Baba. It starts afresh at zero.
+    f.deliver(goalFor(SECOND));
+    f.startGame();
+    f.sessionCreated();
+    activate(f);
+    f.game->setGameFinished();
+    f.run();
+
+    REQUIRE(f.record().start);
+    CHECK_FALSE(f.record().qualification);
+    REQUIRE(attemptOf(f, SECOND).start);
+    CHECK(attemptOf(f, SECOND).start->session != f.record().start->session);
+    CHECK_FALSE(attemptOf(f, SECOND).qualification);
+}
+
+TEST_CASE("A completed attempt doesn't spare the next one its fresh game", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    activate(f);
+    score(f, 10);
+    REQUIRE(f.record().qualification);
+    const auto first = *f.record().qualification;
+    f.game->setGameFinished();
+    f.run();
+
+    // Attempt 2 of the same competition, in the next game: it starts from zero
+    f.deliver(goalFor(SECOND));
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(attemptOf(f, SECOND).start);
+
+    score(f, 10);
+    CHECK_FALSE(attemptOf(f, SECOND).qualification);
+    activate(f);
+    REQUIRE(attemptOf(f, SECOND).qualification);
+    CHECK(attemptOf(f, SECOND).qualification->sequence > first.sequence);
+    CHECK(f.record().qualification == first); // the first keeps its own
+}
+
+TEST_CASE("A goal met before the reply seats its player qualifies at the original row",
+          "[competitions]")
+{
+    // Ali Baba exactly once: it holds, then stops holding at the second activation
+    Fixture f;
+    f.deliver(goalFor(ATTEMPT,
+                      json::array({rule("MODE", "=", 1, ALI_BABA), rule("SCORE", ">=", 1)})));
+    f.startGame();
+
+    activate(f);
+    score(f, 10);
+    const auto metBy = nowMs();
+    deactivate(f);
+    activate(f);
+    CHECK_FALSE(f.record().qualification); // not seated yet
+
+    // The reply arrives only after the game ended: no row follows it
+    f.game->setGameFinished();
+    f.run();
+    f.sessionCreated();
+    REQUIRE(f.record().start);
+    REQUIRE(f.record().qualification);
+    CHECK(f.record().qualification->qualifiedAtMs <= metBy);
+    CHECK(f.record().qualification->sequence == 2);
+}
+
+TEST_CASE("Only the attempt's own position meets its goal", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated(PLAYER, 2);
+    REQUIRE(f.record().start);
+
+    // Player 1 does it all: not the attempt's player
+    activate(f);
+    score(f, 10, 1);
+    deactivate(f);
+    CHECK_FALSE(f.record().qualification);
+
+    // Player 2's turn
+    activePlayer(f, 2);
+    score(f, 10, 2);
+    CHECK_FALSE(f.record().qualification);
+    activate(f);
+    CHECK(f.record().qualification);
+}
+
+TEST_CASE("A rule that becomes false again is met only while every rule holds together",
+          "[competitions]")
+{
+    const auto onceAndScore =
+            json::array({rule("MODE", "=", 1, ALI_BABA), rule("SCORE", ">=", 1000)});
+
+    SECTION("MODE = 1: a second activation before the score ends the chance")
+    {
+        Fixture f;
+        f.deliver(goalFor(ATTEMPT, onceAndScore));
+        f.startGame();
+        f.sessionCreated();
+
+        activate(f); // MODE = 1 holds, SCORE doesn't yet
+        deactivate(f);
+        activate(f); // MODE is 2 now
+        score(f, 1000);
+        f.game->setGameFinished();
+        f.run();
+        // Each rule held at some time, never both at once
+        CHECK_FALSE(f.record().qualification);
+    }
+
+    SECTION("MODE = 1: the score during the single activation meets it, for good")
+    {
+        Fixture f;
+        f.deliver(goalFor(ATTEMPT, onceAndScore));
+        f.startGame();
+        f.sessionCreated();
+
+        activate(f);
+        score(f, 1000);
+        REQUIRE(f.record().qualification);
+        const auto met = *f.record().qualification;
+
+        deactivate(f);
+        activate(f); // no longer holds, but the goal was met
+        CHECK(f.record().qualification == met);
+    }
+
+    SECTION("EVENT: a register that falls back must reach the target again")
+    {
+        Fixture f;
+        f.deliver(goalFor(ATTEMPT, json::array({rule("EVENT", ">=", 3, "spins"),
+                                                rule("MODE", ">=", 1, ALI_BABA)})));
+        f.startGame();
+        f.sessionCreated();
+
+        addSpins(f, 3);
+        addSpins(f, -2);
+        activate(f);
+        CHECK_FALSE(f.record().qualification); // spins is 1 when Ali Baba starts
+
+        addSpins(f, 2);
+        CHECK(f.record().qualification);
+    }
+
+    SECTION("TIMER_SESSION <=: met in time")
+    {
+        Fixture f;
+        f.deliver(goalFor(ATTEMPT, json::array({rule("TIMER_SESSION", "<=", 60'000),
+                                                rule("MODE", ">=", 1, ALI_BABA)})));
+        f.startGame();
+        f.sessionCreated();
+        activate(f);
+        CHECK(f.record().qualification);
+    }
+}
+
+TEST_CASE("A goal an earlier moment would meet is refused, not approximated", "[competitions]")
+{
+    auto refusal = [](json rules) {
+        std::string error;
+        const bool accepted = parseGoal(goalFor(ATTEMPT, std::move(rules)), error).has_value();
+        return accepted ? std::string {} : error;
+    };
+
+    // The start's 0 would meet it, whatever the score is later
+    CHECK(refusal(json::array({rule("SCORE", "<=", 1000), rule("MODE", ">=", 1, ALI_BABA)}))
+                  .find("one instant")
+          != std::string::npos);
+    CHECK_FALSE(refusal(json::array({rule("SCORE", "=", 0)})).empty());
+    CHECK_FALSE(refusal(json::array({rule("SCORE", "!=", 0)})).empty());
+    // A ball or activation still running is measured so far
+    CHECK_FALSE(refusal(json::array({rule("TIMER_BALL", "<=", 10'000)})).empty());
+    CHECK_FALSE(refusal(json::array({rule("TIMER_MODE", "=", 5'000, ALI_BABA)})).empty());
+    // Judged on what is true at the row: accepted
+    CHECK(refusal(json::array({rule("SCORE", ">=", 1)})).empty());
+    CHECK(refusal(json::array({rule("TIMER_SESSION", "<=", 60'000)})).empty());
+    CHECK(refusal(json::array({rule("TIMER_BALL", ">=", 10'000)})).empty());
+    CHECK(refusal(json::array({rule("MODE", "<=", 1, ALI_BABA)})).empty());
+    CHECK(refusal(json::array({rule("MODE_SCORE", "<=", 1000, ALI_BABA)})).empty());
+
+    // A lifetime goal would carry progress from other games
+    auto lifetime = goal();
+    lifetime["definition"]["achievement"]["is_single_session"] = false;
+    std::string error;
+    CHECK_FALSE(parseGoal(lifetime, error));
+    CHECK(error.find("single session") != std::string::npos);
+}
+
+TEST_CASE("The goal is the saved copy, in its saved order, whatever the profile holds",
+          "[competitions]")
+{
+    Fixture f;
+    auto reordered = goal();
+    auto &rules = reordered["definition"]["rules"];
+    std::swap(rules[0], rules[1]);
+    f.deliver(reordered);
+    REQUIRE(f.record().goal.goal.rules.size() == 2);
+    CHECK(f.record().goal.goal.rules[0].type == achievements::RuleType::Score);
+    CHECK(f.record().goal.goal.rules[1].type == achievements::RuleType::Mode);
+
+    // The profile refreshes with an edited original, asking for Ali Baba twice
+    REQUIRE(f.net->definitionsReply);
+    f.net->definitionsReply(ApiReply {Error::Success, 200, ordinaryFeed(2), {}});
+    f.run();
+    REQUIRE(f.game->achievements().view()->definitions->size() == 1);
+
+    f.startGame();
+    f.sessionCreated();
+    activate(f);
+    score(f, 10);
+    CHECK(f.record().qualification); // the copy asks for once
+}
+
+TEST_CASE("Several competitions' goals are each judged by their own copy", "[competitions]")
+{
+    constexpr auto SECOND_TOURNAMENT = "0193a5e0-0000-7000-8000-000000000031";
+    constexpr auto THIEVES = "NA:Forty Thieves";
+    auto second = goalFor(SECOND, json::array({rule("MODE", ">=", 1, THIEVES)}));
+    second["tournament"] = SECOND_TOURNAMENT;
+    second["rules"] = "0193a5e0-0000-7000-8000-000000000032";
+    second["checksum"] = std::string(64, 'b');
+    second["player"] = OTHER_PLAYER;
+
+    Fixture f;
+    f.install();
+    f.deliver(second);
+    f.startGame();
+    REQUIRE(f.net->sessionCreated);
+    f.net->sessionPlayers(SESSION, {{1, SessionSeat {PLAYER, TOURNAMENT}},
+                                    {2, SessionSeat {OTHER_PLAYER, SECOND_TOURNAMENT}}});
+    f.net->sessionCreated(SESSION);
+    f.run();
+    REQUIRE(f.record().start);
+    REQUIRE(attemptOf(f, SECOND).start);
+
+    // Player 1 meets goal 115; their Forty Thieves isn't player 2's
+    activate(f);
+    activate(f, THIEVES);
+    score(f, 10);
+    CHECK(f.record().qualification);
+    CHECK_FALSE(attemptOf(f, SECOND).qualification);
+
+    // Player 2 meets the second competition's goal
+    activePlayer(f, 2);
+    deactivate(f, THIEVES);
+    activate(f, THIEVES);
+    CHECK(attemptOf(f, SECOND).qualification);
+}
+
+TEST_CASE("A goal met when the game ends qualifies at the end", "[competitions]")
+{
+    // A MODE_SCORE <= rule has no verdict while its mode's activation runs: it has one once the
+    // activation closes, here at the end. (With no activation at all it holds, as 0: hence MODE.)
+    Fixture f;
+    f.deliver(goalFor(ATTEMPT, json::array({rule("MODE_SCORE", "<=", 1000, ALI_BABA),
+                                            rule("MODE", ">=", 1, ALI_BABA)})));
+    f.startGame();
+    f.sessionCreated();
+    activate(f);
+    score(f, 500);
+    CHECK_FALSE(f.record().qualification); // still running
+
+    f.game->setGameFinished();
+    f.run();
+    CHECK(f.record().qualification);
+}
+
+TEST_CASE("A late reply for an earlier game never lets a later game qualify its attempt",
+          "[competitions]")
+{
+    Fixture f;
+    f.install();
+
+    // Game A: its session reply is slow
+    f.startGame();
+    auto replyA = f.net->sessionCreated;
+    f.game->setGameFinished();
+    f.run();
+
+    // Game B: the goal is met at position 1, before any reply seats anyone
+    f.startGame();
+    activate(f);
+    score(f, 10);
+
+    // A's reply arrives: the attempt started in A, where it met nothing
+    f.net->seat(SESSION, 1, PLAYER);
+    replyA(SESSION);
+    f.run();
+    REQUIRE(f.record().start);
+    CHECK(f.record().start->session == SESSION);
+
+    // More of game B, then B's own reply: neither qualifies A's attempt
+    score(f, 20);
+    f.sessionCreated(PLAYER, 1);
+    score(f, 30);
+    CHECK_FALSE(f.record().qualification);
+}
+
+TEST_CASE("A game replaced without an end is judged once more where the next one starts",
+          "[competitions]")
+{
+    using achievements::TimelineRow;
+    FakeNet net {""};
+    CompetitionService service {net, [](std::function<void()> fn) { fn(); },
+                                [] { return STARTED_AT_MS; }};
+    service.onGoal(parsed(goalFor(ATTEMPT, json::array({rule("MODE_SCORE", "<=", 1000, ALI_BABA),
+                                                        rule("MODE", ">=", 1, ALI_BABA)}))));
+
+    const int64_t t = STARTED_AT_MS;
+    service.onGameStarted(1, t);
+    service.onRow(TimelineRow {t, 1, 1, {{1, 0}}, {}, {}, {}, true});
+    service.onRow(TimelineRow {t + 1000, 1, 1, {{1, 0}}, {ALI_BABA}, {}, {}, true});
+    service.onRow(TimelineRow {t + 2000, 1, 1, {{1, 500}}, {ALI_BABA}, {}, {}, true});
+    service.onSessionPlayers(SESSION, {{1, SessionSeat {PLAYER, TOURNAMENT}}});
+    service.onSessionCreated(1, SESSION);
+    const auto &record = service.attempts().at(ATTEMPT);
+    REQUIRE(record.start);
+    CHECK_FALSE(record.qualification); // Ali Baba still running
+
+    // The next game starts with no end of game 1: that start closes it
+    service.onGameStarted(2, t + 5000);
+    REQUIRE(record.qualification);
+    CHECK(record.qualification->qualifiedAtMs == t + 5000);
+}
+
+TEST_CASE("TIMER_BETWEEN is refused where a later occurrence would shorten its span",
+          "[competitions]")
+{
+    auto accepted = [](json rules) {
+        std::string error;
+        return parseGoal(goalFor(ATTEMPT, std::move(rules)), error).has_value();
+    };
+    const auto a = rule("MODE", ">=", 1, ALI_BABA);
+    const auto b = rule("MODE", ">=", 1, "NA:Forty Thieves");
+
+    // Two siblings: the shortest covering span only shrinks as the ball goes on
+    CHECK_FALSE(accepted(json::array({rule("TIMER_BETWEEN", ">=", 8000), a, b})));
+    CHECK_FALSE(accepted(json::array({rule("TIMER_BETWEEN", "=", 8000), a, b})));
+    CHECK(accepted(json::array({rule("TIMER_BETWEEN", "<=", 8000), a, b})));
+    // One sibling: gaps between consecutive occurrences never change once there
+    CHECK(accepted(json::array({rule("TIMER_BETWEEN", ">=", 8000), a})));
 }
