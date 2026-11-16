@@ -130,8 +130,11 @@ public:
      * A designated game started, on @p startRow: timing starts again at zero, and the attempt is
      * consumed. Without an elapsed time or a sequence on the row, continuity is unknown from the
      * start. The previous game's result is discarded, so the caller saves it first.
+     *
+     * @p goalMet if the goal is already satisfied on the start row: the result is then zero,
+     * completed on the start row itself. That row is never applied again through @ref onRow.
      */
-    void begin(const achievements::TimelineRow &startRow);
+    void begin(const achievements::TimelineRow &startRow, bool goalMet = false);
 
     /**
      * A row was committed in the designated game; @p goalMet if the goal is satisfied on it. Every
@@ -172,6 +175,8 @@ public:
 
 private:
     void closeTurn(int64_t elapsedMs);
+    /** The goal is first met on @p row, already applied: the result is saved and final. */
+    void complete(const achievements::TimelineRow &row);
 
     achievements::PlayerNumber m_player;
     TimingEvidence m_evidence;

@@ -610,6 +610,50 @@ TEST_CASE("A lost, repeated or reordered row stops qualification", "[competition
     CHECK(timer.attemptConsumed());
 }
 
+TEST_CASE("A goal already met on the start row completes at zero", "[competitions][turn_timer]")
+{
+    Game g {12};
+    const auto start = g.row(5 * S, 1);
+
+    SECTION("For the player who is up")
+    {
+        TurnTimer timer {1, evidence()};
+        timer.begin(start, true);
+
+        CHECK(timer.state() == TurnTimer::State::Completed);
+        REQUIRE(timer.result());
+        CHECK(timer.result()->durationMs == 0);
+        CHECK(timer.result()->startSequence == 12);
+        CHECK(timer.result()->completionSequence == 12);
+        CHECK(timer.result()->completionUtcMs == start.timeMs);
+        CHECK_FALSE(timer.openSinceMs());
+
+        // Later play neither lengthens nor replaces it
+        timer.onRow(g.row(40 * S, 1), true);
+        CHECK(timer.result()->durationMs == 0);
+        CHECK(timer.result()->completionSequence == 12);
+    }
+    SECTION("For a player who isn't up yet")
+    {
+        TurnTimer timer {2, evidence()};
+        timer.begin(start, true);
+        REQUIRE(timer.result());
+        CHECK(timer.result()->durationMs == 0);
+    }
+}
+
+TEST_CASE("The start row applied again is still a repeated row", "[competitions][turn_timer]")
+{
+    // The start row's verdict belongs in begin(); feeding the row back is a continuity fault
+    Game g;
+    const auto start = g.row(0, 1);
+    auto timer = begun(start);
+    timer.onRow(start, true);
+
+    CHECK(timer.state() == TurnTimer::State::Interrupted);
+    CHECK_FALSE(timer.result());
+}
+
 TEST_CASE("A game start without a place in the row order can't be timed",
           "[competitions][turn_timer]")
 {

@@ -40,7 +40,7 @@ TurnTimer::TurnTimer(achievements::PlayerNumber player, TimingEvidence evidence)
 {
 }
 
-void TurnTimer::begin(const achievements::TimelineRow &startRow)
+void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
 {
     m_state = State::Running;
     m_closedMs = 0;
@@ -62,6 +62,11 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow)
     m_lastElapsedMs = *startRow.elapsedMs;
     if (startRow.player == m_player) {
         m_openSinceMs = *startRow.elapsedMs;
+    }
+
+    // Met before any time passed: complete at zero, on the start row itself
+    if (goalMet) {
+        complete(startRow);
     }
 }
 
@@ -95,9 +100,14 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
     }
 
     // Then the goal, at that same instant
-    if (!goalMet) {
-        return;
+    if (goalMet) {
+        complete(row);
     }
+}
+
+void TurnTimer::complete(const achievements::TimelineRow &row)
+{
+    const auto now = *row.elapsedMs;
     m_result = TurnTimeResult {.durationMs = elapsedAt(now),
                                .startSequence = m_startRow.sequence,
                                .completionSequence = row.sequence,
