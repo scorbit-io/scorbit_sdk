@@ -262,6 +262,7 @@ target_sources(
         source/tappad_lock_test_path.cpp
         source/test_tappad_lock.cpp
         source/test_tappad_busy.cpp
+        source/test_tappad_bounded_holds.cpp
         source/tappad_hw_present.cpp
         ../../libs/tpm/source/tpm_identity.h
         source/test_tpm_identity.cpp
