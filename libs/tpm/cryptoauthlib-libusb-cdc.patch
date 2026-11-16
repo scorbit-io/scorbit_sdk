@@ -584,7 +584,7 @@
 +}
 --- a/lib/hal/hal_linux_cdc_libusb.h
 +++ b/lib/hal/hal_linux_cdc_libusb.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,75 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -647,6 +647,14 @@
 +/** \brief Discard buffered and in-flight data. */
 +ATCA_STATUS hal_cdc_libusb_flush(atca_cdc_libusb_t * cdc);
 +
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++/** \brief Test builds only: the kit-UART HAL opens usb: paths through \p hook
++ *         (NULL restores hal_cdc_libusb_open()).
++ */
++void hal_uart_test_set_cdc_open(ATCA_STATUS (*hook)(const char * path, uint32_t baud,
++                                                    atca_cdc_libusb_t ** cdc));
++#endif
++
 +#ifdef __cplusplus
 +}
 +#endif
@@ -689,16 +697,33 @@
      if ((NULL != hal_data) && (0 < hal_data->fd_uart))
      {
          struct termios tty;
-@@ -245,6 +259,19 @@
+@@ -245,6 +259,36 @@
      return status;
  }
  
++#if defined(ATCA_HAL_KIT_UART_LIBUSB) && defined(ATCA_TAPPAD_LOCK_ENV_OVERRIDE)
++static ATCA_STATUS (*g_cdc_open_hook)(const char *, uint32_t, atca_cdc_libusb_t **) = NULL;
++
++void hal_uart_test_set_cdc_open(ATCA_STATUS (*hook)(const char * path, uint32_t baud,
++                                                    atca_cdc_libusb_t ** cdc))
++{
++    g_cdc_open_hook = hook;
++}
++#endif
++
 +/** \brief Open either the native tty or the libusb CDC transport selected by cfg_data. */
 +static ATCA_STATUS hal_uart_open(atca_uart_host_t * hal_data, ATCAIfaceCfg * cfg)
 +{
 +#ifdef ATCA_HAL_KIT_UART_LIBUSB
 +    if (hal_cdc_libusb_is_path(hal_data->uart_file))
 +    {
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++        if (NULL != g_cdc_open_hook)
++        {
++            return g_cdc_open_hook(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
++                                   &hal_data->cdc);
++        }
++#endif
 +        return hal_cdc_libusb_open(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
 +                                   &hal_data->cdc);
 +    }
@@ -709,7 +734,7 @@
  /** \brief HAL implementation of UART init
   *
   * this implementation assumes UART SERIAL PORT peripheral has been enabled by user . It only initialize an
-@@ -276,6 +303,7 @@
+@@ -276,6 +320,7 @@
              {
                  atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
                  (void)memset(iface->hal_data, 0, sizeof(atca_uart_host_t));
@@ -717,7 +742,7 @@
  
                  if (NULL != cfg->cfg_data)
                  {
-@@ -288,7 +316,7 @@
+@@ -288,7 +333,7 @@
                                     "/dev/ttyS%d", (uint8_t)ATCA_IFACECFG_VALUE(cfg, atcauart.port));
                  }
  
@@ -726,7 +751,7 @@
                  {
                      /* Driver is configured - increment the ref count for usage */
                      hal_data->ref_ct = 1;
-@@ -320,6 +348,16 @@
+@@ -320,6 +365,16 @@
              atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
              hal_data->ref_ct++;
              status = ATCA_SUCCESS;
@@ -743,7 +768,7 @@
          }
  
      }
-@@ -353,6 +391,37 @@
+@@ -353,6 +408,37 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -781,33 +806,23 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
-@@ -392,6 +461,37 @@
+@@ -392,6 +478,27 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
 +#ifdef ATCA_HAL_KIT_UART_LIBUSB
 +        if ((NULL != hal_data) && hal_cdc_libusb_is_path(hal_data->uart_file))
 +        {
-+            if (NULL == hal_data->cdc)
-+            {
-+                /* The transport was closed after a previous communication
-+                   error (or the initial open failed): re-open it so that a
-+                   transient failure is retried against a fresh handle instead
-+                   of a permanently dead transport. */
-+                status = (NULL != iface->mIfaceCFG)
-+                         ? hal_uart_open(hal_data, iface->mIfaceCFG)
-+                         : ATCA_BAD_PARAM;
-+            }
-+            else
-+            {
-+                status = ATCA_SUCCESS;
-+            }
++            /* Only send and init reopen a closed transport. Reopening here let
++               calib's response poll reopen and read a silent pad ~1250 times
++               under the tap pad lock (SB-6638). */
++            status = (NULL != hal_data->cdc) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
 +            if (ATCA_SUCCESS == status)
 +            {
 +                status = hal_cdc_libusb_receive(hal_data->cdc, rxdata, rxlength);
 +                if (ATCA_SUCCESS != status)
 +                {
-+                    /* Isolate the failed transport; the next retry re-opens. */
++                    /* Isolate the failed transport; the next send re-opens. */
 +                    hal_cdc_libusb_close(hal_data->cdc);
 +                    hal_data->cdc = NULL;
 +                }
@@ -819,7 +834,7 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (1U < *rxlength)
-@@ -441,6 +541,16 @@
+@@ -441,6 +548,16 @@
              status = hal_uart_set_baudrate(iface, *(uint32_t*)param);
              break;
          case ATCA_HAL_FLUSH_BUFFER:
@@ -836,7 +851,7 @@
              /* Using non-canonical mode so there should be no buffering */
              status = ATCA_SUCCESS;
              break;
-@@ -467,6 +577,12 @@
+@@ -467,6 +584,12 @@
      if (NULL != hal_data)
      {
          atca_uart_host_t *hal = (atca_uart_host_t*)hal_data;
