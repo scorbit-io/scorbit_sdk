@@ -14,6 +14,7 @@ Apply to cryptoauthlib **3.7.9**, in this order:
 1. `cryptoauthlib-build-fixes.patch`
 2. `cryptoauthlib-libusb-cdc.patch`
 3. `cryptoauthlib-tappad-lock.patch`
+4. `cryptoauthlib-bounded-holds.patch` (see "Bounded holds" below)
 
 It must come after `cryptoauthlib-libusb-cdc.patch` because its hunks in
 `lib/CMakeLists.txt` and `lib/hal/hal_linux_uart_userspace.c` use lines that
@@ -226,6 +227,26 @@ way looks gone to it, not busy. cryptoauthlib reduces the HAL's init status to
 `ATCA_BAD_PARAM` (`atinit`) and then `ATCA_GEN_FAIL` (`atcab_init_ext`), so a
 busy claim cannot reach the caller as `ATCA_TAPPAD_BUSY` without patching that
 core init path. This patch does not.
+
+### Bounded holds
+
+A caller holds the lock across a whole `calib_*` call, so a pad that stops
+answering must not keep a transfer blocked. `cryptoauthlib-bounded-holds.patch`
+and `cryptoauthlib-libusb-cdc.patch` bound each transfer:
+
+| Transport | Read | Write |
+|-----------|------|-------|
+| tty | 0.5 s (`VTIME`, with `VMIN=0`) | 1 s waiting for room |
+| libusb CDC | 0.5 s | 1 s |
+| HID | 0.5 s | as `hid_write()` |
+
+A kit-UART reply may be preceded by at most 64 NULs. cryptoauthlib polls a
+failed receive for up to 2.5 s (`ATCA_POLLING_MAX_TIME_MSEC`), so later receives
+must fail at once: a failed tty transfer closes the tty, a failed libusb CDC
+transfer closes the handle until the next send or init reopens it (a receive
+never does), and a timed-out HID read fails the reads that follow until the next
+send. One call on a silent pad therefore holds the lock for 3 to 5 s.
+A healthy pad's replies arrive well inside these bounds and see no change.
 
 ## Behaviour when busy (this SDK)
 

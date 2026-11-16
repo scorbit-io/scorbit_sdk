@@ -1,4 +1,4 @@
-# All three patches are skipped under MSVC, for the reason lib_cpr.cmake documents:
+# All four patches are skipped under MSVC, for the reason lib_cpr.cmake documents:
 # applying a patch there does not merely add nothing, it FAILS THE BUILD. The
 # patch.exe CMake finds on a Windows host is commonly GNU patch 2.5.9, shipped
 # inside Strawberry Perl, which aborts on a diff with
@@ -7,8 +7,9 @@
 #
 # taking the configure step with it before a single source file is compiled.
 #
-# Skipping them there is correct rather than merely expedient, because all three
-# are no-ops on Windows:
+# Skipping them there is correct rather than merely expedient, because the first
+# three are no-ops on Windows, and the fourth only bounds holds of a lock Windows
+# does not take:
 #
 #   cryptoauthlib-libusb-cdc.patch  touches lib/CMakeLists.txt and the
 #     hal_linux_* sources. Every functional block it adds to lib/CMakeLists.txt
@@ -24,6 +25,10 @@
 #     and defines ATCA_HAL_TAPPAD_LOCK only when it did. It must be applied
 #     after cryptoauthlib-libusb-cdc.patch, whose lines it uses as context.
 #     See README-tappad-lock.md.
+#   cryptoauthlib-bounded-holds.patch bounds how long one kit transfer blocks,
+#     since callers hold that lock across it (SB-6638). It also touches
+#     kit_protocol.c and the HID HAL, which Windows compiles, but uses __thread,
+#     which MSVC lacks. It applies after cryptoauthlib-tappad-lock.patch.
 #
 # Confirmed rather than reasoned: the SDK's own Windows job built
 # cryptoauth.lib with neither patch applied, because it goes through vcpkg,
@@ -31,7 +36,7 @@
 #
 # NOT `NOT WIN32` and NOT `LINUX` only: hal_linux_uart_userspace.c is also
 # compiled on macOS through cryptoauthlib's `elseif(LINUX OR APPLE)` branch, so
-# Apple must keep all three patches.
+# Apple must keep all four patches.
 #
 # The whole PATCHES list is dropped rather than set empty: CPM would otherwise
 # receive an empty argument where it expects a path. See SB-4883, and SB-4852
@@ -41,7 +46,8 @@ if(NOT MSVC)
     set(cryptoauth_PATCHES
         "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-build-fixes.patch"
         "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-libusb-cdc.patch"
-        "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-tappad-lock.patch")
+        "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-tappad-lock.patch"
+        "${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib-bounded-holds.patch")
 
     # CPM keys its source cache on the arguments, which name the patches but not their contents,
     # so a warm CPM_SOURCE_CACHE would keep building an old patch after one changes. Key the
