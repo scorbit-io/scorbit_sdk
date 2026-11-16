@@ -249,6 +249,8 @@ target_sources(
         source/competitions/message_outbox.cpp
         source/competitions/competition_service.h
         source/competitions/competition_service.cpp
+        source/competitions/turn_timer.h
+        source/competitions/turn_timer.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
