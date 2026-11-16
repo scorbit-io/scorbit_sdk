@@ -52,6 +52,9 @@ struct GameData {
     EventOps events;
 
     std::chrono::time_point<std::chrono::system_clock> timestamp;
+
+    /** The same instant as @ref timestamp on the monotonic clock, which NTP never steps. */
+    std::chrono::steady_clock::time_point elapsedTimestamp;
 };
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)

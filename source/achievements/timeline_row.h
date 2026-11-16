@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -46,6 +47,7 @@ inline std::string modeBody(std::string_view mode)
 
 /** One committed row of the session timeline (§4.1), as seen by the fact model. */
 struct TimelineRow {
+    /** Device UTC: wall clock, which NTP may step. For schedules and calendars, not durations. */
     int64_t timeMs {0};
     PlayerNumber player {0};
     BallNumber ball {0};
@@ -65,6 +67,21 @@ struct TimelineRow {
      * be trusted, so nothing in this row's period can be placed in a `CALENDAR` window (§5.5.2).
      */
     bool clockSynchronised {true};
+
+    // Last, so rows built positionally before these existed keep their meaning
+
+    /**
+     * When the row was committed on this boot's monotonic clock, which no UTC correction moves: the
+     * clock competition durations are measured on. Meaningless across boots, so never stored.
+     * nullopt if the row's source didn't record it, in which case nothing can be timed on it.
+     */
+    std::optional<int64_t> elapsedMs;
+
+    /**
+     * The row's place in the order of rows committed by this game state, counted from 1; 0 if
+     * unknown. Consecutive within a game, so a gap shows a row was lost.
+     */
+    uint64_t sequence {0};
 };
 
 } // namespace achievements

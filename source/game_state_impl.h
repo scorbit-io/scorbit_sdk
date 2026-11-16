@@ -163,6 +163,8 @@ private:
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
     void emitRow(const GameData &data, SessionFlags flags);
+    /** The fact model's view of @p data, taking the next place in this boot's row order. */
+    achievements::TimelineRow nextTimelineRow(const GameData &data);
     void post(std::function<void()> fn);
     bool isChanged() const;
     bool isPlayerValid(sb_player_t player) const;
@@ -178,6 +180,8 @@ private:
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
+    /** The sequence of the last timeline row this game state committed. */
+    uint64_t m_rowSequence {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

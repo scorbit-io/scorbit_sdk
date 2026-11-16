@@ -63,7 +63,11 @@ public:
     {
         sessionCreated = std::move(cb);
     }
-    void submitGameData(const GameData &, SessionFlags) override { ++rows; }
+    void submitGameData(const GameData &data, SessionFlags) override
+    {
+        ++rows;
+        sent.push_back(data);
+    }
     void getConfig() override { }
     void requestPairCode(StringCallback) override { }
     const std::string &getMachineUuid() const override { return m_empty; }
@@ -202,6 +206,8 @@ public:
     TokenRefreshedCallback tokenRefreshed;
     std::vector<Unlock> unlocks;
     int rows {0};
+    /** Every row submitted, in order. */
+    std::vector<GameData> sent;
     std::deque<ArtworkDownload> artworks;
 
 private:
@@ -434,6 +440,36 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
     CHECK(unlock.name == "Boom Balloon");
     CHECK(unlock.description == "Pop the balloon.");
     CHECK(unlock.artwork.empty()); // none was chosen
+}
+
+TEST_CASE("Committed rows carry the monotonic instant they were committed at",
+          "[achievements][turn_timer]")
+{
+    // SB-6367: competition time is measured on these, never on the wall clock
+    Fixture f;
+    f.game->setScore(1, 100, 0);
+    f.game->commit();
+
+    // A bonus for P1 committed with the switch to P2: an extra row for P1, then the real one
+    f.game->setScore(1, 600, 0);
+    f.game->setActivePlayer(2);
+    f.game->commit();
+
+    REQUIRE(f.net->sent.size() >= 3);
+    const std::chrono::steady_clock::time_point never {};
+    for (size_t i = 0; i < f.net->sent.size(); ++i) {
+        CAPTURE(i);
+        CHECK(f.net->sent[i].elapsedTimestamp != never);
+        if (i > 0) {
+            CHECK(f.net->sent[i].elapsedTimestamp >= f.net->sent[i - 1].elapsedTimestamp);
+        }
+    }
+
+    const auto &bonus = f.net->sent[f.net->sent.size() - 2];
+    const auto &real = f.net->sent.back();
+    CHECK(bonus.activePlayer == 1);
+    CHECK(real.activePlayer == 2);
+    CHECK(bonus.elapsedTimestamp == real.elapsedTimestamp); // one input event, one instant
 }
 
 TEST_CASE("An achievement the player already held raises no unlock", "[achievements]")
