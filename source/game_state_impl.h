@@ -37,6 +37,20 @@
 namespace scorbit {
 namespace detail {
 
+class GameStateImpl;
+
+/**
+ * Test seam for the timeline rows GameStateImpl commits. The rows reach achievements and, later,
+ * competition timers with nothing else observing them, so their sequence and elapsed instant can
+ * only be checked here. Tests are the only caller.
+ */
+struct GameStateImplTestAccess {
+    using RowTap = std::function<void(const achievements::TimelineRow &)>;
+
+    /** Calls @p tap with every timeline row @p game commits from now on, in order. */
+    static void tapRows(GameStateImpl &game, RowTap tap);
+};
+
 class GameStateImpl
 {
 public:
@@ -160,6 +174,8 @@ public:
     const competitions::CompetitionService &competitions() const { return *m_competitions; }
 
 private:
+    friend struct GameStateImplTestAccess;
+
     void addNewPlayer(sb_player_t player);
     void submitGameData(bool forceSending);
     void emitRow(const GameData &data, SessionFlags flags);
@@ -182,6 +198,8 @@ private:
     int m_sessionId {0};
     /** The sequence of the last timeline row this game state committed. */
     uint64_t m_rowSequence {0};
+    /** Test seam; empty in production. Set only through GameStateImplTestAccess. */
+    GameStateImplTestAccess::RowTap m_rowTap;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 
@@ -196,6 +214,11 @@ private:
 
     std::unique_ptr<NetBase> m_net;
 };
+
+inline void GameStateImplTestAccess::tapRows(GameStateImpl &game, RowTap tap)
+{
+    game.m_rowTap = std::move(tap);
+}
 
 } // namespace detail
 } // namespace scorbit

@@ -642,7 +642,11 @@ void GameStateImpl::emitRow(const GameData &data, SessionFlags flags)
 
 achievements::TimelineRow GameStateImpl::nextTimelineRow(const GameData &data)
 {
-    return toTimelineRow(data, m_net->isClockSynchronised(), ++m_rowSequence);
+    auto row = toTimelineRow(data, m_net->isClockSynchronised(), ++m_rowSequence);
+    if (m_rowTap) {
+        m_rowTap(row);
+    }
+    return row;
 }
 
 bool GameStateImpl::isChanged() const

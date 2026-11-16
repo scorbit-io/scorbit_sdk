@@ -63,11 +63,7 @@ public:
     {
         sessionCreated = std::move(cb);
     }
-    void submitGameData(const GameData &data, SessionFlags) override
-    {
-        ++rows;
-        sent.push_back(data);
-    }
+    void submitGameData(const GameData &, SessionFlags) override { ++rows; }
     void getConfig() override { }
     void requestPairCode(StringCallback) override { }
     const std::string &getMachineUuid() const override { return m_empty; }
@@ -206,8 +202,6 @@ public:
     TokenRefreshedCallback tokenRefreshed;
     std::vector<Unlock> unlocks;
     int rows {0};
-    /** Every row submitted, in order. */
-    std::vector<GameData> sent;
     std::deque<ArtworkDownload> artworks;
 
 private:
@@ -445,31 +439,50 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
 TEST_CASE("Committed rows carry the monotonic instant they were committed at",
           "[achievements][turn_timer]")
 {
-    // SB-6367: competition time is measured on these, never on the wall clock
-    Fixture f;
-    f.game->setScore(1, 100, 0);
-    f.game->commit();
+    // SB-6367: competition time is measured on these, never on the wall clock, and a timer
+    // refuses a game whose rows aren't numbered consecutively
+    TempDir dir;
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    std::vector<achievements::TimelineRow> rows;
+    GameStateImplTestAccess::tapRows(game,
+                                     [&](const achievements::TimelineRow &r) { rows.push_back(r); });
 
-    // A bonus for P1 committed with the switch to P2: an extra row for P1, then the real one
-    f.game->setScore(1, 600, 0);
-    f.game->setActivePlayer(2);
-    f.game->commit();
+    game.setGameStarted(GameStartOrigin::StartButton); // 1: the session's start row
+    REQUIRE(net->sessionCreated);
+    net->sessionCreated("9ab2");
+    game.runPendingPosts(); // 2: the state published once the uuid is known
 
-    REQUIRE(f.net->sent.size() >= 3);
-    const std::chrono::steady_clock::time_point never {};
-    for (size_t i = 0; i < f.net->sent.size(); ++i) {
+    game.setScore(1, 100, 0);
+    game.commit(); // 3: an ordinary commit
+
+    // 4 and 5: a bonus for P1 committed with the switch to P2, an extra row for P1 then the real one
+    game.setScore(1, 600, 0);
+    game.setActivePlayer(2);
+    game.commit();
+
+    REQUIRE(rows.size() == 5);
+    for (size_t i = 0; i < rows.size(); ++i) {
         CAPTURE(i);
-        CHECK(f.net->sent[i].elapsedTimestamp != never);
+        CHECK(rows[i].sequence == i + 1);
+        REQUIRE(rows[i].elapsedMs);
         if (i > 0) {
-            CHECK(f.net->sent[i].elapsedTimestamp >= f.net->sent[i - 1].elapsedTimestamp);
+            CHECK(*rows[i].elapsedMs >= *rows[i - 1].elapsedMs);
         }
     }
+    CHECK(rows[0].player == 1);
+    CHECK(rows[3].player == 1);
+    CHECK(rows[4].player == 2);
+    CHECK(*rows[3].elapsedMs == *rows[4].elapsedMs); // one input event, one instant
 
-    const auto &bonus = f.net->sent[f.net->sent.size() - 2];
-    const auto &real = f.net->sent.back();
-    CHECK(bonus.activePlayer == 1);
-    CHECK(real.activePlayer == 2);
-    CHECK(bonus.elapsedTimestamp == real.elapsedTimestamp); // one input event, one instant
+    // The finishing row, then the next game's start row: the order runs on across games
+    game.setGameFinished();
+    game.setGameStarted(GameStartOrigin::StartButton);
+    REQUIRE(rows.size() == 7);
+    CHECK(rows[5].sequence == 6);
+    CHECK(rows[6].sequence == 7);
+    CHECK(rows[6].player == 1);
 }
 
 TEST_CASE("An achievement the player already held raises no unlock", "[achievements]")
