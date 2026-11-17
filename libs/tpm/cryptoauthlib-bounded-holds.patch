@@ -315,7 +315,7 @@ See README-tappad-lock.md next to this file.
  #endif
 --- a/lib/hal/hal_all_platforms_kit_hidapi.c
 +++ b/lib/hal/hal_all_platforms_kit_hidapi.c
-@@ -32,6 +32,69 @@
+@@ -32,6 +32,77 @@
  
  #include "atca_hal.h"
  #include "hal/kit_protocol.h"
@@ -338,6 +338,14 @@ See README-tappad-lock.md next to this file.
 +   wait until it answers again, so a dead pad does not cost 2.5 s per wake.
 +   Not per thread: atcaRetry's attempts may run on different threads. */
 +static hid_device * g_suspect = NULL;
++
++/* A failed send ends its command: its reply is never read, the next send
++   starts a new one. */
++static void hal_kit_hid_send_failed(void)
++{
++    t_cmd.failed = true;
++    t_cmd.sending = false;
++}
 +
 +static int64_t hal_kit_hid_now_ms(void)
 +{
@@ -385,7 +393,7 @@ See README-tappad-lock.md next to this file.
  
  /** \defgroup hal_ Hardware abstraction layer (hal_)
   *
-@@ -97,19 +160,33 @@
+@@ -97,19 +168,33 @@
      {
          return ATCA_BAD_PARAM;
      }
@@ -404,7 +412,7 @@ See README-tappad-lock.md next to this file.
 +        ret = hal_kit_hid_read(pHid, flush_buf, (size_t)sizeof(flush_buf), 0);
          if (ret < 0)
          {
-+            t_cmd.failed = true;
++            hal_kit_hid_send_failed();
              return ATCA_TX_FAIL;
          }
          if (ret > 0)
@@ -415,31 +423,31 @@ See README-tappad-lock.md next to this file.
 +    } while ((ret > 0) && (flush_cnt < HAL_KIT_HID_MAX_DRAIN));
 +    if (0 != ret)
 +    {
-+        t_cmd.failed = true; /* a pad flooding input reports */
++        hal_kit_hid_send_failed(); /* a pad flooding input reports */
 +        return ATCA_TX_FAIL;
 +    }
  
  #ifdef KIT_DEBUG
      if (0 < flush_cnt)
-@@ -133,14 +210,16 @@
+@@ -133,14 +218,16 @@
  #endif
      if (0 == ret)
      {
 -        if (0 > (bytes_written = hid_write(pHid, txdata, (size_t)ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)))
 +        if (0 > (bytes_written = hal_kit_hid_write(pHid, txdata, (size_t)ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)))
          {
-+            t_cmd.failed = true;
++            hal_kit_hid_send_failed();
              return ATCA_TX_FAIL;
          }
      }
  
      if ((uint32_t)bytes_written != ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)
      {
-+        t_cmd.failed = true;
++        hal_kit_hid_send_failed();
          return ATCA_TX_FAIL;
      }
  
-@@ -157,6 +236,8 @@
+@@ -157,6 +244,8 @@
  ATCA_STATUS hal_kit_hid_receive(ATCAIface iface, uint8_t word_address, uint8_t* rxdata, uint16_t* rxlength)
  {
      hid_device* pHid = (hid_device*)atgetifacehaldat(iface);
@@ -448,7 +456,7 @@ See README-tappad-lock.md next to this file.
      int ret;
  
      ((void)word_address);
-@@ -166,13 +247,40 @@
+@@ -166,13 +255,40 @@
          return ATCA_BAD_PARAM;
      }
  

@@ -856,6 +856,30 @@ TEST_CASE("Tap pad hold: a HID receive after a failed write does not wait", "[ta
     CHECK(pad.waits() == 0);
 }
 
+TEST_CASE("Tap pad hold: a HID pad works again after a failed send", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    fake_hid::Device hid(pad);
+
+    // Both calls on one thread, as the HAL keeps a command's state per thread.
+    uint8_t revision[4] = {};
+    ATCA_STATUS failed = ATCA_SUCCESS;
+    const auto result = runHeld(
+            [&] {
+                fake_hid::failWrites = true;
+                hid.kit.device.device_state = ATCA_DEVICE_STATE_ACTIVE;
+                failed = calib_info(&hid.kit.device, revision);
+                fake_hid::failWrites = false;
+                hid.kit.device.device_state = ATCA_DEVICE_STATE_ACTIVE;
+                return calib_info(&hid.kit.device, revision);
+            },
+            [&] { pad.release(); });
+
+    CHECK(failed != ATCA_SUCCESS);
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
 TEST_CASE("Tap pad hold: a healthy HID pad answers as before", "[tappad_bounded]")
 {
     FakeKitPad pad;
@@ -890,6 +914,7 @@ namespace fake_cdc {
 
 FakeKitPad *pad = nullptr;
 std::atomic<int> opens {0};
+std::atomic<int> failOuts {0};
 
 ATCA_STATUS open(const char *, uint32_t, atca_cdc_libusb_t **cdc)
 {
@@ -904,6 +929,11 @@ int transfer(unsigned char endpoint, unsigned char *data, int length, int *trans
              unsigned int timeoutMs)
 {
     if ((endpoint & 0x80u) == 0) {
+        if (failOuts > 0) {
+            --failOuts;
+            *transferred = 0;
+            return LIBUSB_TIMEOUT;
+        }
         pad->write(reinterpret_cast<const char *>(data), static_cast<size_t>(length));
         *transferred = length;
         return 0;
@@ -920,6 +950,7 @@ struct Device {
     {
         pad = &padIn;
         opens = 0;
+        failOuts = 0;
         hal_uart_test_set_cdc_open(open);
         hal_cdc_libusb_test_set_transfer(transfer);
         REQUIRE(kit.open() == ATCA_SUCCESS);
@@ -1008,6 +1039,28 @@ TEST_CASE("Tap pad hold: a libusb CDC pad trickling its reply fails at the comma
 
     CHECK(result.status != ATCA_SUCCESS);
     CHECK(result.elapsed < std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 6000));
+}
+
+TEST_CASE("Tap pad hold: a libusb CDC pad works again after a failed send", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    ATCA_STATUS failed = ATCA_SUCCESS;
+    const auto result = runHeld(
+            [&] {
+                fake_cdc::failOuts = 1;
+                cdc.kit.device.device_state = ATCA_DEVICE_STATE_ACTIVE;
+                failed = calib_info(&cdc.kit.device, revision);
+                cdc.kit.device.device_state = ATCA_DEVICE_STATE_ACTIVE;
+                return calib_info(&cdc.kit.device, revision);
+            },
+            [&] { pad.release(); });
+
+    CHECK(failed != ATCA_SUCCESS);
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
 }
 
 TEST_CASE("Tap pad hold: a healthy libusb CDC pad answers as before", "[tappad_bounded]")
