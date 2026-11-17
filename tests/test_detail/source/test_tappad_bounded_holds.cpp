@@ -56,6 +56,7 @@
 #    include <fcntl.h>
 #    include <poll.h>
 #    include <stdlib.h>
+#    include <sys/ioctl.h>
 #    include <termios.h>
 #    include <unistd.h>
 
@@ -66,12 +67,19 @@ namespace {
 using Clock = std::chrono::steady_clock;
 using Delay = std::optional<std::chrono::milliseconds>;
 
-// Loose: the tests count transfers to tell bounded from unbounded. A dead pad's hold measures
-// 5-8 s; without the bounds it lasts minutes or forever.
+// Loose: the tests count waits to tell bounded from unbounded. A dead pad's hold measures 3-8 s;
+// without the bounds it lasts minutes or forever.
 constexpr auto HOLD_BOUND = 20s;
+// The same for a whole atcaRetry call, five holds.
+constexpr auto RETRY_BOUND = 60s;
+// Held until the test delivers it.
+constexpr auto HELD = std::chrono::milliseconds(-1);
+// A read that waited for the pad rather than only draining what was queued.
+constexpr int WAITED_MS = 20;
 
-// The Info command calib_info sends, as the kit protocol frames it.
+// What the kit protocol sends for calib_info, and for a wake.
 const std::string INFO_COMMAND = "E:t(0730000000035D)\n";
+const std::string WAKE_COMMAND = "E:w()\n";
 
 struct HoldResult {
     ATCA_STATUS status;
@@ -79,21 +87,30 @@ struct HoldResult {
     bool inBound;
 };
 
-// Runs call under the hold atcaRetry takes for one attempt. If it is still running at HOLD_BOUND,
-// unblock makes the fake pad fail so that the call returns and the test can report it.
-HoldResult runHeld(const std::function<ATCA_STATUS()> &call, const std::function<void()> &unblock)
+// Runs call; if it is still running at bound, unblock makes the fake pad fail so that the call
+// returns and the test can report it.
+HoldResult runBounded(const std::function<ATCA_STATUS()> &call,
+                      const std::function<void()> &unblock, Clock::duration bound)
 {
     const auto start = Clock::now();
-    auto done = std::async(std::launch::async, [&] {
-        std::chrono::milliseconds waited {0};
-        return atca_retry::attemptLocked(call, TappadLock::DEFAULT_TIMEOUT_MS, waited);
-    });
-    const bool inBound = done.wait_for(HOLD_BOUND) == std::future_status::ready;
+    auto done = std::async(std::launch::async, call);
+    const bool inBound = done.wait_for(bound) == std::future_status::ready;
     if (!inBound) {
         unblock();
     }
     const ATCA_STATUS status = done.get();
     return {status, Clock::now() - start, inBound};
+}
+
+// One attempt under the hold atcaRetry takes.
+HoldResult runHeld(const std::function<ATCA_STATUS()> &call, const std::function<void()> &unblock)
+{
+    return runBounded(
+            [&] {
+                std::chrono::milliseconds waited {0};
+                return atca_retry::attemptLocked(call, TappadLock::DEFAULT_TIMEOUT_MS, waited);
+            },
+            unblock, HOLD_BOUND);
 }
 
 // Another thread gets the lock: the call left no HAL hold behind on its thread.
@@ -121,8 +138,14 @@ std::string infoReply(int n)
     return reply + ")\n";
 }
 
-// A tap pad's kit firmware: it answers each command line, Info after a delay chosen per command
-// (none: never), anything else at once. A silent pad answers nothing.
+constexpr uint8_t revisionOf(int n)
+{
+    return static_cast<uint8_t>(n + 1);
+}
+
+// A tap pad's kit firmware. Like the probe's, it answers a wake or an idle at once; it answers
+// Info after a delay chosen per command (none: never; HELD: when the test delivers it). A silent
+// pad answers nothing.
 class FakeKitPad
 {
 public:
@@ -130,12 +153,19 @@ public:
         : m_infoDelay(std::move(infoDelay))
     {
     }
-    struct Silent {
-    };
-    explicit FakeKitPad(Silent)
-        : m_silent(true)
+
+    void setSilent(bool silent) { m_silent = silent; }
+    void setInfoDelay(std::function<Delay(int)> infoDelay)
     {
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        m_infoDelay = std::move(infoDelay);
     }
+    // NULs sent at once ahead of each Info reply.
+    void setLeadingNuls(size_t count) { m_leadingNuls = count; }
+    // Send each Info reply one byte per interval.
+    void setTrickle(std::chrono::milliseconds interval) { m_trickle = interval; }
+    // Have input reports always pending (HID).
+    void setFlood(bool flood) { m_flood = flood; }
 
     void write(const char *data, size_t length)
     {
@@ -145,37 +175,36 @@ public:
                 continue; // HID reports are zero-padded
             }
             m_line += data[i];
-            if (data[i] != '\n') {
-                continue;
+            if (data[i] == '\n') {
+                answer();
+                m_line.clear();
             }
-            m_commands += m_line;
-            if (m_line.find(":t(") == std::string::npos) {
-                if (!m_silent) {
-                    m_replies.push_back({Clock::now(), "00()\n"});
-                }
-            } else {
-                const auto delay = m_silent ? Delay {} : m_infoDelay(m_infos);
-                if (delay) {
-                    m_replies.push_back({Clock::now() + *delay, infoReply(m_infos)});
-                }
-                ++m_infos;
-            }
-            m_line.clear();
         }
     }
 
     // Up to max bytes of a reply that is due, waiting up to timeoutMs (negative: until released).
     size_t read(char *out, size_t max, int timeoutMs)
     {
-        if (timeoutMs > 1) {
-            ++m_timedReads;
+        if (timeoutMs > WAITED_MS) {
+            ++m_waits;
+        }
+        if (timeoutMs >= HAL_KIT_REPLY_TIMEOUT_MS) {
+            ++m_longWaits;
+        }
+        if (timeoutMs == 0) {
+            ++m_drains;
+        }
+        if (m_flood && timeoutMs == 0) {
+            std::memset(out, 'x', max);
+            return max;
         }
         const auto end = timeoutMs < 0 ? Clock::time_point::max()
                                        : Clock::now() + std::chrono::milliseconds(timeoutMs);
         while (!m_released) {
             {
                 const std::lock_guard<std::mutex> lock(m_mutex);
-                if (!m_replies.empty() && m_replies.front().due <= Clock::now()) {
+                if (!m_replies.empty() && !m_replies.front().held
+                    && m_replies.front().due <= Clock::now()) {
                     auto &bytes = m_replies.front().bytes;
                     const size_t n = std::min(max, bytes.size());
                     std::memcpy(out, bytes.data(), n);
@@ -194,10 +223,20 @@ public:
         return 0;
     }
 
+    // Lets the held replies go, as a pad answering late.
+    void deliverHeld()
+    {
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto &reply : m_replies) {
+            reply.held = false;
+        }
+    }
+
     void release() { m_released = true; }
     bool released() const { return m_released; }
-    // Reads that waited for a reply rather than only draining what was queued.
-    int timedReads() const { return m_timedReads; }
+    int waits() const { return m_waits; }
+    int longWaits() const { return m_longWaits; }
+    int drains() const { return m_drains; }
     std::string commands() const
     {
         const std::lock_guard<std::mutex> lock(m_mutex);
@@ -208,7 +247,43 @@ private:
     struct Reply {
         Clock::time_point due;
         std::string bytes;
+        bool held = false;
     };
+
+    void answer()
+    {
+        m_commands += m_line;
+        if (m_silent) {
+            return;
+        }
+        const auto now = Clock::now();
+        if (m_line == WAKE_COMMAND) {
+            m_replies.push_back({now, "00(04113343)\n"});
+            return;
+        }
+        if (m_line.find(":t(") == std::string::npos) {
+            m_replies.push_back({now, "00()\n"});
+            return;
+        }
+        const int n = m_infos++;
+        const auto delay = m_infoDelay(n);
+        if (!delay) {
+            return;
+        }
+        if (m_leadingNuls > 0) {
+            m_replies.push_back({now, std::string(m_leadingNuls, '\0')});
+        }
+        const std::string reply = infoReply(n);
+        if (*delay == HELD) {
+            m_replies.push_back({now, reply, true});
+        } else if (m_trickle > 0ms) {
+            for (size_t i = 0; i < reply.size(); ++i) {
+                m_replies.push_back({now + *delay + m_trickle * i, reply.substr(i, 1)});
+            }
+        } else {
+            m_replies.push_back({now + *delay, reply});
+        }
+    }
 
     std::function<Delay(int)> m_infoDelay;
     mutable std::mutex m_mutex;
@@ -216,13 +291,22 @@ private:
     std::string m_commands;
     std::deque<Reply> m_replies;
     int m_infos = 0;
-    std::atomic<int> m_timedReads {0};
+    std::atomic<int> m_waits {0};
+    std::atomic<int> m_longWaits {0};
+    std::atomic<int> m_drains {0};
     std::atomic<bool> m_released {false};
-    bool m_silent = false;
+    std::atomic<bool> m_silent {false};
+    std::atomic<bool> m_flood {false};
+    std::atomic<size_t> m_leadingNuls {0};
+    std::chrono::milliseconds m_trickle {0};
 };
 
-// The kit-protocol device calib talks to, on the transport of type, already awake so the command
-// goes straight out and calib polls for its reply.
+Delay never(int)
+{
+    return std::nullopt;
+}
+
+// The kit-protocol device calib talks to, on the transport of type.
 struct KitDevice {
     ATCAIfaceCfg cfg {};
     atca_device device {};
@@ -244,7 +328,6 @@ struct KitDevice {
         }
         REQUIRE(hal_iface_init(&cfg, &device.mIface.hal, &device.mIface.phy) == ATCA_SUCCESS);
         device.mIface.mIfaceCFG = &cfg;
-        device.device_state = ATCA_DEVICE_STATE_ACTIVE;
     }
     ~KitDevice()
     {
@@ -262,11 +345,23 @@ struct KitDevice {
         return status;
     }
 
-    // Info under the hold atcaRetry takes; revision receives the reply's.
-    HoldResult info(uint8_t (&revision)[4], const std::function<void()> &unblock)
+    // Info under the hold atcaRetry takes. Awake, the command goes straight out; idle, as after
+    // any earlier command, calib wakes the chip first.
+    HoldResult info(uint8_t (&revision)[4], const std::function<void()> &unblock, bool awake = true)
     {
-        device.device_state = ATCA_DEVICE_STATE_ACTIVE;
+        device.device_state = awake ? ATCA_DEVICE_STATE_ACTIVE : ATCA_DEVICE_STATE_IDLE;
         return runHeld([&] { return calib_info(&device, revision); }, unblock);
+    }
+
+    // A whole atcaRetry call, starting idle as it does in production.
+    HoldResult infoWithRetries(uint8_t (&revision)[4], const std::function<void()> &unblock)
+    {
+        device.device_state = ATCA_DEVICE_STATE_IDLE;
+        return runBounded(
+                [&] {
+                    return atca_retry::atcaRetry([&] { return calib_info(&device, revision); });
+                },
+                unblock, RETRY_BOUND);
     }
 
 private:
@@ -307,6 +402,8 @@ class PtyPad
 public:
     PtyPad(Pty &pty, FakeKitPad &pad)
         : m_thread([this, &pty, &pad] {
+            // After the slave's last close, poll reports a hangup and a blocking read would wait.
+            (void)::fcntl(pty.master, F_SETFL, O_NONBLOCK);
             char buffer[64];
             pollfd pfd {pty.master, POLLIN, 0};
             while (!m_stop) {
@@ -351,14 +448,24 @@ struct FakeModemLines {
     ~FakeModemLines() { hal_uart_test_set_modem_bits(nullptr); }
 };
 
-constexpr uint8_t revisionOf(int n)
-{
-    return static_cast<uint8_t>(n + 1);
-}
+// A tty kit device with pad playing behind it.
+struct TtyRig {
+    explicit TtyRig(FakeKitPad &pad)
+        : player(pty, pad)
+    {
+        REQUIRE(kit.open() == ATCA_SUCCESS);
+    }
+
+    FakeModemLines modem;
+    Pty pty;
+    PtyPad player;
+    KitDevice kit {ATCA_UART_IFACE, pty.slave};
+};
 
 namespace fake_hid {
 
 FakeKitPad *pad = nullptr;
+std::atomic<bool> failWrites {false};
 
 int read(hid_device_ *, unsigned char *data, size_t length, int timeoutMs)
 {
@@ -368,6 +475,9 @@ int read(hid_device_ *, unsigned char *data, size_t length, int timeoutMs)
 
 int write(hid_device_ *, const unsigned char *data, size_t length)
 {
+    if (failWrites) {
+        return -1;
+    }
     pad->write(reinterpret_cast<const char *>(data) + 1, length - 1);
     return static_cast<int>(length);
 }
@@ -377,6 +487,7 @@ struct Device {
     explicit Device(FakeKitPad &padIn)
     {
         pad = &padIn;
+        failWrites = false;
         hal_kit_hid_test_set_io(read, write);
         kit.device.mIface.hal_data = &handle;
     }
@@ -396,17 +507,16 @@ struct Device {
 
 } // namespace
 
+// ---- native tty ----
+
 TEST_CASE("Tap pad hold: a tty that never answers ends within the bound", "[tappad_bounded]")
 {
-    const FakeModemLines modem;
-    Pty pty;
-    FakeKitPad pad(FakeKitPad::Silent {});
-    const PtyPad player(pty, pad);
-    KitDevice kit(ATCA_UART_IFACE, pty.slave);
-    REQUIRE(kit.open() == ATCA_SUCCESS);
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    TtyRig tty(pad);
 
     uint8_t revision[4] = {};
-    const auto result = kit.info(revision, [&] { pty.closeMaster(); });
+    const auto result = tty.kit.info(revision, [&] { tty.pty.closeMaster(); });
 
     CHECK(result.inBound);
     CHECK(result.status != ATCA_SUCCESS);
@@ -415,7 +525,27 @@ TEST_CASE("Tap pad hold: a tty that never answers ends within the bound", "[tapp
     CHECK(lockFreeForOthers());
     // A device fault, which atcaRetry retries, not a bad call.
     uint8_t byte = '\n';
-    CHECK(hal_uart_send(&kit.device.mIface, 0, &byte, 1) == ATCA_COMM_FAIL);
+    CHECK(hal_uart_send(&tty.kit.device.mIface, 0, &byte, 1) == ATCA_COMM_FAIL);
+}
+
+TEST_CASE("Tap pad hold: an idle tty that never answers fails at its wake", "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    TtyRig tty(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = tty.kit.info(
+            revision, [&] { tty.pty.closeMaster(); }, false);
+
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(pad.commands() == WAKE_COMMAND);
+
+    const auto retried = tty.kit.infoWithRetries(revision, [&] { tty.pty.closeMaster(); });
+    CHECK(retried.inBound);
+    CHECK(retried.status != ATCA_SUCCESS);
+    CHECK(pad.commands() == WAKE_COMMAND); // the closed tty fails every retry at once
 }
 
 TEST_CASE("Tap pad hold: a tty that takes no writes ends within the bound", "[tappad_bounded]")
@@ -489,24 +619,74 @@ TEST_CASE("Tap pad hold: a tty streaming NUL bytes ends within the bound", "[tap
     CHECK(lockFreeForOthers());
 }
 
-TEST_CASE("Tap pad hold: a healthy tty pad answers as before", "[tappad_bounded]")
+TEST_CASE("Tap pad hold: a tty sending a NUL every 10 ms ends within the bound", "[tappad_bounded]")
 {
     const FakeModemLines modem;
     Pty pty;
-    FakeKitPad pad;
-    const PtyPad player(pty, pad);
     KitDevice kit(ATCA_UART_IFACE, pty.slave);
     REQUIRE(kit.open() == ATCA_SUCCESS);
 
+    // Each NUL comes well inside the byte wait, and each receive call skips 64 of them.
+    std::atomic<bool> stop {false};
+    std::thread pad([&] {
+        const char nul = '\0';
+        while (!stop) {
+            (void)!::write(pty.master, &nul, 1);
+            std::this_thread::sleep_for(10ms);
+        }
+    });
+
     uint8_t revision[4] = {};
-    const auto result = kit.info(revision, [&] { pty.closeMaster(); });
+    const auto result = kit.info(revision, [&] {
+        stop = true;
+        pad.join();
+        pty.closeMaster();
+    });
+    stop = true;
+    if (pad.joinable()) {
+        pad.join();
+    }
+
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(result.elapsed < 10s);
+}
+
+TEST_CASE("Tap pad hold: a tty pad trickling its reply fails at the command deadline",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setTrickle(450ms); // each byte inside the byte wait; the whole reply takes 8.5 s
+    TtyRig tty(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = tty.kit.info(revision, [&] { tty.pty.closeMaster(); });
+
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(result.elapsed < std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 6000));
+}
+
+TEST_CASE("Tap pad hold: a healthy tty pad answers as before", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    TtyRig tty(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = tty.kit.info(revision, [&] { tty.pty.closeMaster(); });
 
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(result.elapsed < 1s);
     CHECK(revision[3] == revisionOf(0));
-    CHECK_FALSE(player.writeFailed());
+    CHECK_FALSE(tty.player.writeFailed());
     // The Info command, then the idle, byte for byte as the kit protocol frames them.
     CHECK(pad.commands() == INFO_COMMAND + "E:i()\n");
+
+    // And from idle, woken first.
+    CHECK(tty.kit.info(
+                         revision, [&] { tty.pty.closeMaster(); }, false)
+                  .status
+          == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(1));
 }
 
 TEST_CASE("Tap pad hold: kit UART skips 64 NULs ahead of a reply and no more", "[tappad_bounded]")
@@ -517,6 +697,8 @@ TEST_CASE("Tap pad hold: kit UART skips 64 NULs ahead of a reply and no more", "
     REQUIRE(kit.open() == ATCA_SUCCESS);
 
     const auto receive = [&](size_t nuls) {
+        uint8_t byte = '\n';
+        REQUIRE(hal_uart_send(&kit.device.mIface, 0, &byte, 1) == ATCA_SUCCESS);
         const std::string bytes = std::string(nuls, '\0') + "00()\n";
         REQUIRE(::write(pty.master, bytes.data(), bytes.size())
                 == static_cast<ssize_t>(bytes.size()));
@@ -534,15 +716,12 @@ TEST_CASE("Tap pad hold: kit UART skips 64 NULs ahead of a reply and no more", "
 
 TEST_CASE("Tap pad hold: a tty pad slow to start its reply still answers", "[tappad_bounded]")
 {
-    const FakeModemLines modem;
-    Pty pty;
     FakeKitPad pad([](int) { return Delay {1100ms}; });
-    const PtyPad player(pty, pad);
-    KitDevice kit(ATCA_UART_IFACE, pty.slave);
-    REQUIRE(kit.open() == ATCA_SUCCESS);
+    pad.setLeadingNuls(1); // sent at once, so only the reply itself may end the long wait
+    TtyRig tty(pad);
 
     uint8_t revision[4] = {};
-    const auto result = kit.info(revision, [&] { pty.closeMaster(); });
+    const auto result = tty.kit.info(revision, [&] { tty.pty.closeMaster(); });
 
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(0));
@@ -551,35 +730,36 @@ TEST_CASE("Tap pad hold: a tty pad slow to start its reply still answers", "[tap
 TEST_CASE("Tap pad hold: a tty reply that came too late is not read by the next command",
           "[tappad_bounded]")
 {
-    const FakeModemLines modem;
-    Pty pty;
-    FakeKitPad pad([](int n) { return n == 0 ? Delay {3500ms} : Delay {0ms}; });
-    const PtyPad player(pty, pad);
-    // Keeps the tty, and the input it queues, alive between the two openings.
-    const int holder = ::open(pty.slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-    REQUIRE(holder >= 0);
-
+    FakeKitPad pad([](int n) { return n == 0 ? Delay {HELD} : Delay {0ms}; });
+    TtyRig tty(pad);
     uint8_t revision[4] = {};
-    const auto start = Clock::now();
-    {
-        KitDevice first(ATCA_UART_IFACE, pty.slave);
-        REQUIRE(first.open() == ATCA_SUCCESS);
-        CHECK(first.info(revision, [&] { pty.closeMaster(); }).status != ATCA_SUCCESS);
+    CHECK(tty.kit.info(revision, [&] { tty.pty.closeMaster(); }).status != ATCA_SUCCESS);
+
+    // The failure closed the tty; a new instance opens it, and only then does the late reply land.
+    KitDevice next(ATCA_UART_IFACE, tty.pty.slave);
+    REQUIRE(next.open() == ATCA_SUCCESS);
+    pad.deliverHeld();
+    const int probe = ::open(tty.pty.slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    REQUIRE(probe >= 0);
+    int queued = 0;
+    for (const auto end = Clock::now() + 2s; queued < 19 && Clock::now() < end;) {
+        std::this_thread::sleep_for(5ms);
+        REQUIRE(::ioctl(probe, FIONREAD, &queued) == 0);
     }
-    std::this_thread::sleep_until(start + 4s); // the late reply is now queued on the tty
+    ::close(probe);
+    REQUIRE(queued == static_cast<int>(infoReply(0).size())); // queued, not yet read
 
-    KitDevice second(ATCA_UART_IFACE, pty.slave);
-    REQUIRE(second.open() == ATCA_SUCCESS);
-    const auto result = second.info(revision, [&] { pty.closeMaster(); });
-    ::close(holder);
-
+    const auto result = next.info(revision, [&] { tty.pty.closeMaster(); });
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(1));
 }
 
+// ---- HID ----
+
 TEST_CASE("Tap pad hold: a HID pad that never answers ends within the bound", "[tappad_bounded]")
 {
-    FakeKitPad pad(FakeKitPad::Silent {});
+    FakeKitPad pad(never);
+    pad.setSilent(true);
     fake_hid::Device hid(pad);
 
     uint8_t revision[4] = {};
@@ -587,9 +767,93 @@ TEST_CASE("Tap pad hold: a HID pad that never answers ends within the bound", "[
 
     CHECK(result.inBound);
     CHECK(result.status != ATCA_SUCCESS);
-    // One wait for the Info reply and one for the idle's; calib's other polls fail at once.
-    CHECK(pad.timedReads() == 2);
+    // One long wait for the Info reply, a short one for the idle's; calib's polls fail at once.
+    CHECK(pad.longWaits() == 1);
+    CHECK(pad.waits() == 2);
     CHECK(lockFreeForOthers());
+}
+
+TEST_CASE("Tap pad hold: an idle HID pad that never answers waits long only once",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    fake_hid::Device hid(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = hid.kit.info(
+            revision, [&] { pad.release(); }, false);
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(pad.longWaits() == 1); // the wake's; Info and the idle get the short wait
+    CHECK(pad.waits() == 3);
+
+    const auto retried = hid.kit.infoWithRetries(revision, [&] { pad.release(); });
+    CHECK(retried.inBound);
+    CHECK(retried.status != ATCA_SUCCESS);
+    CHECK(pad.longWaits() == 1);
+    CHECK(pad.waits() == 3 + 5 * 3);
+}
+
+TEST_CASE("Tap pad hold: a HID pad that answers again is trusted again", "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    fake_hid::Device hid(pad);
+    uint8_t revision[4] = {};
+    CHECK(hid.kit.info(revision, [&] { pad.release(); }).status != ATCA_SUCCESS);
+
+    // It answers its wake at once again, and Info as slowly as a chip on a slow clock may.
+    pad.setSilent(false);
+    pad.setInfoDelay([](int) { return Delay {1100ms}; });
+    const auto result = hid.kit.info(
+            revision, [&] { pad.release(); }, false);
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
+TEST_CASE("Tap pad hold: a HID pad trickling its reply fails at the command deadline",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setTrickle(450ms);
+    fake_hid::Device hid(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = hid.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(result.elapsed < std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 6000));
+}
+
+TEST_CASE("Tap pad hold: a HID pad flooding input reports fails the send", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setFlood(true);
+    fake_hid::Device hid(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = hid.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    // The Info send and the idle's each drain at most HAL_KIT_HID_MAX_DRAIN reports.
+    CHECK(pad.drains() <= 2 * HAL_KIT_HID_MAX_DRAIN);
+    CHECK(pad.waits() == 0);
+}
+
+TEST_CASE("Tap pad hold: a HID receive after a failed write does not wait", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    fake_hid::Device hid(pad);
+    fake_hid::failWrites = true;
+
+    uint8_t command[65] = {0, 'E', ':', 'i', '(', ')', '\n'};
+    CHECK(hal_kit_hid_send(&hid.kit.device.mIface, 0, command, 7) != ATCA_SUCCESS);
+    uint8_t reply[64] = {};
+    uint16_t length = sizeof(reply);
+    CHECK(hal_kit_hid_receive(&hid.kit.device.mIface, 0, reply, &length) != ATCA_SUCCESS);
+    CHECK(pad.waits() == 0);
 }
 
 TEST_CASE("Tap pad hold: a healthy HID pad answers as before", "[tappad_bounded]")
@@ -619,6 +883,8 @@ TEST_CASE("Tap pad hold: a HID pad slow to start its reply still answers", "[tap
 }
 
 #    if defined(ATCA_HAL_KIT_UART_LIBUSB)
+
+// ---- libusb CDC ----
 
 namespace fake_cdc {
 
@@ -675,7 +941,8 @@ struct Device {
 TEST_CASE("Tap pad hold: a libusb CDC pad that never answers ends within the bound",
           "[tappad_bounded]")
 {
-    FakeKitPad pad(FakeKitPad::Silent {});
+    FakeKitPad pad(never);
+    pad.setSilent(true);
     fake_cdc::Device cdc(pad);
 
     uint8_t revision[4] = {};
@@ -683,17 +950,87 @@ TEST_CASE("Tap pad hold: a libusb CDC pad that never answers ends within the bou
 
     CHECK(result.inBound);
     CHECK(result.status != ATCA_SUCCESS);
-    // Opened by init and reopened by the idle's send, never by calib's polls; one wait for the
-    // Info reply and one for the idle's.
+    // Opened by init and reopened by the idle's send, never by calib's polls; one long wait for
+    // the Info reply and a short one for the idle's.
     CHECK(fake_cdc::opens == 2);
-    CHECK(pad.timedReads() == 2);
+    CHECK(pad.longWaits() == 1);
+    CHECK(pad.waits() == 2);
     CHECK(lockFreeForOthers());
+}
+
+TEST_CASE("Tap pad hold: an idle libusb CDC pad that never answers waits long only once",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = cdc.kit.info(
+            revision, [&] { pad.release(); }, false);
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(pad.longWaits() == 1);
+    CHECK(pad.waits() == 3);
+
+    const auto retried = cdc.kit.infoWithRetries(revision, [&] { pad.release(); });
+    CHECK(retried.inBound);
+    CHECK(retried.status != ATCA_SUCCESS);
+    CHECK(pad.longWaits() == 1);
+    CHECK(pad.waits() == 3 + 5 * 3);
+}
+
+TEST_CASE("Tap pad hold: a libusb CDC pad that answers again is trusted again", "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    fake_cdc::Device cdc(pad);
+    uint8_t revision[4] = {};
+    CHECK(cdc.kit.info(revision, [&] { pad.release(); }).status != ATCA_SUCCESS);
+
+    pad.setSilent(false);
+    pad.setInfoDelay([](int) { return Delay {1100ms}; });
+    const auto result = cdc.kit.info(
+            revision, [&] { pad.release(); }, false);
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
+TEST_CASE("Tap pad hold: a libusb CDC pad trickling its reply fails at the command deadline",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setTrickle(450ms);
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = cdc.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.status != ATCA_SUCCESS);
+    CHECK(result.elapsed < std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 6000));
+}
+
+TEST_CASE("Tap pad hold: a healthy libusb CDC pad answers as before", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = cdc.kit.info(
+            revision, [&] { pad.release(); }, false);
+
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(result.elapsed < 1s);
+    CHECK(revision[3] == revisionOf(0));
+    CHECK(pad.commands() == WAKE_COMMAND + INFO_COMMAND + "E:i()\n");
+    CHECK(fake_cdc::opens == 1);
 }
 
 TEST_CASE("Tap pad hold: a libusb CDC pad slow to start its reply still answers",
           "[tappad_bounded]")
 {
     FakeKitPad pad([](int) { return Delay {1100ms}; });
+    pad.setLeadingNuls(1); // a first bulk packet of NULs only
     fake_cdc::Device cdc(pad);
 
     uint8_t revision[4] = {};
@@ -707,16 +1044,14 @@ TEST_CASE("Tap pad hold: a libusb CDC pad slow to start its reply still answers"
 TEST_CASE("Tap pad hold: a libusb CDC reply that came too late is not read by the next command",
           "[tappad_bounded]")
 {
-    FakeKitPad pad([](int n) { return n == 0 ? Delay {3500ms} : Delay {0ms}; });
+    FakeKitPad pad([](int n) { return n == 0 ? Delay {HELD} : Delay {0ms}; });
     fake_cdc::Device cdc(pad);
-
     uint8_t revision[4] = {};
-    const auto start = Clock::now();
     CHECK(cdc.kit.info(revision, [&] { pad.release(); }).status != ATCA_SUCCESS);
-    std::this_thread::sleep_until(start + 4s); // the late reply is now queued in the pad
 
+    // Lands after the last reopen (the idle's), on the open transport.
+    pad.deliverHeld();
     const auto result = cdc.kit.info(revision, [&] { pad.release(); });
-
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(1));
 }
