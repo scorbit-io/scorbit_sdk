@@ -44,9 +44,9 @@ struct TimingEvidence {
     int policyVersion {TURN_TIMER_POLICY_VERSION};
 
     /** Durations are whole milliseconds, good to @ref resolutionMs: no finer than the source. */
-    const char *unit {"ms"};
+    std::string unit {"ms"};
     int64_t resolutionMs {elapsedClockResolutionMs()};
-    const char *clockSource {elapsedClockSource()};
+    std::string clockSource {elapsedClockSource()};
 
     /** The machine that timed it, and the boot its elapsed clock belongs to. */
     std::string deviceId;

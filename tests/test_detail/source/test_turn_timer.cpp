@@ -370,10 +370,10 @@ TEST_CASE("Results carry the evidence they rest on", "[competitions][turn_timer]
     CHECK(r.utcSynchronised);
 
     CHECK(r.evidence.policyVersion == TURN_TIMER_POLICY_VERSION);
-    CHECK(std::string {r.evidence.unit} == "ms");
+    CHECK(r.evidence.unit == "ms");
     CHECK(r.evidence.resolutionMs >= 1);
     CHECK(r.evidence.resolutionMs == elapsedClockResolutionMs());
-    CHECK(std::string {r.evidence.clockSource} == elapsedClockSource());
+    CHECK(r.evidence.clockSource == elapsedClockSource());
     CHECK(r.evidence.deviceId == "machine-4379");
     CHECK(r.evidence.bootId == "6c0e9d1a-2f3b-4c5d-8e9f-0a1b2c3d4e5f");
 }

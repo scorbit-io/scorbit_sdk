@@ -81,6 +81,29 @@ int64_t toNs(const timespec &ts)
 
 #endif
 
+int64_t readElapsedClockResolutionMs()
+{
+#ifdef _WIN32
+    if (interruptTimeQuery()) {
+        return atLeastOneMs(NS_PER_INTERRUPT_TICK);
+    }
+    // GetTickCount64 moves once per system timer tick, given in 100 ns units
+    DWORD adjustment = 0;
+    DWORD increment = 0;
+    BOOL disabled = FALSE;
+    if (!GetSystemTimeAdjustment(&adjustment, &increment, &disabled) || increment == 0) {
+        return atLeastOneMs(16 * NS_PER_MS); // the default tick, 15.625 ms, rounded up
+    }
+    return atLeastOneMs(static_cast<int64_t>(increment) * NS_PER_INTERRUPT_TICK);
+#else
+    timespec res {};
+    if (clock_getres(ELAPSED_CLOCK_ID, &res) != 0) {
+        return 1;
+    }
+    return atLeastOneMs(toNs(res));
+#endif
+}
+
 } // namespace
 
 ElapsedClock::time_point ElapsedClock::now() noexcept
@@ -110,25 +133,9 @@ const char *elapsedClockSource()
 
 int64_t elapsedClockResolutionMs()
 {
-#ifdef _WIN32
-    if (interruptTimeQuery()) {
-        return atLeastOneMs(NS_PER_INTERRUPT_TICK);
-    }
-    // GetTickCount64 moves once per system timer tick, given in 100 ns units
-    DWORD adjustment = 0;
-    DWORD increment = 0;
-    BOOL disabled = FALSE;
-    if (!GetSystemTimeAdjustment(&adjustment, &increment, &disabled) || increment == 0) {
-        return atLeastOneMs(16 * NS_PER_MS); // the default tick, 15.625 ms, rounded up
-    }
-    return atLeastOneMs(static_cast<int64_t>(increment) * NS_PER_INTERRUPT_TICK);
-#else
-    timespec res {};
-    if (clock_getres(ELAPSED_CLOCK_ID, &res) != 0) {
-        return 1;
-    }
-    return atLeastOneMs(toNs(res));
-#endif
+    // Fixed for the process: read once, not for every result that carries it
+    static const int64_t resolutionMs = readElapsedClockResolutionMs();
+    return resolutionMs;
 }
 
 } // namespace detail
