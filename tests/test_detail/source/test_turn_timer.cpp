@@ -209,7 +209,8 @@ TEST_CASE("The first completion is final: later play changes nothing", "[competi
     CHECK_FALSE(timer.interruption());
 }
 
-TEST_CASE("Every newly designated game starts again at zero", "[competitions][turn_timer]")
+TEST_CASE("Every newly designated game starts again at zero, on a timer of its own",
+          "[competitions][turn_timer]")
 {
     Game first;
     auto timer = begun(first.row(0, 1));
@@ -217,30 +218,57 @@ TEST_CASE("Every newly designated game starts again at zero", "[competitions][tu
     REQUIRE(timer.result());
     CHECK(timer.result()->durationMs == 90 * S);
 
-    // The next game: elapsed time keeps running on the same boot, the timer does not carry over
+    // The next game: elapsed time keeps running on the same boot, nothing carries over
     Game second {50};
-    timer.begin(second.row(500 * S, 1));
-    CHECK(timer.state() == TurnTimer::State::Running);
-    CHECK_FALSE(timer.result());
-    CHECK(timer.closedMs() == 0);
-    CHECK(timer.elapsedAt(500 * S) == 0);
+    auto next = begun(second.row(500 * S, 1));
+    CHECK(next.state() == TurnTimer::State::Running);
+    CHECK_FALSE(next.result());
+    CHECK(next.closedMs() == 0);
+    CHECK(next.elapsedAt(500 * S) == 0);
 
-    timer.onRow(second.row(530 * S, 1), true);
-    REQUIRE(timer.result());
-    CHECK(timer.result()->durationMs == 30 * S);
-    CHECK(timer.result()->startSequence == 50);
+    next.onRow(second.row(530 * S, 1), true);
+    REQUIRE(next.result());
+    CHECK(next.result()->durationMs == 30 * S);
+    CHECK(next.result()->startSequence == 50);
+
+    CHECK(timer.result()->durationMs == 90 * S);
 }
 
-TEST_CASE("A next game also clears an earlier interruption", "[competitions][turn_timer]")
+TEST_CASE("A timer times one game: beginning another changes nothing", "[competitions][turn_timer]")
 {
     Game g;
+    Game other {50};
     auto timer = begun(g.row(0, 1));
-    timer.interrupt("input lost");
-    REQUIRE(timer.interruption());
 
-    timer.begin(g.row(200 * S, 1));
-    CHECK(timer.state() == TurnTimer::State::Running);
-    CHECK_FALSE(timer.interruption());
+    SECTION("Once completed, the result stays")
+    {
+        const auto completing = g.row(70 * S, 1);
+        timer.onRow(completing, true);
+        timer.begin(other.row(100 * S, 1));
+
+        CHECK(timer.state() == TurnTimer::State::Completed);
+        REQUIRE(timer.result());
+        CHECK(timer.result()->durationMs == 70 * S);
+        CHECK(timer.result()->completionSequence == completing.sequence);
+    }
+    SECTION("While running, the time so far stays")
+    {
+        timer.onRow(g.row(80 * S, 1), false);
+        timer.begin(other.row(100 * S, 1));
+        timer.onRow(g.row(120 * S, 1), true);
+
+        REQUIRE(timer.result());
+        CHECK(timer.result()->durationMs == 120 * S);
+        CHECK(timer.result()->startSequence == 1);
+    }
+    SECTION("Once interrupted, it stays interrupted")
+    {
+        timer.interrupt("input lost");
+        timer.begin(other.row(200 * S, 1));
+
+        CHECK(timer.state() == TurnTimer::State::Interrupted);
+        CHECK(timer.interruption() == "input lost");
+    }
 }
 
 TEST_CASE("A switch and a completion on one row give the same time whoever completed",
@@ -700,19 +728,6 @@ TEST_CASE("The goal met on a bonus row is final; the switch row at that instant 
     REQUIRE(timer.result());
     CHECK(timer.result()->durationMs == 40 * S);
     CHECK(timer.state() == TurnTimer::State::Completed);
-}
-
-TEST_CASE("A game designated while another runs discards the earlier time",
-          "[competitions][turn_timer]")
-{
-    Game g;
-    auto timer = begun(g.row(0, 1));
-    timer.onRow(g.row(80 * S, 1), false);
-
-    timer.begin(g.row(100 * S, 1));
-    timer.onRow(g.row(120 * S, 1), true);
-    REQUIRE(timer.result());
-    CHECK(timer.result()->durationMs == 20 * S);
 }
 
 TEST_CASE("A game ending in another player's turn adds nothing past their switch",

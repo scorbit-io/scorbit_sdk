@@ -99,7 +99,8 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *   then the goal is checked at that same instant. When a switch and a completion share a row, the
  *   time up to the row belongs to whoever was current before it, whichever player completed, so no
  *   order of handlers can change the result.
- * - The first completion is final; later rows can neither lengthen nor replace it.
+ * - One timer times one designated game, and the first completion is final: later rows can
+ *   neither lengthen nor replace it, and a later game, timed on a timer of its own, can't reset it.
  * - Timer state lives in memory only. A restart ends the attempt (SB-6369), so elapsed ticks never
  *   cross a boot. Within a boot, any doubt about continuity stops qualification rather than drop
  *   the doubtful time and yield a faster result than was played.
@@ -118,9 +119,10 @@ public:
     TurnTimer(achievements::PlayerNumber player, TimingEvidence evidence);
 
     /**
-     * A designated game started, on @p startRow: timing starts again at zero, and the attempt is
+     * The designated game started, on @p startRow: timing starts at zero, and the attempt is
      * consumed. Without an elapsed time or a sequence on the row, continuity is unknown from the
-     * start. The previous game's result is discarded, so the caller saves it first.
+     * start. Only the first call counts: a later one, for another game, is ignored, as that game
+     * is timed on a new timer.
      *
      * @p goalMet if the goal is already satisfied on the start row: the result is then zero,
      * completed on the start row itself. That row is never applied again through @ref onRow.

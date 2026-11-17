@@ -33,14 +33,12 @@ TurnTimer::TurnTimer(achievements::PlayerNumber player, TimingEvidence evidence)
 
 void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
 {
+    // One designated game per timer: what came of it, a result or why there is none, is final
+    if (m_state != State::Idle) {
+        return;
+    }
     m_state = State::Running;
-    m_closedMs = 0;
-    m_openSinceMs.reset();
-    m_lastElapsedMs = 0;
-    m_rowsSinceStart = 0;
     m_startRow = startRow;
-    m_result.reset();
-    m_interruption.reset();
 
     if (!startRow.elapsedMs) {
         interrupt("the game start has no elapsed time");
