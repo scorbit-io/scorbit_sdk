@@ -58,7 +58,7 @@ int64_t toElapsedMs(std::chrono::steady_clock::time_point tp)
  * the clock that timed it was @p clockSynchronised.
  */
 scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::GameData &data,
-                                                         bool clockSynchronised, uint64_t sequence)
+                                                         bool clockSynchronised)
 {
     scorbit::detail::achievements::TimelineRow row;
     row.clockSynchronised = clockSynchronised;
@@ -67,7 +67,7 @@ scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::
     if (data.elapsedTimestamp != std::chrono::steady_clock::time_point {}) {
         row.elapsedMs = toElapsedMs(data.elapsedTimestamp);
     }
-    row.sequence = sequence;
+    row.sequence = data.sequence;
     row.player = data.activePlayer;
     row.ball = data.ball;
     for (const auto &[player, state] : data.players) {
@@ -583,6 +583,7 @@ void GameStateImpl::submitGameData(bool forceSending)
                     tempData.modes = m_prevData.modes;
                     tempData.completedModes.clear();
                     tempData.events.clear();
+                    tempData.sequence = ++m_rowSequence;
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
@@ -619,6 +620,7 @@ void GameStateImpl::submitGameData(bool forceSending)
         }
 
         // Publish game data
+        m_data.sequence = ++m_rowSequence;
         emitRow(m_data, flags);
 
         m_prevData = m_data;
@@ -637,16 +639,7 @@ void GameStateImpl::emitRow(const GameData &data, SessionFlags flags)
 {
     // Every row of the session history also feeds achievements, so both see the same timeline
     m_net->submitGameData(data, flags);
-    m_achievements->onRow(nextTimelineRow(data));
-}
-
-achievements::TimelineRow GameStateImpl::nextTimelineRow(const GameData &data)
-{
-    auto row = toTimelineRow(data, m_net->isClockSynchronised(), ++m_rowSequence);
-    if (m_rowTap) {
-        m_rowTap(row);
-    }
-    return row;
+    m_achievements->onRow(toTimelineRow(data, m_net->isClockSynchronised()));
 }
 
 bool GameStateImpl::isChanged() const
@@ -692,6 +685,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     setActivePlayer(1);
     m_data.timestamp = std::chrono::system_clock::now();
     m_data.elapsedTimestamp = std::chrono::steady_clock::now();
+    m_data.sequence = ++m_rowSequence;
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
 
@@ -710,7 +704,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
             }
         });
     });
-    m_achievements->onSessionStarted(m_data.id, nextTimelineRow(m_data));
+    m_achievements->onSessionStarted(m_data.id,
+                                     toTimelineRow(m_data, m_net->isClockSynchronised()));
     m_competitions->onGameStarted(m_data.id, toEpochMs(m_data.timestamp));
 
     return true;

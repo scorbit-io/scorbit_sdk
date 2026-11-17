@@ -25,6 +25,7 @@
 #include "event_ops.h"
 #include <map>
 #include <chrono>
+#include <cstdint>
 
 namespace scorbit {
 namespace detail {
@@ -55,6 +56,12 @@ struct GameData {
 
     /** The same instant as @ref timestamp on the monotonic clock, which NTP never steps. */
     std::chrono::steady_clock::time_point elapsedTimestamp;
+
+    /**
+     * The row's place in the order of rows the game state commits (TimelineRow::sequence); 0 if
+     * never committed. Like the timestamps, it is not part of the state compared for changes.
+     */
+    uint64_t sequence {0};
 };
 
 inline bool operator==(const scorbit::detail::GameData &lhs, const scorbit::detail::GameData &rhs)
