@@ -121,6 +121,8 @@ public:
 
 private:
     void run();
+    /// Runs @p ioc on this thread until stopped, logging (not rethrowing) a handler's exception.
+    static void runCatching(boost::asio::io_context &ioc, const char *pool);
     auto getTimer(Timer timerType) -> boost::asio::steady_timer *;
     auto stopAllTimers() -> void;
 

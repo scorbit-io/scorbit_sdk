@@ -21,6 +21,7 @@
 #include <boost/asio/dispatch.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <atomic>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 #include <chrono>
@@ -42,6 +43,26 @@ TEST_CASE("Worker", "[start/stop]")
 
     worker.stop();
     CHECK(!worker.isRunning());
+}
+
+TEST_CASE("Worker: a handler that throws does not stop either pool", "[worker]")
+{
+    Worker worker;
+    worker.start();
+
+    std::atomic<int> ran {0};
+    worker.postQueue([] { throw std::runtime_error("strand handler"); });
+    worker.post([] { throw std::runtime_error("blocking handler"); });
+    worker.postQueue([&] { ++ran; });
+    worker.post([&] { ++ran; });
+
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (ran < 2 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    CHECK(ran == 2);
+    CHECK(worker.isRunning());
+    worker.stop();
 }
 
 TEST_CASE("Worker", "[postStrand]")
