@@ -66,7 +66,7 @@
  endif(LINUX)
 --- a/lib/hal/hal_linux_cdc_libusb.c
 +++ b/lib/hal/hal_linux_cdc_libusb.c
-@@ -0,0 +1,559 @@
+@@ -0,0 +1,609 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -83,6 +83,7 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
++#include <time.h>
 +
 +/** Vendor of the Scorbit probe firmware; its TinyUSB product id is 0x4000 | <cdc count> */
 +#define CDC_USB_VID             (0xCAFEu)
@@ -92,9 +93,15 @@
 +#define CDC_READ_TIMEOUT_MS     (500)
 +/** First byte of a reply: the chip may still be executing (calib's own 2.5 s) */
 +#define CDC_REPLY_TIMEOUT_MS    (2500)
++/** A command's whole reply, from its send: so a trickling pad cannot stretch it */
++#define CDC_COMMAND_TIMEOUT_MS  (CDC_REPLY_TIMEOUT_MS + CDC_READ_TIMEOUT_MS)
 +#define CDC_WRITE_TIMEOUT_MS    (1000)
++/** The first drain before a command spans several 1 ms full-speed frames */
++#define CDC_FLUSH_FIRST_TIMEOUT_MS (15)
 +#define CDC_FLUSH_TIMEOUT_MS    (1)
 +#define CDC_FLUSH_MAX_PACKETS   (64)
++/** Line setup at every (re)open runs under the tap pad lock */
++#define CDC_CONTROL_TIMEOUT_MS  (200)
 +
 +/* ponytail: a fixed staging buffer covers full and high speed bulk endpoints
 +   (64 and 512 bytes); a heap buffer sized from wMaxPacketSize would be needed
@@ -120,8 +127,18 @@
 +    uint8_t                rx_buf[CDC_RX_BUF_SIZE];
 +    size_t                 rx_len;
 +    size_t                 rx_pos;
-+    bool                   awaiting_reply;
++    int64_t                deadline_ms;    /* end of the command's whole reply */
++    bool                   sending;        /* the last transfer was a send */
++    bool                   awaiting_reply; /* no non-NUL reply byte yet */
 +};
++
++static int64_t cdc_now_ms(void)
++{
++    struct timespec now;
++
++    (void)clock_gettime(CLOCK_MONOTONIC, &now);
++    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
++}
 +
 +#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
 +static int (*g_transfer_hook)(unsigned char endpoint, unsigned char * data, int length,
@@ -405,9 +422,11 @@
 +                               8u };
 +
 +    (void)libusb_control_transfer(cdc->handle, CDC_REQ_TYPE_CLASS_OUT, CDC_REQ_SET_LINE_CODING, 0,
-+                                  (uint16_t)cdc->if_comm, line_coding, sizeof(line_coding), 1000);
++                                  (uint16_t)cdc->if_comm, line_coding, sizeof(line_coding),
++                                  CDC_CONTROL_TIMEOUT_MS);
 +    (void)libusb_control_transfer(cdc->handle, CDC_REQ_TYPE_CLASS_OUT, CDC_REQ_SET_LINE_STATE,
-+                                  CDC_LINE_STATE_DTR_RTS, (uint16_t)cdc->if_comm, NULL, 0, 1000);
++                                  CDC_LINE_STATE_DTR_RTS, (uint16_t)cdc->if_comm, NULL, 0,
++                                  CDC_CONTROL_TIMEOUT_MS);
 +}
 +
 +ATCA_STATUS hal_cdc_libusb_open(const char * path, uint32_t baud, atca_cdc_libusb_t ** cdc_out)
@@ -533,6 +552,16 @@
 +        return ATCA_BAD_PARAM;
 +    }
 +
++    if (!cdc->sending)
++    {
++        /* A new command (SB-6638): drop any late reply to an earlier one,
++           and bound this one's whole reply */
++        (void)hal_cdc_libusb_flush(cdc);
++        cdc->deadline_ms = cdc_now_ms() + CDC_COMMAND_TIMEOUT_MS;
++        cdc->sending = true;
++        cdc->awaiting_reply = true;
++    }
++
 +    while (0 < remaining)
 +    {
 +        int transferred = 0;
@@ -549,7 +578,6 @@
 +        remaining -= transferred;
 +    }
 +
-+    cdc->awaiting_reply = true;
 +    return ATCA_SUCCESS;
 +}
 +
@@ -558,7 +586,7 @@
 + * A whole multiple of wMaxPacketSize is always requested, because libusb
 + * discards the remainder of a packet that does not fit the host buffer.
 + */
-+static ATCA_STATUS cdc_fill_rx_buffer(atca_cdc_libusb_t * cdc)
++static ATCA_STATUS cdc_fill_rx_buffer(atca_cdc_libusb_t * cdc, int64_t timeout_ms)
 +{
 +    int length = (int)(CDC_RX_BUF_SIZE - (CDC_RX_BUF_SIZE % cdc->max_packet));
 +    int transferred = 0;
@@ -567,21 +595,26 @@
 +    cdc->rx_len = 0;
 +    cdc->rx_pos = 0;
 +
++    if (0 >= timeout_ms)
++    {
++        return ATCA_COMM_FAIL;
++    }
 +    result = cdc_bulk_transfer(cdc, cdc->ep_in, cdc->rx_buf, length, &transferred,
-+                               cdc->awaiting_reply ? CDC_REPLY_TIMEOUT_MS : CDC_READ_TIMEOUT_MS);
++                               (unsigned int)timeout_ms);
 +    if ((0 != result) && (0 >= transferred))
 +    {
 +        return ATCA_COMM_FAIL;
 +    }
-+    cdc->awaiting_reply = cdc->awaiting_reply && (0 >= transferred);
 +
 +    cdc->rx_len = (size_t)transferred;
 +    return (0 < transferred) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
 +}
 +
-+ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength)
++ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength,
++                                   bool * suspect)
 +{
-+    if ((NULL == cdc) || (NULL == rxdata) || (NULL == rxlength) || (0u == *rxlength))
++    if ((NULL == cdc) || (NULL == rxdata) || (NULL == rxlength) || (0u == *rxlength)
++        || (NULL == suspect))
 +    {
 +        return ATCA_BAD_PARAM;
 +    }
@@ -589,14 +622,31 @@
 +    /* One byte at a time, as the tty HAL does, so that the kit protocol keeps
 +       framing responses itself; the remainder stays in the staging buffer. */
 +    *rxlength = 1u;
++    cdc->sending = false;
 +
-+    if ((cdc->rx_pos >= cdc->rx_len) && (ATCA_SUCCESS != cdc_fill_rx_buffer(cdc)))
++    if (cdc->rx_pos >= cdc->rx_len)
 +    {
-+        return ATCA_COMM_FAIL;
++        /* The reply's first non-NUL byte may wait for the chip (not on a pad
++           that already missed one), later ones only for the line, and all
++           within the command's deadline (SB-6638) */
++        int64_t wait_ms = (cdc->awaiting_reply && !*suspect) ? CDC_REPLY_TIMEOUT_MS
++                                                              : CDC_READ_TIMEOUT_MS;
++        const int64_t left_ms = cdc->deadline_ms - cdc_now_ms();
++
++        if (ATCA_SUCCESS != cdc_fill_rx_buffer(cdc, (left_ms < wait_ms) ? left_ms : wait_ms))
++        {
++            *suspect = *suspect || cdc->awaiting_reply;
++            return ATCA_COMM_FAIL;
++        }
 +    }
 +
 +    *rxdata = cdc->rx_buf[cdc->rx_pos];
 +    cdc->rx_pos++;
++    if (0u != *rxdata)
++    {
++        cdc->awaiting_reply = false;
++        *suspect = false;
++    }
 +    return ATCA_SUCCESS;
 +}
 +
@@ -616,8 +666,8 @@
 +    {
 +        int transferred = 0;
 +
-+        if ((0 != cdc_bulk_transfer(cdc, cdc->ep_in, discard, (int)cdc->max_packet,
-+                                    &transferred, CDC_FLUSH_TIMEOUT_MS))
++        if ((0 != cdc_bulk_transfer(cdc, cdc->ep_in, discard, (int)cdc->max_packet, &transferred,
++                                    (0 == i) ? CDC_FLUSH_FIRST_TIMEOUT_MS : CDC_FLUSH_TIMEOUT_MS))
 +            || (0 >= transferred))
 +        {
 +            break;
@@ -628,7 +678,7 @@
 +}
 --- a/lib/hal/hal_linux_cdc_libusb.h
 +++ b/lib/hal/hal_linux_cdc_libusb.h
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,88 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -685,8 +735,13 @@
 +/** \brief Send \p txlength bytes, retrying until all of them are transferred. */
 +ATCA_STATUS hal_cdc_libusb_send(atca_cdc_libusb_t * cdc, uint8_t * txdata, int txlength);
 +
-+/** \brief Receive up to \p rxlength bytes, updating \p rxlength with the count read. */
-+ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength);
++/** \brief Receive up to \p rxlength bytes, updating \p rxlength with the count read.
++ *  \param[in,out] suspect  Set when the first wait for a reply timed out, cleared
++ *                          when one arrives; while set, the first wait is short.
++ *                          Kept by the caller, since it outlives a reopen.
++ */
++ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength,
++                                   bool * suspect);
 +
 +/** \brief Discard buffered and in-flight data. */
 +ATCA_STATUS hal_cdc_libusb_flush(atca_cdc_libusb_t * cdc);
@@ -724,17 +779,18 @@
  
  #include <unistd.h>
  #include <fcntl.h>
-@@ -38,6 +41,9 @@
+@@ -38,6 +41,10 @@
      char uart_file[64];
      int  fd_uart;
      int  ref_ct;
 +#ifdef ATCA_HAL_KIT_UART_LIBUSB
 +    atca_cdc_libusb_t * cdc;
++    bool                cdc_suspect; /* see hal_cdc_libusb_receive() */
 +#endif
  } atca_uart_host_t;
  
  #ifdef __COVERITY__
-@@ -114,6 +120,14 @@
+@@ -114,6 +121,14 @@
  {
      atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -749,7 +805,7 @@
      if ((NULL != hal_data) && (0 < hal_data->fd_uart))
      {
          struct termios tty;
-@@ -245,6 +259,45 @@
+@@ -245,6 +260,40 @@
      return status;
  }
  
@@ -781,11 +837,6 @@
 +#endif
 +        status = hal_cdc_libusb_open(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
 +                                     &hal_data->cdc);
-+        /* A failed exchange may have left its late reply in the pad (SB-6638). */
-+        if ((ATCA_SUCCESS == status) && (NULL != hal_data->cdc))
-+        {
-+            (void)hal_cdc_libusb_flush(hal_data->cdc);
-+        }
 +        return status;
 +    }
 +#endif
@@ -795,7 +846,7 @@
  /** \brief HAL implementation of UART init
   *
   * this implementation assumes UART SERIAL PORT peripheral has been enabled by user . It only initialize an
-@@ -276,6 +329,7 @@
+@@ -276,6 +325,7 @@
              {
                  atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
                  (void)memset(iface->hal_data, 0, sizeof(atca_uart_host_t));
@@ -803,7 +854,7 @@
  
                  if (NULL != cfg->cfg_data)
                  {
-@@ -288,7 +342,7 @@
+@@ -288,7 +338,7 @@
                                     "/dev/ttyS%d", (uint8_t)ATCA_IFACECFG_VALUE(cfg, atcauart.port));
                  }
  
@@ -812,7 +863,7 @@
                  {
                      /* Driver is configured - increment the ref count for usage */
                      hal_data->ref_ct = 1;
-@@ -320,6 +374,16 @@
+@@ -320,6 +370,16 @@
              atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
              hal_data->ref_ct++;
              status = ATCA_SUCCESS;
@@ -829,7 +880,7 @@
          }
  
      }
-@@ -353,6 +417,37 @@
+@@ -353,6 +413,37 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -867,7 +918,7 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
-@@ -392,6 +487,27 @@
+@@ -392,6 +483,28 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -880,7 +931,8 @@
 +            status = (NULL != hal_data->cdc) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
 +            if (ATCA_SUCCESS == status)
 +            {
-+                status = hal_cdc_libusb_receive(hal_data->cdc, rxdata, rxlength);
++                status = hal_cdc_libusb_receive(hal_data->cdc, rxdata, rxlength,
++                                                &hal_data->cdc_suspect);
 +                if (ATCA_SUCCESS != status)
 +                {
 +                    /* Isolate the failed transport; the next send re-opens. */
@@ -895,7 +947,7 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (1U < *rxlength)
-@@ -441,6 +557,16 @@
+@@ -441,6 +554,16 @@
              status = hal_uart_set_baudrate(iface, *(uint32_t*)param);
              break;
          case ATCA_HAL_FLUSH_BUFFER:
@@ -912,7 +964,7 @@
              /* Using non-canonical mode so there should be no buffering */
              status = ATCA_SUCCESS;
              break;
-@@ -467,7 +593,13 @@
+@@ -467,7 +590,13 @@
      if (NULL != hal_data)
      {
          atca_uart_host_t *hal = (atca_uart_host_t*)hal_data;
