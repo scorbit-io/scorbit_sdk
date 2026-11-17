@@ -181,7 +181,11 @@ private:
     /** The sequence the next row must carry: one past the last row applied. */
     uint64_t m_nextSequence {0};
 
-    achievements::TimelineRow m_startRow;
+    /** What the result needs of the game's start row. */
+    uint64_t m_startSequence {0};
+    int64_t m_startUtcMs {0};
+    bool m_startSynchronised {false};
+
     std::optional<TurnTimeResult> m_result;
     std::optional<std::string> m_interruption;
 };

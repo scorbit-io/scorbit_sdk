@@ -38,7 +38,9 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
         return;
     }
     m_state = State::Running;
-    m_startRow = startRow;
+    m_startSequence = startRow.sequence;
+    m_startUtcMs = startRow.timeMs;
+    m_startSynchronised = startRow.clockSynchronised;
 
     if (!startRow.elapsedMs) {
         interrupt("the game start has no elapsed time");
@@ -99,12 +101,11 @@ void TurnTimer::complete(const achievements::TimelineRow &row)
 {
     const auto now = *row.elapsedMs;
     m_result = TurnTimeResult {.durationMs = elapsedAt(now),
-                               .startSequence = m_startRow.sequence,
+                               .startSequence = m_startSequence,
                                .completionSequence = row.sequence,
-                               .startUtcMs = m_startRow.timeMs,
+                               .startUtcMs = m_startUtcMs,
                                .completionUtcMs = row.timeMs,
-                               .utcSynchronised = m_startRow.clockSynchronised
-                                               && row.clockSynchronised,
+                               .utcSynchronised = m_startSynchronised && row.clockSynchronised,
                                .evidence = m_evidence};
     closeTurn(now);
     m_state = State::Completed;
