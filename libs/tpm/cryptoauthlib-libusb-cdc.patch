@@ -912,7 +912,7 @@
              /* Using non-canonical mode so there should be no buffering */
              status = ATCA_SUCCESS;
              break;
-@@ -467,6 +593,12 @@
+@@ -467,7 +593,13 @@
      if (NULL != hal_data)
      {
          atca_uart_host_t *hal = (atca_uart_host_t*)hal_data;
@@ -926,3 +926,4 @@
 +        }
          /* coverity[misra_c_2012_rule_21_3_violation] Intentional as it is required for the linux environment */
          free(hal);
+     }
