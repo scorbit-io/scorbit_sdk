@@ -104,6 +104,10 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  * - Timer state lives in memory only. A restart ends the attempt (SB-6369), so elapsed ticks never
  *   cross a boot. Within a boot, any doubt about continuity stops qualification rather than drop
  *   the doubtful time and yield a faster result than was played.
+ *
+ * Nothing feeds it yet: B02B (SB-6366) is to run one per started attempt from CompetitionService,
+ * applying every committed row with the goal's verdict on it, and B02F (SB-6370) to send the
+ * result. Until then it is exercised by its tests only.
  */
 class TurnTimer
 {
