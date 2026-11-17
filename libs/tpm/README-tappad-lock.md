@@ -232,34 +232,63 @@ core init path. This patch does not.
 
 A caller holds the lock across a whole `calib_*` call, so a pad that stops
 answering must not keep a transfer blocked. `cryptoauthlib-bounded-holds.patch`
-and `cryptoauthlib-libusb-cdc.patch` bound each transfer:
+(tty, HID, kit layer) and `cryptoauthlib-libusb-cdc.patch` (libusb CDC) bound
+each command:
 
-| Transport | First byte (report) of a reply | Each later one | Write |
-|-----------|--------------------------------|----------------|-------|
-| tty | 2.5 s | 0.5 s | 1 s waiting for room |
-| libusb CDC | 2.5 s | 0.5 s | 1 s |
-| HID | 2.5 s | 0.5 s | as `hid_write()` |
+| Transport | First non-NUL byte (report) of a reply | Each later one | Whole reply | Write |
+|-----------|-----------------------------------------|----------------|-------------|-------|
+| tty | 2.5 s | 0.5 s | 3 s | 1 s waiting for room |
+| libusb CDC | 2.5 s | 0.5 s | 3 s | 1 s |
+| HID | 2.5 s | 0.5 s | 3 s | as `hid_write()` |
 
-The first wait matches cryptoauthlib's own 2.5 s limit for a command
-(`ATCA_POLLING_MAX_TIME_MSEC`), so a chip on a slow clock still answers. A
-kit-UART reply may be preceded by at most 64 NULs.
+The whole-reply deadline runs from the command's first byte sent, so a pad that
+trickles bytes, or NULs, just inside the 0.5 s gap cannot stretch a call. The
+first wait matches cryptoauthlib's own 2.5 s limit for a command
+(`ATCA_POLLING_MAX_TIME_MSEC`); the probe firmware itself gives the chip at most
+150 ms and answers a wake, idle or sleep at once. A kit-UART receive skips at
+most 64 leading NULs. `hid_write()` is bounded by hidapi: 1 s in the libusb
+backend this SDK builds on Linux, 5 s (`USB_CTRL_SET_TIMEOUT`) in the hidraw
+backend; on macOS it calls `IOHIDDeviceSetReport()`, which takes no timeout.
 
 calib polls a failed receive for up to 2.5 s, so later receives fail at once: a
 failed tty transfer closes the tty until the next init, a failed libusb CDC
 transfer closes the handle until the next send or init reopens it (a receive
-never does), and a timed-out HID read fails the reads that follow until the
-next send. Measured with a fake pad that answers nothing, one call holds the
-lock for about 6 s on the tty and 8 s on HID and libusb CDC, whose idle command
-waits once more. Each `atcaRetry` attempt is a separate hold.
+never does), and a failed HID read fails the rest of that command. A libusb or
+HID pad whose first wait for a reply timed out gets only the 0.5 s wait until a
+reply byte arrives again; the firmware answers the next wake at once, so a pad
+that recovers is trusted again on its next command.
 
-A reply that comes after its wait is never read as the next command's: the tty
-drops pending input when it is opened, libusb CDC drains the pad after every
-(re)open, and HID drains it before every send.
+Every command after the first starts from idle, so calib wakes the chip first.
+Measured with a fake pad that answers nothing (Linux arm64; macOS within 0.5 s):
 
-A tty write that stalls fails after 1 s, and its pending output is discarded
-before the tty is closed, so `close()` does not wait out the driver's
-`closing_wait` (30 s by default on cdc-acm). That last step is not covered by a
-test: a pseudo-terminal does not wait on close.
+| Transport | One hold, chip awake | One hold from idle | One `atcaRetry` call, pad already failed |
+|-----------|----------------------|--------------------|-------------------------------------------|
+| tty | 6.2 s | 2.5 s | 0.1 s (the tty stays closed) |
+| libusb CDC | 6.8 s | 7.3 s | 26.6 s (five holds of about 5.3 s) |
+| HID | 6.7 s | 7.2 s | 26.3 s (five holds of about 5.3 s) |
+
+Each `atcaRetry` attempt is a separate hold, with the lock free for 20 ms in
+between. A first `atcaRetry` call on a pad that has just stopped answering costs
+one hold from idle plus four of about 5.3 s: about 28 s on libusb CDC and HID,
+2.6 s on the tty.
+
+Input left from an earlier command is drained before each command is sent: the
+tty flushes its input, libusb CDC resets its buffer and reads the pad dry (the
+first read waits 15 ms, so a healthy command costs about 15 ms more), and HID
+reads up to 64 pending reports. The kit protocol has no sequence numbers,
+though: a reply that arrives after the next command has been sent is taken as
+that command's reply. That needs a pad that answers later than the whole
+3 s deadline, and within the next command's wait.
+
+A tty write that stalls fails after 1 s. Its pending output is then flushed and
+the tty closed. On Linux, cdc-acm only implements that flush from 6.6 on
+(`acm_tty_flush_buffer`; it is absent in 3.14 and 6.1), and before that
+`close()` waits for unsent output up to the port's `closing_wait` (30 s by
+default). So the HAL sets `closing_wait` to none with `TIOCSSERIAL` when it
+opens the tty, which cdc-acm accepts from a process with `CAP_SYS_ADMIN` (our
+services run as root); otherwise the call fails and is ignored, and the 30 s
+close wait remains possible. None of this is covered by a test: a
+pseudo-terminal neither supports `TIOCSSERIAL` nor waits on close.
 
 ## Behaviour when busy (this SDK)
 
