@@ -472,7 +472,7 @@ TEST_CASE("Committed rows carry the monotonic instant they were committed at",
     for (size_t i = 0; i < rows.size(); ++i) {
         CAPTURE(i);
         CHECK(rows[i].sequence == i + 1);
-        REQUIRE(rows[i].elapsedTimestamp != std::chrono::steady_clock::time_point {});
+        REQUIRE(rows[i].elapsedTimestamp != ElapsedClock::time_point {});
         if (i > 0) {
             CHECK(rows[i].elapsedTimestamp >= rows[i - 1].elapsedTimestamp);
         }

@@ -281,6 +281,8 @@ target_sources(
 
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
+        source/utils/elapsed_clock.h
+        source/utils/elapsed_clock.cpp
         source/utils/jwt_parser.h
         source/utils/jwt_parser.cpp
         source/utils/archiver.h

@@ -32,6 +32,7 @@
 
 // clazy:excludeall=non-pod-global-static
 
+using namespace scorbit::detail;
 using namespace scorbit::detail::achievements;
 using namespace scorbit::detail::competitions;
 
@@ -372,7 +373,7 @@ TEST_CASE("Results carry the evidence they rest on", "[competitions][turn_timer]
     CHECK(std::string {r.evidence.unit} == "ms");
     CHECK(r.evidence.resolutionMs >= 1);
     CHECK(r.evidence.resolutionMs == elapsedClockResolutionMs());
-    CHECK(std::string {r.evidence.clockSource} == "steady_clock");
+    CHECK(std::string {r.evidence.clockSource} == elapsedClockSource());
     CHECK(r.evidence.deviceId == "machine-4379");
     CHECK(r.evidence.bootId == "6c0e9d1a-2f3b-4c5d-8e9f-0a1b2c3d4e5f");
 }
@@ -395,6 +396,29 @@ TEST_CASE("The elapsed clock's resolution is never finer than a millisecond",
           "[competitions][turn_timer]")
 {
     CHECK(elapsedClockResolutionMs() >= 1);
+}
+
+TEST_CASE("The elapsed clock counts suspended time and never runs backwards",
+          "[competitions][turn_timer]")
+{
+    // Suspend itself can't be staged here; what can be checked is that the clock is the one that
+    // counts it, rather than steady_clock, whose source stops while the machine sleeps
+    const std::string source = elapsedClockSource();
+#if defined(_WIN32)
+    CHECK((source == "QueryInterruptTimePrecise" || source == "GetTickCount64"));
+#elif defined(__APPLE__)
+    CHECK(source == "CLOCK_MONOTONIC");
+#else
+    CHECK(source == "CLOCK_BOOTTIME");
+#endif
+
+    auto previous = ElapsedClock::now();
+    CHECK(previous.time_since_epoch().count() > 0);
+    for (int i = 0; i < 1000; ++i) {
+        const auto now = ElapsedClock::now();
+        CHECK(now >= previous);
+        previous = now;
+    }
 }
 
 TEST_CASE("A later-UTC 70 s result is faster than an earlier-UTC 90 s one",

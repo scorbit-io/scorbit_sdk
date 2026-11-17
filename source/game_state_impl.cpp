@@ -48,7 +48,7 @@ int64_t toEpochMs(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
 }
 
-int64_t toElapsedMs(std::chrono::steady_clock::time_point tp)
+int64_t toElapsedMs(scorbit::detail::ElapsedClock::time_point tp)
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
 }
@@ -64,7 +64,7 @@ scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::
     row.clockSynchronised = clockSynchronised;
     row.timeMs = toEpochMs(data.timestamp);
     // Never stamped: say so, rather than pass the clock's epoch off as an instant
-    if (data.elapsedTimestamp != std::chrono::steady_clock::time_point {}) {
+    if (data.elapsedTimestamp != scorbit::detail::ElapsedClock::time_point {}) {
         row.elapsedMs = toElapsedMs(data.elapsedTimestamp);
     }
     row.sequence = data.sequence;
@@ -558,7 +558,7 @@ void GameStateImpl::submitGameData(bool forceSending)
 
     if (isChanged() || forceSending) {
         m_data.timestamp = std::chrono::system_clock::now();
-        m_data.elapsedTimestamp = std::chrono::steady_clock::now();
+        m_data.elapsedTimestamp = ElapsedClock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
@@ -690,7 +690,7 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     setCurrentBall(1);
     setActivePlayer(1);
     m_data.timestamp = std::chrono::system_clock::now();
-    m_data.elapsedTimestamp = std::chrono::steady_clock::now();
+    m_data.elapsedTimestamp = ElapsedClock::now();
     m_data.sequence = ++m_rowSequence;
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);

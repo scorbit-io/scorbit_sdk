@@ -71,8 +71,9 @@ struct TimelineRow {
     // Last, so rows built positionally before these existed keep their meaning
 
     /**
-     * When the row was committed on this boot's monotonic clock, which no UTC correction moves: the
-     * clock competition durations are measured on. Meaningless across boots, so never stored.
+     * When the row was committed on this boot's elapsed clock (ElapsedClock), which no UTC
+     * correction moves and which counts suspend: the clock competition durations are measured on.
+     * Meaningless across boots, so never stored.
      * nullopt if the row's source didn't record it, in which case nothing can be timed on it.
      */
     std::optional<int64_t> elapsedMs;

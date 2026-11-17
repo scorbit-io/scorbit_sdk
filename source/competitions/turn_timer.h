@@ -20,6 +20,7 @@
 #pragma once
 
 #include "../achievements/timeline_row.h"
+#include "../utils/elapsed_clock.h"
 #include <compare>
 #include <cstdint>
 #include <optional>
@@ -38,17 +39,6 @@ namespace competitions {
  */
 constexpr int TURN_TIMER_POLICY_VERSION = 1;
 
-/** The elapsed clock committed rows are stamped with: monotonic, never stepped by NTP. */
-constexpr const char *ELAPSED_CLOCK_SOURCE = "steady_clock";
-
-/**
- * The finest step, in milliseconds, the elapsed clock can tell apart on this build: at least 1, as
- * rows carry whole milliseconds, and coarser if the clock itself is. This is the clock's resolution
- * only: a row is stamped when the host commits it, which may lag the event on the machine. That
- * lag is for on-device verification (B05) to measure, and isn't claimed here.
- */
-int64_t elapsedClockResolutionMs();
-
 /** What a timed duration rests on, saved with it (SB-6367 §4). */
 struct TimingEvidence {
     int policyVersion {TURN_TIMER_POLICY_VERSION};
@@ -56,7 +46,7 @@ struct TimingEvidence {
     /** Durations are whole milliseconds, good to @ref resolutionMs: no finer than the source. */
     const char *unit {"ms"};
     int64_t resolutionMs {elapsedClockResolutionMs()};
-    const char *clockSource {ELAPSED_CLOCK_SOURCE};
+    const char *clockSource {elapsedClockSource()};
 
     /** The machine that timed it, and the boot its elapsed clock belongs to. */
     std::string deviceId;
@@ -102,8 +92,9 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *
  * - Whole turns, not ball-in-play time: launch waiting, play, bonus and the gap between balls all
  *   count while the player is current. Another player's turn adds nothing.
- * - Measured on each row's @ref achievements::TimelineRow::elapsedMs, a monotonic clock, so a UTC
- *   correction can neither add nor remove time. UTC is only carried into the result.
+ * - Measured on each row's @ref achievements::TimelineRow::elapsedMs, on @ref ElapsedClock: a UTC
+ *   correction can neither add nor remove time, and time the machine spends suspended still
+ *   counts. UTC is only carried into the result.
  * - A row is one input event, applied whole: a player change takes effect at the row's instant,
  *   then the goal is checked at that same instant. When a switch and a completion share a row, the
  *   time up to the row belongs to whoever was current before it, whichever player completed, so no

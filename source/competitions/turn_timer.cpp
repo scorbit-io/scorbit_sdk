@@ -19,20 +19,11 @@
 
 #include "turn_timer.h"
 #include <algorithm>
-#include <chrono>
 #include <utility>
 
 namespace scorbit {
 namespace detail {
 namespace competitions {
-
-int64_t elapsedClockResolutionMs()
-{
-    using Period = std::chrono::steady_clock::period;
-    // One tick, rounded up to whole milliseconds
-    constexpr auto tickMs = (Period::num * 1000 + Period::den - 1) / Period::den;
-    return std::max<int64_t>(1, tickMs);
-}
 
 TurnTimer::TurnTimer(achievements::PlayerNumber player, TimingEvidence evidence)
     : m_player {player}

@@ -23,6 +23,7 @@
 #include "player_state.h"
 #include "modes.h"
 #include "event_ops.h"
+#include "utils/elapsed_clock.h"
 #include <map>
 #include <chrono>
 #include <cstdint>
@@ -54,8 +55,8 @@ struct GameData {
 
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 
-    /** The same instant as @ref timestamp on the monotonic clock, which NTP never steps. */
-    std::chrono::steady_clock::time_point elapsedTimestamp;
+    /** The same instant as @ref timestamp on the elapsed clock, which NTP never steps. */
+    ElapsedClock::time_point elapsedTimestamp;
 
     /**
      * The row's place in the order of rows the game state commits (TimelineRow::sequence); 0 if
