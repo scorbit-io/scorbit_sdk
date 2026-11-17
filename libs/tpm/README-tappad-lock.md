@@ -242,8 +242,10 @@ each command:
 | HID | 2.5 s | 0.5 s | 3 s | as `hid_write()` |
 
 The whole-reply deadline runs from the command's first byte sent, so a pad that
-trickles bytes, or NULs, just inside the 0.5 s gap cannot stretch a call. The
-first wait matches cryptoauthlib's own 2.5 s limit for a command
+trickles bytes, or NULs, just inside the 0.5 s gap cannot stretch a call. Once
+the deadline has passed, a receive still takes a reply that has already arrived,
+without waiting, so a host that stalls between send and receive does not lose
+it. The first wait matches cryptoauthlib's own 2.5 s limit for a command
 (`ATCA_POLLING_MAX_TIME_MSEC`); the probe firmware itself gives the chip at most
 150 ms and answers a wake, idle or sleep at once. A kit-UART receive skips at
 most 64 leading NULs. `hid_write()` is bounded by hidapi: 1 s in the libusb
@@ -285,8 +287,8 @@ the tty closed. On Linux, cdc-acm only implements that flush from 6.6 on
 (`acm_tty_flush_buffer`; it is absent in 3.14 and 6.1), and before that
 `close()` waits for unsent output up to the port's `closing_wait` (30 s by
 default). So the HAL sets `closing_wait` to none with `TIOCSSERIAL` when it
-opens the tty, which cdc-acm accepts from a process with `CAP_SYS_ADMIN` (our
-services run as root); otherwise the call fails and is ignored, and the 30 s
+opens the tty, which cdc-acm accepts from a process with `CAP_SYS_ADMIN` (for
+example, running as root); otherwise the call fails and is ignored, and the 30 s
 close wait remains possible. None of this is covered by a test: a
 pseudo-terminal neither supports `TIOCSSERIAL` nor waits on close.
 

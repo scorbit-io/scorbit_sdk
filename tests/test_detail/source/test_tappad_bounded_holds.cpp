@@ -18,7 +18,7 @@
  */
 
 // A tap pad that stops answering must not hold the lock for more than a few seconds, and one that
-// answers late must neither fail nor leave its reply for the next command (SB-6638). Each test
+// answers late must neither fail nor leave its reply for the next command. Each test
 // makes chip calls under the hold atcaRetry takes, over a fake pad: behind a pseudo-terminal for
 // the native tty, and behind the test hooks of the HID HAL and the libusb CDC transport.
 
@@ -166,19 +166,28 @@ public:
     void setTrickle(std::chrono::milliseconds interval) { m_trickle = interval; }
     // Have input reports always pending (HID).
     void setFlood(bool flood) { m_flood = flood; }
+    // Block the sender this long after an Info command, as a host stalled between send and receive.
+    void setStallAfterInfo(std::chrono::milliseconds stall) { m_stallAfterInfo = stall; }
 
     void write(const char *data, size_t length)
     {
-        const std::lock_guard<std::mutex> lock(m_mutex);
-        for (size_t i = 0; i < length; ++i) {
-            if (data[i] == '\0') {
-                continue; // HID reports are zero-padded
+        bool stall = false;
+        {
+            const std::lock_guard<std::mutex> lock(m_mutex);
+            for (size_t i = 0; i < length; ++i) {
+                if (data[i] == '\0') {
+                    continue; // HID reports are zero-padded
+                }
+                m_line += data[i];
+                if (data[i] == '\n') {
+                    stall = stall || m_line.find(":t(") != std::string::npos;
+                    answer();
+                    m_line.clear();
+                }
             }
-            m_line += data[i];
-            if (data[i] == '\n') {
-                answer();
-                m_line.clear();
-            }
+        }
+        if (stall && m_stallAfterInfo > 0ms) {
+            std::this_thread::sleep_for(m_stallAfterInfo);
         }
     }
 
@@ -299,6 +308,7 @@ private:
     std::atomic<bool> m_flood {false};
     std::atomic<size_t> m_leadingNuls {0};
     std::chrono::milliseconds m_trickle {0};
+    std::chrono::milliseconds m_stallAfterInfo {0};
 };
 
 Delay never(int)
@@ -906,6 +916,20 @@ TEST_CASE("Tap pad hold: a HID pad slow to start its reply still answers", "[tap
     CHECK(revision[3] == revisionOf(0));
 }
 
+TEST_CASE("Tap pad hold: a HID reply that arrived before a stall past the deadline is read",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setStallAfterInfo(std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 500));
+    fake_hid::Device hid(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = hid.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
 #    if defined(ATCA_HAL_KIT_UART_LIBUSB)
 
 // ---- libusb CDC ----
@@ -1107,6 +1131,20 @@ TEST_CASE("Tap pad hold: a libusb CDC reply that came too late is not read by th
     const auto result = cdc.kit.info(revision, [&] { pad.release(); });
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(1));
+}
+
+TEST_CASE("Tap pad hold: a libusb CDC reply that arrived before a stall past the deadline is read",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setStallAfterInfo(std::chrono::milliseconds(HAL_KIT_COMMAND_TIMEOUT_MS + 500));
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = cdc.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
 }
 
 #    endif

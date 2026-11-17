@@ -26,7 +26,7 @@
 #     after cryptoauthlib-libusb-cdc.patch, whose lines it uses as context.
 #     See README-tappad-lock.md.
 #   cryptoauthlib-bounded-holds.patch bounds how long one kit transfer blocks,
-#     since callers hold that lock across it (SB-6638). It also touches
+#     since callers hold that lock across it. It also touches
 #     kit_protocol.c and the HID HAL, which Windows compiles, but uses __thread,
 #     which MSVC lacks. It applies after cryptoauthlib-tappad-lock.patch.
 #

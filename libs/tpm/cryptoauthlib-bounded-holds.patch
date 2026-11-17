@@ -16,7 +16,7 @@ See README-tappad-lock.md next to this file.
 +/**
 + * \file
 + * \brief Bounds on how long one kit transfer may block on a pad that stopped
-+ *        answering, since callers hold the tap pad lock across it (SB-6638).
++ *        answering, since callers hold the tap pad lock across it.
 + *
 + * Each command's reply is bounded as a whole, and input left from an earlier
 + * command is drained before a new one is sent. A failed tty transfer closes
@@ -97,7 +97,7 @@ See README-tappad-lock.md next to this file.
  
  typedef struct atca_uart_host_s
  {
-+    /* Native tty, per command (SB-6638): the end of its reply, whether the
++    /* Native tty, per command: the end of its reply, whether the
 +       last transfer was a send, and whether a non-NUL reply byte came yet */
 +    int64_t reply_deadline_ms;
 +    bool    sending;
@@ -190,7 +190,7 @@ See README-tappad-lock.md next to this file.
 +#if defined(__linux__) && defined(TIOCGSERIAL)
 +            {
 +                /* Without this, close() after a stalled write waits up to
-+                   closing_wait (30 s) on cdc-acm before Linux 6.6 (SB-6638) */
++                   closing_wait (30 s) on cdc-acm before Linux 6.6 */
 +                struct serial_struct serial;
 +
 +                if (0 == ioctl(hal_data->fd_uart, TIOCGSERIAL, &serial))
@@ -211,7 +211,7 @@ See README-tappad-lock.md next to this file.
 -            if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
 +            if (!hal_data->sending)
 +            {
-+                /* A new command (SB-6638): drop any late reply to an earlier
++                /* A new command: drop any late reply to an earlier
 +                   one, and bound this one's whole reply */
 +                (void)tcflush(hal_data->fd_uart, TCIFLUSH);
 +                hal_data->sending = true;
@@ -220,7 +220,7 @@ See README-tappad-lock.md next to this file.
 +            }
 +
 +            /* kit_phy_send writes one byte per call, so once the tty can take
-+               a byte this write does not block (SB-6638). */
++               a byte this write does not block. */
 +            if (!hal_uart_wait(hal_data->fd_uart, POLLOUT, HAL_UART_WRITE_TIMEOUT_MS)
 +                || (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength))
              {
@@ -256,7 +256,7 @@ See README-tappad-lock.md next to this file.
 +
 +            wait_ms = (left_ms < wait_ms) ? left_ms : wait_ms;
 +            hal_data->sending = false;
-+            if ((0 >= wait_ms) || !hal_uart_wait(hal_data->fd_uart, POLLIN, wait_ms)
++            if (!hal_uart_wait(hal_data->fd_uart, POLLIN, (0 < wait_ms) ? wait_ms : 0)
 +                || (read(hal_data->fd_uart, rxdata, (size_t)*rxlength) !=  (int)*rxlength))
              {
                  status = ATCA_COMM_FAIL;
@@ -307,7 +307,7 @@ See README-tappad-lock.md next to this file.
 +        while (ATCA_SUCCESS == status && *rxdata == '\0' && nul_count++ < KIT_MAX_NUL_SKIP);
 +        if ((ATCA_SUCCESS == status) && ('\0' == *rxdata))
 +        {
-+            /* A pad that only streams NULs (SB-6638) */
++            /* A pad that only streams NULs */
 +            status = ATCA_RX_FAIL;
 +        }
          total_bytes_read = 1;
@@ -323,7 +323,7 @@ See README-tappad-lock.md next to this file.
 +
 +#include <time.h>
 +
-+/* The command in flight on this thread (SB-6638). Once a read for it fails,
++/* The command in flight on this thread. Once a read for it fails,
 +   the rest fail at once, so calib's ~1250 response polls do not each wait. */
 +static __thread struct
 +{
@@ -473,7 +473,7 @@ See README-tappad-lock.md next to this file.
 +    left_ms = t_cmd.deadline_ms - hal_kit_hid_now_ms();
 +    wait_ms = (left_ms < wait_ms) ? left_ms : wait_ms;
 +
-+    ret = (0 < wait_ms) ? hal_kit_hid_read(pHid, rxdata, (size_t)*rxlength, (int)wait_ms) : 0;
++    ret = hal_kit_hid_read(pHid, rxdata, (size_t)*rxlength, (0 < wait_ms) ? (int)wait_ms : 0);
      if (ret < 0)
      {
 +        t_cmd.failed = true;

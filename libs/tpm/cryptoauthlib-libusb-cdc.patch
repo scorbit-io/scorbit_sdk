@@ -554,7 +554,7 @@
 +
 +    if (!cdc->sending)
 +    {
-+        /* A new command (SB-6638): drop any late reply to an earlier one,
++        /* A new command: drop any late reply to an earlier one,
 +           and bound this one's whole reply */
 +        (void)hal_cdc_libusb_flush(cdc);
 +        cdc->deadline_ms = cdc_now_ms() + CDC_COMMAND_TIMEOUT_MS;
@@ -597,7 +597,7 @@
 +
 +    if (0 >= timeout_ms)
 +    {
-+        return ATCA_COMM_FAIL;
++        timeout_ms = 1; /* past the deadline: take only what has arrived (0 = no limit) */
 +    }
 +    result = cdc_bulk_transfer(cdc, cdc->ep_in, cdc->rx_buf, length, &transferred,
 +                               (unsigned int)timeout_ms);
@@ -628,7 +628,7 @@
 +    {
 +        /* The reply's first non-NUL byte may wait for the chip (not on a pad
 +           that already missed one), later ones only for the line, and all
-+           within the command's deadline (SB-6638) */
++           within the command's deadline */
 +        int64_t wait_ms = (cdc->awaiting_reply && !*suspect) ? CDC_REPLY_TIMEOUT_MS
 +                                                              : CDC_READ_TIMEOUT_MS;
 +        const int64_t left_ms = cdc->deadline_ms - cdc_now_ms();
@@ -927,7 +927,7 @@
 +        {
 +            /* Only send and init reopen a closed transport. Reopening here let
 +               calib's response poll reopen and read a silent pad ~1250 times
-+               under the tap pad lock (SB-6638). */
++               under the tap pad lock. */
 +            status = (NULL != hal_data->cdc) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
 +            if (ATCA_SUCCESS == status)
 +            {
