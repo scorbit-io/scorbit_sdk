@@ -3031,26 +3031,12 @@ void Net::setSessionPlayersCallback(SessionPlayersCallback callback)
 
 void Net::handleCompetitionGoal(const json &payload)
 {
-    // Refused whole, never installed with a part skipped. Whatever names it is passed on.
-    auto refuse = [&](const std::string &reason) {
-        WRN("API-CF competition.goal refused: {}", reason);
-        auto text = [&](const char *key) {
-            const auto it = payload.is_object() ? payload.find(key) : payload.end();
-            return it != payload.end() && it->is_string() ? it->get<std::string>()
-                                                          : std::string {};
-        };
-        const auto position = payload.is_object() ? payload.find("position") : payload.end();
-        m_eventManager->push(std::make_shared<CompetitionGoalReceivedEvent>(
-                false, text("attempt"), text("player"),
-                position != payload.end() && position->is_number_integer() ? position->get<int>()
-                                                                           : 0,
-                reason));
-    };
-
+    // Refused whole, never installed with a part skipped. Only logged: the host hears of a goal
+    // once Scorbit has confirmed it is installed.
     std::string error;
     auto goal = competitions::parseGoal(payload, error);
     if (!goal) {
-        refuse(error);
+        WRN("API-CF competition.goal refused: {}", error);
         return;
     }
 
@@ -3059,7 +3045,7 @@ void Net::handleCompetitionGoal(const json &payload)
     if (m_competitionGoalCallback) {
         m_competitionGoalCallback(std::move(*goal));
     } else {
-        refuse("nothing installs competition goals");
+        WRN("API-CF competition.goal refused: nothing installs competition goals");
     }
 }
 

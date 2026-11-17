@@ -234,8 +234,7 @@ public:
     void publishEvent(EventPtr event) override
     {
         if (auto *e = dynamic_cast<CompetitionGoalReceivedEvent *>(event.get())) {
-            goals.push_back({e->installed(), e->attempt(), e->player(), e->position(),
-                             e->reason()});
+            goals.push_back({e->attempt(), e->player(), e->position(), e->name()});
         }
     }
 
@@ -374,11 +373,17 @@ TEST_CASE("A competition goal parses as the API sends it", "[competitions]")
     CHECK(parsedGoal.identity.attempt == ATTEMPT);
     CHECK(parsedGoal.player == PLAYER);
     CHECK_FALSE(parsedGoal.position);
+    CHECK(parsedGoal.name == "Ali Baba Express");
     CHECK(parsedGoal.definition == goal()["definition"]);
 
     auto withPosition = goal();
     withPosition["position"] = 2;
     CHECK(parsed(withPosition).position == 2);
+
+    // The name is only shown: a goal without one is still installed
+    auto withoutName = goal();
+    withoutName["definition"]["achievement"].erase("name");
+    CHECK(parsed(withoutName).name.empty());
 }
 
 TEST_CASE("A competition goal the SDK can't fully judge is refused whole", "[competitions]")
@@ -513,24 +518,18 @@ TEST_CASE("Net hands a competition.goal over to be installed", "[competitions]")
     net.handle(goal());
     REQUIRE(net.handedOver.size() == 1);
     CHECK(net.handedOver[0].identity.attempt == ATTEMPT);
-    CHECK(net.events.empty()); // raised once it is installed or refused
+    CHECK(net.events.empty()); // raised once Scorbit confirms the install
 }
 
-TEST_CASE("Net refuses a competition.goal it can't judge, and says so", "[competitions]")
+TEST_CASE("Net refuses a competition.goal it can't judge, and raises nothing", "[competitions]")
 {
     GoalNet net;
     auto message = goal();
     message["definition"]["timer_policy"]["name"] = "whole_game";
-    message["position"] = 2;
     net.handle(message);
 
     CHECK(net.handedOver.empty());
-    REQUIRE(net.events.size() == 1);
-    CHECK_FALSE(net.events[0].installed);
-    CHECK(net.events[0].attempt == ATTEMPT);
-    CHECK(net.events[0].player == PLAYER);
-    CHECK(net.events[0].position == 2);
-    CHECK(net.events[0].reason.find("timer policy") != std::string::npos);
+    CHECK(net.events.empty());
 }
 
 // ---- Outbox ------------------------------------------------------------------------------------
@@ -586,15 +585,54 @@ TEST_CASE("A goal is held, then goal_installed is sent", "[competitions]")
     CHECK(f.net->sent[0].kind == MessageKind::GoalInstalled);
     CHECK(f.net->sent[0].body["type"] == "competition.goal_installed");
     CHECK(f.net->sent[0].body["attempt"] == ATTEMPT);
-
-    REQUIRE(f.net->goals.size() == 1);
-    CHECK(f.net->goals[0].installed);
-    CHECK(f.net->goals[0].attempt == ATTEMPT);
-    CHECK(f.net->goals[0].player == PLAYER);
-    CHECK(f.net->goals[0].position == 0);
+    CHECK(f.net->goals.empty()); // the host hears of it once Scorbit confirms it
 
     f.answer(receipt(GOAL_INSTALLED_SAVED));
     CHECK(f.record().installed == Delivery::Saved);
+    REQUIRE(f.net->goals.size() == 1);
+    CHECK(f.net->goals[0].attempt == ATTEMPT);
+    CHECK(f.net->goals[0].player == PLAYER);
+    CHECK(f.net->goals[0].position == 0);
+    CHECK(f.net->goals[0].name == "Ali Baba Express");
+}
+
+TEST_CASE("A goal Scorbit had saved already is confirmed too", "[competitions]")
+{
+    // The first answer was lost: the resend is answered `duplicate`
+    Fixture f;
+    f.deliver();
+    f.answer(noAnswer());
+    CHECK(f.net->goals.empty());
+    REQUIRE(f.net->retry);
+    f.net->retry();
+    f.run();
+
+    auto duplicate = json::parse(GOAL_INSTALLED_SAVED);
+    duplicate["status"] = "duplicate";
+    f.answer(receipt(duplicate.dump().c_str()));
+    CHECK(f.record().installed == Delivery::Duplicate);
+    REQUIRE(f.net->goals.size() == 1);
+    CHECK(f.net->goals[0].attempt == ATTEMPT);
+}
+
+TEST_CASE("A goal is confirmed once, after a failed send and a resend", "[competitions]")
+{
+    Fixture f;
+    f.deliver();
+    f.answer(ApiReply {Error::ApiError, 503, "busy", {}});
+    CHECK(f.net->goals.empty());
+    REQUIRE(f.net->retry);
+    f.net->retry();
+    f.run();
+
+    f.answer(receipt(GOAL_INSTALLED_SAVED));
+    CHECK(f.net->goals.size() == 1);
+
+    // Its start, answered later, raises nothing more
+    f.startGame();
+    f.sessionCreated();
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK(f.net->goals.size() == 1);
 }
 
 TEST_CASE("Several competitions' goals are held at once", "[competitions]")
@@ -637,10 +675,7 @@ TEST_CASE("The same attempt with another player or revision is refused", "[compe
     otherPlayer["player"] = "6f1c2d3e-4a5b-4c6d-8e7f-000000000099";
     f.deliver(otherPlayer);
 
-    REQUIRE(f.net->goals.size() == 3);
-    CHECK_FALSE(f.net->goals[1].installed);
-    CHECK_FALSE(f.net->goals[1].reason.empty());
-    CHECK_FALSE(f.net->goals[2].installed);
+    CHECK(f.net->goals.size() == 1); // only the install's confirmation; refusals raise nothing
     CHECK(f.net->sent.empty());
     CHECK(f.record().goal.message == goal()); // the installed one is kept as it was
 }
@@ -939,6 +974,7 @@ TEST_CASE("A refused install never starts, nor sends a start queued behind it",
     f.answer(refused(R"({"code": "attempt_ended", "detail": "Ended."})"));
     CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
     CHECK(f.net->sent.empty());
+    CHECK(f.net->goals.empty()); // never confirmed, so the host never hears of it
 
     f.game->setGameFinished();
     f.startGame();
@@ -952,14 +988,14 @@ TEST_CASE("A goal for another venue machine is refused", "[competitions]")
     f.net->venue = "6f1c2d3e-4a5b-4c6d-8e7f-0000000000aa";
     f.deliver();
     CHECK(f.net->sent.empty());
-    REQUIRE(f.net->goals.size() == 1);
-    CHECK_FALSE(f.net->goals[0].installed);
+    CHECK(f.net->goals.empty());
 
     // Compared without regard to case
     Fixture g;
     g.net->venue = "6F1C2D3E-4A5B-4C6D-8E7F-000000000005";
     g.deliver();
-    CHECK(g.net->goals.at(0).installed);
+    REQUIRE(g.net->sent.size() == 1);
+    CHECK(g.net->sent[0].kind == MessageKind::GoalInstalled);
 }
 
 TEST_CASE("A restart loses the attempt", "[competitions]")

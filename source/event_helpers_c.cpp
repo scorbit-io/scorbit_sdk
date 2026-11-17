@@ -561,7 +561,7 @@ bool sb_event_achievement_artwork(const sb_event_t *event, const uint8_t **data,
 }
 
 bool sb_event_competition_goal(const sb_event_t *event, const char **attempt, const char **player,
-                               int *position, bool *installed)
+                               int *position)
 {
     const auto *derived =
             dynamic_cast<const scorbit::detail::CompetitionGoalReceivedEvent *>(event);
@@ -577,21 +577,18 @@ bool sb_event_competition_goal(const sb_event_t *event, const char **attempt, co
     if (position) {
         *position = derived->position();
     }
-    if (installed) {
-        *installed = derived->installed();
-    }
     return true;
 }
 
-bool sb_event_competition_goal_reason(const sb_event_t *event, const char **reason)
+bool sb_event_competition_goal_name(const sb_event_t *event, const char **name)
 {
     const auto *derived =
             dynamic_cast<const scorbit::detail::CompetitionGoalReceivedEvent *>(event);
     if (!derived) {
         return false;
     }
-    if (reason) {
-        *reason = derived->reason().c_str();
+    if (name) {
+        *name = derived->name().c_str();
     }
     return true;
 }

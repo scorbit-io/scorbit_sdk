@@ -310,13 +310,12 @@ class Event(object):
         attempt = c_char_p()
         player = c_char_p()
         position = c_int(0)
-        installed = c_bool(False)
         if not _lib.sb_event_competition_goal(
-            self._ptr, byref(attempt), byref(player), byref(position), byref(installed)
+            self._ptr, byref(attempt), byref(player), byref(position)
         ):
             return None
-        reason = c_char_p()
-        _lib.sb_event_competition_goal_reason(self._ptr, byref(reason))
+        name = c_char_p()
+        _lib.sb_event_competition_goal_name(self._ptr, byref(name))
 
         def text(out):
             val = out.value
@@ -324,9 +323,7 @@ class Event(object):
                 val = val.decode("utf-8", "replace")
             return val or ""
 
-        return CompetitionGoal(
-            bool(installed.value), text(attempt), text(player), int(position.value), text(reason)
-        )
+        return CompetitionGoal(text(attempt), text(player), int(position.value), text(name))
 
     # ------------------------------------------------------------------
     # Internal / scorbitd events

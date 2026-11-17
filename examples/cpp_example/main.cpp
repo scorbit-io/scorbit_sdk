@@ -340,6 +340,17 @@ void eventsCallback(const scorbit::Event &event)
         }
     } break;
 
+    case scorbit::EventType::CompetitionGoalReceived: {
+        // The SDK installed a player's competition goal and Scorbit confirmed it; the SDK starts
+        // and reports the attempt itself, the game only shows it.
+        scorbit::CompetitionGoal goal;
+        if (event.getCompetitionGoal(goal)) {
+            cout << "Competition goal confirmed: " << goal.name << " for player " << goal.player
+                 << ", attempt " << goal.attempt << ", position "
+                 << (goal.position > 0 ? std::to_string(goal.position) : "any") << endl;
+        }
+    } break;
+
         // ----- OEM providers can ignore the events below, they are mostly for scorbitron ------
 
     case scorbit::EventType::ConfigReceived: {

@@ -113,22 +113,20 @@ void CompetitionService::onGoal(CompetitionGoal goal)
 
     INF("Competitions: installed attempt {} for player {}", attempt, record.goal.player);
     const auto &[it, inserted] = m_attempts.emplace(attempt, std::move(record));
-    publishGoal(it->second.goal, true, {});
     queueInstalled(it->second);
     pump();
 }
 
 void CompetitionService::refuse(const CompetitionGoal &goal, const std::string &reason)
 {
+    // Only logged: the host hears of a goal once Scorbit has confirmed it is installed
     WRN("Competitions: refusing attempt {}: {}", goal.identity.attempt, reason);
-    publishGoal(goal, false, reason);
 }
 
-void CompetitionService::publishGoal(const CompetitionGoal &goal, bool installed,
-                                     const std::string &reason)
+void CompetitionService::publishGoal(const CompetitionGoal &goal)
 {
     m_net.publishEvent(std::make_shared<CompetitionGoalReceivedEvent>(
-            installed, goal.identity.attempt, goal.player, goal.position.value_or(0), reason));
+            goal.identity.attempt, goal.player, goal.position.value_or(0), goal.name));
 }
 
 // ---- Games -------------------------------------------------------------------------------------
@@ -343,9 +341,16 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
     }
 
     if (receipt) {
+        // The host hears of the goal once, when Scorbit first confirms it: a resend answered
+        // `duplicate` after a lost reply counts, a later receipt doesn't
+        const bool confirmed =
+                message.kind == MessageKind::GoalInstalled && delivery == Delivery::Pending;
         delivery = *receipt == ReceiptStatus::Saved ? Delivery::Saved : Delivery::Duplicate;
         INF("Competitions: {} for attempt {}: {}", typeOf(message.kind), message.attempt,
             *receipt == ReceiptStatus::Saved ? "saved" : "duplicate");
+        if (confirmed) {
+            publishGoal(record.goal);
+        }
     } else if (reply.httpStatus == HTTP_CONFLICT) {
         // The only final answer besides a receipt (ADR-0052): the attempt is over for the
         // server, so nothing of it is sent again, and it is forgotten here

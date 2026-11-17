@@ -78,11 +78,11 @@ for _name in [
     EXCEPTIONS.setdefault(_name, {})["godot"] = "Scorbitron device daemon plumbing"
 
 
-# A competition goal the SDK installed or refused (SB-6437): the SDK starts and reports the
-# attempt itself, so the event is only informational, and not bound in the add-on yet.
+# A competition goal Scorbit confirmed installed (SB-6437): the SDK starts and reports the
+# attempt itself, so the event is only a notification, and not bound in the add-on yet.
 for _name in [
     "sb_event_competition_goal",
-    "sb_event_competition_goal_reason",
+    "sb_event_competition_goal_name",
 ]:
     EXCEPTIONS.setdefault(_name, {})["godot"] = "competition goals, not bound in the add-on yet"
 

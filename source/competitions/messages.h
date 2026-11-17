@@ -62,6 +62,8 @@ struct CompetitionGoal {
     std::string venueMachine;
     /** Where the API expects the player to play; a hint, the game decides. */
     std::optional<int> position;
+    /** The goal achievement's name, for the host to show; empty when the definition has none. */
+    std::string name;
     /** The complete saved definition, kept as delivered. */
     nlohmann::json definition;
     /** The message as delivered. */

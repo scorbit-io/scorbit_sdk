@@ -514,29 +514,26 @@ private:
 class CompetitionGoalReceivedEvent : public EventBase
 {
 public:
-    CompetitionGoalReceivedEvent(bool installed, std::string attempt, std::string player,
-                                 int position, std::string reason)
+    CompetitionGoalReceivedEvent(std::string attempt, std::string player, int position,
+                                 std::string name)
         : EventBase(EventType::CompetitionGoalReceived, EventPriority::Normal)
-        , m_installed {installed}
         , m_attempt {std::move(attempt)}
         , m_player {std::move(player)}
         , m_position {position}
-        , m_reason {std::move(reason)}
+        , m_name {std::move(name)}
     {
     }
 
-    auto installed() const -> bool { return m_installed; }
     auto attempt() const -> const std::string & { return m_attempt; }
     auto player() const -> const std::string & { return m_player; }
     auto position() const -> int { return m_position; }
-    auto reason() const -> const std::string & { return m_reason; }
+    auto name() const -> const std::string & { return m_name; }
 
 private:
-    bool m_installed;
     std::string m_attempt;
     std::string m_player;
     int m_position;
-    std::string m_reason;
+    std::string m_name;
 };
 
 } // namespace detail

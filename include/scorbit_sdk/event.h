@@ -187,22 +187,21 @@ public:
      * The event type must be @ref scorbit::EventType::CompetitionGoalReceived, otherwise the
      * function returns false. See @ref sb_event_competition_goal.
      *
-     * @param goal [OUT] Whether the goal was installed, its attempt, player and position.
+     * @param goal [OUT] The goal's attempt, player, position and name.
      * @return Returns true on success, or false if the event type does not match.
      */
     bool getCompetitionGoal(CompetitionGoal &goal) const
     {
         const char *attempt = nullptr;
         const char *player = nullptr;
-        if (!::sb_event_competition_goal(m_event, &attempt, &player, &goal.position,
-                                         &goal.installed)) {
+        if (!::sb_event_competition_goal(m_event, &attempt, &player, &goal.position)) {
             return false;
         }
-        const char *reason = nullptr;
-        ::sb_event_competition_goal_reason(m_event, &reason);
+        const char *name = nullptr;
+        ::sb_event_competition_goal_name(m_event, &name);
         goal.attempt = attempt ? attempt : "";
         goal.player = player ? player : "";
-        goal.reason = reason ? reason : "";
+        goal.name = name ? name : "";
         return true;
     }
 

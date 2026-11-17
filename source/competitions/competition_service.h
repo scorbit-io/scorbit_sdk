@@ -95,7 +95,10 @@ public:
     CompetitionService(const CompetitionService &) = delete;
     CompetitionService &operator=(const CompetitionService &) = delete;
 
-    /** A `competition.goal` arrived and parsed. Raises CompetitionGoalReceived unless repeated. */
+    /**
+     * A `competition.goal` arrived and parsed. CompetitionGoalReceived is raised once, when the
+     * API first confirms `goal_installed`; a refused goal raises nothing.
+     */
     void onGoal(CompetitionGoal goal);
 
     /** Game @p gameSessionId (game state's own id) started at @p startedAtMs, device UTC. */
@@ -135,7 +138,8 @@ private:
     void dropSettledGames();
 
     void refuse(const CompetitionGoal &goal, const std::string &reason);
-    void publishGoal(const CompetitionGoal &goal, bool installed, const std::string &reason);
+    /** Tells the host Scorbit confirmed @p goal is installed: CompetitionGoalReceived. */
+    void publishGoal(const CompetitionGoal &goal);
 
     void queueInstalled(const AttemptRecord &record);
     void queueStarted(const AttemptRecord &record);

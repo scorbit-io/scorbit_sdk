@@ -112,9 +112,10 @@ typedef enum {
     SB_EVT_ACHIEVEMENT_UNLOCKED,
 
     /**
-     * @brief Scorbit admitted a player to a competition game and sent its goal. The SDK has
-     * already installed it, or refused it; the game only learns which.
-     * Use @ref sb_event_competition_goal and @ref sb_event_competition_goal_reason.
+     * @brief Scorbit admitted a player to a competition game, the SDK installed its goal and
+     * Scorbit confirmed it. Raised once per attempt; a refused goal raises nothing. The game
+     * only shows it: the SDK starts and reports the attempt itself.
+     * Use @ref sb_event_competition_goal and @ref sb_event_competition_goal_name.
      */
     SB_EVT_COMPETITION_GOAL_RECEIVED,
 

@@ -259,6 +259,12 @@ std::optional<CompetitionGoal> parseGoal(const json &payload, std::string &error
 
         goal.definition = member(payload, KEY_DEFINITION);
         checkDefinition(goal.definition);
+        // Only shown to the host: a goal without one is still judged
+        const auto &achievement = member(goal.definition, KEY_ACHIEVEMENT);
+        if (const auto it = achievement.find(KEY_NAME);
+            it != achievement.end() && it->is_string()) {
+            goal.name = it->get<std::string>();
+        }
         goal.message = payload;
         return goal;
     } catch (const std::exception &e) {
