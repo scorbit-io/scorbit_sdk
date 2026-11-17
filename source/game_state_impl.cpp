@@ -547,6 +547,12 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
 void GameStateImpl::submitGameData(bool forceSending)
 {
     if (m_net->status() == AuthStatus::AuthenticationFailed) {
+        // The commit is dropped, but keeps its place in the row order: the gap is how a reader of
+        // the rows (a competition timer) tells that one is missing, and that the change it carried,
+        // say a player switch, is only seen at the next row
+        if (isChanged() || forceSending) {
+            ++m_rowSequence;
+        }
         return;
     }
 

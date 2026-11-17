@@ -53,7 +53,7 @@ public:
         m_info.achievementPresentation = presentation;
     }
 
-    AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
+    AuthStatus status() const override { return authStatus; }
     void authenticate() override { }
     void updateConfig(const std::string &, const std::string &, bool, std::optional<std::string>,
                       HttpStatusCallback) override
@@ -192,6 +192,7 @@ public:
         void fail() const { reply(Error::ApiError, {}); }
     };
 
+    AuthStatus authStatus {AuthStatus::AuthenticatedPaired};
     SessionCreatedCallback sessionCreated;
     int definitionsFetches {0};
     ApiReplyCallback definitionsReply;
@@ -488,6 +489,36 @@ TEST_CASE("Committed rows carry the monotonic instant they were committed at",
     CHECK(rows[5].sequence == 6);
     CHECK(rows[6].sequence == 7);
     CHECK(rows[6].activePlayer == 1);
+}
+
+TEST_CASE("A commit dropped while authentication has failed leaves a gap in the row order",
+          "[achievements][turn_timer]")
+{
+    // SB-6367: the dropped commit may be the switch that made a timed player current. Numbered on,
+    // the next row would hide it and stamp the switch late, giving a faster time than was played.
+    TempDir dir;
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    const auto &rows = net->timeline;
+
+    game.setGameStarted(GameStartOrigin::StartButton); // 1
+    net->sessionCreated("9ab2");
+    game.runPendingPosts(); // 2
+
+    net->authStatus = AuthStatus::AuthenticationFailed;
+    game.commit(); // nothing changed: nothing is dropped, so no place is taken
+    game.setActivePlayer(2);
+    game.commit(); // 3: dropped
+    REQUIRE(rows.size() == 2);
+
+    net->authStatus = AuthStatus::AuthenticatedPaired;
+    game.setScore(2, 100, 0);
+    game.commit(); // 4
+    REQUIRE(rows.size() == 3);
+    CHECK(rows[1].sequence == 2);
+    CHECK(rows[2].sequence == 4);
+    CHECK(rows[2].activePlayer == 2);
 }
 
 TEST_CASE("An achievement the player already held raises no unlock", "[achievements]")
