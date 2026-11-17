@@ -19,6 +19,7 @@
 
 #include "message_outbox.h"
 #include <algorithm>
+#include <iterator>
 #include <utility>
 
 namespace scorbit {
@@ -54,8 +55,17 @@ std::chrono::milliseconds MessageOutbox::failed()
     if (!m_inFlight) {
         return std::chrono::milliseconds::zero();
     }
-    m_queue.push_front(std::move(*m_inFlight));
+    // To the back, with the rest of its attempt in order: one the server keeps failing never
+    // holds up other attempts, and an attempt's install still goes before its start
+    std::deque<OutgoingMessage> others;
+    std::deque<OutgoingMessage> attempt {std::move(*m_inFlight)};
     m_inFlight.reset();
+    for (auto &message : m_queue) {
+        auto &to = message.attempt == attempt.front().attempt ? attempt : others;
+        to.push_back(std::move(message));
+    }
+    std::ranges::move(attempt, std::back_inserter(others));
+    m_queue = std::move(others);
     m_backingOff = true;
 
     const auto delay = m_backoff;

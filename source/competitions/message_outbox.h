@@ -47,7 +47,8 @@ struct OutgoingMessage {
  * - One message is in flight at a time, in the order queued: an attempt's install goes before its
  *   start.
  * - A message is resent unchanged until the server answers it: a receipt, or a refusal, which is
- *   final. A failure backs off from @ref INITIAL_BACKOFF, doubling up to @ref MAX_BACKOFF.
+ *   final. A failure backs off from @ref INITIAL_BACKOFF, doubling up to @ref MAX_BACKOFF, and
+ *   sends the message, with the rest of its attempt, behind the other attempts' messages.
  */
 class MessageOutbox
 {
@@ -71,8 +72,9 @@ public:
     }
 
     /**
-     * The in-flight message got no answer. It goes back to the front of the queue; the owner
-     * waits for the returned delay, then calls @ref retryReady.
+     * The in-flight message got no answer. It goes to the back of the queue, its attempt's other
+     * messages after it in order; the owner waits for the returned delay, then calls
+     * @ref retryReady.
      */
     std::chrono::milliseconds failed();
 

@@ -570,6 +570,28 @@ TEST_CASE("Outbox sends one message at a time, in order, resent unchanged", "[co
     CHECK(outbox.empty());
 }
 
+TEST_CASE("Outbox lets other attempts past one that keeps failing", "[competitions]")
+{
+    MessageOutbox outbox;
+    const OutgoingMessage aInstalled {"a", MessageKind::GoalInstalled, "{a1}"};
+    const OutgoingMessage aStarted {"a", MessageKind::AttemptStarted, "{a2}"};
+    const OutgoingMessage bInstalled {"b", MessageKind::GoalInstalled, "{b1}"};
+    outbox.add(aInstalled);
+    outbox.add(bInstalled);
+    outbox.add(aStarted);
+
+    REQUIRE(outbox.next() == aInstalled);
+    outbox.failed();
+    outbox.retryReady();
+
+    // b goes first; a's install still goes before its start
+    CHECK(outbox.next() == bInstalled);
+    outbox.answered();
+    CHECK(outbox.next() == aInstalled);
+    outbox.answered();
+    CHECK(outbox.next() == aStarted);
+}
+
 // ---- Service -----------------------------------------------------------------------------------
 
 TEST_CASE("A goal is held, then goal_installed is sent", "[competitions]")
@@ -946,6 +968,37 @@ TEST_CASE("Only a 409 refuses: any other failure is resent", "[competitions]")
     f.answer(receipt("<html>"));
     CHECK(f.record().installed == Delivery::Pending);
     CHECK(f.net->retry);
+}
+
+TEST_CASE("An attempt the server keeps failing doesn't hold up another", "[competitions]")
+{
+    // The API doesn't know the first attempt (as after a switch to another server): it answers
+    // 400 every time, never a receipt or a 409
+    Fixture f;
+    f.deliver();
+    auto other = goal();
+    other["tournament"] = "0193a5e0-0000-7000-8000-000000000011";
+    other["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
+    f.deliver(other);
+
+    f.answer(ApiReply {Error::ApiError, 400, R"({"code": "invalid_request", "detail": "x"})", {}});
+    REQUIRE(f.net->retry);
+    f.net->retry();
+    f.run();
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["attempt"] == "0193a5e0-0000-7000-8000-000000000013");
+    auto saved = json::parse(GOAL_INSTALLED_SAVED);
+    saved["tournament"] = other["tournament"];
+    saved["attempt"] = other["attempt"];
+    f.answer(receipt(saved.dump().c_str()));
+    CHECK(f.game->competitions().attempts().at(other["attempt"].get<std::string>()).installed
+          == Delivery::Saved);
+
+    // The first is still resent
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["attempt"] == ATTEMPT);
+    CHECK(f.record().installed == Delivery::Pending);
 }
 
 TEST_CASE("A named refusal stops the resending and forgets the attempt", "[competitions]")
