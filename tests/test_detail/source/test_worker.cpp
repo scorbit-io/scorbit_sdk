@@ -50,17 +50,20 @@ TEST_CASE("Worker: a handler that throws does not stop either pool", "[worker]")
     Worker worker;
     worker.start();
 
+    // One throw per pool is enough: an exception escaping a pool thread ends the process.
     std::atomic<int> ran {0};
     worker.postQueue([] { throw std::runtime_error("strand handler"); });
     worker.post([] { throw std::runtime_error("blocking handler"); });
+    worker.postGameDataQueue([] { throw std::runtime_error("async handler"); });
     worker.postQueue([&] { ++ran; });
     worker.post([&] { ++ran; });
+    worker.postGameDataQueue([&] { ++ran; });
 
     const auto deadline = std::chrono::steady_clock::now() + 5s;
-    while (ran < 2 && std::chrono::steady_clock::now() < deadline) {
+    while (ran < 3 && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(5ms);
     }
-    CHECK(ran == 2);
+    CHECK(ran == 3);
     CHECK(worker.isRunning());
     worker.stop();
 }
