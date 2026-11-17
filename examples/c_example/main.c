@@ -403,6 +403,25 @@ void eventsCallback(const sb_event_t *event, void *user_data)
         }
     } break;
 
+    case SB_EVT_COMPETITION_GOAL_RECEIVED: {
+        // The SDK installed a player's competition goal and Scorbit confirmed it; the SDK starts
+        // and reports the attempt itself, the game only shows it.
+        const char *attempt = NULL;
+        const char *player = NULL;
+        const char *name = NULL;
+        int position = 0;
+        if (sb_event_competition_goal(event, &attempt, &player, &position)
+            && sb_event_competition_goal_name(event, &name)) {
+            if (position > 0) {
+                printf("Competition goal confirmed: %s for player %s, attempt %s, position %d\n",
+                       name, player, attempt, position);
+            } else {
+                printf("Competition goal confirmed: %s for player %s, attempt %s, position any\n",
+                       name, player, attempt);
+            }
+        }
+    } break;
+
     // -------- OEM providers can ignore the events below, they are mostly for scorbitron ----------
     case SB_EVT_CONFIG_RECEIVED: {
         const char *config_json = NULL;

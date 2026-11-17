@@ -38,6 +38,7 @@ enum class EventType {
     TableMappingsUpdated = SB_EVT_TABLE_MAPPINGS_UPDATED,
     MachineChanged = SB_EVT_MACHINE_CHANGED,
     AchievementUnlocked = SB_EVT_ACHIEVEMENT_UNLOCKED,
+    CompetitionGoalReceived = SB_EVT_COMPETITION_GOAL_RECEIVED,
 
     // ---------------- OEM providers can ignore the events below ----------------
 

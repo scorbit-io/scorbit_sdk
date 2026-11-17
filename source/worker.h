@@ -59,6 +59,7 @@ public:
         SwitchDrain,
         AchievementRetry,
         AchievementDefinitions,
+        CompetitionRetry,
 
         // IMPORTANT! This must be last entry!
         Count,

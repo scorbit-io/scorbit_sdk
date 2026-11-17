@@ -178,6 +178,15 @@ def events_callback(event):
             print("Player %d unlocked achievement %s (%s), frame of %d bytes"
                   % (unlock.player, unlock.name, unlock.key, len(unlock.artwork)))
 
+    elif event.type == scorbit.EventType.CompetitionGoalReceived:
+        # The SDK installed a player's competition goal and Scorbit confirmed it; the SDK starts
+        # and reports the attempt itself, the game only shows it.
+        goal = event.get_competition_goal()
+        if goal is not None:
+            position = goal.position if goal.position > 0 else "any"
+            print("Competition goal confirmed: %s for player %s, attempt %s, position %s"
+                  % (goal.name, goal.player, goal.attempt, position))
+
     elif event.type == scorbit.EventType.PairingStatusChanged:
         is_paired = event.get_pairing_status_changed()
         if is_paired is not None:

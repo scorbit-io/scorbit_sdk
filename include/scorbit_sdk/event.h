@@ -177,6 +177,34 @@ public:
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Competitions
+    // ------------------------------------------------------------------
+
+    /**
+     * @brief Helper function to process a competition goal event.
+     *
+     * The event type must be @ref scorbit::EventType::CompetitionGoalReceived, otherwise the
+     * function returns false. See @ref sb_event_competition_goal.
+     *
+     * @param goal [OUT] The goal's attempt, player, position and name.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getCompetitionGoal(CompetitionGoal &goal) const
+    {
+        const char *attempt = nullptr;
+        const char *player = nullptr;
+        if (!::sb_event_competition_goal(m_event, &attempt, &player, &goal.position)) {
+            return false;
+        }
+        const char *name = nullptr;
+        ::sb_event_competition_goal_name(m_event, &name);
+        goal.attempt = attempt ? attempt : "";
+        goal.player = player ? player : "";
+        goal.name = name ? name : "";
+        return true;
+    }
+
     /**
      * @brief Helper function to process a machine changed event.
      *

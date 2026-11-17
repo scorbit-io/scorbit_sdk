@@ -67,6 +67,7 @@ OUT_OF_SCOPE_EVENTS = {
     "LiveDmdRequested": "device plumbing",
     "TableMappingsUpdated": "VPIN host plumbing",
     "MachineChanged": "VPIN host plumbing",
+    "CompetitionGoalReceived": "notification only: Scorbit confirmed the goal; the SDK runs the attempt itself",
 }
 
 # Methods the parser must find, so a header change it cannot follow fails instead of passing.
