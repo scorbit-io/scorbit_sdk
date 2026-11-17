@@ -456,7 +456,7 @@ See README-tappad-lock.md next to this file.
      int ret;
  
      ((void)word_address);
-@@ -166,13 +255,40 @@
+@@ -166,13 +255,45 @@
          return ATCA_BAD_PARAM;
      }
  
@@ -466,7 +466,12 @@ See README-tappad-lock.md next to this file.
 +    {
 +        return ATCA_RX_TIMEOUT;
 +    }
-+    t_cmd.sending = false;
++    if (t_cmd.sending)
++    {
++        /* The deadline runs from the end of the send: a slow hid_write() must not use it up */
++        t_cmd.deadline_ms = hal_kit_hid_now_ms() + HAL_KIT_COMMAND_TIMEOUT_MS;
++        t_cmd.sending = false;
++    }
 +
 +    wait_ms = (t_cmd.awaiting_reply && (pHid != __atomic_load_n(&g_suspect, __ATOMIC_RELAXED)))
 +              ? HAL_KIT_REPLY_TIMEOUT_MS : HAL_KIT_BYTE_TIMEOUT_MS;

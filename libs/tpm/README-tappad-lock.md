@@ -241,7 +241,8 @@ each command:
 | libusb CDC | 2.5 s | 0.5 s | 3 s | 1 s |
 | HID | 2.5 s | 0.5 s | 3 s | as `hid_write()` |
 
-The whole-reply deadline runs from the command's first byte sent, so a pad that
+The whole-reply deadline runs from the command's first byte sent (on HID, from
+the end of the send, since `hid_write()` has its own bound), so a pad that
 trickles bytes, or NULs, just inside the 0.5 s gap cannot stretch a call. Once
 the deadline has passed, a receive still takes a reply that has already arrived,
 without waiting, so a host that stalls between send and receive does not lose

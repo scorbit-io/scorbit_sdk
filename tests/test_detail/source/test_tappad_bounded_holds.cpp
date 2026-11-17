@@ -916,6 +916,21 @@ TEST_CASE("Tap pad hold: a HID pad slow to start its reply still answers", "[tap
     CHECK(revision[3] == revisionOf(0));
 }
 
+TEST_CASE("Tap pad hold: a slow HID write does not use up the wait for the reply",
+          "[tappad_bounded]")
+{
+    // hid_write() blocks 2.5 s; the reply comes 1.1 s after it returns.
+    FakeKitPad pad([](int) { return Delay {3600ms}; });
+    pad.setStallAfterInfo(2500ms);
+    fake_hid::Device hid(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = hid.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
 TEST_CASE("Tap pad hold: a HID reply that arrived before a stall past the deadline is read",
           "[tappad_bounded]")
 {
