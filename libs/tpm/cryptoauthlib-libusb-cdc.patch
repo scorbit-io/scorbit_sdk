@@ -66,7 +66,7 @@
  endif(LINUX)
 --- a/lib/hal/hal_linux_cdc_libusb.c
 +++ b/lib/hal/hal_linux_cdc_libusb.c
-@@ -0,0 +1,515 @@
+@@ -0,0 +1,559 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -90,6 +90,8 @@
 +
 +/** Mirrors the 0.5s read timeout the tty HAL configures through VTIME */
 +#define CDC_READ_TIMEOUT_MS     (500)
++/** First byte of a reply: the chip may still be executing (calib's own 2.5 s) */
++#define CDC_REPLY_TIMEOUT_MS    (2500)
 +#define CDC_WRITE_TIMEOUT_MS    (1000)
 +#define CDC_FLUSH_TIMEOUT_MS    (1)
 +#define CDC_FLUSH_MAX_PACKETS   (64)
@@ -118,7 +120,47 @@
 +    uint8_t                rx_buf[CDC_RX_BUF_SIZE];
 +    size_t                 rx_len;
 +    size_t                 rx_pos;
++    bool                   awaiting_reply;
 +};
++
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++static int (*g_transfer_hook)(unsigned char endpoint, unsigned char * data, int length,
++                              int * transferred, unsigned int timeout_ms) = NULL;
++
++void hal_cdc_libusb_test_set_transfer(int (*hook)(unsigned char endpoint, unsigned char * data,
++                                                  int length, int * transferred,
++                                                  unsigned int timeout_ms))
++{
++    g_transfer_hook = hook;
++}
++
++atca_cdc_libusb_t * hal_cdc_libusb_test_new(void)
++{
++    atca_cdc_libusb_t * cdc = calloc(1u, sizeof(*cdc));
++
++    if (NULL != cdc)
++    {
++        cdc->if_data = -1;
++        cdc->if_comm = -1;
++        cdc->ep_in = 0x81u;
++        cdc->ep_out = 0x01u;
++        cdc->max_packet = 64u;
++    }
++    return cdc;
++}
++#endif
++
++static int cdc_bulk_transfer(atca_cdc_libusb_t * cdc, unsigned char endpoint, unsigned char * data,
++                             int length, int * transferred, unsigned int timeout_ms)
++{
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_transfer_hook)
++    {
++        return g_transfer_hook(endpoint, data, length, transferred, timeout_ms);
++    }
++#endif
++    return libusb_bulk_transfer(cdc->handle, endpoint, data, length, transferred, timeout_ms);
++}
 +
 +static bool cdc_is_supported_device(const struct libusb_device_descriptor * desc)
 +{
@@ -496,8 +538,8 @@
 +        int transferred = 0;
 +        int result;
 +
-+        result = libusb_bulk_transfer(cdc->handle, cdc->ep_out, data, remaining, &transferred,
-+                                      CDC_WRITE_TIMEOUT_MS);
++        result = cdc_bulk_transfer(cdc, cdc->ep_out, data, remaining, &transferred,
++                                   CDC_WRITE_TIMEOUT_MS);
 +        if ((0 >= transferred) || ((0 != result) && (LIBUSB_ERROR_TIMEOUT != result)))
 +        {
 +            return ATCA_COMM_FAIL;
@@ -507,6 +549,7 @@
 +        remaining -= transferred;
 +    }
 +
++    cdc->awaiting_reply = true;
 +    return ATCA_SUCCESS;
 +}
 +
@@ -524,12 +567,13 @@
 +    cdc->rx_len = 0;
 +    cdc->rx_pos = 0;
 +
-+    result = libusb_bulk_transfer(cdc->handle, cdc->ep_in, cdc->rx_buf, length, &transferred,
-+                                  CDC_READ_TIMEOUT_MS);
++    result = cdc_bulk_transfer(cdc, cdc->ep_in, cdc->rx_buf, length, &transferred,
++                               cdc->awaiting_reply ? CDC_REPLY_TIMEOUT_MS : CDC_READ_TIMEOUT_MS);
 +    if ((0 != result) && (0 >= transferred))
 +    {
 +        return ATCA_COMM_FAIL;
 +    }
++    cdc->awaiting_reply = cdc->awaiting_reply && (0 >= transferred);
 +
 +    cdc->rx_len = (size_t)transferred;
 +    return (0 < transferred) ? ATCA_SUCCESS : ATCA_COMM_FAIL;
@@ -572,8 +616,8 @@
 +    {
 +        int transferred = 0;
 +
-+        if ((0 != libusb_bulk_transfer(cdc->handle, cdc->ep_in, discard, (int)cdc->max_packet,
-+                                       &transferred, CDC_FLUSH_TIMEOUT_MS))
++        if ((0 != cdc_bulk_transfer(cdc, cdc->ep_in, discard, (int)cdc->max_packet,
++                                    &transferred, CDC_FLUSH_TIMEOUT_MS))
 +            || (0 >= transferred))
 +        {
 +            break;
@@ -584,7 +628,7 @@
 +}
 --- a/lib/hal/hal_linux_cdc_libusb.h
 +++ b/lib/hal/hal_linux_cdc_libusb.h
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,83 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -653,6 +697,14 @@
 + */
 +void hal_uart_test_set_cdc_open(ATCA_STATUS (*hook)(const char * path, uint32_t baud,
 +                                                    atca_cdc_libusb_t ** cdc));
++
++/** \brief Test builds only: bulk transfers go through \p hook (NULL restores libusb). */
++void hal_cdc_libusb_test_set_transfer(int (*hook)(unsigned char endpoint, unsigned char * data,
++                                                  int length, int * transferred,
++                                                  unsigned int timeout_ms));
++
++/** \brief Test builds only: a transport with no device behind it, for that hook. */
++atca_cdc_libusb_t * hal_cdc_libusb_test_new(void);
 +#endif
 +
 +#ifdef __cplusplus
@@ -697,7 +749,7 @@
      if ((NULL != hal_data) && (0 < hal_data->fd_uart))
      {
          struct termios tty;
-@@ -245,6 +259,36 @@
+@@ -245,6 +259,45 @@
      return status;
  }
  
@@ -717,15 +769,24 @@
 +#ifdef ATCA_HAL_KIT_UART_LIBUSB
 +    if (hal_cdc_libusb_is_path(hal_data->uart_file))
 +    {
++        ATCA_STATUS status;
++
 +#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
 +        if (NULL != g_cdc_open_hook)
 +        {
-+            return g_cdc_open_hook(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
-+                                   &hal_data->cdc);
++            status = g_cdc_open_hook(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
++                                     &hal_data->cdc);
 +        }
++        else
 +#endif
-+        return hal_cdc_libusb_open(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
-+                                   &hal_data->cdc);
++        status = hal_cdc_libusb_open(hal_data->uart_file, ATCA_IFACECFG_VALUE(cfg, atcauart.baud),
++                                     &hal_data->cdc);
++        /* A failed exchange may have left its late reply in the pad (SB-6638). */
++        if ((ATCA_SUCCESS == status) && (NULL != hal_data->cdc))
++        {
++            (void)hal_cdc_libusb_flush(hal_data->cdc);
++        }
++        return status;
 +    }
 +#endif
 +    return hal_uart_open_file(hal_data, cfg);
@@ -734,7 +795,7 @@
  /** \brief HAL implementation of UART init
   *
   * this implementation assumes UART SERIAL PORT peripheral has been enabled by user . It only initialize an
-@@ -276,6 +320,7 @@
+@@ -276,6 +329,7 @@
              {
                  atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
                  (void)memset(iface->hal_data, 0, sizeof(atca_uart_host_t));
@@ -742,7 +803,7 @@
  
                  if (NULL != cfg->cfg_data)
                  {
-@@ -288,7 +333,7 @@
+@@ -288,7 +342,7 @@
                                     "/dev/ttyS%d", (uint8_t)ATCA_IFACECFG_VALUE(cfg, atcauart.port));
                  }
  
@@ -751,7 +812,7 @@
                  {
                      /* Driver is configured - increment the ref count for usage */
                      hal_data->ref_ct = 1;
-@@ -320,6 +365,16 @@
+@@ -320,6 +374,16 @@
              atca_uart_host_t * hal_data = (atca_uart_host_t*)iface->hal_data;
              hal_data->ref_ct++;
              status = ATCA_SUCCESS;
@@ -768,7 +829,7 @@
          }
  
      }
-@@ -353,6 +408,37 @@
+@@ -353,6 +417,37 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -806,7 +867,7 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
-@@ -392,6 +478,27 @@
+@@ -392,6 +487,27 @@
      {
          atca_uart_host_t * hal_data = (atca_uart_host_t*)atgetifacehaldat(iface);
  
@@ -834,7 +895,7 @@
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
              if (1U < *rxlength)
-@@ -441,6 +548,16 @@
+@@ -441,6 +557,16 @@
              status = hal_uart_set_baudrate(iface, *(uint32_t*)param);
              break;
          case ATCA_HAL_FLUSH_BUFFER:
@@ -851,7 +912,7 @@
              /* Using non-canonical mode so there should be no buffering */
              status = ATCA_SUCCESS;
              break;
-@@ -467,6 +584,12 @@
+@@ -467,6 +593,12 @@
      if (NULL != hal_data)
      {
          atca_uart_host_t *hal = (atca_uart_host_t*)hal_data;
