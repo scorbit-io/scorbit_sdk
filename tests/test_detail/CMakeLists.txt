@@ -149,6 +149,11 @@ target_sources(
         ../../source/competitions/competition_service.h
         ../../source/competitions/competition_service.cpp
         source/test_competitions.cpp
+        ../../source/competitions/turn_timer.h
+        ../../source/competitions/turn_timer.cpp
+        ../../source/utils/elapsed_clock.h
+        ../../source/utils/elapsed_clock.cpp
+        source/test_turn_timer.cpp
         source/test_achievement_proximity.cpp
         source/test_achievement_tracker.cpp
         source/test_achievement_reporting.cpp

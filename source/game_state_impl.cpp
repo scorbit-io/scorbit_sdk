@@ -48,6 +48,11 @@ int64_t toEpochMs(std::chrono::system_clock::time_point tp)
     return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
 }
 
+int64_t toElapsedMs(scorbit::detail::ElapsedClock::time_point tp)
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
+}
+
 /**
  * The fact model's view of one committed row: what the session history CSV records, and whether
  * the clock that timed it was @p clockSynchronised.
@@ -58,6 +63,11 @@ scorbit::detail::achievements::TimelineRow toTimelineRow(const scorbit::detail::
     scorbit::detail::achievements::TimelineRow row;
     row.clockSynchronised = clockSynchronised;
     row.timeMs = toEpochMs(data.timestamp);
+    // Never stamped: say so, rather than pass the clock's epoch off as an instant
+    if (data.elapsedTimestamp != scorbit::detail::ElapsedClock::time_point {}) {
+        row.elapsedMs = toElapsedMs(data.elapsedTimestamp);
+    }
+    row.sequence = data.sequence;
     row.player = data.activePlayer;
     row.ball = data.ball;
     for (const auto &[player, state] : data.players) {
@@ -537,11 +547,18 @@ void GameStateImpl::addNewPlayer(sb_player_t player)
 void GameStateImpl::submitGameData(bool forceSending)
 {
     if (m_net->status() == AuthStatus::AuthenticationFailed) {
+        // The commit is dropped, but keeps its place in the row order: the gap is how a reader of
+        // the rows (a competition timer) tells that one is missing, and that the change it carried,
+        // say a player switch, is only seen at the next row
+        if (isChanged() || forceSending) {
+            ++m_rowSequence;
+        }
         return;
     }
 
     if (isChanged() || forceSending) {
         m_data.timestamp = std::chrono::system_clock::now();
+        m_data.elapsedTimestamp = ElapsedClock::now();
 
         const auto isGameJustStarted = !m_prevData.isGameActive && m_data.isGameActive;
         const auto isGameJustFinished = m_prevData.isGameActive && !m_data.isGameActive;
@@ -572,6 +589,7 @@ void GameStateImpl::submitGameData(bool forceSending)
                     tempData.modes = m_prevData.modes;
                     tempData.completedModes.clear();
                     tempData.events.clear();
+                    tempData.sequence = ++m_rowSequence;
 
                     SessionFlags tempFlags;
                     tempFlags.set(SessionFlag::UploadHistoryLogs);
@@ -608,6 +626,7 @@ void GameStateImpl::submitGameData(bool forceSending)
         }
 
         // Publish game data
+        m_data.sequence = ++m_rowSequence;
         emitRow(m_data, flags);
 
         m_prevData = m_data;
@@ -671,6 +690,8 @@ bool GameStateImpl::startGame(int playersCount, GameStartOrigin origin)
     setCurrentBall(1);
     setActivePlayer(1);
     m_data.timestamp = std::chrono::system_clock::now();
+    m_data.elapsedTimestamp = ElapsedClock::now();
+    m_data.sequence = ++m_rowSequence;
 
     INF("New game session started, id: {}, game start origin: {}", m_data.id, origin);
 

@@ -53,17 +53,22 @@ public:
         m_info.achievementPresentation = presentation;
     }
 
-    AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
+    AuthStatus status() const override { return authStatus; }
     void authenticate() override { }
     void updateConfig(const std::string &, const std::string &, bool, std::optional<std::string>,
                       HttpStatusCallback) override
     {
     }
-    void sessionCreate(const GameData &, GameStartOrigin, SessionCreatedCallback cb) override
+    void sessionCreate(const GameData &data, GameStartOrigin, SessionCreatedCallback cb) override
     {
+        timeline.push_back(data);
         sessionCreated = std::move(cb);
     }
-    void submitGameData(const GameData &, SessionFlags) override { ++rows; }
+    void submitGameData(const GameData &data, SessionFlags) override
+    {
+        timeline.push_back(data);
+        ++rows;
+    }
     void getConfig() override { }
     void requestPairCode(StringCallback) override { }
     const std::string &getMachineUuid() const override { return m_empty; }
@@ -187,6 +192,7 @@ public:
         void fail() const { reply(Error::ApiError, {}); }
     };
 
+    AuthStatus authStatus {AuthStatus::AuthenticatedPaired};
     SessionCreatedCallback sessionCreated;
     int definitionsFetches {0};
     ApiReplyCallback definitionsReply;
@@ -202,6 +208,8 @@ public:
     TokenRefreshedCallback tokenRefreshed;
     std::vector<Unlock> unlocks;
     int rows {0};
+    /** Every row game state committed, in order: each game's start, then its session updates. */
+    std::vector<GameData> timeline;
     std::deque<ArtworkDownload> artworks;
 
 private:
@@ -434,6 +442,83 @@ TEST_CASE("An in_session unlock is decided on commit and reported at once", "[ac
     CHECK(unlock.name == "Boom Balloon");
     CHECK(unlock.description == "Pop the balloon.");
     CHECK(unlock.artwork.empty()); // none was chosen
+}
+
+TEST_CASE("Committed rows carry the monotonic instant they were committed at",
+          "[achievements][turn_timer]")
+{
+    // SB-6367: competition time is measured on these, never on the wall clock, and a timer
+    // refuses a game whose rows aren't numbered consecutively
+    TempDir dir;
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    const auto &rows = net->timeline;
+
+    game.setGameStarted(GameStartOrigin::StartButton); // 1: the session's start row
+    REQUIRE(net->sessionCreated);
+    net->sessionCreated("9ab2");
+    game.runPendingPosts(); // 2: the state published once the uuid is known
+
+    game.setScore(1, 100, 0);
+    game.commit(); // 3: an ordinary commit
+
+    // 4 and 5: a bonus for P1 committed with the switch to P2, an extra row for P1 then the real one
+    game.setScore(1, 600, 0);
+    game.setActivePlayer(2);
+    game.commit();
+
+    REQUIRE(rows.size() == 5);
+    for (size_t i = 0; i < rows.size(); ++i) {
+        CAPTURE(i);
+        CHECK(rows[i].sequence == i + 1);
+        REQUIRE(rows[i].elapsedTimestamp != ElapsedClock::time_point {});
+        if (i > 0) {
+            CHECK(rows[i].elapsedTimestamp >= rows[i - 1].elapsedTimestamp);
+        }
+    }
+    CHECK(rows[0].activePlayer == 1);
+    CHECK(rows[3].activePlayer == 1);
+    CHECK(rows[4].activePlayer == 2);
+    CHECK(rows[3].elapsedTimestamp == rows[4].elapsedTimestamp); // one input event, one instant
+
+    // The finishing row, then the next game's start row: the order runs on across games
+    game.setGameFinished();
+    game.setGameStarted(GameStartOrigin::StartButton);
+    REQUIRE(rows.size() == 7);
+    CHECK(rows[5].sequence == 6);
+    CHECK(rows[6].sequence == 7);
+    CHECK(rows[6].activePlayer == 1);
+}
+
+TEST_CASE("A commit dropped while authentication has failed leaves a gap in the row order",
+          "[achievements][turn_timer]")
+{
+    // SB-6367: the dropped commit may be the switch that made a timed player current. Numbered on,
+    // the next row would hide it and stamp the switch late, giving a faster time than was played.
+    TempDir dir;
+    auto fake = std::make_unique<FakeNet>(dir.str());
+    auto *net = fake.get();
+    GameStateImpl game(std::move(fake));
+    const auto &rows = net->timeline;
+
+    game.setGameStarted(GameStartOrigin::StartButton); // 1
+    net->sessionCreated("9ab2");
+    game.runPendingPosts(); // 2
+
+    net->authStatus = AuthStatus::AuthenticationFailed;
+    game.commit(); // nothing changed: nothing is dropped, so no place is taken
+    game.setActivePlayer(2);
+    game.commit(); // 3: dropped
+    REQUIRE(rows.size() == 2);
+
+    net->authStatus = AuthStatus::AuthenticatedPaired;
+    game.setScore(2, 100, 0);
+    game.commit(); // 4
+    REQUIRE(rows.size() == 3);
+    CHECK(rows[1].sequence == 2);
+    CHECK(rows[2].sequence == 4);
+    CHECK(rows[2].activePlayer == 2);
 }
 
 TEST_CASE("An achievement the player already held raises no unlock", "[achievements]")

@@ -249,6 +249,8 @@ target_sources(
         source/competitions/message_outbox.cpp
         source/competitions/competition_service.h
         source/competitions/competition_service.cpp
+        source/competitions/turn_timer.h
+        source/competitions/turn_timer.cpp
         source/game_data.h
         include/scorbit_sdk/net_types_c.h
         include/scorbit_sdk/net_types.h
@@ -279,6 +281,8 @@ target_sources(
 
         source/utils/date_time_parser.h
         source/utils/date_time_parser.cpp
+        source/utils/elapsed_clock.h
+        source/utils/elapsed_clock.cpp
         source/utils/jwt_parser.h
         source/utils/jwt_parser.cpp
         source/utils/archiver.h

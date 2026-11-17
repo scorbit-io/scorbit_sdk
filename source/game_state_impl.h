@@ -178,6 +178,8 @@ private:
     GameData m_data;
     GameData m_prevData;
     int m_sessionId {0};
+    /** The sequence of the last timeline row this game state committed. */
+    uint64_t m_rowSequence {0};
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 
