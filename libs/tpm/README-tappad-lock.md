@@ -234,19 +234,32 @@ A caller holds the lock across a whole `calib_*` call, so a pad that stops
 answering must not keep a transfer blocked. `cryptoauthlib-bounded-holds.patch`
 and `cryptoauthlib-libusb-cdc.patch` bound each transfer:
 
-| Transport | Read | Write |
-|-----------|------|-------|
-| tty | 0.5 s (`VTIME`, with `VMIN=0`) | 1 s waiting for room |
-| libusb CDC | 0.5 s | 1 s |
-| HID | 0.5 s | as `hid_write()` |
+| Transport | First byte (report) of a reply | Each later one | Write |
+|-----------|--------------------------------|----------------|-------|
+| tty | 2.5 s | 0.5 s | 1 s waiting for room |
+| libusb CDC | 2.5 s | 0.5 s | 1 s |
+| HID | 2.5 s | 0.5 s | as `hid_write()` |
 
-A kit-UART reply may be preceded by at most 64 NULs. cryptoauthlib polls a
-failed receive for up to 2.5 s (`ATCA_POLLING_MAX_TIME_MSEC`), so later receives
-must fail at once: a failed tty transfer closes the tty, a failed libusb CDC
+The first wait matches cryptoauthlib's own 2.5 s limit for a command
+(`ATCA_POLLING_MAX_TIME_MSEC`), so a chip on a slow clock still answers. A
+kit-UART reply may be preceded by at most 64 NULs.
+
+calib polls a failed receive for up to 2.5 s, so later receives fail at once: a
+failed tty transfer closes the tty until the next init, a failed libusb CDC
 transfer closes the handle until the next send or init reopens it (a receive
-never does), and a timed-out HID read fails the reads that follow until the next
-send. One call on a silent pad therefore holds the lock for 3 to 5 s.
-A healthy pad's replies arrive well inside these bounds and see no change.
+never does), and a timed-out HID read fails the reads that follow until the
+next send. Measured with a fake pad that answers nothing, one call holds the
+lock for about 6 s on the tty and 8 s on HID and libusb CDC, whose idle command
+waits once more. Each `atcaRetry` attempt is a separate hold.
+
+A reply that comes after its wait is never read as the next command's: the tty
+drops pending input when it is opened, libusb CDC drains the pad after every
+(re)open, and HID drains it before every send.
+
+A tty write that stalls fails after 1 s, and its pending output is discarded
+before the tty is closed, so `close()` does not wait out the driver's
+`closing_wait` (30 s by default on cdc-acm). That last step is not covered by a
+test: a pseudo-terminal does not wait on close.
 
 ## Behaviour when busy (this SDK)
 

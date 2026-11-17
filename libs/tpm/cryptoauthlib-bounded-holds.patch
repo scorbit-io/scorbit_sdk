@@ -1,24 +1,25 @@
 cryptoauthlib 3.7.9: bound how long one kit transfer can block on a tap pad
 that stopped answering, since callers hold the tap pad lock across it.
 
-Apply AFTER cryptoauthlib-tappad-lock.patch. Native tty: VMIN=0 so a read ends
-when VTIME (0.5 s) expires, and a write waits at most 1 s for room. HID: reads
-time out after 0.5 s, and a device whose read timed out fails further reads at
-once until the next send. Kit UART: at most 64 leading NULs are skipped.
-See README-tappad-lock.md next to this file.
+Apply AFTER cryptoauthlib-tappad-lock.patch. The first byte (tty) or report
+(HID) of a reply may take 2.5 s, each later one 0.5 s; a tty write waits at
+most 1 s for room. A failed tty transfer discards pending output and closes
+the tty; opening it drops stale input. A HID device whose read timed out fails
+further reads at once until the next send. Kit UART: at most 64 leading NULs
+are skipped. See README-tappad-lock.md next to this file.
 
 --- /dev/null
 +++ b/lib/hal/hal_bounded_io.h
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,59 @@
 +/**
 + * \file
 + * \brief Bounds on how long one kit transfer may block on a pad that stopped
 + *        answering, since callers hold the tap pad lock across it (SB-6638).
 + *
-+ * A tty byte read is bounded by VTIME (0.5 s, hal_linux_uart_userspace.c) and
-+ * a libusb CDC transfer by its own timeouts (hal_linux_cdc_libusb.c). A
-+ * transport whose transfer failed fails every further receive at once until
-+ * the next send, so calib's response poll cannot repeat the wait.
++ * A failed tty transfer closes the tty, so every later call fails at once
++ * until the next init. A failed libusb CDC transfer closes the handle until
++ * the next send or init reopens it. A timed-out HID read fails the reads that
++ * follow until the next send. calib's response poll cannot repeat the wait.
 + *
 + * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
 + * SPDX-License-Identifier: MIT
@@ -36,8 +37,13 @@ See README-tappad-lock.md next to this file.
 +/** \brief Wait for a tty to take a byte; the libusb transport's write timeout. */
 +#define HAL_UART_WRITE_TIMEOUT_MS   (1000)
 +
-+/** \brief Wait for one HID report; the tty's VTIME and the libusb read timeout. */
-+#define HAL_KIT_HID_READ_TIMEOUT_MS (500)
++/** \brief Wait for the first byte (tty) or report (HID) of a reply: calib's
++ *         own 2.5 s limit for a command, so a slow chip clock still answers.
++ */
++#define HAL_KIT_REPLY_TIMEOUT_MS    (2500)
++
++/** \brief Wait for each later byte or report: the tty's VTIME of 0.5 s. */
++#define HAL_KIT_BYTE_TIMEOUT_MS     (500)
 +
 +/** \brief NULs skipped ahead of a kit-UART reply: a full-speed USB packet. */
 +#define KIT_MAX_NUL_SKIP            (64u)
@@ -78,7 +84,7 @@ See README-tappad-lock.md next to this file.
  
  typedef struct atca_uart_host_s
  {
-@@ -148,6 +153,46 @@
+@@ -148,6 +153,61 @@
      return ATCA_SUCCESS;
  }
  
@@ -102,40 +108,45 @@ See README-tappad-lock.md next to this file.
 +    return ioctl(fd, TIOCMBIS, bits);
 +}
 +
-+/** \brief Wait up to HAL_UART_WRITE_TIMEOUT_MS for the tty to take a byte. */
-+static bool hal_uart_wait_writable(int fd)
++/* The tty awaiting the first byte of a reply on this thread: it may wait
++   for the chip to execute, later bytes only for the line (SB-6638). */
++static __thread int t_reply_fd = -1;
++
++/** \brief Wait up to \p timeout_ms for \p events on \p fd. */
++static bool hal_uart_wait(int fd, short events, long timeout_ms)
 +{
-+    struct pollfd pfd = { fd, POLLOUT, 0 };
++    struct pollfd pfd = { fd, events, 0 };
 +    struct timespec start;
 +    struct timespec now;
-+    long left_ms = HAL_UART_WRITE_TIMEOUT_MS;
++    long left_ms = timeout_ms;
 +    int ret;
 +
 +    (void)clock_gettime(CLOCK_MONOTONIC, &start);
 +    while ((-1 == (ret = poll(&pfd, 1, (int)left_ms))) && (EINTR == errno))
 +    {
 +        (void)clock_gettime(CLOCK_MONOTONIC, &now);
-+        left_ms = HAL_UART_WRITE_TIMEOUT_MS - ((long)(now.tv_sec - start.tv_sec) * 1000L
-+                                               + (now.tv_nsec - start.tv_nsec) / 1000000L);
++        left_ms = timeout_ms - ((long)(now.tv_sec - start.tv_sec) * 1000L
++                                + (now.tv_nsec - start.tv_nsec) / 1000000L);
 +        left_ms = (0 < left_ms) ? left_ms : 0;
 +    }
-+    return (1 == ret) && (0 != (pfd.revents & POLLOUT));
++    return (1 == ret) && (0 != (pfd.revents & events));
++}
++
++/** \brief Close after a failure, discarding what a stalled pad never took,
++ *         which close() could otherwise wait up to closing_wait for.
++ */
++static void hal_uart_close_file(atca_uart_host_t * hal_data)
++{
++    (void)tcflush(hal_data->fd_uart, TCIOFLUSH);
++    (void)close(hal_data->fd_uart);
++    hal_data->fd_uart = -1;
++    t_reply_fd = -1;
 +}
 +
  /** \brief Open and configure serial COM Uart
   * \param[out] fd  resulting file descriptor
   *
-@@ -188,6 +233,9 @@
- 
-             /* Enable read timeout */
-             tty.c_cc[VTIME] = 5;
-+            /* Let VTIME expire with no byte at all: under VMIN=1, a read waits
-+               for a silent pad forever (SB-6638). */
-+            tty.c_cc[VMIN] = 0;
- 
-             /* Convert baudrate to posix/linux format */
-             rate = hal_uart_convert_baudrate(ATCA_IFACECFG_VALUE(cfg, atcauart.baud));
-@@ -235,7 +283,7 @@
+@@ -235,12 +295,15 @@
              }
  
              flags = TIOCM_DTR;
@@ -144,18 +155,80 @@ See README-tappad-lock.md next to this file.
              {
                  (void)close(hal_data->fd_uart);
                  return ATCA_COMM_FAIL;
-@@ -442,7 +490,10 @@
+             }
+ 
++            /* Drop a late reply that a failed exchange left queued (SB-6638) */
++            (void)tcflush(hal_data->fd_uart, TCIFLUSH);
++
+ #ifdef __COVERITY__
+ #pragma coverity compliance end_block \
+             "CERT INT31-C" \
+@@ -451,21 +514,29 @@
  
          if ((NULL != hal_data) && (0 < hal_data->fd_uart))
          {
 -            if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
 +            /* kit_phy_send writes one byte per call, so once the tty can take
 +               a byte this write does not block (SB-6638). */
-+            if (!hal_uart_wait_writable(hal_data->fd_uart)
++            if (!hal_uart_wait(hal_data->fd_uart, POLLOUT, HAL_UART_WRITE_TIMEOUT_MS)
 +                || (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength))
              {
                  status = ATCA_COMM_FAIL;
              }
+             else
+             {
+                 status = ATCA_SUCCESS;
++                t_reply_fd = hal_data->fd_uart;
+             }
+ 
+             if (ATCA_SUCCESS != status)
+             {
+-                (void)close(hal_data->fd_uart);
+-                hal_data->fd_uart = -1;
++                hal_uart_close_file(hal_data);
+             }
+         }
++        else if (NULL != hal_data)
++        {
++            /* Closed by an earlier failure: the device, not the call, is at fault */
++            status = ATCA_COMM_FAIL;
++        }
+     }
+ 
+     return status;
+@@ -516,21 +587,29 @@
+                 *rxlength = 1U; // packetsize to read
+             }
+ 
+-            if (read(hal_data->fd_uart, rxdata, (size_t)*rxlength) !=  (int)*rxlength)
++            /* VTIME only starts at the first byte, so wait for each one here (SB-6638) */
++            if (!hal_uart_wait(hal_data->fd_uart, POLLIN,
++                               (hal_data->fd_uart == t_reply_fd) ? HAL_KIT_REPLY_TIMEOUT_MS
++                                                                 : HAL_KIT_BYTE_TIMEOUT_MS)
++                || (read(hal_data->fd_uart, rxdata, (size_t)*rxlength) !=  (int)*rxlength))
+             {
+                 status = ATCA_COMM_FAIL;
+             }
+             else
+             {
+                 status = ATCA_SUCCESS;
++                t_reply_fd = -1;
+             }
+ 
+             if (ATCA_SUCCESS != status)
+             {
+-                (void)close(hal_data->fd_uart);
+-                hal_data->fd_uart = -1;
++                hal_uart_close_file(hal_data);
+             }
+         }
++        else if (NULL != hal_data)
++        {
++            status = ATCA_COMM_FAIL;
++        }
+     }
+ 
+     return status;
 --- a/lib/hal/kit_protocol.c
 +++ b/lib/hal/kit_protocol.c
 @@ -32,6 +32,7 @@
@@ -179,7 +252,7 @@ See README-tappad-lock.md next to this file.
              status = iface->phy->halreceive(iface, 0x00, rxdata, &rxlen);
          }
 -        while (ATCA_SUCCESS == status && *rxdata == '\0');
-+        while (ATCA_SUCCESS == status && *rxdata == '\0' && ++nul_count < KIT_MAX_NUL_SKIP);
++        while (ATCA_SUCCESS == status && *rxdata == '\0' && nul_count++ < KIT_MAX_NUL_SKIP);
 +        if ((ATCA_SUCCESS == status) && ('\0' == *rxdata))
 +        {
 +            /* A pad that only streams NULs (SB-6638) */
@@ -190,15 +263,17 @@ See README-tappad-lock.md next to this file.
  #endif
 --- a/lib/hal/hal_all_platforms_kit_hidapi.c
 +++ b/lib/hal/hal_all_platforms_kit_hidapi.c
-@@ -32,6 +32,48 @@
+@@ -32,6 +32,50 @@
  
  #include "atca_hal.h"
  #include "hal/kit_protocol.h"
 +#include "hal/hal_bounded_io.h"
 +
-+/* The device whose last read on this thread timed out. Its reads fail at once
-+   until the next send, so calib's response poll does not wait out each of its
-+   ~1250 polls (SB-6638). */
++/* Per thread (SB-6638): the device awaiting the first report of a reply,
++   which may wait for the chip, and the device whose last read timed out,
++   whose reads fail at once until the next send, so calib's response poll
++   does not wait out each of its ~1250 polls. */
++static __thread hid_device * t_reply_dev = NULL;
 +static __thread hid_device * t_rx_timed_out = NULL;
 +
 +#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
@@ -239,7 +314,7 @@ See README-tappad-lock.md next to this file.
  
  /** \defgroup hal_ Hardware abstraction layer (hal_)
   *
-@@ -97,10 +139,11 @@
+@@ -97,10 +141,11 @@
      {
          return ATCA_BAD_PARAM;
      }
@@ -252,7 +327,7 @@ See README-tappad-lock.md next to this file.
          if (ret < 0)
          {
              return ATCA_TX_FAIL;
-@@ -133,7 +176,7 @@
+@@ -133,10 +178,11 @@
  #endif
      if (0 == ret)
      {
@@ -261,7 +336,11 @@ See README-tappad-lock.md next to this file.
          {
              return ATCA_TX_FAIL;
          }
-@@ -166,11 +209,21 @@
++        t_reply_dev = pHid;
+     }
+ 
+     if ((uint32_t)bytes_written != ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)
+@@ -166,13 +212,25 @@
          return ATCA_BAD_PARAM;
      }
  
@@ -271,7 +350,8 @@ See README-tappad-lock.md next to this file.
 +        return ATCA_RX_TIMEOUT;
 +    }
 +
-+    ret = hal_kit_hid_read(pHid, rxdata, (size_t)*rxlength, HAL_KIT_HID_READ_TIMEOUT_MS);
++    ret = hal_kit_hid_read(pHid, rxdata, (size_t)*rxlength,
++                           (pHid == t_reply_dev) ? HAL_KIT_REPLY_TIMEOUT_MS : HAL_KIT_BYTE_TIMEOUT_MS);
      if (ret < 0)
      {
          return ATCA_RX_FAIL;
@@ -283,4 +363,7 @@ See README-tappad-lock.md next to this file.
 +    }
      else
      {
++        t_reply_dev = NULL;
          *rxlength = (uint16_t)ret;
+     }
+ 
