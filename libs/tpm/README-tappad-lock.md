@@ -278,7 +278,9 @@ one hold from idle plus four of about 5.3 s: about 28 s on libusb CDC and HID,
 Input left from an earlier command is drained before each command is sent: the
 tty flushes its input, libusb CDC resets its buffer and reads the pad dry (the
 first read waits 15 ms, so a healthy command costs about 15 ms more), and HID
-reads up to 64 pending reports. The kit protocol has no sequence numbers,
+reads pending reports. libusb CDC reads at most 64 packets and HID at most 64
+reports: a pad still sending after that fails the send, since its stale input
+could pass for the reply. The kit protocol has no sequence numbers,
 though: a reply that arrives after the next command has been sent is taken as
 that command's reply. That needs a pad that answers later than the whole
 3 s deadline, and within the next command's wait.

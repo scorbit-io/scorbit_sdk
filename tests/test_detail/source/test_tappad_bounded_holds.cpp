@@ -164,8 +164,9 @@ public:
     void setLeadingNuls(size_t count) { m_leadingNuls = count; }
     // Send each Info reply one byte per interval.
     void setTrickle(std::chrono::milliseconds interval) { m_trickle = interval; }
-    // Have input reports always pending (HID).
-    void setFlood(bool flood) { m_flood = flood; }
+    // Have input always pending to reads waiting up to upToMs: 0 is HID's drain, while libusb
+    // CDC's flush waits a few ms per packet.
+    void setFlood(bool flood, int upToMs = 0) { m_floodUpToMs = flood ? upToMs : -1; }
     // Block the sender this long after an Info command, as a host stalled between send and receive.
     void setStallAfterInfo(std::chrono::milliseconds stall) { m_stallAfterInfo = stall; }
 
@@ -203,7 +204,8 @@ public:
         if (timeoutMs == 0) {
             ++m_drains;
         }
-        if (m_flood && timeoutMs == 0) {
+        if (timeoutMs >= 0 && timeoutMs <= m_floodUpToMs) {
+            ++m_floods;
             std::memset(out, 'x', max);
             return max;
         }
@@ -246,6 +248,7 @@ public:
     int waits() const { return m_waits; }
     int longWaits() const { return m_longWaits; }
     int drains() const { return m_drains; }
+    int floods() const { return m_floods; }
     std::string commands() const
     {
         const std::lock_guard<std::mutex> lock(m_mutex);
@@ -305,7 +308,8 @@ private:
     std::atomic<int> m_drains {0};
     std::atomic<bool> m_released {false};
     std::atomic<bool> m_silent {false};
-    std::atomic<bool> m_flood {false};
+    std::atomic<int> m_floodUpToMs {-1};
+    std::atomic<int> m_floods {0};
     std::atomic<size_t> m_leadingNuls {0};
     std::chrono::milliseconds m_trickle {0};
     std::chrono::milliseconds m_stallAfterInfo {0};
@@ -1160,6 +1164,23 @@ TEST_CASE("Tap pad hold: a libusb CDC reply that arrived before a stall past the
 
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(0));
+}
+
+TEST_CASE("Tap pad hold: a libusb CDC pad flooding input fails the send", "[tappad_bounded]")
+{
+    FakeKitPad pad;
+    pad.setFlood(true, WAITED_MS); // the flush's short reads, not the reply's waits
+    fake_cdc::Device cdc(pad);
+
+    uint8_t revision[4] = {};
+    const auto result = cdc.kit.info(revision, [&] { pad.release(); });
+
+    CHECK(result.inBound);
+    CHECK(result.status != ATCA_SUCCESS);
+    // The Info send and the idle's each read at most 64 packets, then fail before sending.
+    CHECK(pad.floods() <= 2 * 64);
+    CHECK(pad.commands().empty());
+    CHECK(pad.waits() == 0);
 }
 
 #    endif

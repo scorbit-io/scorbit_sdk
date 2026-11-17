@@ -66,7 +66,7 @@
  endif(LINUX)
 --- a/lib/hal/hal_linux_cdc_libusb.c
 +++ b/lib/hal/hal_linux_cdc_libusb.c
-@@ -0,0 +1,609 @@
+@@ -0,0 +1,613 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -556,7 +556,10 @@
 +    {
 +        /* A new command: drop any late reply to an earlier one,
 +           and bound this one's whole reply */
-+        (void)hal_cdc_libusb_flush(cdc);
++        if (ATCA_SUCCESS != hal_cdc_libusb_flush(cdc))
++        {
++            return ATCA_COMM_FAIL; /* stale input could pass for this command's reply */
++        }
 +        cdc->deadline_ms = cdc_now_ms() + CDC_COMMAND_TIMEOUT_MS;
 +        cdc->sending = true;
 +        cdc->awaiting_reply = true;
@@ -670,15 +673,16 @@
 +                                    (0 == i) ? CDC_FLUSH_FIRST_TIMEOUT_MS : CDC_FLUSH_TIMEOUT_MS))
 +            || (0 >= transferred))
 +        {
-+            break;
++            return ATCA_SUCCESS; /* read dry */
 +        }
 +    }
 +
-+    return ATCA_SUCCESS;
++    /* Still readable after the limit: a pad flooding input, failed as the HID drain does */
++    return ATCA_COMM_FAIL;
 +}
 --- a/lib/hal/hal_linux_cdc_libusb.h
 +++ b/lib/hal/hal_linux_cdc_libusb.h
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,89 @@
 +/**
 + * \file
 + * \brief USB CDC ACM transport over libusb, for Linux hosts without the
@@ -743,7 +747,8 @@
 +ATCA_STATUS hal_cdc_libusb_receive(atca_cdc_libusb_t * cdc, uint8_t * rxdata, uint16_t * rxlength,
 +                                   bool * suspect);
 +
-+/** \brief Discard buffered and in-flight data. */
++/** \brief Discard buffered and in-flight data; fails if the pad is still sending
++ *         after CDC_FLUSH_MAX_PACKETS packets. */
 +ATCA_STATUS hal_cdc_libusb_flush(atca_cdc_libusb_t * cdc);
 +
 +#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
