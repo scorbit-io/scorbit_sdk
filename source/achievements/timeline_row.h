@@ -78,8 +78,9 @@ struct TimelineRow {
     std::optional<int64_t> elapsedMs;
 
     /**
-     * The row's place in the order of rows committed by this game state, counted from 1; 0 if
-     * unknown. Consecutive within a game, so a gap shows a row was lost.
+     * The row's place in the order of rows committed by this game state, counted from 1 for its
+     * whole life and running on across games, so a game's start row is not numbered 1; 0 if
+     * unknown. Rows of one game are consecutive, so a gap between two of them shows a row was lost.
      */
     uint64_t sequence {0};
 };
