@@ -178,8 +178,8 @@ private:
     int64_t m_closedMs {0};
     std::optional<int64_t> m_openSinceMs;
     int64_t m_lastElapsedMs {0};
-    /** Rows applied after the start row: the next must be numbered one past them. */
-    uint64_t m_rowsSinceStart {0};
+    /** The sequence the next row must carry: one past the last row applied. */
+    uint64_t m_nextSequence {0};
 
     achievements::TimelineRow m_startRow;
     std::optional<TurnTimeResult> m_result;

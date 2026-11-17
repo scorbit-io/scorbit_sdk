@@ -49,6 +49,7 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
         return;
     }
     m_lastElapsedMs = *startRow.elapsedMs;
+    m_nextSequence = startRow.sequence + 1;
     if (startRow.player == m_player) {
         m_openSinceMs = *startRow.elapsedMs;
     }
@@ -69,7 +70,7 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
         return;
     }
     // A lost row could be the one that made the player current, so its time would go uncounted
-    if (row.sequence != m_startRow.sequence + m_rowsSinceStart + 1) {
+    if (row.sequence != m_nextSequence) {
         interrupt("a row is missing, repeated or out of order");
         return;
     }
@@ -79,7 +80,7 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
         return;
     }
     m_lastElapsedMs = now;
-    ++m_rowsSinceStart;
+    ++m_nextSequence;
 
     // The player change first, at the row's instant: the time up to it is the previous player's
     if (row.player != m_player) {
