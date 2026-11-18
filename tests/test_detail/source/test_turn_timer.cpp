@@ -26,6 +26,7 @@
 
 #include "competitions/turn_timer.h"
 #include <catch2/catch_test_macros.hpp>
+#include <compare>
 #include <optional>
 #include <string>
 #include <vector>
@@ -465,8 +466,8 @@ TEST_CASE("A later-UTC 70 s result is faster than an earlier-UTC 90 s one",
     REQUIRE(timerA.result());
     REQUIRE(timerB.result());
     CHECK(timerB.result()->completionUtcMs > timerA.result()->completionUtcMs);
-    CHECK(compareDurations(*timerB.result(), *timerA.result()) < 0);
-    CHECK(compareDurations(*timerA.result(), *timerB.result()) > 0);
+    CHECK(std::is_lt(compareDurations(*timerB.result(), *timerA.result())));
+    CHECK(std::is_gt(compareDurations(*timerA.result(), *timerB.result())));
 }
 
 TEST_CASE("Exactly equal durations stay equal whatever UTC or score says",
@@ -491,7 +492,7 @@ TEST_CASE("Exactly equal durations stay equal whatever UTC or score says",
     REQUIRE(timerB.result());
     CHECK(timerA.result()->durationMs == 70 * S);
     CHECK(timerB.result()->durationMs == 70 * S);
-    CHECK(compareDurations(*timerA.result(), *timerB.result()) == 0);
+    CHECK(std::is_eq(compareDurations(*timerA.result(), *timerB.result())));
 }
 
 TEST_CASE("Differences finer than a second are kept", "[competitions][turn_timer]")
@@ -508,8 +509,8 @@ TEST_CASE("Differences finer than a second are kept", "[competitions][turn_timer
     const auto c = timeTo(70'901);
     CHECK(a.durationMs == 70'400);
     CHECK(b.durationMs == 70'900);
-    CHECK(compareDurations(a, b) < 0); // both "70 s" to the second, still told apart
-    CHECK(compareDurations(b, c) < 0); // a single millisecond counts
+    CHECK(std::is_lt(compareDurations(a, b))); // both "70 s" to the second, still told apart
+    CHECK(std::is_lt(compareDurations(b, c))); // a single millisecond counts
 }
 
 // ---- 5. Timer state, and stopping when continuity is unknown ----------------------------------
