@@ -105,9 +105,8 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *   cross a boot. Within a boot, any doubt about continuity stops qualification rather than drop
  *   the doubtful time and yield a faster result than was played.
  *
- * Nothing feeds it yet: B02B (SB-6366) is to run one per started attempt from CompetitionService,
- * applying every committed row with the goal's verdict on it, and B02F (SB-6370) to send the
- * result. Until then it is exercised by its tests only.
+ * CompetitionService (B02B, SB-6366) runs one per attempt and position, applying every committed
+ * row of the game with the goal's verdict on it. Sending the result is B02F (SB-6370).
  */
 class TurnTimer
 {
@@ -144,6 +143,13 @@ public:
     void end(int64_t elapsedMs);
 
     /**
+     * The designated game ended on the last row applied. @p goalMet if the goal is satisfied once
+     * the turn and modes running there close: it is then completed on that row; otherwise the
+     * game ended there without meeting it.
+     */
+    void endAtLastRow(bool goalMet);
+
+    /**
      * Continuity of the input is no longer known, for @p reason: qualification stops, with no
      * result. A result already saved, and the consumed attempt, are kept.
      */
@@ -172,8 +178,8 @@ public:
 
 private:
     void closeTurn(int64_t elapsedMs);
-    /** The goal is first met on @p row, already applied: the result is saved and final. */
-    void complete(const achievements::TimelineRow &row);
+    /** The goal is first met on the last row applied: the result is saved and final. */
+    void complete();
 
     achievements::PlayerNumber m_player;
     TimingEvidence m_evidence;
@@ -182,6 +188,9 @@ private:
     int64_t m_closedMs {0};
     std::optional<int64_t> m_openSinceMs;
     int64_t m_lastElapsedMs {0};
+    /** The last row applied's device UTC, and whether the server vouched for its clock. */
+    int64_t m_lastUtcMs {0};
+    bool m_lastSynchronised {false};
     /** The sequence the next row must carry: one past the last row applied. */
     uint64_t m_nextSequence {0};
 

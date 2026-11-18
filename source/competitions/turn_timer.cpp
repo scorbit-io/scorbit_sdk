@@ -51,6 +51,8 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
         return;
     }
     m_lastElapsedMs = *startRow.elapsedMs;
+    m_lastUtcMs = startRow.timeMs;
+    m_lastSynchronised = startRow.clockSynchronised;
     m_nextSequence = startRow.sequence + 1;
     if (startRow.player == m_player) {
         m_openSinceMs = *startRow.elapsedMs;
@@ -58,7 +60,7 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
 
     // Met before any time passed: complete at zero, on the start row itself
     if (goalMet) {
-        complete(startRow);
+        complete();
     }
 }
 
@@ -82,6 +84,8 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
         return;
     }
     m_lastElapsedMs = now;
+    m_lastUtcMs = row.timeMs;
+    m_lastSynchronised = row.clockSynchronised;
     ++m_nextSequence;
 
     // The player change first, at the row's instant: the time up to it is the previous player's
@@ -93,22 +97,35 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
 
     // Then the goal, at that same instant
     if (goalMet) {
-        complete(row);
+        complete();
     }
 }
 
-void TurnTimer::complete(const achievements::TimelineRow &row)
+void TurnTimer::complete()
 {
-    const auto now = *row.elapsedMs;
+    const auto now = m_lastElapsedMs;
     m_result = TurnTimeResult {.durationMs = elapsedAt(now),
                                .startSequence = m_startSequence,
-                               .completionSequence = row.sequence,
+                               .completionSequence = m_nextSequence - 1,
                                .startUtcMs = m_startUtcMs,
-                               .completionUtcMs = row.timeMs,
-                               .utcSynchronised = m_startSynchronised && row.clockSynchronised,
+                               .completionUtcMs = m_lastUtcMs,
+                               .utcSynchronised = m_startSynchronised && m_lastSynchronised,
                                .evidence = m_evidence};
     closeTurn(now);
     m_state = State::Completed;
+}
+
+void TurnTimer::endAtLastRow(bool goalMet)
+{
+    if (m_state != State::Running) {
+        return;
+    }
+    if (goalMet) {
+        complete();
+        return;
+    }
+    closeTurn(m_lastElapsedMs);
+    m_state = State::Ended;
 }
 
 void TurnTimer::end(int64_t elapsedMs)
