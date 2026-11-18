@@ -187,6 +187,7 @@ void CompetitionService::onGameStarted(int gameSessionId, const achievements::Ti
 
         // The game's facts start from its first row, as achievements' do. Each candidate is timed
         // at every position until a reply seats its player, possibly after the goal was met.
+        game.startElapsedMs = *firstRow.elapsedMs;
         apply(game, firstRow);
         const TimingEvidence evidence {.deviceId = m_net.getMachineUuid(), .bootId = m_bootId};
         for (const auto &attempt : game.candidates) {
@@ -285,9 +286,15 @@ void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
 
 void CompetitionService::apply(Game &game, const achievements::TimelineRow &row)
 {
-    game.facts.apply(row);
+    // The goal's timers are judged on the elapsed clock the turn timer runs on, placed at the
+    // start's UTC: a UTC correction during the game would add to them or take from them. A row
+    // without an elapsed time stops every timer, so it moves nothing.
+    auto timed = row;
+    timed.timeMs = row.elapsedMs ? game.startedAtMs + (*row.elapsedMs - game.startElapsedMs)
+                                 : game.lastTimeMs;
+    game.facts.apply(timed);
     game.lastSequence = row.sequence;
-    game.lastTimeMs = row.timeMs;
+    game.lastTimeMs = timed.timeMs;
     // Only the positions the API accepts can ever be an attempt's
     auto appear = [&](achievements::PlayerNumber player) {
         if (player >= 1 && player <= MAX_POSITION) {

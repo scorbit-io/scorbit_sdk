@@ -151,7 +151,9 @@ private:
          * attempt it starts. Unique within the boot, so it also tells the game's starts apart.
          */
         uint64_t startSequence {0};
-        /** The last row applied: its place in the row order, and its device UTC. */
+        /** The start row's TimelineRow::elapsedMs, from which the facts' times are counted. */
+        int64_t startElapsedMs {0};
+        /** The last row applied: its place in the row order, and its time as the facts have it. */
         uint64_t lastSequence {0};
         int64_t lastTimeMs {0};
         std::string sessionUuid;

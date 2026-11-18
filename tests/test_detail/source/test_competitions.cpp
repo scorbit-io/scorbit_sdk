@@ -1834,6 +1834,37 @@ TEST_CASE("A game replaced without an end is judged once more on its last row", 
     }
 }
 
+TEST_CASE("A goal's timer rules are judged on the elapsed clock, whatever UTC does",
+          "[competitions]")
+{
+    using achievements::TimelineRow;
+    FakeNet net {""};
+    CompetitionService service {net, [](std::function<void()> fn) { fn(); },
+                                [] { return STARTED_AT_MS; }, net.boot};
+    service.onGoal(parsed(goalFor(ATTEMPT, json::array({rule("TIMER_SESSION", ">=", 60'000)}))));
+
+    // Rows: UTC, player, ball, scores, modes, completed, events, synchronised, elapsed, sequence
+    const int64_t t = STARTED_AT_MS;
+    const std::map<achievements::PlayerNumber, int64_t> zero {{1, 0}};
+    service.onGameStarted(1, TimelineRow {t, 1, 1, zero, {}, {}, {}, true, 0, 1});
+    service.onSessionPlayers(SESSION, {{1, SessionSeat {PLAYER, TOURNAMENT}}});
+    service.onSessionCreated(1, SESSION);
+    const auto &record = service.attempts().at(ATTEMPT);
+    REQUIRE(record.start);
+
+    // A second in, UTC is stepped a minute forward: one second played, not sixty-one
+    service.onRow(TimelineRow {t + 61'000, 1, 1, zero, {}, {}, {}, true, 1000, 2});
+    CHECK_FALSE(record.qualification);
+    // Then two minutes back: nothing played is taken away
+    service.onRow(TimelineRow {t - 59'000, 1, 1, zero, {}, {}, {}, true, 59'000, 3});
+    CHECK_FALSE(record.qualification);
+    service.onRow(TimelineRow {t - 58'000, 1, 1, zero, {}, {}, {}, true, 60'000, 4});
+    REQUIRE(record.qualification);
+    CHECK(record.qualification->durationMs == 60'000);
+    CHECK(record.qualification->completionSequence == 4);
+    CHECK(record.qualification->completionUtcMs == t - 58'000); // still the row's own UTC
+}
+
 TEST_CASE("TIMER_BETWEEN is refused where a later occurrence would shorten its span",
           "[competitions]")
 {
