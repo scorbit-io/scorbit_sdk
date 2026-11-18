@@ -167,9 +167,13 @@ private:
 class FakeNet : public NetBase
 {
 public:
-    explicit FakeNet(std::string dataDir) { m_info.dataDir = std::move(dataDir); }
+    explicit FakeNet(std::string dataDir)
+        : boot {fmt::format("6c0e9d1a-2f3b-4c5d-8e9f-{:012}", ++boots)}
+    {
+        m_info.dataDir = std::move(dataDir);
+    }
 
-    AuthStatus status() const override { return AuthStatus::AuthenticatedPaired; }
+    AuthStatus status() const override { return auth; }
     void authenticate() override { }
     void updateConfig(const std::string &, const std::string &, bool, std::optional<std::string>,
                       HttpStatusCallback) override
@@ -220,6 +224,7 @@ public:
         goalReceived = std::move(cb);
     }
     bool isClockSynchronised() const override { return clockSynchronised; }
+    const std::string &bootId() const override { return boot; }
     std::string venueMachine() const override { return venue; }
     void postCompetitionMessage(MessageKind kind, std::string body, ApiReplyCallback cb) override
     {
@@ -287,6 +292,11 @@ public:
         json body;
         ApiReplyCallback reply;
     };
+
+    /** Each Net's own, as Net generates one per instance. */
+    static inline int boots {0};
+    std::string boot;
+    AuthStatus auth {AuthStatus::AuthenticatedPaired};
 
     SessionCreatedCallback sessionCreated;
     SessionPlayersCallback sessionPlayers;
@@ -759,8 +769,8 @@ TEST_CASE("The start is recorded once the session reply names the player", "[com
     REQUIRE(f.record().start);
     CHECK(f.record().start->session == SESSION);
     CHECK(f.record().start->position == 2);
-    CHECK(f.record().start->bootId == bootId());
-    CHECK(f.record().start->sequence == 1);
+    CHECK(f.record().start->bootId == f.net->boot);
+    CHECK(f.record().start->sequence == 1);         // the boot's first row
     CHECK(f.record().started == Delivery::Pending); // kept until confirmed
 
     REQUIRE(f.net->sent.size() == 1);
@@ -769,7 +779,7 @@ TEST_CASE("The start is recorded once the session reply names the player", "[com
     CHECK(body["type"] == "competition.attempt_started");
     CHECK(body["session"] == SESSION);
     CHECK(body["position"] == 2);
-    CHECK(body["boot_id"] == bootId());
+    CHECK(body["boot_id"] == f.net->boot);
     CHECK(body["sequence"] == 1);
     CHECK(body["started_at"] == formatUtc(f.record().start->startedAtMs));
 
@@ -948,8 +958,10 @@ TEST_CASE("An attempt starts once, never again in a later game", "[competitions]
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("A game with nothing to start takes no sequence number", "[competitions]")
+TEST_CASE("A start is numbered by its game's start row, in the order of all rows", "[competitions]")
 {
+    // The rows run on across games, whether or not a game starts anything: the first game's
+    // start and end rows are 1 and 2
     Fixture f;
     f.startGame();
     f.game->setGameFinished();
@@ -957,7 +969,7 @@ TEST_CASE("A game with nothing to start takes no sequence number", "[competition
     f.startGame();
     f.sessionCreated();
     REQUIRE(f.record().start);
-    CHECK(f.record().start->sequence == 1);
+    CHECK(f.record().start->sequence == 3);
 }
 
 TEST_CASE("A message without an answer is resent unchanged, with backoff", "[competitions]")
@@ -1115,7 +1127,8 @@ TEST_CASE("A restart loses the attempt", "[competitions]")
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("The device event sequence counts game starts from 1 each boot", "[competitions]")
+TEST_CASE("The start's row order runs on across games, and from 1 again each boot",
+          "[competitions]")
 {
     constexpr auto SECOND_TOURNAMENT = "0193a5e0-0000-7000-8000-000000000011";
     auto second = goal();
@@ -1132,13 +1145,14 @@ TEST_CASE("The device event sequence counts game starts from 1 each boot", "[com
     REQUIRE(f.record().start);
     CHECK(f.record().start->sequence == 1);
 
-    // A later game with an attempt to start takes the next one
+    // A later game's start row: after game 1's start, session reply and end rows
     f.game->setGameFinished();
     f.deliver(second);
     f.startGame();
     f.sessionCreated(PLAYER, 1, SECOND_TOURNAMENT);
     REQUIRE(secondAttempt(f).start);
-    CHECK(secondAttempt(f).start->sequence == 2);
+    CHECK(secondAttempt(f).start->sequence == 4);
+    const auto firstBoot = f.net->boot;
 
     // A new boot counts from 1 again; its boot id tells it apart
     f.boot();
@@ -1147,7 +1161,8 @@ TEST_CASE("The device event sequence counts game starts from 1 each boot", "[com
     f.sessionCreated(PLAYER, 1, SECOND_TOURNAMENT);
     REQUIRE(secondAttempt(f).start);
     CHECK(secondAttempt(f).start->sequence == 1);
-    CHECK(secondAttempt(f).start->bootId == bootId());
+    CHECK(secondAttempt(f).start->bootId == f.net->boot);
+    CHECK(f.net->boot != firstBoot);
 }
 
 // ---- Goals judged afresh in each designated game (SB-6366) -------------------------------------
@@ -1282,10 +1297,14 @@ TEST_CASE("Ali Baba then the score: the goal is met at the score", "[competition
     const auto before = nowMs();
     score(f, 10);
     REQUIRE(f.record().qualification);
-    CHECK(f.record().qualification->qualifiedAtMs >= before);
-    CHECK(f.record().qualification->qualifiedAtMs <= nowMs());
-    // The game start took 1: the completing row is the next device event
-    CHECK(f.record().qualification->sequence == 2);
+    const auto &met = *f.record().qualification;
+    CHECK(met.completionUtcMs >= before);
+    CHECK(met.completionUtcMs <= nowMs());
+    // Rows: the start, the session reply's, Ali Baba, then the score
+    CHECK(met.startSequence == 1);
+    CHECK(met.completionSequence == 4);
+    CHECK(met.utcSynchronised);
+    CHECK(met.evidence.bootId == f.net->boot);
 }
 
 TEST_CASE("The score then Ali Baba: the goal is met at Ali Baba", "[competitions]")
@@ -1300,7 +1319,7 @@ TEST_CASE("The score then Ali Baba: the goal is met at Ali Baba", "[competitions
 
     activate(f);
     REQUIRE(f.record().qualification);
-    CHECK(f.record().qualification->sequence == 2);
+    CHECK(f.record().qualification->completionSequence == 4);
 }
 
 TEST_CASE("Ali Baba needn't still be running when the score is reached", "[competitions]")
@@ -1427,8 +1446,10 @@ TEST_CASE("A completed attempt doesn't spare the next one its fresh game", "[com
     CHECK_FALSE(attemptOf(f, SECOND).qualification);
     activate(f);
     REQUIRE(attemptOf(f, SECOND).qualification);
-    CHECK(attemptOf(f, SECOND).qualification->sequence > first.sequence);
-    CHECK(f.record().qualification == first); // the first keeps its own
+    CHECK(attemptOf(f, SECOND).qualification->completionSequence > first.completionSequence);
+    // The first keeps its own
+    CHECK(f.record().qualification->completionSequence == first.completionSequence);
+    CHECK(f.record().qualification->durationMs == first.durationMs);
 }
 
 TEST_CASE("A goal met before the reply seats its player qualifies at the original row",
@@ -1453,8 +1474,9 @@ TEST_CASE("A goal met before the reply seats its player qualifies at the origina
     f.sessionCreated();
     REQUIRE(f.record().start);
     REQUIRE(f.record().qualification);
-    CHECK(f.record().qualification->qualifiedAtMs <= metBy);
-    CHECK(f.record().qualification->sequence == 2);
+    CHECK(f.record().qualification->completionUtcMs <= metBy);
+    // Rows: the start, Ali Baba, then the score
+    CHECK(f.record().qualification->completionSequence == 3);
 }
 
 TEST_CASE("Only the attempt's own position meets its goal", "[competitions]")
@@ -1516,7 +1538,8 @@ TEST_CASE("A rule that becomes false again is met only while every rule holds to
 
         deactivate(f);
         activate(f); // no longer holds, but the goal was met
-        CHECK(f.record().qualification == met);
+        CHECK(f.record().qualification->completionSequence == met.completionSequence);
+        CHECK(f.record().qualification->durationMs == met.durationMs);
     }
 
     SECTION("EVENT: a register that falls back must reach the target again")
@@ -1659,6 +1682,91 @@ TEST_CASE("A goal met when the game ends qualifies at the end", "[competitions]"
     CHECK(f.record().qualification);
 }
 
+TEST_CASE("A goal met when the game ends can't qualify if the end row was lost", "[competitions]")
+{
+    Fixture f;
+    f.deliver(goalFor(ATTEMPT, json::array({rule("MODE_SCORE", "<=", 1000, ALI_BABA),
+                                            rule("MODE", ">=", 1, ALI_BABA)})));
+    f.startGame();
+    f.sessionCreated();
+    activate(f);
+    score(f, 500);
+
+    // The end row is dropped, though counted: what happened up to it is unknown
+    f.net->auth = AuthStatus::AuthenticationFailed;
+    f.game->setGameFinished();
+    f.run();
+    CHECK_FALSE(f.record().qualification);
+}
+
+TEST_CASE("A lost row stops the timing: no result shorter than was played", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+
+    // A commit dropped while auth has failed keeps its place in the row order
+    f.net->auth = AuthStatus::AuthenticationFailed;
+    activePlayer(f, 2);
+    f.net->auth = AuthStatus::AuthenticatedPaired;
+
+    activePlayer(f, 1);
+    activate(f);
+    score(f, 10);
+    CHECK_FALSE(f.record().qualification);
+}
+
+TEST_CASE("A goal met on a row whose clock wasn't vouched for qualifies, flagged", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+
+    // Only the completion's UTC is in doubt: the duration is on the elapsed clock
+    f.net->clockSynchronised = false;
+    activate(f);
+    score(f, 10);
+    REQUIRE(f.record().qualification);
+    CHECK_FALSE(f.record().qualification->utcSynchronised);
+}
+
+TEST_CASE("An attempt seated late is timed by its own position's turns only", "[competitions]")
+{
+    using achievements::TimelineRow;
+    FakeNet net {""};
+    CompetitionService service {net, [](std::function<void()> fn) { fn(); },
+                                [] { return STARTED_AT_MS; }, net.boot};
+    service.onGoal(parsed(goalFor(ATTEMPT)));
+
+    // P1 0–30 s, then P2, who meets goal 115 at 60 s: 30 s of P2's own turn. No one is seated yet.
+    // Rows: UTC, player, ball, scores, modes, completed, events, synchronised, elapsed, sequence
+    const int64_t t = STARTED_AT_MS;
+    const std::map<achievements::PlayerNumber, int64_t> zero {{1, 0}, {2, 0}};
+    service.onGameStarted(1, TimelineRow {t, 1, 1, zero, {}, {}, {}, true, 0, 1});
+    service.onRow(TimelineRow {t + 30'000, 2, 1, zero, {}, {}, {}, true, 30'000, 2});
+    service.onRow(TimelineRow {t + 50'000, 2, 1, zero, {ALI_BABA}, {}, {}, true, 50'000, 3});
+    service.onRow(
+            TimelineRow {t + 60'000, 2, 1, {{1, 0}, {2, 10}}, {ALI_BABA}, {}, {}, true, 60'000, 4});
+    service.onRow(
+            TimelineRow {t + 90'000, 1, 1, {{1, 0}, {2, 10}}, {ALI_BABA}, {}, {}, true, 90'000, 5});
+    const auto &record = service.attempts().at(ATTEMPT);
+    CHECK_FALSE(record.qualification);
+
+    // The reply seats the attempt's player at position 2
+    service.onSessionPlayers(SESSION, {{2, SessionSeat {PLAYER, TOURNAMENT}}});
+    service.onSessionCreated(1, SESSION);
+    REQUIRE(record.start);
+    CHECK(record.start->sequence == 1);
+    REQUIRE(record.qualification);
+    CHECK(record.qualification->durationMs == 30'000);
+    CHECK(record.qualification->startSequence == 1);
+    CHECK(record.qualification->completionSequence == 4);
+    CHECK(record.qualification->completionUtcMs == t + 60'000);
+    CHECK(record.qualification->evidence.bootId == net.boot);
+}
+
 TEST_CASE("A late reply for an earlier game never lets a later game qualify its attempt",
           "[competitions]")
 {
@@ -1690,31 +1798,40 @@ TEST_CASE("A late reply for an earlier game never lets a later game qualify its 
     CHECK_FALSE(f.record().qualification);
 }
 
-TEST_CASE("A game replaced without an end is judged once more where the next one starts",
-          "[competitions]")
+TEST_CASE("A game replaced without an end is judged once more on its last row", "[competitions]")
 {
     using achievements::TimelineRow;
     FakeNet net {""};
     CompetitionService service {net, [](std::function<void()> fn) { fn(); },
-                                [] { return STARTED_AT_MS; }};
+                                [] { return STARTED_AT_MS; }, net.boot};
     service.onGoal(parsed(goalFor(ATTEMPT, json::array({rule("MODE_SCORE", "<=", 1000, ALI_BABA),
                                                         rule("MODE", ">=", 1, ALI_BABA)}))));
 
+    // Rows: UTC, player, ball, scores, modes, completed, events, synchronised, elapsed, sequence
     const int64_t t = STARTED_AT_MS;
-    service.onGameStarted(1, t);
-    service.onRow(TimelineRow {t, 1, 1, {{1, 0}}, {}, {}, {}, true});
-    service.onRow(TimelineRow {t + 1000, 1, 1, {{1, 0}}, {ALI_BABA}, {}, {}, true});
-    service.onRow(TimelineRow {t + 2000, 1, 1, {{1, 500}}, {ALI_BABA}, {}, {}, true});
+    service.onGameStarted(1, TimelineRow {t, 1, 1, {{1, 0}}, {}, {}, {}, true, 0, 1});
+    service.onRow(TimelineRow {t + 1000, 1, 1, {{1, 0}}, {ALI_BABA}, {}, {}, true, 1000, 2});
+    service.onRow(TimelineRow {t + 2000, 1, 1, {{1, 500}}, {ALI_BABA}, {}, {}, true, 2000, 3});
     service.onSessionPlayers(SESSION, {{1, SessionSeat {PLAYER, TOURNAMENT}}});
     service.onSessionCreated(1, SESSION);
     const auto &record = service.attempts().at(ATTEMPT);
     REQUIRE(record.start);
     CHECK_FALSE(record.qualification); // Ali Baba still running
 
-    // The next game starts with no end of game 1: that start closes it
-    service.onGameStarted(2, t + 5000);
-    REQUIRE(record.qualification);
-    CHECK(record.qualification->qualifiedAtMs == t + 5000);
+    SECTION("The next game's start row follows: game 1 ended on its last row")
+    {
+        service.onGameStarted(2, TimelineRow {t + 5000, 1, 1, {{1, 0}}, {}, {}, {}, true, 5000, 4});
+        REQUIRE(record.qualification);
+        CHECK(record.qualification->completionSequence == 3);
+        CHECK(record.qualification->completionUtcMs == t + 2000);
+        CHECK(record.qualification->durationMs == 2000);
+    }
+
+    SECTION("Rows went missing before the next game's start: nothing is timed to them")
+    {
+        service.onGameStarted(2, TimelineRow {t + 5000, 1, 1, {{1, 0}}, {}, {}, {}, true, 5000, 6});
+        CHECK_FALSE(record.qualification);
+    }
 }
 
 TEST_CASE("TIMER_BETWEEN is refused where a later occurrence would shorten its span",

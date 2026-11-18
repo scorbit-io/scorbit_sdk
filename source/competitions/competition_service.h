@@ -21,6 +21,7 @@
 
 #include "message_outbox.h"
 #include "messages.h"
+#include "turn_timer.h"
 #include "../net_base.h"
 #include "../achievements/player_facts.h"
 #include "../achievements/timeline_row.h"
@@ -38,27 +39,11 @@ namespace scorbit {
 namespace detail {
 namespace competitions {
 
-/** This run's boot id: a random uuid, generated once per process and never stored. */
-const std::string &bootId();
-
 /** Where a message to the API stands. */
 enum class Delivery {
     Pending,   ///< Not answered yet: it is sent, and sent again, until it is
     Saved,     ///< The server saved it
     Duplicate, ///< The server had saved it already
-};
-
-/**
- * The moment an attempt met its goal (SB-6366): the first row of its game on which every rule of
- * the saved definition held together, for the attempt's own player at its own position.
- */
-struct AttemptQualification {
-    /** That row's time, device UTC. */
-    int64_t qualifiedAtMs {0};
-    /** The device event ordinal of that row, from the same count as the game starts. */
-    int64_t sequence {0};
-
-    bool operator==(const AttemptQualification &) const = default;
 };
 
 /** One installed attempt, held in memory: a restart ends it (SB-6369). */
@@ -73,10 +58,11 @@ struct AttemptRecord {
     Delivery started {Delivery::Pending};
 
     /**
-     * Set once, when the attempt's game first met its goal; never replaced. Its report, with the
-     * duration of B02C (SB-6367), is sent by B02F (SB-6370).
+     * Set once, from the attempt's own game, when its player met the goal there (SB-6366): the
+     * player's turn time to the first row on which every rule held together (SB-6367). Never
+     * replaced. Sending it is B02F (SB-6370).
      */
-    std::optional<AttemptQualification> qualification;
+    std::optional<TurnTimeResult> qualification;
 };
 
 /**
@@ -95,16 +81,17 @@ struct AttemptRecord {
  *   from the game's own session replies: the create reply, then any update that seats a player
  *   later. The machine-wide profiles are never used, as a late reply for another session rewrites
  *   them.
- * - The start (the game's original UTC, this boot's id and a device event ordinal taken at the
- *   game start, counted from 1 each boot) is kept until confirmed, and sent once the session
- *   uuid is known.
+ * - The start (the game's original UTC, this boot's id and its start row's place in the order of
+ *   rows, TimelineRow::sequence) is kept until confirmed, and sent once the session uuid is known.
+ *   The qualification's rows are numbered from the same order, so the pair orders a boot's events.
  * - Each game judges the goals of the attempts that may start in it from that game's own facts,
  *   gathered from its first row: nothing from an earlier game, an earlier attempt, or what the
- *   player's profile holds counts (SB-6366). On every row, and once more when the game ends, each
- *   goal is judged for every player in the game, as the attempt's position is only known once a
- *   session reply seats its player, possibly after the goal was met. The first row on which all of
- *   a goal's rules hold together is kept per position; the attempt qualifies at the one for its
- *   position, once.
+ *   player's profile holds counts (SB-6366). An attempt's position is only known once a session
+ *   reply seats its player, possibly after the goal was met, so until then a TurnTimer times it at
+ *   every position the API accepts, each fed every row with the goal's verdict there, and once
+ *   more on the game's last row when it ends. The attempt qualifies with its own position's
+ *   result, once, and only in the game it started in. A lost row, or a lost end, stops the timing:
+ *   no result rather than one shorter than was played.
  * - Only a receipt or a 409 answers a message. Anything else is resent. A 409 ends the attempt
  *   for the server, so it is forgotten here.
  *
@@ -117,8 +104,8 @@ public:
     using Poster = std::function<void(std::function<void()>)>;
     using WallClock = std::function<int64_t()>;
 
-    CompetitionService(NetBase &net, Poster poster, WallClock wallClock,
-                       std::string bootId = competitions::bootId());
+    /** @p bootId is @p net's (NetBase::bootId): game state's row order lives as long. */
+    CompetitionService(NetBase &net, Poster poster, WallClock wallClock, std::string bootId);
     ~CompetitionService();
 
     CompetitionService(const CompetitionService &) = delete;
@@ -130,8 +117,11 @@ public:
      */
     void onGoal(CompetitionGoal goal);
 
-    /** Game @p gameSessionId (game state's own id) started at @p startedAtMs, device UTC. */
-    void onGameStarted(int gameSessionId, int64_t startedAtMs);
+    /**
+     * Game @p gameSessionId (game state's own id) started, on @p firstRow: its start time, clock
+     * and place in the row order, and the first of the rows its goals are judged on.
+     */
+    void onGameStarted(int gameSessionId, const achievements::TimelineRow &firstRow);
 
     /** The server created game @p gameSessionId's session and assigned it @p sessionUuid. */
     void onSessionCreated(int gameSessionId, const std::string &sessionUuid);
@@ -143,10 +133,10 @@ public:
     void onRow(const achievements::TimelineRow &row);
 
     /**
-     * Game @p gameSessionId ended, at @p finishedAtMs device UTC when known: what closes then (a
-     * turn, a mode) is judged once more.
+     * Game @p gameSessionId ended, its end row the one numbered @p endSequence, committed or not.
+     * What closes then (a turn, a mode) is judged once more on that row, if it was the last seen.
      */
-    void onGameFinished(int gameSessionId, std::optional<int64_t> finishedAtMs = std::nullopt);
+    void onGameFinished(int gameSessionId, uint64_t endSequence);
 
     /** The attempts installed here; for tests and diagnostics. */
     const std::map<std::string, AttemptRecord> &attempts() const { return m_attempts; }
@@ -156,8 +146,14 @@ private:
     struct Game {
         int id {0};
         int64_t startedAtMs {0};
-        /** The device event ordinal of the game start, shared by every attempt it starts. */
-        int64_t sequence {0};
+        /**
+         * The start row's place in the order of rows (TimelineRow::sequence), sent with every
+         * attempt it starts. Unique within the boot, so it also tells the game's starts apart.
+         */
+        uint64_t startSequence {0};
+        /** The last row applied: its place in the row order, and its device UTC. */
+        uint64_t lastSequence {0};
+        int64_t lastTimeMs {0};
         std::string sessionUuid;
         bool finished {false};
         /** The attempts installed before the game started, and not started yet. */
@@ -165,10 +161,14 @@ private:
 
         /** This game's facts, from its first row; gathered only while it may start an attempt. */
         achievements::SessionFacts facts;
-        /** The positions that have appeared on its rows. */
+        /** The positions the API accepts that have appeared on its rows. */
         std::set<achievements::PlayerNumber> players;
-        /** attempt → position → the first row on which every rule of its goal held there. */
-        std::map<std::string, std::map<achievements::PlayerNumber, AttemptQualification>> metAt;
+        /**
+         * attempt → position → the player's turn time there until the goal is met. Every position
+         * until a reply seats the attempt's player, then only theirs; gone once what came of it
+         * is final.
+         */
+        std::map<std::string, std::map<achievements::PlayerNumber, TurnTimer>> timers;
     };
 
     /** Games, and seats waiting for their game, kept at most. */
@@ -179,10 +179,24 @@ private:
     void matchPlayers(Game &game, const SessionSeats &seats);
     void dropSettledGames();
 
-    /** Judges the goals of @p game's candidates on its latest row, at @p timeMs. */
-    void judgeGoals(Game &game, int64_t timeMs);
-    /** Qualifies @p attempt, started in @p game, if its goal was met at its position there. */
-    void qualify(const Game &game, const std::string &attempt, AttemptRecord &record);
+    /** Applies @p row to @p game's facts and notes its last row and positions. */
+    static void apply(Game &game, const achievements::TimelineRow &row);
+    /** Whether @p goal holds for @p position on @p game's facts so far. */
+    bool metAt(const Game &game, const CompetitionGoal &goal,
+               achievements::PlayerNumber position) const;
+    /** Whether @p record may still qualify in @p game: not qualified, nor started elsewhere. */
+    static bool mayQualifyIn(const Game &game, const AttemptRecord &record);
+    /** Whether some timer of @p game still runs for an attempt that may qualify in it. */
+    bool judging(const Game &game) const;
+    /** Feeds @p row, or the game's end on its last row when null, to @p game's running timers. */
+    void advance(Game &game, const achievements::TimelineRow *row);
+    /** Ends @p game, whose end row is numbered @p endSequence (0 if unknown). */
+    void finishGame(Game &game, uint64_t endSequence);
+    /**
+     * Once @p attempt's player is seated in @p game, takes what came of its position's timer: the
+     * qualification if its goal was met there. Drops the timers once that is final.
+     */
+    void qualifyFrom(Game &game, const std::string &attempt);
 
     void refuse(const CompetitionGoal &goal, const std::string &reason);
     /** Tells the host Scorbit confirmed @p goal is installed: CompetitionGoalReceived. */
@@ -198,8 +212,6 @@ private:
     Poster m_poster;
     WallClock m_wallClock;
     std::string m_bootId;
-    /** The last device event ordinal used this boot. */
-    int64_t m_lastSequence {0};
 
     /** attempt → record. */
     std::map<std::string, AttemptRecord> m_attempts;

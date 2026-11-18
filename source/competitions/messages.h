@@ -117,8 +117,8 @@ struct AttemptStart {
     /** The game's start, device UTC. */
     int64_t startedAtMs {0};
     std::string bootId;
-    /** The device's ordinal for the start event. */
-    int64_t sequence {0};
+    /** The device's ordinal for the start event: its start row's place in the order of rows. */
+    uint64_t sequence {0};
 
     bool operator==(const AttemptStart &) const = default;
 };

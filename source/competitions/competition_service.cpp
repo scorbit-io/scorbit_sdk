@@ -22,8 +22,6 @@
 #include "../event_classes.h"
 #include "../net_util.h"
 #include <logger/logger.h>
-#include <boost/uuid/random_generator.hpp>
-#include <boost/uuid/uuid_io.hpp>
 #include <fmt/format.h>
 #include <algorithm>
 #include <utility>
@@ -78,12 +76,6 @@ bool goalMet(const CompetitionGoal &goal, const achievements::SessionFacts &fact
 }
 
 } // namespace
-
-const std::string &bootId()
-{
-    static const std::string id = boost::uuids::to_string(boost::uuids::random_generator {}());
-    return id;
-}
 
 CompetitionService::CompetitionService(NetBase &net, Poster poster, WallClock wallClock,
                                        std::string bootId)
@@ -148,24 +140,22 @@ void CompetitionService::publishGoal(const CompetitionGoal &goal)
 
 // ---- Games -------------------------------------------------------------------------------------
 
-void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
+void CompetitionService::onGameStarted(int gameSessionId, const achievements::TimelineRow &firstRow)
 {
     // A game that never saw its end (a new one replaced it) can't start anything any more. It
-    // ends where the new one starts, and is judged there once more, as at an end.
-    // (Ids first: finishing a game may drop games.)
-    std::vector<int> unfinished;
-    for (const auto &game : m_games) {
+    // ends on its last row, just before the new one's first, and is judged there once more, as at
+    // an end. (0, no row's place, if the new row has none: then it ended out of sight.)
+    const auto endSequence = firstRow.sequence > 0 ? firstRow.sequence - 1 : 0;
+    for (auto &game : m_games) {
         if (!game.finished) {
-            unfinished.push_back(game.id);
+            finishGame(game, endSequence);
         }
     }
-    for (const auto id : unfinished) {
-        onGameFinished(id, startedAtMs);
-    }
+    dropSettledGames();
 
     Game game;
     game.id = gameSessionId;
-    game.startedAtMs = startedAtMs;
+    game.startedAtMs = firstRow.timeMs;
     // Only this machine's attempts: after a switch, or a restart paired to another machine, one
     // admitted on the previous machine must not start in this one's game
     const auto here = toLowerAscii(m_net.venueMachine());
@@ -177,18 +167,37 @@ void CompetitionService::onGameStarted(int gameSessionId, int64_t startedAtMs)
 
     // A start outside the competition's window ends the attempt, so a start time from a clock
     // that may be wrong is never sent: the attempt waits for a game with a trusted clock
-    if (!game.candidates.empty() && !m_net.isClockSynchronised()) {
+    if (!game.candidates.empty() && !firstRow.clockSynchronised) {
         WRN("Competitions: game {} starts no attempt: the clock isn't synchronised",
             gameSessionId);
         game.candidates.clear();
     }
+    // Nor one that can't be timed, or placed in the order of this boot's rows
+    if (!game.candidates.empty() && (firstRow.sequence == 0 || !firstRow.elapsedMs)) {
+        WRN("Competitions: game {} starts no attempt: its first row has no {}", gameSessionId,
+            firstRow.sequence == 0 ? "place in the row order" : "elapsed time");
+        game.candidates.clear();
+    }
 
-    // Only a game that may start an attempt takes an ordinal. Counted from 1 each boot: the boot
-    // id tells one boot's from another's.
     if (!game.candidates.empty()) {
-        game.sequence = ++m_lastSequence;
+        // The start row's place in the order of rows, which the qualification's rows share
+        game.startSequence = firstRow.sequence;
         INF("Competitions: game {} may start {} attempts, sequence {}", gameSessionId,
-            game.candidates.size(), game.sequence);
+            game.candidates.size(), game.startSequence);
+
+        // The game's facts start from its first row, as achievements' do. Each candidate is timed
+        // at every position until a reply seats its player, possibly after the goal was met.
+        apply(game, firstRow);
+        const TimingEvidence evidence {.deviceId = m_net.getMachineUuid(), .bootId = m_bootId};
+        for (const auto &attempt : game.candidates) {
+            const auto &goal = m_attempts.at(attempt).goal;
+            auto &timers = game.timers[attempt];
+            for (achievements::PlayerNumber position = 1; position <= MAX_POSITION; ++position) {
+                auto &timer =
+                        timers.emplace(position, TurnTimer {position, evidence}).first->second;
+                timer.begin(firstRow, metAt(game, goal, position));
+            }
+        }
     }
 
     m_games.push_back(std::move(game));
@@ -249,88 +258,166 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
         return;
     }
     auto &game = m_games.back();
-    if (game.finished || game.candidates.empty()) {
+    if (game.finished || game.timers.empty()) {
+        return;
+    }
+    if (!judging(game)) {
+        // Nothing left to time here: a late seat needs only the timers, not the facts
+        game.facts = {};
+        game.lastSequence = row.sequence;
         return;
     }
 
-    game.facts.apply(row);
-    if (row.player > 0) {
-        game.players.insert(row.player);
+    apply(game, row);
+    advance(game, &row);
+    for (const auto &attempt : game.candidates) {
+        qualifyFrom(game, attempt);
     }
-    for (const auto &[player, score] : row.scores) {
-        game.players.insert(player);
-    }
-    judgeGoals(game, row.timeMs);
 }
 
-void CompetitionService::onGameFinished(int gameSessionId, std::optional<int64_t> finishedAtMs)
+void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
 {
     if (auto *game = gameOf(gameSessionId); game && !game->finished) {
-        // The end closes the running turn and modes: judged once more, at the end
-        if (finishedAtMs && !game->candidates.empty()) {
-            game->facts.finish(*finishedAtMs);
-            judgeGoals(*game, *finishedAtMs);
-        }
-        game->finished = true;
-        // A late seat needs only what was met, not the facts it was judged from
-        game->facts = {};
+        finishGame(*game, endSequence);
     }
     dropSettledGames();
 }
 
-void CompetitionService::judgeGoals(Game &game, int64_t timeMs)
+void CompetitionService::apply(Game &game, const achievements::TimelineRow &row)
 {
-    // One device event ordinal for the row, shared by every goal met on it
-    std::optional<int64_t> sequence;
-    for (const auto &attempt : game.candidates) {
-        const auto it = m_attempts.find(attempt);
-        if (it == m_attempts.end() || it->second.qualification) {
-            continue; // refused since, or already qualified
+    game.facts.apply(row);
+    game.lastSequence = row.sequence;
+    game.lastTimeMs = row.timeMs;
+    // Only the positions the API accepts can ever be an attempt's
+    auto appear = [&](achievements::PlayerNumber player) {
+        if (player >= 1 && player <= MAX_POSITION) {
+            game.players.insert(player);
         }
-        auto &record = it->second;
-        if (record.start && record.start->sequence != game.sequence) {
-            continue; // started in another game, as when that game's reply came late
-        }
-        auto &metAt = game.metAt[attempt];
-
-        // Once its player is seated only their position matters; until then, every position
-        auto judge = [&](achievements::PlayerNumber position) {
-            if (metAt.contains(position) || !goalMet(record.goal, game.facts, position)) {
-                return;
-            }
-            if (!sequence) {
-                sequence = ++m_lastSequence;
-            }
-            metAt.emplace(position, AttemptQualification {timeMs, *sequence});
-        };
-        if (record.start) {
-            judge(static_cast<achievements::PlayerNumber>(record.start->position));
-        } else {
-            std::ranges::for_each(game.players, judge);
-        }
-        qualify(game, attempt, record);
+    };
+    appear(row.player);
+    for (const auto &[player, score] : row.scores) {
+        appear(player);
     }
 }
 
-void CompetitionService::qualify(const Game &game, const std::string &attempt,
-                                 AttemptRecord &record)
+bool CompetitionService::metAt(const Game &game, const CompetitionGoal &goal,
+                               achievements::PlayerNumber position) const
 {
-    // Only from the game it started in: game sequences are unique, and its start carries its own
-    if (!record.start || record.qualification || record.start->sequence != game.sequence) {
+    return game.players.contains(position) && goalMet(goal, game.facts, position);
+}
+
+bool CompetitionService::judging(const Game &game) const
+{
+    return std::ranges::any_of(game.timers, [&](const auto &byAttempt) {
+        const auto it = m_attempts.find(byAttempt.first);
+        return it != m_attempts.end() && mayQualifyIn(game, it->second)
+            && std::ranges::any_of(byAttempt.second, [](const auto &timer) {
+                   return timer.second.state() == TurnTimer::State::Running;
+               });
+    });
+}
+
+bool CompetitionService::mayQualifyIn(const Game &game, const AttemptRecord &record)
+{
+    // A start carries its game's start row, unique within the boot: one with another was seated
+    // by a reply for another game
+    return !record.qualification && (!record.start || record.start->sequence == game.startSequence);
+}
+
+void CompetitionService::advance(Game &game, const achievements::TimelineRow *row)
+{
+    for (auto &[attempt, timers] : game.timers) {
+        const auto it = m_attempts.find(attempt);
+        if (it == m_attempts.end() || !mayQualifyIn(game, it->second)) {
+            continue; // refused since, qualified, or started in another game
+        }
+        for (auto &[position, timer] : timers) {
+            if (timer.state() != TurnTimer::State::Running) {
+                continue;
+            }
+            // Every position takes every row, met or not: a missing one stops its timer
+            const bool met = metAt(game, it->second.goal, position);
+            if (row) {
+                timer.onRow(*row, met);
+            } else {
+                timer.endAtLastRow(met);
+            }
+        }
+    }
+}
+
+void CompetitionService::finishGame(Game &game, uint64_t endSequence)
+{
+    if (!game.timers.empty()) {
+        if (game.lastSequence == endSequence) {
+            // The end closes the running turn and modes: judged once more, on the game's last row
+            game.facts.finish(game.lastTimeMs);
+            advance(game, nullptr);
+        } else {
+            // The game's end row, or rows before it, never arrived: what came after the last one
+            // seen is unknown, so nothing is timed to it
+            WRN("Competitions: game {} ended at row {}, its last row seen is {}: its attempts "
+                "can't qualify in it",
+                game.id, endSequence, game.lastSequence);
+            for (auto &[attempt, timers] : game.timers) {
+                for (auto &[position, timer] : timers) {
+                    timer.interrupt("the game's end row is missing");
+                }
+            }
+        }
+        for (const auto &attempt : game.candidates) {
+            qualifyFrom(game, attempt);
+        }
+    }
+    game.finished = true;
+    // A late seat needs only the timers, not the facts they were judged from
+    game.facts = {};
+}
+
+void CompetitionService::qualifyFrom(Game &game, const std::string &attempt)
+{
+    const auto byAttempt = game.timers.find(attempt);
+    if (byAttempt == game.timers.end()) {
         return;
     }
-    const auto byAttempt = game.metAt.find(attempt);
-    if (byAttempt == game.metAt.end()) {
+    const auto it = m_attempts.find(attempt);
+    if (it == m_attempts.end() || !mayQualifyIn(game, it->second)) {
+        game.timers.erase(byAttempt); // refused since, or started in another game: never counts
         return;
     }
-    const auto met =
+    // Only once its player is seated: until then every position is timed
+    auto &record = it->second;
+    if (!record.start) {
+        return;
+    }
+    const auto timer =
             byAttempt->second.find(static_cast<achievements::PlayerNumber>(record.start->position));
-    if (met == byAttempt->second.end()) {
+    if (timer == byAttempt->second.end()) {
         return;
     }
-    record.qualification = met->second;
-    INF("Competitions: attempt {} met its goal in game {} at position {}, sequence {}", attempt,
-        game.id, record.start->position, met->second.sequence);
+
+    switch (timer->second.state()) {
+    case TurnTimer::State::Idle:
+    case TurnTimer::State::Running:
+        return;
+    case TurnTimer::State::Completed:
+        if (!record.qualification) {
+            record.qualification = *timer->second.result();
+            INF("Competitions: attempt {} met its goal in game {} at position {} in {} ms, row {}",
+                attempt, game.id, record.start->position, record.qualification->durationMs,
+                record.qualification->completionSequence);
+        }
+        break;
+    case TurnTimer::State::Ended:
+        INF("Competitions: attempt {} didn't meet its goal in game {}", attempt, game.id);
+        break;
+    case TurnTimer::State::Interrupted:
+        WRN("Competitions: attempt {} can't qualify in game {}: {}", attempt, game.id,
+            timer->second.interruption().value_or(""));
+        break;
+    }
+    // What came of the attempt's game is final
+    game.timers.erase(byAttempt);
 }
 
 void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
@@ -368,13 +455,20 @@ void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
             continue;
         }
 
-        record.start =
-                AttemptStart {game.sessionUuid, position, game.startedAtMs, m_bootId, game.sequence};
+        record.start = AttemptStart {game.sessionUuid, position, game.startedAtMs, m_bootId,
+                                     game.startSequence};
         INF("Competitions: attempt {} started in game {} at position {}", attempt, game.id,
             position);
         queueStarted(record);
-        // Its goal may have been met before a reply seated its player
-        qualify(game, attempt, record);
+
+        // Only its own position's time counts from now on. Its goal may have been met, or the
+        // game ended, before a reply seated its player.
+        if (const auto timers = game.timers.find(attempt); timers != game.timers.end()) {
+            std::erase_if(timers->second, [position](const auto &timer) {
+                return timer.first != static_cast<achievements::PlayerNumber>(position);
+            });
+        }
+        qualifyFrom(game, attempt);
     }
 }
 
