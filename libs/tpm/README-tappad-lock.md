@@ -258,8 +258,9 @@ failed tty transfer closes the tty until the next init, a failed libusb CDC
 transfer closes the handle until the next send or init reopens it (a receive
 never does), and a failed HID read fails the rest of that command. A libusb or
 HID pad whose first wait for a reply timed out gets only the 0.5 s wait until a
-reply byte arrives again; the firmware answers the next wake at once, so a pad
-that recovers is trusted again on its next command.
+reply byte arrives again or its HID handle is released; the firmware answers the next wake at once, so a pad that
+recovers is trusted again on its next command. Releasing the handle clears the
+mark, since `hid_open()` may hand a later device the same address.
 
 Every command after the first starts from idle, so calib wakes the chip first.
 Measured with a fake pad that answers nothing (Linux arm64; macOS within 0.5 s):
