@@ -298,6 +298,16 @@ public:
      */
     virtual bool isClockSynchronised() const { return true; }
 
+    /**
+     * This Net's boot id (SB-6523): a random uuid per Net, never stored. Game state's row order
+     * lives as long, so the pair orders this boot's events.
+     */
+    virtual const std::string &bootId() const
+    {
+        static const std::string none;
+        return none;
+    }
+
     /** @p callback is invoked from a network thread whenever player profiles change. */
     virtual void setPlayersChangedCallback(PlayersChangedCallback callback) { (void)callback; }
 

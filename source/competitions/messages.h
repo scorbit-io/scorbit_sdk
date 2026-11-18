@@ -32,6 +32,7 @@
  * | competition.attempt_started_saved | API → device | its 200 reply                       |
  */
 
+#include "../achievements/definition.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <optional>
@@ -66,16 +67,47 @@ struct CompetitionGoal {
     std::string name;
     /** The complete saved definition, kept as delivered. */
     nlohmann::json definition;
+    /**
+     * The saved definition's rules, in their saved order, as the evaluator judges them: parsed once
+     * at install, never from the profile's current definition (SB-6366).
+     */
+    achievements::Definition goal;
+    /** The saved definition's own calendar envelope; empty when it has no `CALENDAR` rule. */
+    achievements::CalendarData calendar;
     /** The message as delivered. */
     nlohmann::json message;
 };
 
 /**
  * Parses a `competition.goal` payload. A version, definition format, timer policy or rule type
- * this SDK doesn't support refuses the whole message, as does any rule that doesn't parse: a goal
- * is never installed with a rule skipped. On refusal returns nullopt and says why in @p error.
+ * this SDK doesn't support refuses the whole message, as does any rule that doesn't parse, or one
+ * the evaluator can't judge at a single instant (see @ref findInstantProblem): a goal is never
+ * installed with a rule skipped or approximated. On refusal returns nullopt and says why in
+ * @p error.
  */
 std::optional<CompetitionGoal> parseGoal(const nlohmann::json &payload, std::string &error);
+
+/**
+ * Why @p goal can't be judged by checking, row by row, whether every rule holds together; nullopt
+ * when it can (SB-6366).
+ *
+ * A competition completes on the first row where all of its rules hold at once. The evaluator
+ * judges most rules on what is true at that row: a count, a register's net value, the time played
+ * so far, or a fact that stays true once it happened (a mode ran, a span closed, a score was
+ * reached). Two kinds would let an earlier moment stand in for the row, and so invent a
+ * completion that never occurred:
+ *
+ * - `SCORE` other than `>=`: any earlier score is kept, so the `0` at the start meets `<= 1000`
+ *   for the whole game;
+ * - `TIMER_BALL` and `TIMER_MODE` other than `>=`: a ball or activation still running is measured
+ *   so far, so one at 2 s meets `<= 10 s` though it goes on to last a minute;
+ * - `TIMER_BETWEEN` other than `<=` over several siblings, or beside a `CALENDAR` rule: a later
+ *   occurrence on the same ball shortens the span, so 10 s meets `>= 8 s` though the ball ends
+ *   with the facts 1 s apart.
+ *
+ * They are refused, never approximated.
+ */
+std::optional<std::string> findInstantProblem(const achievements::Definition &goal);
 
 /** The device's record of when an attempt's game started, sent as `attempt_started`. */
 struct AttemptStart {
@@ -85,8 +117,8 @@ struct AttemptStart {
     /** The game's start, device UTC. */
     int64_t startedAtMs {0};
     std::string bootId;
-    /** The device's ordinal for the start event. */
-    int64_t sequence {0};
+    /** The device's ordinal for the start event: its start row's place in the order of rows. */
+    uint64_t sequence {0};
 
     bool operator==(const AttemptStart &) const = default;
 };

@@ -331,6 +331,47 @@ TEST_CASE("A game that ends without the goal leaves no result but uses the attem
     CHECK_FALSE(timer.result());
 }
 
+TEST_CASE("A game ending on its last row completes there when the end meets the goal",
+          "[competitions][turn_timer]")
+{
+    // P1 0–50, P2 50–80, P1 80 until the game's end row at 100, where a closing mode meets it
+    Game g;
+    auto timer = begun(g.row(0, 1));
+    timer.onRow(g.row(50 * S, 2), false);
+    timer.onRow(g.row(80 * S, 1), false);
+    g.setSynchronised(false);
+    const auto endRow = g.row(100 * S, 1);
+    timer.onRow(endRow, false);
+    timer.endAtLastRow(true);
+
+    CHECK(timer.state() == TurnTimer::State::Completed);
+    REQUIRE(timer.result());
+    CHECK(timer.result()->durationMs == 70 * S);
+    CHECK(timer.result()->startSequence == 1);
+    CHECK(timer.result()->completionSequence == endRow.sequence);
+    CHECK(timer.result()->completionUtcMs == endRow.timeMs);
+    CHECK_FALSE(timer.result()->utcSynchronised); // the end row's clock wasn't vouched for
+    CHECK_FALSE(timer.openSinceMs());
+}
+
+TEST_CASE("A game ending on its last row without the goal ends there", "[competitions][turn_timer]")
+{
+    Game g;
+    auto timer = begun(g.row(0, 1));
+    timer.onRow(g.row(50 * S, 2), false);
+    timer.onRow(g.row(80 * S, 1), false);
+    timer.onRow(g.row(100 * S, 1), false);
+    timer.endAtLastRow(false);
+
+    CHECK(timer.state() == TurnTimer::State::Ended);
+    CHECK_FALSE(timer.result());
+    CHECK(timer.closedMs() == 70 * S); // closed at the last row, nothing past it
+    CHECK_FALSE(timer.openSinceMs());
+
+    timer.endAtLastRow(true); // once ended: ignored
+    CHECK_FALSE(timer.result());
+}
+
 // ---- 3. An elapsed clock wall-clock corrections cannot change ---------------------------------
 
 TEST_CASE("UTC steps forward or backward add and remove nothing", "[competitions][turn_timer]")

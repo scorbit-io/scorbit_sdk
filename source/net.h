@@ -497,6 +497,7 @@ public:
                                   std::function<void()> fn) override;
     void publishEvent(EventPtr event) override;
     bool isClockSynchronised() const override;
+    const std::string &bootId() const override { return m_bootId; }
 
 private:
     task_t createAuthenticateTask();

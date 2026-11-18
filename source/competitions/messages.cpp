@@ -148,8 +148,11 @@ std::string checksum(const json &object)
     return text;
 }
 
-/** Throws unless every part of @p definition is one this SDK judges, and every rule parses. */
-void checkDefinition(const json &definition)
+/**
+ * Throws unless every part of @p definition is one this SDK judges, and every rule parses; puts
+ * the parsed rules and calendar in @p goal.
+ */
+void checkDefinition(const json &definition, CompetitionGoal &goal)
 {
     if (!definition.is_object()) {
         throw std::invalid_argument("'definition' is not an object");
@@ -217,6 +220,18 @@ void checkDefinition(const json &definition)
     if (const auto problem = achievements::findEvaluationProblem(*parsed, calendar)) {
         throw std::invalid_argument(fmt::format("goal can't be evaluated: {}", *problem));
     }
+
+    // Judged within one game only: a lifetime goal would carry progress from earlier games
+    if (parsed->evaluation != achievements::EvaluationClass::InSession) {
+        throw std::invalid_argument("goal isn't single session");
+    }
+    if (const auto problem = findInstantProblem(*parsed)) {
+        throw std::invalid_argument(
+                fmt::format("goal can't be judged at one instant: {}", *problem));
+    }
+
+    goal.goal = std::move(*parsed);
+    goal.calendar = std::move(calendar);
 }
 
 json identityJson(const AttemptIdentity &identity, const char *type)
@@ -258,7 +273,7 @@ std::optional<CompetitionGoal> parseGoal(const json &payload, std::string &error
         }
 
         goal.definition = member(payload, KEY_DEFINITION);
-        checkDefinition(goal.definition);
+        checkDefinition(goal.definition, goal);
         // Only shown to the host: a goal without one is still judged
         const auto &achievement = member(goal.definition, KEY_ACHIEVEMENT);
         if (const auto it = achievement.find(KEY_NAME);
@@ -271,6 +286,45 @@ std::optional<CompetitionGoal> parseGoal(const json &payload, std::string &error
         error = e.what();
         return std::nullopt;
     }
+}
+
+std::optional<std::string> findInstantProblem(const achievements::Definition &goal)
+{
+    const auto siblings = std::ranges::count_if(goal.rules, [](const achievements::Rule &rule) {
+        return achievements::isInstantValued(rule.type);
+    });
+    const bool calendar = std::ranges::any_of(goal.rules, [](const achievements::Rule &rule) {
+        return rule.type == RuleType::Calendar;
+    });
+
+    for (size_t i = 0; i < goal.rules.size(); ++i) {
+        const auto &rule = goal.rules[i];
+        // TIMER_BETWEEN over several siblings is the shortest span covering them on a ball, which
+        // a later occurrence on the same ball shortens; so is a single sibling's gap that an
+        // occurrence entering a CALENDAR window later splits. Only `<=` survives that.
+        if (rule.type == RuleType::TimerBetween && rule.comparison != achievements::Comparison::Le
+            && (siblings > 1 || calendar)) {
+            return fmt::format("rule {} (TIMER_BETWEEN {}): a later occurrence would shorten the "
+                               "span that met it",
+                               i, achievements::toString(rule.comparison));
+        }
+        if (rule.comparison == achievements::Comparison::Ge) {
+            continue;
+        }
+        switch (rule.type) {
+        case RuleType::Score:
+            return fmt::format("rule {} (SCORE {}): an earlier score would meet it", i,
+                               achievements::toString(rule.comparison));
+        case RuleType::TimerBall:
+        case RuleType::TimerMode:
+            return fmt::format("rule {} ({} {}): one still running would meet it", i,
+                               achievements::toString(rule.type),
+                               achievements::toString(rule.comparison));
+        default:
+            break;
+        }
+    }
+    return std::nullopt;
 }
 
 json goalInstalledMessage(const AttemptIdentity &identity, int64_t installedAtMs)
