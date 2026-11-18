@@ -1,0 +1,505 @@
+cryptoauthlib 3.7.9: bound how long one kit transfer can block on a tap pad
+that stopped answering, since callers hold the tap pad lock across it.
+
+Apply AFTER cryptoauthlib-tappad-lock.patch. The first non-NUL byte (tty) or
+report (HID) of a reply may take 2.5 s, each later one 0.5 s, and the whole
+reply 3 s from the command's first byte; a tty write waits at most 1 s for
+room. Input left from an earlier command is drained before a new one is sent.
+A failed tty transfer discards pending output and closes the tty. A HID device
+whose first wait for a reply timed out gets only the 0.5 s wait until it
+answers again. Kit UART: at most 64 leading NULs are skipped per receive.
+See README-tappad-lock.md next to this file.
+
+--- /dev/null
++++ b/lib/hal/hal_bounded_io.h
+@@ -0,0 +1,67 @@
++/**
++ * \file
++ * \brief Bounds on how long one kit transfer may block on a pad that stopped
++ *        answering, since callers hold the tap pad lock across it.
++ *
++ * Each command's reply is bounded as a whole, and input left from an earlier
++ * command is drained before a new one is sent. A failed tty transfer closes
++ * the tty until the next init. A HID device whose first wait for a reply
++ * timed out gets only the shorter wait until it answers again.
++ *
++ * Copyright (c) 2026 Spinner Systems, Inc. (DBA Scorbit)
++ * SPDX-License-Identifier: MIT
++ */
++
++#ifndef HAL_BOUNDED_IO_H
++#define HAL_BOUNDED_IO_H
++
++#include <stddef.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** \brief Wait for a tty to take a byte; the libusb transport's write timeout. */
++#define HAL_UART_WRITE_TIMEOUT_MS   (1000)
++
++/** \brief Wait for the first byte (tty) or report (HID) of a reply: calib's
++ *         own 2.5 s limit for a command, so a slow chip clock still answers.
++ */
++#define HAL_KIT_REPLY_TIMEOUT_MS    (2500)
++
++/** \brief Wait for each later byte or report: the tty's VTIME of 0.5 s. */
++#define HAL_KIT_BYTE_TIMEOUT_MS     (500)
++
++/** \brief A command's whole reply, from its first byte sent: the first wait
++ *         plus one more gap, so a pad that trickles bytes cannot stretch it.
++ */
++#define HAL_KIT_COMMAND_TIMEOUT_MS  (HAL_KIT_REPLY_TIMEOUT_MS + HAL_KIT_BYTE_TIMEOUT_MS)
++
++/** \brief Input reports drained before a HID send; upstream had no limit. */
++#define HAL_KIT_HID_MAX_DRAIN       (64)
++
++/** \brief NULs skipped ahead of a kit-UART reply: a full-speed USB packet. */
++#define KIT_MAX_NUL_SKIP            (64u)
++
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++struct hid_device_;
++
++/** \brief Test builds only: the tty HAL raises modem lines through \p hook
++ *         (NULL restores ioctl(TIOCMBIS)), which a pseudo-terminal lacks.
++ */
++void hal_uart_test_set_modem_bits(int (*hook)(int fd, int bits));
++
++/** \brief Test builds only: the HID HAL reads and writes through these hooks
++ *         (NULL restores hid_read_timeout() and hid_write()).
++ */
++void hal_kit_hid_test_set_io(int (*read_hook)(struct hid_device_ * dev, unsigned char * data,
++                                              size_t length, int timeout_ms),
++                             int (*write_hook)(struct hid_device_ * dev,
++                                               const unsigned char * data, size_t length));
++#endif
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* HAL_BOUNDED_IO_H */
+--- a/lib/hal/hal_linux_uart_userspace.c
++++ b/lib/hal/hal_linux_uart_userspace.c
+@@ -36,9 +36,22 @@
+ #include <fcntl.h>
+ #include <sys/ioctl.h>
+ #include <termios.h>
++#include <errno.h>
++#include <poll.h>
++#include <time.h>
++
++#include "hal_bounded_io.h"
++#ifdef __linux__
++#include <linux/serial.h>
++#endif
+ 
+ typedef struct atca_uart_host_s
+ {
++    /* Native tty, per command: the end of its reply, whether the
++       last transfer was a send, and whether a non-NUL reply byte came yet */
++    int64_t reply_deadline_ms;
++    bool    sending;
++    bool    awaiting_reply;
+     char uart_file[64];
+     int  fd_uart;
+     int  ref_ct;
+@@ -149,6 +162,61 @@
+     return ATCA_SUCCESS;
+ }
+ 
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++static int (*g_modem_bits_hook)(int fd, int bits) = NULL;
++
++void hal_uart_test_set_modem_bits(int (*hook)(int fd, int bits))
++{
++    g_modem_bits_hook = hook;
++}
++#endif
++
++static int hal_uart_set_modem_bits(int fd, int * bits)
++{
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_modem_bits_hook)
++    {
++        return g_modem_bits_hook(fd, *bits);
++    }
++#endif
++    return ioctl(fd, TIOCMBIS, bits);
++}
++
++static int64_t hal_uart_now_ms(void)
++{
++    struct timespec now;
++
++    (void)clock_gettime(CLOCK_MONOTONIC, &now);
++    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
++}
++
++/** \brief Wait up to \p timeout_ms for \p events on \p fd. */
++static bool hal_uart_wait(int fd, short events, int64_t timeout_ms)
++{
++    struct pollfd pfd = { fd, events, 0 };
++    const int64_t end = hal_uart_now_ms() + timeout_ms;
++    int64_t left_ms = timeout_ms;
++    int ret;
++
++    while ((-1 == (ret = poll(&pfd, 1, (int)left_ms))) && (EINTR == errno))
++    {
++        left_ms = end - hal_uart_now_ms();
++        left_ms = (0 < left_ms) ? left_ms : 0;
++    }
++    return (1 == ret) && (0 != (pfd.revents & events));
++}
++
++/** \brief Close after a failure, discarding what a stalled pad never took,
++ *         which close() could otherwise wait up to closing_wait for.
++ */
++static void hal_uart_close_file(atca_uart_host_t * hal_data)
++{
++    (void)tcflush(hal_data->fd_uart, TCIOFLUSH);
++    (void)close(hal_data->fd_uart);
++    hal_data->fd_uart = -1;
++    hal_data->sending = false;
++}
++
+ /** \brief Open and configure serial COM Uart
+  * \param[out] fd  resulting file descriptor
+  *
+@@ -189,6 +257,8 @@
+ 
+             /* Enable read timeout */
+             tty.c_cc[VTIME] = 5;
++            /* Termios outlives an open: never let a read wait for a byte */
++            tty.c_cc[VMIN] = 0;
+ 
+             /* Convert baudrate to posix/linux format */
+             rate = hal_uart_convert_baudrate(ATCA_IFACECFG_VALUE(cfg, atcauart.baud));
+@@ -236,12 +306,26 @@
+             }
+ 
+             flags = TIOCM_DTR;
+-            if (-1 == ioctl(hal_data->fd_uart, TIOCMBIS, &flags))
++            if (-1 == hal_uart_set_modem_bits(hal_data->fd_uart, &flags))
+             {
+                 (void)close(hal_data->fd_uart);
+                 return ATCA_COMM_FAIL;
+             }
+ 
++#if defined(__linux__) && defined(TIOCGSERIAL)
++            {
++                /* Without this, close() after a stalled write waits up to
++                   closing_wait (30 s) on cdc-acm before Linux 6.6 */
++                struct serial_struct serial;
++
++                if (0 == ioctl(hal_data->fd_uart, TIOCGSERIAL, &serial))
++                {
++                    serial.closing_wait = ASYNC_CLOSING_WAIT_NONE;
++                    (void)ioctl(hal_data->fd_uart, TIOCSSERIAL, &serial);
++                }
++            }
++#endif
++
+ #ifdef __COVERITY__
+ #pragma coverity compliance end_block \
+             "CERT INT31-C" \
+@@ -447,7 +531,20 @@
+ 
+         if ((NULL != hal_data) && (0 < hal_data->fd_uart))
+         {
+-            if (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength)
++            if (!hal_data->sending)
++            {
++                /* A new command: drop any late reply to an earlier
++                   one, and bound this one's whole reply */
++                (void)tcflush(hal_data->fd_uart, TCIFLUSH);
++                hal_data->sending = true;
++                hal_data->awaiting_reply = true;
++                hal_data->reply_deadline_ms = hal_uart_now_ms() + HAL_KIT_COMMAND_TIMEOUT_MS;
++            }
++
++            /* kit_phy_send writes one byte per call, so once the tty can take
++               a byte this write does not block. */
++            if (!hal_uart_wait(hal_data->fd_uart, POLLOUT, HAL_UART_WRITE_TIMEOUT_MS)
++                || (write(hal_data->fd_uart, txdata, (size_t)txlength) != txlength))
+             {
+                 status = ATCA_COMM_FAIL;
+             }
+@@ -458,10 +555,14 @@
+ 
+             if (ATCA_SUCCESS != status)
+             {
+-                (void)close(hal_data->fd_uart);
+-                hal_data->fd_uart = -1;
++                hal_uart_close_file(hal_data);
+             }
+         }
++        else if (NULL != hal_data)
++        {
++            /* Closed by an earlier failure: the device, not the call, is at fault */
++            status = ATCA_COMM_FAIL;
++        }
+     }
+ 
+     return status;
+@@ -513,21 +614,34 @@
+                 *rxlength = 1U; // packetsize to read
+             }
+ 
+-            if (read(hal_data->fd_uart, rxdata, (size_t)*rxlength) !=  (int)*rxlength)
++            /* The reply's first non-NUL byte may wait for the chip, later
++               ones only for the line, and all within the command's deadline */
++            int64_t wait_ms = hal_data->awaiting_reply ? HAL_KIT_REPLY_TIMEOUT_MS
++                                                       : HAL_KIT_BYTE_TIMEOUT_MS;
++            const int64_t left_ms = hal_data->reply_deadline_ms - hal_uart_now_ms();
++
++            wait_ms = (left_ms < wait_ms) ? left_ms : wait_ms;
++            hal_data->sending = false;
++            if (!hal_uart_wait(hal_data->fd_uart, POLLIN, (0 < wait_ms) ? wait_ms : 0)
++                || (read(hal_data->fd_uart, rxdata, (size_t)*rxlength) !=  (int)*rxlength))
+             {
+                 status = ATCA_COMM_FAIL;
+             }
+             else
+             {
+                 status = ATCA_SUCCESS;
++                hal_data->awaiting_reply = hal_data->awaiting_reply && ('\0' == *rxdata);
+             }
+ 
+             if (ATCA_SUCCESS != status)
+             {
+-                (void)close(hal_data->fd_uart);
+-                hal_data->fd_uart = -1;
++                hal_uart_close_file(hal_data);
+             }
+         }
++        else if (NULL != hal_data)
++        {
++            status = ATCA_COMM_FAIL;
++        }
+     }
+ 
+     return status;
+--- a/lib/hal/kit_protocol.c
++++ b/lib/hal/kit_protocol.c
+@@ -32,6 +32,7 @@
+ #include "atca_compiler.h"
+ #include "kit_protocol.h"
+ #include "atca_helpers.h"
++#include "hal_bounded_io.h"
+ 
+ #ifdef __COVERITY__
+ #pragma coverity compliance block \
+@@ -301,13 +302,20 @@
+ #ifdef ATCA_HAL_KIT_UART
+     if (ATCA_UART_IFACE == iface->mIfaceCFG->iface_type)
+     {
++        size_t nul_count = 0;
++
+         rxlen = 1;
+         do
+         {
+             /* Clear out nulls if they are in the buffer */
+             status = iface->phy->halreceive(iface, 0x00, rxdata, &rxlen);
+         }
+-        while (ATCA_SUCCESS == status && *rxdata == '\0');
++        while (ATCA_SUCCESS == status && *rxdata == '\0' && nul_count++ < KIT_MAX_NUL_SKIP);
++        if ((ATCA_SUCCESS == status) && ('\0' == *rxdata))
++        {
++            /* A pad that only streams NULs */
++            status = ATCA_RX_FAIL;
++        }
+         total_bytes_read = 1;
+     }
+ #endif
+--- a/lib/hal/hal_all_platforms_kit_hidapi.c
++++ b/lib/hal/hal_all_platforms_kit_hidapi.c
+@@ -32,6 +32,77 @@
+ 
+ #include "atca_hal.h"
+ #include "hal/kit_protocol.h"
++#include "hal/hal_bounded_io.h"
++
++#include <time.h>
++
++/* The command in flight on this thread. Once a read for it fails,
++   the rest fail at once, so calib's ~1250 response polls do not each wait. */
++static __thread struct
++{
++    hid_device * dev;
++    int64_t      deadline_ms;    /* end of its whole reply */
++    bool         sending;        /* the last transfer was a send */
++    bool         awaiting_reply; /* no non-NUL reply byte yet */
++    bool         failed;
++} t_cmd;
++
++/* A device whose first wait for a reply timed out: it gets only the shorter
++   wait until it answers again, so a dead pad does not cost 2.5 s per wake.
++   Not per thread: atcaRetry's attempts may run on different threads. */
++static hid_device * g_suspect = NULL;
++
++/* A failed send ends its command: its reply is never read, the next send
++   starts a new one. */
++static void hal_kit_hid_send_failed(void)
++{
++    t_cmd.failed = true;
++    t_cmd.sending = false;
++}
++
++static int64_t hal_kit_hid_now_ms(void)
++{
++    struct timespec now;
++
++    (void)clock_gettime(CLOCK_MONOTONIC, &now);
++    return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
++}
++
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++static int (*g_read_hook)(hid_device *, unsigned char *, size_t, int) = NULL;
++static int (*g_write_hook)(hid_device *, const unsigned char *, size_t) = NULL;
++
++void hal_kit_hid_test_set_io(int (*read_hook)(hid_device * dev, unsigned char * data,
++                                              size_t length, int timeout_ms),
++                             int (*write_hook)(hid_device * dev,
++                                               const unsigned char * data, size_t length))
++{
++    g_read_hook = read_hook;
++    g_write_hook = write_hook;
++}
++#endif
++
++static int hal_kit_hid_read(hid_device * dev, unsigned char * data, size_t length, int timeout_ms)
++{
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_read_hook)
++    {
++        return g_read_hook(dev, data, length, timeout_ms);
++    }
++#endif
++    return hid_read_timeout(dev, data, length, timeout_ms);
++}
++
++static int hal_kit_hid_write(hid_device * dev, const unsigned char * data, size_t length)
++{
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_write_hook)
++    {
++        return g_write_hook(dev, data, length);
++    }
++#endif
++    return hid_write(dev, data, length);
++}
+ 
+ /** \defgroup hal_ Hardware abstraction layer (hal_)
+  *
+@@ -97,19 +168,33 @@
+     {
+         return ATCA_BAD_PARAM;
+     }
++    if (!t_cmd.sending || (pHid != t_cmd.dev))
++    {
++        t_cmd.dev = pHid;
++        t_cmd.deadline_ms = hal_kit_hid_now_ms() + HAL_KIT_COMMAND_TIMEOUT_MS;
++        t_cmd.sending = true;
++        t_cmd.awaiting_reply = true;
++        t_cmd.failed = false;
++    }
+ 
+     do
+     {
+-        ret = hid_read_timeout(pHid, flush_buf, (size_t)sizeof(flush_buf), 0);
++        ret = hal_kit_hid_read(pHid, flush_buf, (size_t)sizeof(flush_buf), 0);
+         if (ret < 0)
+         {
++            hal_kit_hid_send_failed();
+             return ATCA_TX_FAIL;
+         }
+         if (ret > 0)
+         {
+             flush_cnt++;
+         }
+-    } while (ret > 0);
++    } while ((ret > 0) && (flush_cnt < HAL_KIT_HID_MAX_DRAIN));
++    if (0 != ret)
++    {
++        hal_kit_hid_send_failed(); /* a pad flooding input reports */
++        return ATCA_TX_FAIL;
++    }
+ 
+ #ifdef KIT_DEBUG
+     if (0 < flush_cnt)
+@@ -133,14 +218,16 @@
+ #endif
+     if (0 == ret)
+     {
+-        if (0 > (bytes_written = hid_write(pHid, txdata, (size_t)ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)))
++        if (0 > (bytes_written = hal_kit_hid_write(pHid, txdata, (size_t)ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)))
+         {
++            hal_kit_hid_send_failed();
+             return ATCA_TX_FAIL;
+         }
+     }
+ 
+     if ((uint32_t)bytes_written != ATCA_IFACECFG_VALUE(cfg, atcahid.packetsize) + 1u)
+     {
++        hal_kit_hid_send_failed();
+         return ATCA_TX_FAIL;
+     }
+ 
+@@ -157,6 +244,8 @@
+ ATCA_STATUS hal_kit_hid_receive(ATCAIface iface, uint8_t word_address, uint8_t* rxdata, uint16_t* rxlength)
+ {
+     hid_device* pHid = (hid_device*)atgetifacehaldat(iface);
++    int64_t wait_ms;
++    int64_t left_ms;
+     int ret;
+ 
+     ((void)word_address);
+@@ -166,13 +255,45 @@
+         return ATCA_BAD_PARAM;
+     }
+ 
+-    ret = hid_read(pHid, rxdata, (size_t)*rxlength);
++    /* Nothing was sent on this thread to answer, or a read already failed */
++    if ((pHid != t_cmd.dev) || t_cmd.failed)
++    {
++        return ATCA_RX_TIMEOUT;
++    }
++    if (t_cmd.sending)
++    {
++        /* The deadline runs from the end of the send: a slow hid_write() must not use it up */
++        t_cmd.deadline_ms = hal_kit_hid_now_ms() + HAL_KIT_COMMAND_TIMEOUT_MS;
++        t_cmd.sending = false;
++    }
++
++    wait_ms = (t_cmd.awaiting_reply && (pHid != __atomic_load_n(&g_suspect, __ATOMIC_RELAXED)))
++              ? HAL_KIT_REPLY_TIMEOUT_MS : HAL_KIT_BYTE_TIMEOUT_MS;
++    left_ms = t_cmd.deadline_ms - hal_kit_hid_now_ms();
++    wait_ms = (left_ms < wait_ms) ? left_ms : wait_ms;
++
++    ret = hal_kit_hid_read(pHid, rxdata, (size_t)*rxlength, (0 < wait_ms) ? (int)wait_ms : 0);
+     if (ret < 0)
+     {
++        t_cmd.failed = true;
+         return ATCA_RX_FAIL;
+     }
++    else if (0 == ret)
++    {
++        t_cmd.failed = true;
++        if (t_cmd.awaiting_reply)
++        {
++            __atomic_store_n(&g_suspect, pHid, __ATOMIC_RELAXED);
++        }
++        return ATCA_RX_TIMEOUT;
++    }
+     else
+     {
++        hid_device * answered = pHid;
++
++        t_cmd.awaiting_reply = false;
++        (void)__atomic_compare_exchange_n(&g_suspect, &answered, NULL, false, __ATOMIC_RELAXED,
++                                          __ATOMIC_RELAXED);
+         *rxlength = (uint16_t)ret;
+     }
+ 
