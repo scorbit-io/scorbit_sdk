@@ -70,6 +70,10 @@ InterruptTimeQuery interruptTimeQuery()
 constexpr clockid_t ELAPSED_CLOCK_ID = CLOCK_MONOTONIC;
 constexpr const char *ELAPSED_CLOCK_NAME = "CLOCK_MONOTONIC";
 #    else
+// The Linux UAPI value; the armhf toolchain's older glibc headers lack it.
+#        ifndef CLOCK_BOOTTIME
+#            define CLOCK_BOOTTIME 7
+#        endif
 constexpr clockid_t ELAPSED_CLOCK_ID = CLOCK_BOOTTIME;
 constexpr const char *ELAPSED_CLOCK_NAME = "CLOCK_BOOTTIME";
 #    endif
