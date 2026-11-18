@@ -7,12 +7,12 @@ reply 3 s from the command's first byte; a tty write waits at most 1 s for
 room. Input left from an earlier command is drained before a new one is sent.
 A failed tty transfer discards pending output and closes the tty. A HID device
 whose first wait for a reply timed out gets only the 0.5 s wait until it
-answers again. Kit UART: at most 64 leading NULs are skipped per receive.
+answers again or its handle is released. Kit UART: at most 64 leading NULs are skipped per receive.
 See README-tappad-lock.md next to this file.
 
 --- /dev/null
 +++ b/lib/hal/hal_bounded_io.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,72 @@
 +/**
 + * \file
 + * \brief Bounds on how long one kit transfer may block on a pad that stopped
@@ -73,6 +73,11 @@ See README-tappad-lock.md next to this file.
 +                                              size_t length, int timeout_ms),
 +                             int (*write_hook)(struct hid_device_ * dev,
 +                                               const unsigned char * data, size_t length));
++
++/** \brief Test builds only: the HID HAL closes handles through this hook
++ *         (NULL restores hid_close()).
++ */
++void hal_kit_hid_test_set_close(void (*close_hook)(struct hid_device_ * dev));
 +#endif
 +
 +#ifdef __cplusplus
@@ -315,7 +320,7 @@ See README-tappad-lock.md next to this file.
  #endif
 --- a/lib/hal/hal_all_platforms_kit_hidapi.c
 +++ b/lib/hal/hal_all_platforms_kit_hidapi.c
-@@ -32,6 +32,77 @@
+@@ -32,6 +32,83 @@
  
  #include "atca_hal.h"
  #include "hal/kit_protocol.h"
@@ -358,6 +363,7 @@ See README-tappad-lock.md next to this file.
 +#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
 +static int (*g_read_hook)(hid_device *, unsigned char *, size_t, int) = NULL;
 +static int (*g_write_hook)(hid_device *, const unsigned char *, size_t) = NULL;
++static void (*g_close_hook)(hid_device *) = NULL;
 +
 +void hal_kit_hid_test_set_io(int (*read_hook)(hid_device * dev, unsigned char * data,
 +                                              size_t length, int timeout_ms),
@@ -366,6 +372,11 @@ See README-tappad-lock.md next to this file.
 +{
 +    g_read_hook = read_hook;
 +    g_write_hook = write_hook;
++}
++
++void hal_kit_hid_test_set_close(void (*close_hook)(hid_device * dev))
++{
++    g_close_hook = close_hook;
 +}
 +#endif
 +
@@ -393,7 +404,7 @@ See README-tappad-lock.md next to this file.
  
  /** \defgroup hal_ Hardware abstraction layer (hal_)
   *
-@@ -97,19 +168,33 @@
+@@ -97,19 +174,33 @@
      {
          return ATCA_BAD_PARAM;
      }
@@ -429,7 +440,7 @@ See README-tappad-lock.md next to this file.
  
  #ifdef KIT_DEBUG
      if (0 < flush_cnt)
-@@ -133,14 +218,16 @@
+@@ -133,14 +224,16 @@
  #endif
      if (0 == ret)
      {
@@ -447,7 +458,7 @@ See README-tappad-lock.md next to this file.
          return ATCA_TX_FAIL;
      }
  
-@@ -157,6 +244,8 @@
+@@ -157,6 +250,8 @@
  ATCA_STATUS hal_kit_hid_receive(ATCAIface iface, uint8_t word_address, uint8_t* rxdata, uint16_t* rxlength)
  {
      hid_device* pHid = (hid_device*)atgetifacehaldat(iface);
@@ -456,7 +467,7 @@ See README-tappad-lock.md next to this file.
      int ret;
  
      ((void)word_address);
-@@ -166,13 +255,45 @@
+@@ -166,13 +261,45 @@
          return ATCA_BAD_PARAM;
      }
  
@@ -503,3 +514,24 @@ See README-tappad-lock.md next to this file.
          *rxlength = (uint16_t)ret;
      }
  
+@@ -217,6 +344,20 @@
+         return ATCA_BAD_PARAM;
+     }
+ 
++    {
++        /* A later hid_open may return this address for a device that is not suspect */
++        hid_device * released = pHid;
++
++        (void)__atomic_compare_exchange_n(&g_suspect, &released, NULL, false, __ATOMIC_RELAXED,
++                                          __ATOMIC_RELAXED);
++    }
++#ifdef ATCA_TAPPAD_LOCK_ENV_OVERRIDE
++    if (NULL != g_close_hook)
++    {
++        g_close_hook(pHid);
++        return ATCA_SUCCESS;
++    }
++#endif
+     hid_close(pHid);
+ 
+     return ATCA_SUCCESS;

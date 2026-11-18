@@ -487,6 +487,10 @@ int read(hid_device_ *, unsigned char *data, size_t length, int timeoutMs)
     return pad->released() ? -1 : static_cast<int>(n);
 }
 
+void close(hid_device_ *)
+{
+}
+
 int write(hid_device_ *, const unsigned char *data, size_t length)
 {
     if (failWrites) {
@@ -503,11 +507,13 @@ struct Device {
         pad = &padIn;
         failWrites = false;
         hal_kit_hid_test_set_io(read, write);
+        hal_kit_hid_test_set_close(close);
         kit.device.mIface.hal_data = &handle;
     }
     ~Device()
     {
         hal_kit_hid_test_set_io(nullptr, nullptr);
+        hal_kit_hid_test_set_close(nullptr);
         pad = nullptr;
     }
     Device(const Device &) = delete;
@@ -916,6 +922,24 @@ TEST_CASE("Tap pad hold: a HID pad slow to start its reply still answers", "[tap
     uint8_t revision[4] = {};
     const auto result = hid.kit.info(revision, [&] { pad.release(); });
 
+    CHECK(result.status == ATCA_SUCCESS);
+    CHECK(revision[3] == revisionOf(0));
+}
+
+TEST_CASE("Tap pad hold: a HID handle opened at a released one's address is not suspect",
+          "[tappad_bounded]")
+{
+    FakeKitPad pad(never);
+    pad.setSilent(true);
+    fake_hid::Device hid(pad);
+    uint8_t revision[4] = {};
+    CHECK(hid.kit.info(revision, [&] { pad.release(); }).status != ATCA_SUCCESS);
+
+    // hid_open may hand the next device the released handle's address; its first reply is slow.
+    CHECK(hal_kit_hid_release(&hid.handle) == ATCA_SUCCESS);
+    pad.setSilent(false);
+    pad.setInfoDelay([](int) { return Delay {1100ms}; });
+    const auto result = hid.kit.info(revision, [&] { pad.release(); });
     CHECK(result.status == ATCA_SUCCESS);
     CHECK(revision[3] == revisionOf(0));
 }
