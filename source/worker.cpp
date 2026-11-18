@@ -161,14 +161,29 @@ void Worker::start()
     for (int i = 0; i < NUM_OF_ASYNC_THREADS; ++i) {
         m_threads.create_thread([this] {
             applySdkThreadNice(m_threadNiceValue);
-            m_ioc.run();
+            runCatching(m_ioc, "async");
         });
     }
     for (int i = 0; i < m_blockingThreadCount; ++i) {
         m_blockingThreads.create_thread([this] {
             applySdkThreadNice(m_threadNiceValue);
-            m_blockingIoc.run();
+            runCatching(m_blockingIoc, "blocking");
         });
+    }
+}
+
+void Worker::runCatching(boost::asio::io_context &ioc, const char *pool)
+{
+    // An exception escaping a handler would otherwise end the process; run() resumes after it.
+    for (;;) {
+        try {
+            ioc.run();
+            return;
+        } catch (const std::exception &e) {
+            ERR("Worker: a {} handler threw, continuing: {}", pool, e.what());
+        } catch (...) {
+            ERR("Worker: a {} handler threw an unknown exception, continuing", pool);
+        }
     }
 }
 
