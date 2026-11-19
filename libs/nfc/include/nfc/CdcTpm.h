@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <stdint.h>
 #include <vector>
 #include <string>
@@ -29,7 +30,13 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <poll.h>
 #include <sys/select.h>
+#include <sys/ioctl.h>
+#include <chrono>
+#endif
+#if defined(__linux__)
+#include <linux/serial.h>
 #endif
 
 #include "Util.h"
@@ -73,10 +80,35 @@ class CdcTpm
         return count;
     }
 
+    #ifndef _WIN32
+    // Waits until fd_serial is readable or writable: >0 ready, 0 timeout, <0 error. poll() on Linux,
+    // since select() overflows fd_set above FD_SETSIZE; macOS poll() does not support devices, so
+    // select() there, refusing such an fd.
+    int SerialWait(bool forWrite, int timeoutMs)
+    {
+        #if defined(__APPLE__)
+        if (fd_serial >= FD_SETSIZE) { errno = EBADF; return -1; }
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(fd_serial, &fds);
+        struct timeval tv;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        return select(fd_serial + 1, forWrite ? NULL : &fds, forWrite ? &fds : NULL, NULL, &tv);
+        #else
+        struct pollfd pfd = {fd_serial, (short)(forWrite ? POLLOUT : POLLIN), 0};
+        return poll(&pfd, 1, timeoutMs);
+        #endif
+    }
+    #endif
+
     bool SerialWrite(const void *data, size_t len)
     {
         #ifdef _WIN32
         if (hSerial == INVALID_HANDLE_VALUE) return false;
+        COMMTIMEOUTS timeouts = {};
+        timeouts.WriteTotalTimeoutConstant = 1000; // callers hold the tap pad lock
+        SetCommTimeouts(hSerial, &timeouts);
         DWORD written;
         return WriteFile(hSerial, data, (DWORD)len, &written, NULL) && written == len;
         #else
@@ -85,7 +117,22 @@ class CdcTpm
             return m_cdc.write(data, (int)len);
         #endif
         if (fd_serial < 0) return false;
-        return write(fd_serial, data, len) == (ssize_t)len;
+        // Callers hold the tap pad lock: the fd is non-blocking and the whole write gets 1 s
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        const char *p = static_cast<const char *>(data);
+        while (len > 0)
+        {
+            const auto leftMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    deadline - std::chrono::steady_clock::now()).count();
+            if (leftMs <= 0) return false;
+            int ready = SerialWait(true, (int)leftMs);
+            if (ready < 0 && errno != EINTR) return false;
+            if (ready <= 0) continue;
+            ssize_t n = write(fd_serial, p, len);
+            if (n > 0) { p += n; len -= (size_t)n; }
+            else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) return false;
+        }
+        return true;
         #endif
     }
 
@@ -106,22 +153,22 @@ class CdcTpm
             return m_cdc.readSome(buf, (int)maxLen, timeoutMs);
         #endif
         if (fd_serial < 0) return -1;
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(fd_serial, &fds);
-        struct timeval tv;
-        tv.tv_sec = timeoutMs / 1000;
-        tv.tv_usec = (timeoutMs % 1000) * 1000;
-        int ret = select(fd_serial + 1, &fds, NULL, NULL, &tv);
+        int ret = SerialWait(false, timeoutMs);
         if (ret <= 0) return ret;
         return (int)read(fd_serial, buf, maxLen);
         #endif
     }
 
-    void SerialFlush()
+    // Bounded, since callers hold the tap pad lock: a device that is still sending after
+    // 64 reads (up to 32 KB) is not the TPM kit (or is misbehaving), and the caller gives up on it.
+    bool SerialFlush()
     {
-        uint8_t tmp[64];
-        while (SerialRead(tmp, sizeof(tmp), 1) > 0) {}
+        uint8_t tmp[512];
+        for (int i = 0; i < 64; i++)
+        {
+            if (SerialRead(tmp, sizeof(tmp), 1) <= 0) return true;
+        }
+        return false;
     }
 
     void SerialClose()
@@ -132,7 +179,27 @@ class CdcTpm
         #if defined(__linux__)
         m_cdc.close();
         #endif
-        if (fd_serial >= 0) { close(fd_serial); fd_serial = -1; }
+        if (fd_serial >= 0)
+        {
+            // Unsent output would make close() wait for the device to take it
+            tcflush(fd_serial, TCIOFLUSH);
+            #if defined(__linux__)
+            // cdc-acm before Linux 6.6 keeps it through a flush and waits closing_wait (30 s).
+            // Setting it needs CAP_SYS_ADMIN; without that the wait remains. Deliberately not
+            // restored: that would bring the wait back. It stays off on that port until the device
+            // is re-enumerated, and only a port that did not take our output gets it.
+            int pending = 0;
+            struct serial_struct serial;
+            if (ioctl(fd_serial, TIOCOUTQ, &pending) == 0 && pending > 0
+                && ioctl(fd_serial, TIOCGSERIAL, &serial) == 0)
+            {
+                serial.closing_wait = ASYNC_CLOSING_WAIT_NONE;
+                ioctl(fd_serial, TIOCSSERIAL, &serial);
+            }
+            #endif
+            close(fd_serial);
+            fd_serial = -1;
+        }
         #endif
     }
 
@@ -162,10 +229,8 @@ class CdcTpm
         if (path.rfind("usb:", 0) == 0)
             return m_cdc.open(path, 115200);
         #endif
-        fd_serial = open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+        fd_serial = open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK); // stays non-blocking
         if (fd_serial < 0) return false;
-        int flags = fcntl(fd_serial, F_GETFL, 0);
-        fcntl(fd_serial, F_SETFL, flags & ~O_NONBLOCK);
         struct termios tty;
         memset(&tty, 0, sizeof(tty));
         tcgetattr(fd_serial, &tty);
@@ -187,7 +252,7 @@ class CdcTpm
     {
         if (!SerialOpen(path)) return false;
 
-        SerialFlush();
+        if (!SerialFlush()) { SerialClose(); return false; }
 
         // Prepend \n to flush any stale data in the firmware's receive buffer.
         // The firmware processes <stale garbage>\n as a failed message (C5),
@@ -217,7 +282,7 @@ class CdcTpm
         if (Cmd == nullptr) return false;
         if (Response && SizeofResponse == 0) return false;
 
-        SerialFlush();
+        if (!SerialFlush()) return false;
 
         size_t CmdLength = strlen(Cmd);
 
