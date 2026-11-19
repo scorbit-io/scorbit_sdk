@@ -537,7 +537,7 @@ class ProbeBase
         }
         #endif // _WIN32
 
-        // Re-initialze the cable (that has been disconnect during the upgrade process)
+        // Re-initialze the cable (that has been disconnected during the upgrade process)
         if (bUploadFile && bPbiValid)
         {
             // Try a few times to find the same probe
