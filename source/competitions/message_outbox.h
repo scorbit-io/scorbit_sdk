@@ -29,13 +29,15 @@ namespace detail {
 namespace competitions {
 
 /** Which device message, and so which endpoint. */
-enum class MessageKind { GoalInstalled, AttemptStarted };
+enum class MessageKind { GoalInstalled, AttemptStarted, AttemptReleased };
 
 /** A message for the API, rendered once from the saved record and sent unchanged every time. */
 struct OutgoingMessage {
     std::string attempt;
     MessageKind kind {MessageKind::GoalInstalled};
     std::string body;
+    /** The release an `attempt_released` answers; empty for the other kinds. */
+    std::string control {};
 
     bool operator==(const OutgoingMessage &) const = default;
 };
@@ -59,16 +61,28 @@ public:
     /** Queues @p message, unless the same one is already queued or in flight. */
     void add(OutgoingMessage message);
 
+    /**
+     * Queues @p message ahead of every other, unless it is in flight: a release's answer the
+     * server waits for before it takes the attempt's start (`release_pending`).
+     */
+    void addFirst(OutgoingMessage message);
+
     /** The next message to send, marked in flight; nullopt if nothing can be sent now. */
     std::optional<OutgoingMessage> next();
 
     /** The server answered the in-flight message: saved, duplicate, or refused for good. */
     void answered();
 
-    /** Forgets every queued message of @p attempt, one the server refused. */
+    /**
+     * Forgets every queued install and start of @p attempt, one the server refused or the device
+     * dropped. An answer to a release is kept: the server waits for it whatever became of the
+     * attempt.
+     */
     void drop(const std::string &attempt)
     {
-        std::erase_if(m_queue, [&](const OutgoingMessage &m) { return m.attempt == attempt; });
+        std::erase_if(m_queue, [&](const OutgoingMessage &m) {
+            return m.attempt == attempt && m.kind != MessageKind::AttemptReleased;
+        });
     }
 
     /**
