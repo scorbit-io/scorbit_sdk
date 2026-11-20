@@ -147,8 +147,10 @@ void CompetitionService::onGoal(CompetitionGoal goal)
         return;
     }
     if (std::ranges::any_of(m_releases, [&](const ReleaseRecord &release) {
+            // Dropped by the release, or by its refused `started` answer
             return release.release.identity.attempt == attempt && release.decided
-                && release.applied.state != ReleaseState::Started;
+                && (release.applied.state != ReleaseState::Started
+                    || release.delivery == Delivery::Refused);
         })) {
         refuse(goal, "the attempt was released");
         return;
@@ -794,8 +796,9 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
         if (release->applied.state == ReleaseState::Started) {
             forget(message.attempt);
         }
-        std::erase_if(m_releases,
-                      [&](const ReleaseRecord &r) { return r.release.control == message.control; });
+        // Kept, not resent: a late goal for the attempt is still refused, and a repeated release
+        // gets the same answer
+        release->delivery = Delivery::Refused;
     } else {
         const auto delay = retryLater();
         WRN("Competitions: {} {} for attempt {} got no final answer (status {}), resending in {} "
