@@ -2306,8 +2306,40 @@ TEST_CASE("A release's answer is resent until answered, and a refusal is final",
     CHECK(f.net->sent[0].body == answer);
 
     f.answer(refused(R"({"code": "control_mismatch", "detail": "Acknowledged otherwise."})"));
-    CHECK(f.game->competitions().releases().empty());
+    CHECK(onlyRelease(f).delivery == Delivery::Refused);
     CHECK(f.net->sent.empty());
+
+    // Still known: a repeat gets the same answer, and a late goal for the attempt is refused
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == answer);
+    f.answer(refused(R"({"code": "control_mismatch", "detail": "Acknowledged otherwise."})"));
+    f.deliver();
+    CHECK(f.net->sent.empty());
+    CHECK(f.game->competitions().attempts().empty());
+}
+
+TEST_CASE("A refused release answer still keeps its released attempt out", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    f.release();
+    const auto answer = f.net->sent[0].body;
+    f.answer(refused(R"({"code": "unknown_control", "detail": "Not the release."})"));
+
+    // A resend of its goal installs nothing, so it can't start or qualify in a later game
+    f.deliver();
+    CHECK(f.net->sent.empty());
+    CHECK(f.game->competitions().attempts().empty());
+    f.game->setGameFinished();
+    f.startGame();
+    f.sessionCreated();
+    CHECK(f.net->sent.empty());
+
+    // A repeat isn't taken as new: the same `released` answer, not `unknown`
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == answer);
 }
 
 TEST_CASE("A release arriving between a start's resends is answered first: started",
@@ -2361,6 +2393,11 @@ TEST_CASE("A refused started answer leaves the attempt released", "[competitions
     CHECK(f.net->sent.empty()); // nor is its start resent
     activate(f);
     score(f, 10);
+    CHECK(f.game->competitions().attempts().empty());
+
+    // Nor is it installed again by a late resend of its goal
+    f.deliver();
+    CHECK(f.net->sent.empty());
     CHECK(f.game->competitions().attempts().empty());
 }
 

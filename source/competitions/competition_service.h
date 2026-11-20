@@ -46,6 +46,7 @@ enum class Delivery {
     Pending,   ///< Not answered yet: it is sent, and sent again, until it is
     Saved,     ///< The server saved it
     Duplicate, ///< The server had saved it already
+    Refused,   ///< The server refused it for good (a release's answer; the others are forgotten)
 };
 
 /** One installed attempt, held in memory: a restart ends it (SB-6369). */
