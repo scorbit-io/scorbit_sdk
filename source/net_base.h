@@ -78,6 +78,9 @@ using ApiReplyCallback = std::function<void(ApiReply reply)>;
 /** Called with each `competition.goal` that parsed. */
 using CompetitionGoalCallback = std::function<void(competitions::CompetitionGoal goal)>;
 
+/** Called with each `competition.attempt_control` release that parsed. */
+using AttemptReleaseCallback = std::function<void(competitions::AttemptRelease release)>;
+
 /** One claimed slot of a session, as a session reply's `scores` names it. */
 struct SessionSeat {
     std::string userId;
@@ -323,12 +326,21 @@ public:
     virtual void setCompetitionGoalCallback(CompetitionGoalCallback callback) { (void)callback; }
 
     /**
+     * @p callback is invoked from a network thread with each `competition.attempt_control`
+     * release that parsed (SB-6609). One that didn't is only logged.
+     */
+    virtual void setAttemptReleaseCallback(AttemptReleaseCallback callback) { (void)callback; }
+
+    /**
      * @p callback is invoked from a network thread with the seats of each session reply that
      * carries them, whether or not they changed the machine's profiles.
      */
     virtual void setSessionPlayersCallback(SessionPlayersCallback callback) { (void)callback; }
 
-    /** `POST competitions/goal-installed/` or `.../attempt-started/` with the JSON @p body. */
+    /**
+     * `POST competitions/goal-installed/`, `.../attempt-started/` or `.../attempt-released/`
+     * with the JSON @p body.
+     */
     virtual void postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                         ApiReplyCallback callback)
     {

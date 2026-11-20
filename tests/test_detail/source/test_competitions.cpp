@@ -127,6 +127,54 @@ const char *ATTEMPT_REFUSED = R"({
   "detail": "This attempt already started on another game or position."
 })";
 
+// The release messages (SB-6368), as in api core/contracts/competition/v1/ on main.
+
+const char *ATTEMPT_CONTROL = R"({
+  "version": 1,
+  "tournament": "0193a5e0-0000-7000-8000-000000000001",
+  "rules": "0193a5e0-0000-7000-8000-000000000002",
+  "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+  "attempt": "0193a5e0-0000-7000-8000-000000000003",
+  "type": "competition.attempt_control",
+  "action": "release",
+  "control": "0193a5e0-0000-7000-8000-000000000009",
+  "end_reason": "released"
+})";
+
+const char *ATTEMPT_RELEASED = R"({
+  "version": 1,
+  "tournament": "0193a5e0-0000-7000-8000-000000000001",
+  "rules": "0193a5e0-0000-7000-8000-000000000002",
+  "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+  "attempt": "0193a5e0-0000-7000-8000-000000000003",
+  "type": "competition.attempt_released",
+  "control": "0193a5e0-0000-7000-8000-000000000009",
+  "state": "released",
+  "boot_id": "b7e1c0de-5a1e-4c00-9d00-000000000001",
+  "sequence": 1077,
+  "qualification": null
+})";
+
+const char *ATTEMPT_RELEASED_SAVED = R"({
+  "version": 1,
+  "tournament": "0193a5e0-0000-7000-8000-000000000001",
+  "rules": "0193a5e0-0000-7000-8000-000000000002",
+  "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+  "attempt": "0193a5e0-0000-7000-8000-000000000003",
+  "type": "competition.attempt_released_saved",
+  "control": "0193a5e0-0000-7000-8000-000000000009",
+  "status": "saved",
+  "refunded": true,
+  "received_at": "2026-11-06T20:04:10.112000+00:00"
+})";
+
+const char *RELEASE_PENDING = R"({
+  "code": "release_pending",
+  "detail": "This attempt's release hasn't been acknowledged yet."
+})";
+
+constexpr auto CONTROL = "0193a5e0-0000-7000-8000-000000000009";
+
 constexpr auto TOURNAMENT = "0193a5e0-0000-7000-8000-000000000001";
 constexpr auto ATTEMPT = "0193a5e0-0000-7000-8000-000000000003";
 constexpr auto PLAYER = "6f1c2d3e-4a5b-4c6d-8e7f-000000000004";
@@ -223,6 +271,10 @@ public:
     {
         goalReceived = std::move(cb);
     }
+    void setAttemptReleaseCallback(AttemptReleaseCallback cb) override
+    {
+        releaseReceived = std::move(cb);
+    }
     bool isClockSynchronised() const override { return clockSynchronised; }
     const std::string &bootId() const override { return boot; }
     std::string venueMachine() const override { return venue; }
@@ -303,6 +355,7 @@ public:
     bool clockSynchronised {true};
     std::string venue {"6f1c2d3e-4a5b-4c6d-8e7f-000000000005"};
     CompetitionGoalCallback goalReceived;
+    AttemptReleaseCallback releaseReceived;
     std::deque<Sent> sent;
     std::function<void()> retry;
     std::chrono::steady_clock::duration retryDelay {};
@@ -361,6 +414,24 @@ struct Fixture {
         auto parsedGoal = parseGoal(message, error);
         REQUIRE(parsedGoal);
         net->goalReceived(std::move(*parsedGoal));
+        run();
+    }
+
+    /** The API's release of the example attempt arrives, as Net hands it over. */
+    void release(const json &message = json::parse(ATTEMPT_CONTROL))
+    {
+        std::string error;
+        auto parsedRelease = parseAttemptControl(message, error);
+        REQUIRE(parsedRelease);
+        net->releaseReceived(std::move(*parsedRelease));
+        run();
+    }
+
+    /** Lets the backoff elapse, so the next message goes out. */
+    void retry()
+    {
+        REQUIRE(net->retry);
+        net->retry();
         run();
     }
 
@@ -525,6 +596,64 @@ TEST_CASE("UTC times are written with milliseconds", "[competitions]")
     CHECK(formatUtc(0) == "1970-01-01T00:00:00.000Z");
 }
 
+TEST_CASE("A release parses as the API sends it", "[competitions]")
+{
+    std::string error;
+    const auto release = parseAttemptControl(json::parse(ATTEMPT_CONTROL), error);
+    REQUIRE(release);
+    CHECK(release->identity == parsed().identity);
+    CHECK(release->control == CONTROL);
+}
+
+TEST_CASE("An attempt control other than a release with its id is refused", "[competitions]")
+{
+    auto refusedWith = [](const char *key, const json &value) {
+        auto message = json::parse(ATTEMPT_CONTROL);
+        message[key] = value;
+        std::string error;
+        const bool refused = !parseAttemptControl(message, error);
+        CHECK_FALSE(error.empty());
+        return refused;
+    };
+    CHECK(refusedWith("action", "cancel"));
+    CHECK(refusedWith("control", nullptr));
+    CHECK(refusedWith("control", "not-a-uuid"));
+    CHECK(refusedWith("version", 2));
+    CHECK(refusedWith("type", "competition.goal"));
+
+    auto missing = json::parse(ATTEMPT_CONTROL);
+    missing.erase("control");
+    std::string error;
+    CHECK_FALSE(parseAttemptControl(missing, error));
+}
+
+TEST_CASE("attempt_released matches the API's example", "[competitions]")
+{
+    std::string error;
+    const auto release = parseAttemptControl(json::parse(ATTEMPT_CONTROL), error);
+    REQUIRE(release);
+    const ReleaseApplied applied {ReleaseState::Released, "b7e1c0de-5a1e-4c00-9d00-000000000001",
+                                  1077};
+    CHECK(attemptReleasedMessage(*release, applied) == json::parse(ATTEMPT_RELEASED));
+
+    auto started = applied;
+    started.state = ReleaseState::Started;
+    CHECK(attemptReleasedMessage(*release, started)["state"] == "started");
+    started.state = ReleaseState::Unknown;
+    CHECK(attemptReleasedMessage(*release, started)["state"] == "unknown");
+}
+
+TEST_CASE("A release's receipt is matched to the release it answers", "[competitions]")
+{
+    const auto identity = parsed().identity;
+    const auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+    CHECK(parseReceipt(saved, attemptReleasedType(), identity, CONTROL) == ReceiptStatus::Saved);
+
+    auto other = saved;
+    other["control"] = "0193a5e0-0000-7000-8000-000000000010";
+    CHECK_FALSE(parseReceipt(other, attemptReleasedType(), identity, CONTROL));
+}
+
 // ---- Control channel ---------------------------------------------------------------------------
 
 namespace {
@@ -550,6 +679,9 @@ struct GoalNet : IoHolder, Net {
         setCompetitionGoalCallback([this](competitions::CompetitionGoal goal) {
             handedOver.push_back(std::move(goal));
         });
+        setAttemptReleaseCallback([this](competitions::AttemptRelease release) {
+            releases.push_back(std::move(release));
+        });
     }
 
     void handle(const json &payload)
@@ -560,6 +692,7 @@ struct GoalNet : IoHolder, Net {
     }
 
     std::vector<competitions::CompetitionGoal> handedOver;
+    std::vector<competitions::AttemptRelease> releases;
     std::vector<scorbit::CompetitionGoal> events;
 };
 
@@ -583,6 +716,20 @@ TEST_CASE("Net refuses a competition.goal it can't judge, and raises nothing", "
 
     CHECK(net.handedOver.empty());
     CHECK(net.events.empty());
+}
+
+TEST_CASE("Net hands a release over to be applied, and refuses any other control", "[competitions]")
+{
+    GoalNet net;
+    NetTestAccess::handleAttemptControl(net, json::parse(ATTEMPT_CONTROL));
+    REQUIRE(net.releases.size() == 1);
+    CHECK(net.releases[0].control == CONTROL);
+    CHECK(net.releases[0].identity.attempt == ATTEMPT);
+
+    auto cancel = json::parse(ATTEMPT_CONTROL);
+    cancel["action"] = "cancel";
+    NetTestAccess::handleAttemptControl(net, cancel);
+    CHECK(net.releases.size() == 1);
 }
 
 // ---- Outbox ------------------------------------------------------------------------------------
@@ -643,6 +790,44 @@ TEST_CASE("Outbox lets other attempts past one that keeps failing", "[competitio
     CHECK(outbox.next() == aInstalled);
     outbox.answered();
     CHECK(outbox.next() == aStarted);
+}
+
+TEST_CASE("Outbox keeps a release's answer when its attempt is dropped", "[competitions]")
+{
+    MessageOutbox outbox;
+    const OutgoingMessage started {"a", MessageKind::AttemptStarted, "{a2}"};
+    const OutgoingMessage released {"a", MessageKind::AttemptReleased, "{a3}", "c"};
+    outbox.add(started);
+    outbox.add(released);
+
+    outbox.drop("a");
+    CHECK(outbox.next() == released);
+    outbox.answered();
+    CHECK(outbox.empty());
+}
+
+TEST_CASE("Outbox sends a release's answer ahead of the start it holds up", "[competitions]")
+{
+    MessageOutbox outbox;
+    const OutgoingMessage bInstalled {"b", MessageKind::GoalInstalled, "{b1}"};
+    const OutgoingMessage started {"a", MessageKind::AttemptStarted, "{a2}"};
+    const OutgoingMessage released {"a", MessageKind::AttemptReleased, "{a3}", "c"};
+    outbox.add(started);
+    outbox.add(bInstalled);
+
+    REQUIRE(outbox.next() == started);
+    outbox.failed();
+    outbox.addFirst(released);
+    outbox.addFirst(released); // once
+    outbox.retryReady();
+
+    CHECK(outbox.next() == released);
+    outbox.answered();
+    CHECK(outbox.next() == bInstalled);
+    outbox.answered();
+    CHECK(outbox.next() == started);
+    outbox.answered();
+    CHECK(outbox.empty());
 }
 
 // ---- Service -----------------------------------------------------------------------------------
@@ -1881,4 +2066,314 @@ TEST_CASE("TIMER_BETWEEN is refused where a later occurrence would shorten its s
     CHECK(accepted(json::array({rule("TIMER_BETWEEN", "<=", 8000), a, b})));
     // One sibling: gaps between consecutive occurrences never change once there
     CHECK(accepted(json::array({rule("TIMER_BETWEEN", ">=", 8000), a})));
+}
+
+// ---- Releases (SB-6609) ------------------------------------------------------------------------
+
+namespace {
+
+/** The release's answer, as the API saves it, with @p status. */
+ApiReply releaseSaved(const char *status = "saved")
+{
+    auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+    saved["status"] = status;
+    return receipt(saved.dump().c_str());
+}
+
+/** Installs the example goal, starts its game and has the API save the start. */
+void startAttempt(Fixture &f)
+{
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    REQUIRE(f.record().started == Delivery::Saved);
+}
+
+const ReleaseRecord &onlyRelease(const Fixture &f)
+{
+    REQUIRE(f.game->competitions().releases().size() == 1);
+    return f.game->competitions().releases().front();
+}
+
+} // namespace
+
+TEST_CASE("A release of a running attempt drops it and says where", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    activate(f);
+
+    f.release();
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    const auto &body = f.net->sent[0].body;
+    CHECK(body["type"] == "competition.attempt_released");
+    CHECK(body["attempt"] == ATTEMPT);
+    CHECK(body["control"] == CONTROL);
+    CHECK(body["state"] == "released");
+    CHECK(body["boot_id"] == f.net->boot);
+    // Rows: the start, the session reply's, then Ali Baba: applied after the last
+    CHECK(body["sequence"] == 3);
+    CHECK(body["qualification"].is_null());
+
+    // It stops timing: the score that would have met its goal counts for nothing
+    score(f, 10);
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+
+    f.answer(releaseSaved());
+    CHECK(onlyRelease(f).delivery == Delivery::Saved);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A release before the start drops the attempt, which never starts", "[competitions]")
+{
+    // Released while its game is under way, before a reply seats its player
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.release();
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["state"] == "released");
+    CHECK(f.net->sent[0].body["sequence"] == 1); // after the game's start row
+    f.answer(releaseSaved());
+
+    // The reply seating its player starts nothing, and a late resend of the goal is refused
+    f.sessionCreated();
+    f.deliver();
+    CHECK(f.net->sent.empty());
+    CHECK(f.game->competitions().attempts().empty());
+}
+
+TEST_CASE("A release whose install is unanswered drops the install too", "[competitions]")
+{
+    Fixture f;
+    f.deliver();
+    REQUIRE(f.net->sent.size() == 1); // the install, in flight
+    f.release();
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+
+    // The install's failure is let go, not resent: only the release's answer follows
+    f.answer(noAnswer());
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent[0].body["state"] == "released");
+    CHECK(f.net->goals.empty());
+}
+
+TEST_CASE("A release of an attempt not held here is answered unknown", "[competitions]")
+{
+    // As after a restart: nothing of the attempt is left
+    Fixture f;
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["state"] == "unknown");
+    CHECK(f.net->sent[0].body["sequence"] == 0); // no row yet this boot
+    CHECK(f.net->sent[0].body["boot_id"] == f.net->boot);
+}
+
+TEST_CASE("A repeated release changes nothing and gets the same answer", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    const auto answer = f.net->sent[0].body;
+
+    // While its answer is on its way: nothing more is sent
+    f.release();
+    CHECK(f.net->sent.size() == 1);
+    f.answer(releaseSaved());
+
+    // Rows later: the same answer, the same place in the row order
+    activate(f);
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == answer);
+    f.answer(releaseSaved("duplicate"));
+    CHECK(onlyRelease(f).delivery == Delivery::Duplicate);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A qualification before the release comes first in the row order", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    activate(f);
+    score(f, 10);
+    REQUIRE(f.record().qualification);
+    const auto completion = f.record().qualification->completionSequence;
+
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    const auto &body = f.net->sent[0].body;
+    CHECK(body["state"] == "released");
+    // Not after the release: the API keeps the result
+    CHECK(body["sequence"].get<uint64_t>() >= completion);
+    // Its report id is B02F's (SB-6370), which reports the qualification
+    CHECK(body["qualification"].is_null());
+}
+
+TEST_CASE("A release before the server has the start keeps the attempt: started", "[competitions]")
+{
+    // The start is on its way when the release arrives: the server refuses it, the release
+    // pending, so the game began before the release reached the machine
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1);
+    const auto start = f.net->sent[0].body;
+
+    f.release();
+    CHECK(f.net->sent.size() == 1); // decided by the start's answer
+    CHECK_FALSE(onlyRelease(f).decided);
+    CHECK(f.game->competitions().attempts().contains(ATTEMPT));
+
+    f.answer(refused(RELEASE_PENDING));
+    CHECK(onlyRelease(f).decided);
+    CHECK(f.game->competitions().attempts().contains(ATTEMPT));
+
+    // The release's answer goes first, then the start again, unchanged
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent[0].body["state"] == "started");
+    CHECK(f.net->sent[0].body["sequence"] == 2); // the start, then the session reply's
+    f.answer(releaseSaved());
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == start);
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK(f.record().started == Delivery::Saved);
+    REQUIRE(f.record().start);
+    CHECK(f.record().start->session == SESSION);
+
+    // It plays on, and still qualifies
+    activate(f);
+    score(f, 10);
+    CHECK(f.record().qualification);
+}
+
+TEST_CASE("A release while the start is unanswered: a receipt means an unclaim", "[competitions]")
+{
+    // The server had the start already (its first answer was lost): the release is an unclaim
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+    CHECK(f.net->sent.size() == 1); // the start, in flight
+
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["state"] == "released");
+    CHECK(f.net->sent[0].body["sequence"] == 2); // where it arrived, not where it was decided
+}
+
+TEST_CASE("A start refused release_pending is resent until the server saves it", "[competitions]")
+{
+    // The release hasn't reached the machine yet: the API resends it at the player's next tap
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    const auto start = f.net->sent[0].body;
+
+    for (int i = 0; i < 3; ++i) {
+        f.answer(refused(RELEASE_PENDING));
+        CHECK(f.game->competitions().attempts().contains(ATTEMPT));
+        f.retry();
+        REQUIRE(f.net->sent.size() == 1);
+        CHECK(f.net->sent[0].body == start);
+    }
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK(f.record().started == Delivery::Saved);
+}
+
+TEST_CASE("A release's answer is resent until answered, and a refusal is final", "[competitions]")
+{
+    Fixture f;
+    f.release();
+    const auto answer = f.net->sent[0].body;
+
+    f.answer(ApiReply {Error::ApiError, 503, "busy", {}});
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == answer);
+
+    f.answer(refused(R"({"code": "control_mismatch", "detail": "Acknowledged otherwise."})"));
+    CHECK(f.game->competitions().releases().empty());
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A release arriving between a start's resends is answered first: started",
+          "[competitions]")
+{
+    // The start is refused release_pending before the release reaches the machine
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    const auto start = f.net->sent[0].body;
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1); // the start again, in flight
+
+    // Then it arrives, twice: one release, still waiting for the start's answer
+    f.release();
+    f.release();
+    CHECK(f.net->sent.size() == 1);
+    CHECK_FALSE(onlyRelease(f).decided);
+
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["state"] == "started");
+
+    // Its answer gets no reply: it still goes before the start, which waits for it
+    f.answer(noAnswer());
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    f.answer(releaseSaved());
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == start);
+}
+
+TEST_CASE("A refused started answer leaves the attempt released", "[competitions]")
+{
+    // The server had the start after all: `started` is refused wrong_state
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+
+    f.answer(refused(R"({"code": "wrong_state", "detail": "Already started."})"));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(f.net->sent.empty()); // nor is its start resent
+    activate(f);
+    score(f, 10);
+    CHECK(f.game->competitions().attempts().empty());
+}
+
+TEST_CASE("A refused start answers the release waiting on it: released", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+
+    f.answer(refused(ATTEMPT_REFUSED));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["state"] == "released");
 }
