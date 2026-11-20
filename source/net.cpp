@@ -3030,6 +3030,12 @@ void Net::setCompetitionGoalCallback(CompetitionGoalCallback callback)
     m_competitionGoalCallback = std::move(callback);
 }
 
+void Net::setAttemptReleaseCallback(AttemptReleaseCallback callback)
+{
+    std::scoped_lock lock(m_attemptReleaseCallbackMutex);
+    m_attemptReleaseCallback = std::move(callback);
+}
+
 void Net::setSessionPlayersCallback(SessionPlayersCallback callback)
 {
     std::scoped_lock lock(m_sessionPlayersCallbackMutex);
@@ -3056,12 +3062,46 @@ void Net::handleCompetitionGoal(const json &payload)
     }
 }
 
+void Net::handleAttemptControl(const json &payload)
+{
+    std::string error;
+    auto release = competitions::parseAttemptControl(payload, error);
+    if (!release) {
+        WRN("API-CF competition.attempt_control refused: {}", error);
+        return;
+    }
+
+    INF("API-CF competition.attempt_control release {} for attempt {}", release->control,
+        release->identity.attempt);
+    std::scoped_lock lock(m_attemptReleaseCallbackMutex);
+    if (m_attemptReleaseCallback) {
+        m_attemptReleaseCallback(std::move(*release));
+    } else {
+        WRN("API-CF competition.attempt_control refused: nothing applies releases");
+    }
+}
+
+namespace {
+
+const char *competitionEndpoint(competitions::MessageKind kind)
+{
+    switch (kind) {
+    case competitions::MessageKind::GoalInstalled:
+        return URL_COMPETITIONS_GOAL_INSTALLED;
+    case competitions::MessageKind::AttemptStarted:
+        return URL_COMPETITIONS_ATTEMPT_STARTED;
+    case competitions::MessageKind::AttemptReleased:
+        break;
+    }
+    return URL_COMPETITIONS_ATTEMPT_RELEASED;
+}
+
+} // namespace
+
 void Net::postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                  ApiReplyCallback callback)
 {
-    const auto *endpoint = kind == competitions::MessageKind::GoalInstalled
-                                   ? URL_COMPETITIONS_GOAL_INSTALLED
-                                   : URL_COMPETITIONS_ATTEMPT_STARTED;
+    const auto *endpoint = competitionEndpoint(kind);
     auto replyCallback = [callback = std::move(callback), endpoint](Error error, int httpStatus,
                                                                     const std::string &reply) {
         if (error == Error::Success) {
@@ -3073,12 +3113,9 @@ void Net::postCompetitionMessage(competitions::MessageKind kind, std::string bod
         callback(ApiReply {error, httpStatus, reply, {}});
     };
 
-    auto deferredSetup = [this, kind, endpoint, body = std::move(body)] {
+    auto deferredSetup = [this, endpoint, body = std::move(body)] {
         INF("API sending {}: {}", endpoint, body);
-        return std::make_tuple(kind == competitions::MessageKind::GoalInstalled
-                                       ? url(URL_COMPETITIONS_GOAL_INSTALLED)
-                                       : url(URL_COMPETITIONS_ATTEMPT_STARTED),
-                               cpr::Body {body});
+        return std::make_tuple(url(endpoint), cpr::Body {body});
     };
 
     m_worker.post(createPostRequestTask(HttpStatusCallback {std::move(replyCallback)},
@@ -5873,6 +5910,11 @@ void NetTestAccess::handleCompetitionGoal(Net &net, const nlohmann::json &payloa
     net.handleCompetitionGoal(payload);
 }
 
+void NetTestAccess::handleAttemptControl(Net &net, const nlohmann::json &payload)
+{
+    net.handleAttemptControl(payload);
+}
+
 void NetTestAccess::requestOpenProbeFlash(Net &net, bool startup)
 {
     net.requestOpenProbeFlash(startup);
@@ -6962,6 +7004,8 @@ void Net::handlePublication(const std::string &channel, const nlohmann::json &da
                 handleProbeFlash(*payloadIt);
             } else if (type == JVAL_CHN_TYPE_COMPETITION_GOAL) {
                 handleCompetitionGoal(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_COMPETITION_ATTEMPT_CONTROL) {
+                handleAttemptControl(*payloadIt);
             } else if (type == JVAL_CHN_TYPE_ENTRY_ACTIVATED) {
                 // A use-entry claim sends no session refresh of its own (SPEC-0034 REQ-9.1)
                 INF("API-CF entry activated, refetching the running session");

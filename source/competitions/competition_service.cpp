@@ -40,6 +40,22 @@ constexpr int HTTP_CONFLICT = 409;
 /** The positions a game slot may have, as the API bounds them. */
 constexpr sb_player_t MAX_POSITION = 6;
 
+/** A 409 that doesn't refuse: the server takes the start once the release is answered. */
+constexpr auto RELEASE_PENDING = "release_pending";
+
+/** The `code` of a refusal's `{code, detail}`; empty when it carries none. */
+std::string refusalCode(const ApiReply &reply)
+{
+    try {
+        const auto document = json::parse(reply.body);
+        if (document.is_object()) {
+            return document.value("code", std::string {});
+        }
+    } catch (const std::exception &) {
+    }
+    return {};
+}
+
 /** The `code: detail` of a refusal's `{code, detail}`, or its body when it carries none. */
 std::string refusalOf(const ApiReply &reply)
 {
@@ -56,7 +72,28 @@ std::string refusalOf(const ApiReply &reply)
 
 const char *typeOf(MessageKind kind)
 {
-    return kind == MessageKind::GoalInstalled ? goalInstalledType() : attemptStartedType();
+    switch (kind) {
+    case MessageKind::GoalInstalled:
+        return goalInstalledType();
+    case MessageKind::AttemptStarted:
+        return attemptStartedType();
+    case MessageKind::AttemptReleased:
+        break;
+    }
+    return attemptReleasedType();
+}
+
+const char *describe(ReleaseState state)
+{
+    switch (state) {
+    case ReleaseState::Released:
+        return "dropped it";
+    case ReleaseState::Started:
+        return "kept it: its game had started";
+    case ReleaseState::Unknown:
+        break;
+    }
+    return "doesn't hold it";
 }
 
 /**
@@ -109,6 +146,13 @@ void CompetitionService::onGoal(CompetitionGoal goal)
         INF("Competitions: attempt {} is already installed", attempt);
         return;
     }
+    if (std::ranges::any_of(m_releases, [&](const ReleaseRecord &release) {
+            return release.release.identity.attempt == attempt && release.decided
+                && release.applied.state != ReleaseState::Started;
+        })) {
+        refuse(goal, "the attempt was released");
+        return;
+    }
 
     if (const auto here = toLowerAscii(m_net.venueMachine());
         !here.empty() && here != goal.venueMachine) {
@@ -124,6 +168,99 @@ void CompetitionService::onGoal(CompetitionGoal goal)
     const auto &[it, inserted] = m_attempts.emplace(attempt, std::move(record));
     queueInstalled(it->second);
     pump();
+}
+
+// ---- Releases ----------------------------------------------------------------------------------
+
+void CompetitionService::onRelease(AttemptRelease release)
+{
+    if (auto *kept = releaseOf(release.control)) {
+        // A resend: the same answer, sent again once decided (the server answers `duplicate`)
+        INF("Competitions: release {} of attempt {} was applied already", release.control,
+            release.identity.attempt);
+        if (kept->decided) {
+            queueReleased(*kept);
+            pump();
+        }
+        return;
+    }
+
+    // Applied after the last row: a qualification on it or before came first
+    auto &kept = m_releases.emplace_back(
+            ReleaseRecord {std::move(release), {ReleaseState::Unknown, m_bootId, m_lastSequence}});
+    const auto attempt = kept.release.identity.attempt;
+    const auto it = m_attempts.find(attempt);
+    if (it == m_attempts.end()) {
+        settle(kept, ReleaseState::Unknown);
+    } else if (it->second.start && it->second.started == Delivery::Pending) {
+        // An unclaim releases a started attempt; leaving the lobby or a lapsed reservation one
+        // the server hasn't seen start. Which, only the start's answer tells: until then the
+        // attempt plays on.
+        INF("Competitions: release {} of attempt {} at row {} waits for its start's answer",
+            kept.release.control, attempt, kept.applied.sequence);
+    } else {
+        settle(kept, ReleaseState::Released);
+    }
+    dropAnsweredReleases();
+    pump();
+}
+
+ReleaseRecord *CompetitionService::releaseOf(const std::string &control)
+{
+    const auto it = std::ranges::find(m_releases, control,
+                                      [](const ReleaseRecord &r) { return r.release.control; });
+    return it == m_releases.end() ? nullptr : &*it;
+}
+
+void CompetitionService::settle(ReleaseRecord &release, ReleaseState state, bool first)
+{
+    release.decided = true;
+    release.applied.state = state;
+    INF("Competitions: release {} of attempt {} applied at row {}: {}", release.release.control,
+        release.release.identity.attempt, release.applied.sequence, describe(state));
+    if (state == ReleaseState::Released) {
+        // It stops timing, and never qualifies from here on
+        forget(release.release.identity.attempt);
+    }
+    queueReleased(release, first);
+}
+
+void CompetitionService::settlePending(const std::string &attempt, ReleaseState state, bool first)
+{
+    // Newest first when each goes to the front, so they are sent oldest first. Going first, an
+    // answer already decided but still owed is moved there too: behind the start, it would wait
+    // for the start, which waits for it.
+    auto apply = [&](ReleaseRecord &release) {
+        if (release.release.identity.attempt != attempt) {
+            return;
+        }
+        if (!release.decided) {
+            settle(release, state, first);
+        } else if (first && release.delivery == Delivery::Pending) {
+            queueReleased(release, true);
+        }
+    };
+    if (first) {
+        std::for_each(m_releases.rbegin(), m_releases.rend(), apply);
+    } else {
+        std::ranges::for_each(m_releases, apply);
+    }
+}
+
+void CompetitionService::forget(const std::string &attempt)
+{
+    m_outbox.drop(attempt);
+    m_attempts.erase(attempt);
+}
+
+void CompetitionService::dropAnsweredReleases()
+{
+    // Only answered ones: one still owed to the server is always kept
+    for (auto it = m_releases.begin();
+         m_releases.size() > MAX_KEPT_RELEASES && it != m_releases.end();) {
+        it = it->decided && it->delivery != Delivery::Pending ? m_releases.erase(it)
+                                                              : std::next(it);
+    }
 }
 
 void CompetitionService::refuse(const CompetitionGoal &goal, const std::string &reason)
@@ -142,6 +279,7 @@ void CompetitionService::publishGoal(const CompetitionGoal &goal)
 
 void CompetitionService::onGameStarted(int gameSessionId, const achievements::TimelineRow &firstRow)
 {
+    sawSequence(firstRow.sequence);
     // A game that never saw its end (a new one replaced it) can't start anything any more. It
     // ends on its last row, just before the new one's first, and is judged there once more, as at
     // an end. (0, no row's place, if the new row has none: then it ended out of sight.)
@@ -254,6 +392,7 @@ void CompetitionService::onSessionPlayers(const std::string &sessionUuid, Sessio
 
 void CompetitionService::onRow(const achievements::TimelineRow &row)
 {
+    sawSequence(row.sequence);
     // Only the game in progress takes rows, and only while it may start an attempt
     if (m_games.empty()) {
         return;
@@ -278,6 +417,7 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
 
 void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
 {
+    sawSequence(endSequence);
     if (auto *game = gameOf(gameSessionId); game && !game->finished) {
         finishGame(*game, endSequence);
     }
@@ -514,6 +654,18 @@ void CompetitionService::queueStarted(const AttemptRecord &record)
     }
 }
 
+void CompetitionService::queueReleased(const ReleaseRecord &release, bool first)
+{
+    OutgoingMessage message {release.release.identity.attempt, MessageKind::AttemptReleased,
+                             attemptReleasedMessage(release.release, release.applied).dump(),
+                             release.release.control};
+    if (first) {
+        m_outbox.addFirst(std::move(message));
+    } else {
+        m_outbox.add(std::move(message));
+    }
+}
+
 void CompetitionService::pump()
 {
     const auto message = m_outbox.next();
@@ -532,6 +684,10 @@ void CompetitionService::pump()
 
 void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
 {
+    if (message.kind == MessageKind::AttemptReleased) {
+        onReleasedReply(message, reply);
+        return;
+    }
     const auto it = m_attempts.find(message.attempt);
     if (it == m_attempts.end()) {
         m_outbox.answered();
@@ -562,20 +718,34 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
         if (confirmed) {
             publishGoal(record.goal);
         }
+        // The server had the start: a release waiting on it was an unclaim, and drops the attempt
+        if (message.kind == MessageKind::AttemptStarted) {
+            settlePending(message.attempt, ReleaseState::Released);
+        }
+    } else if (message.kind == MessageKind::AttemptStarted && reply.httpStatus == HTTP_CONFLICT
+               && refusalCode(reply) == RELEASE_PENDING) {
+        // Not a refusal (SB-6368 D3): the server takes the start once the release is answered.
+        // A release waiting on it is `started`, and every answer still owed goes first.
+        const auto delay = retryLater();
+        WRN("Competitions: {} for attempt {} waits for a release's answer, resending in {} ms",
+            typeOf(message.kind), message.attempt, delay.count());
+        settlePending(message.attempt, ReleaseState::Started, true);
+        return;
     } else if (reply.httpStatus == HTTP_CONFLICT) {
         // The only final answer besides a receipt (ADR-0052): the attempt is over for the
-        // server, so nothing of it is sent again, and it is forgotten here
+        // server, so nothing of it is sent again, and it is forgotten here. A release waiting on
+        // it is answered `released`: the attempt is dropped.
         WRN("Competitions: {} for attempt {} refused, forgetting the attempt: {}",
             typeOf(message.kind), message.attempt, refusalOf(reply));
-        m_outbox.drop(message.attempt);
-        m_attempts.erase(it);
+        settlePending(message.attempt, ReleaseState::Released);
+        forget(message.attempt);
         m_outbox.answered();
         pump();
         return;
     } else {
         // Anything else is resent: a lost or failed request, but also a 4xx such as a failed
         // re-authentication, or an API not deployed yet
-        const auto delay = m_outbox.failed();
+        const auto delay = retryLater();
         if (reply.error == Error::Success) {
             ERR("Competitions: {} for attempt {} answered without a receipt, resending in {} "
                 "ms: {}",
@@ -585,18 +755,72 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
                 "{} ms",
                 typeOf(message.kind), message.attempt, reply.httpStatus, delay.count());
         }
-        m_net.scheduleCompetitionRetry(delay, [this, alive = std::weak_ptr(m_alive)] {
-            m_poster([this, alive] {
-                if (!alive.expired()) {
-                    onRetryTimer();
-                }
-            });
-        });
         return;
     }
 
     m_outbox.answered();
     pump();
+}
+
+void CompetitionService::onReleasedReply(const OutgoingMessage &message, const ApiReply &reply)
+{
+    auto *release = releaseOf(message.control);
+    if (!release) {
+        m_outbox.answered();
+        pump();
+        return;
+    }
+
+    std::optional<ReceiptStatus> receipt;
+    if (reply.error == Error::Success) {
+        try {
+            receipt = parseReceipt(json::parse(reply.body), attemptReleasedType(),
+                                   release->release.identity, release->release.control);
+        } catch (const std::exception &) {
+        }
+    }
+
+    if (receipt) {
+        release->delivery =
+                *receipt == ReceiptStatus::Saved ? Delivery::Saved : Delivery::Duplicate;
+        INF("Competitions: {} {} for attempt {}: {}", attemptReleasedType(), message.control,
+            message.attempt, *receipt == ReceiptStatus::Saved ? "saved" : "duplicate");
+    } else if (reply.httpStatus == HTTP_CONFLICT) {
+        // Final: the server answered the release otherwise, or knows no such release
+        WRN("Competitions: {} {} for attempt {} refused: {}", attemptReleasedType(),
+            message.control, message.attempt, refusalOf(reply));
+        // A `started` refused (`wrong_state`: the server had the start, so it was an unclaim)
+        // leaves the attempt released for the server: it never plays on here
+        if (release->applied.state == ReleaseState::Started) {
+            forget(message.attempt);
+        }
+        std::erase_if(m_releases,
+                      [&](const ReleaseRecord &r) { return r.release.control == message.control; });
+    } else {
+        const auto delay = retryLater();
+        WRN("Competitions: {} {} for attempt {} got no final answer (status {}), resending in {} "
+            "ms",
+            attemptReleasedType(), message.control, message.attempt, reply.httpStatus,
+            delay.count());
+        return;
+    }
+
+    m_outbox.answered();
+    dropAnsweredReleases();
+    pump();
+}
+
+std::chrono::milliseconds CompetitionService::retryLater()
+{
+    const auto delay = m_outbox.failed();
+    m_net.scheduleCompetitionRetry(delay, [this, alive = std::weak_ptr(m_alive)] {
+        m_poster([this, alive] {
+            if (!alive.expired()) {
+                onRetryTimer();
+            }
+        });
+    });
+    return delay;
 }
 
 void CompetitionService::onRetryTimer()
