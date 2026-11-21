@@ -34,6 +34,15 @@ void MessageOutbox::add(OutgoingMessage message)
     m_queue.push_back(std::move(message));
 }
 
+void MessageOutbox::addFirst(OutgoingMessage message)
+{
+    if (m_inFlight == message) {
+        return;
+    }
+    std::erase(m_queue, message);
+    m_queue.push_front(std::move(message));
+}
+
 std::optional<OutgoingMessage> MessageOutbox::next()
 {
     if (m_inFlight || m_backingOff || m_queue.empty()) {

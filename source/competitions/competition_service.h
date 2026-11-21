@@ -25,6 +25,8 @@
 #include "../net_base.h"
 #include "../achievements/player_facts.h"
 #include "../achievements/timeline_row.h"
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -44,6 +46,7 @@ enum class Delivery {
     Pending,   ///< Not answered yet: it is sent, and sent again, until it is
     Saved,     ///< The server saved it
     Duplicate, ///< The server had saved it already
+    Refused,   ///< The server refused it for good (a release's answer; the others are forgotten)
 };
 
 /** One installed attempt, held in memory: a restart ends it (SB-6369). */
@@ -63,6 +66,18 @@ struct AttemptRecord {
      * replaced. Sending it is B02F (SB-6370).
      */
     std::optional<TurnTimeResult> qualification;
+};
+
+/** A release the device applied, and its answer to the API (SB-6609). */
+struct ReleaseRecord {
+    AttemptRelease release;
+    ReleaseApplied applied;
+    /**
+     * False while the attempt's start is on its way: whether the server had saved it decides the
+     * state, so the start's answer settles it.
+     */
+    bool decided {false};
+    Delivery delivery {Delivery::Pending};
 };
 
 /**
@@ -92,8 +107,16 @@ struct AttemptRecord {
  *   more on the game's last row when it ends. The attempt qualifies with its own position's
  *   result, once, and only in the game it started in. A lost row, or a lost end, stops the timing:
  *   no result rather than one shorter than was played.
- * - Only a receipt or a 409 answers a message. Anything else is resent. A 409 ends the attempt
- *   for the server, so it is forgotten here.
+ * - A release (SB-6609) drops the attempt, which stops timing and never qualifies after it, and
+ *   is answered with where it was applied: the last row's place in the row order, so a
+ *   qualification on that row or before came first. An attempt whose start the server has saved
+ *   is `released` (an unclaim); one it hasn't is `started`, kept with its start, which is resent
+ *   once the server has the answer; one not held is `unknown`. While the start is still
+ *   unanswered, its answer decides: a receipt means `released`, `release_pending` `started`.
+ *   A repeated release changes nothing and gets the same answer.
+ * - Only a receipt or a 409 answers a message. Anything else is resent, as is a 409
+ *   `release_pending`: the server takes the start once the release is answered. Any other 409
+ *   ends the attempt for the server, so it is forgotten here.
  *
  * Threading: every method runs on the thread game state lives on. Network replies and timers are
  * brought back to it through the poster.
@@ -138,8 +161,14 @@ public:
      */
     void onGameFinished(int gameSessionId, uint64_t endSequence);
 
+    /** A `competition.attempt_control` release arrived and parsed. */
+    void onRelease(AttemptRelease release);
+
     /** The attempts installed here; for tests and diagnostics. */
     const std::map<std::string, AttemptRecord> &attempts() const { return m_attempts; }
+
+    /** The releases applied here, oldest first; for tests and diagnostics. */
+    const std::deque<ReleaseRecord> &releases() const { return m_releases; }
 
 private:
     /** A game in which installed attempts may start. */
@@ -175,6 +204,8 @@ private:
 
     /** Games, and seats waiting for their game, kept at most. */
     static constexpr size_t MAX_KEPT_GAMES = 8;
+    /** Answered releases kept to answer a repeat the same way. */
+    static constexpr size_t MAX_KEPT_RELEASES = 32;
 
     Game *gameOf(int gameSessionId);
     /** Starts every candidate of @p game whose player holds one of @p seats. */
@@ -204,10 +235,28 @@ private:
     /** Tells the host Scorbit confirmed @p goal is installed: CompetitionGoalReceived. */
     void publishGoal(const CompetitionGoal &goal);
 
+    /** Notes @p sequence as handed out: a release is applied after the last row. */
+    void sawSequence(uint64_t sequence) { m_lastSequence = std::max(m_lastSequence, sequence); }
+    ReleaseRecord *releaseOf(const std::string &control);
+    /**
+     * Decides @p release as @p state and queues its answer, ahead of every other message when
+     * @p first. `released` drops its attempt.
+     */
+    void settle(ReleaseRecord &release, ReleaseState state, bool first = false);
+    /** Settles any release of @p attempt waiting for its start's answer. */
+    void settlePending(const std::string &attempt, ReleaseState state, bool first = false);
+    /** Drops @p attempt and its unsent install and start. */
+    void forget(const std::string &attempt);
+    void dropAnsweredReleases();
+
     void queueInstalled(const AttemptRecord &record);
     void queueStarted(const AttemptRecord &record);
+    void queueReleased(const ReleaseRecord &release, bool first = false);
     void pump();
     void onReply(const OutgoingMessage &message, ApiReply reply);
+    void onReleasedReply(const OutgoingMessage &message, const ApiReply &reply);
+    /** The in-flight message is sent again after a backoff; returns the delay. */
+    std::chrono::milliseconds retryLater();
     void onRetryTimer();
 
     NetBase &m_net;
@@ -220,6 +269,10 @@ private:
     std::vector<Game> m_games;
     /** Seats of a session whose game doesn't know its uuid yet, oldest first. */
     std::deque<std::pair<std::string, SessionSeats>> m_unboundSeats;
+    /** Releases applied this boot, oldest first. */
+    std::deque<ReleaseRecord> m_releases;
+    /** The last place in the row order handed out this boot: game state's TimelineRow::sequence. */
+    uint64_t m_lastSequence {0};
     MessageOutbox m_outbox;
 
     /** Guards the service against replies arriving after it was destroyed. */
