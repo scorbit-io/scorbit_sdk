@@ -257,11 +257,14 @@ void CompetitionService::forget(const std::string &attempt)
 
 void CompetitionService::dropAnsweredReleases()
 {
-    // Only answered ones: one still owed to the server is always kept
+    // Only answered ones, and not while a resend of the answer is queued or in flight: one still
+    // owed to the server is always kept. An older one forgotten no longer refuses a late goal for
+    // its attempt; the server refuses that attempt's start and results.
     for (auto it = m_releases.begin();
          m_releases.size() > MAX_KEPT_RELEASES && it != m_releases.end();) {
-        it = it->decided && it->delivery != Delivery::Pending ? m_releases.erase(it)
-                                                              : std::next(it);
+        const bool answered = it->decided && it->delivery != Delivery::Pending
+                           && !m_outbox.holdsRelease(it->release.control);
+        it = answered ? m_releases.erase(it) : std::next(it);
     }
 }
 

@@ -2319,6 +2319,56 @@ TEST_CASE("A release's answer is resent until answered, and a refusal is final",
     CHECK(f.game->competitions().attempts().empty());
 }
 
+TEST_CASE("A release whose answer is being resent is never forgotten", "[competitions]")
+{
+    // Releases of attempts not held here, each answered: more than are kept
+    Fixture f;
+    auto control = [](int i) {
+        auto message = json::parse(ATTEMPT_CONTROL);
+        message["control"] = fmt::format("0193a5e0-0000-7000-8000-{:012}", 100 + i);
+        return message;
+    };
+    // Saves the oldest answer sent, naming its own release
+    auto save = [&] {
+        REQUIRE_FALSE(f.net->sent.empty());
+        auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+        saved["control"] = f.net->sent[0].body["control"];
+        f.answer(receipt(saved.dump().c_str()));
+    };
+    for (int i = 0; i < 40; ++i) {
+        f.release(control(i));
+        save();
+    }
+    // Every answer was saved, so only the latest are kept
+    auto kept = [&](int i) {
+        return std::ranges::any_of(f.game->competitions().releases(), [&](const auto &r) {
+            return r.release.control == control(i)["control"].get<std::string>();
+        });
+    };
+    CHECK_FALSE(kept(0));
+    REQUIRE(kept(39));
+
+    // A repeat of a kept one resends its answer; more releases arrive while it's in flight
+    const auto first = f.game->competitions().releases().front().release.control;
+    auto repeat = json::parse(ATTEMPT_CONTROL);
+    repeat["control"] = first;
+    f.release(repeat);
+    REQUIRE(f.net->sent.size() == 1);
+    const auto answer = f.net->sent[0].body;
+    for (int i = 40; i < 45; ++i) {
+        f.release(control(i)); // queued behind the resend
+    }
+
+    // The resend fails: it is still known, so it is sent again rather than let go
+    f.answer(noAnswer());
+    f.retry();
+    while (!f.net->sent.empty() && f.net->sent[0].body != answer) {
+        save();
+    }
+    REQUIRE_FALSE(f.net->sent.empty());
+    CHECK(f.net->sent[0].body == answer);
+}
+
 TEST_CASE("A refused release answer still keeps its released attempt out", "[competitions]")
 {
     Fixture f;

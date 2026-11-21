@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <optional>
@@ -94,6 +95,15 @@ public:
 
     /** The backoff delay returned by @ref failed has elapsed. */
     void retryReady() { m_backingOff = false; }
+
+    /** Whether the answer to release @p control is queued or in flight. */
+    bool holdsRelease(const std::string &control) const
+    {
+        auto answers = [&](const OutgoingMessage &m) {
+            return m.kind == MessageKind::AttemptReleased && m.control == control;
+        };
+        return (m_inFlight && answers(*m_inFlight)) || std::ranges::any_of(m_queue, answers);
+    }
 
     bool hasInFlight() const { return m_inFlight.has_value(); }
     bool empty() const { return m_queue.empty() && !m_inFlight; }
