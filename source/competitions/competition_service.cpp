@@ -794,14 +794,18 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
         // Final: the server answered the release otherwise, or knows no such release
         WRN("Competitions: {} {} for attempt {} refused: {}", attemptReleasedType(),
             message.control, message.attempt, refusalOf(reply));
-        // A `started` refused (`wrong_state`: the server had the start, so it was an unclaim)
-        // leaves the attempt released for the server: it never plays on here
-        if (release->applied.state == ReleaseState::Started) {
-            forget(message.attempt);
+        // Only the first answer counts: once saved, a refused resend (a newer release has
+        // replaced this one) changes nothing
+        if (release->delivery == Delivery::Pending) {
+            // A `started` refused (`wrong_state`: the server had the start, so it was an unclaim)
+            // leaves the attempt released for the server: it never plays on here
+            if (release->applied.state == ReleaseState::Started) {
+                forget(message.attempt);
+            }
+            // Kept, not resent: a late goal for the attempt is still refused, and a repeated
+            // release gets the same answer
+            release->delivery = Delivery::Refused;
         }
-        // Kept, not resent: a late goal for the attempt is still refused, and a repeated release
-        // gets the same answer
-        release->delivery = Delivery::Refused;
     } else {
         const auto delay = retryLater();
         WRN("Competitions: {} {} for attempt {} got no final answer (status {}), resending in {} "

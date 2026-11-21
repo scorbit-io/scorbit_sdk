@@ -2426,6 +2426,33 @@ TEST_CASE("A release arriving between a start's resends is answered first: start
     CHECK(f.net->sent[0].body == start);
 }
 
+TEST_CASE("A refused resend of a saved started answer keeps the attempt", "[competitions]")
+{
+    // `started` is saved, then the same release arrives again and its resend is refused
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+    f.answer(releaseSaved());
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    REQUIRE(f.record().started == Delivery::Saved);
+
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    f.answer(refused(R"({"code": "unknown_control", "detail": "Not the release."})"));
+
+    // The saved answer stands: the attempt plays on and still qualifies
+    CHECK(onlyRelease(f).delivery == Delivery::Saved);
+    REQUIRE(f.game->competitions().attempts().contains(ATTEMPT));
+    activate(f);
+    score(f, 10);
+    CHECK(f.record().qualification);
+}
+
 TEST_CASE("A refused started answer leaves the attempt released", "[competitions]")
 {
     // The server had the start after all: `started` is refused wrong_state
