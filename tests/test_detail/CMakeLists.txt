@@ -238,6 +238,9 @@ target_sources(
         ../../source/player_profiles_manager.h
         ../../source/player_profiles_manager.cpp
         source/test_player_profiles_manager.cpp
+        ../../libs/utils/source/fs_mount_holders.h
+        ../../libs/utils/source/fs_mount_holders.cpp
+        source/test_fs_mount_holders.cpp
         ../../source/utils/lru_cache.hpp
         source/test_lru_cache.cpp
         ../../source/safe_multipart.h

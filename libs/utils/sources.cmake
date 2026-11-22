@@ -11,6 +11,8 @@ set(sources
     source/utils.cpp
     source/bytearray.cpp
     source/fs_read_write.cpp
+    source/fs_mount_holders.h
+    source/fs_mount_holders.cpp
 )
 
 # commandrunner is POSIX-only and excluded on Windows rather than ported.
