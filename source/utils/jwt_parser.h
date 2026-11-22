@@ -19,12 +19,28 @@
 
 #pragma once
 
+#include <nlohmann/json.hpp>
 #include <string>
 #include <chrono>
 #include <optional>
+#include <vector>
 
 namespace scorbit {
 namespace detail {
+
+/**
+ * @brief Decode a JWT's payload, without verifying its signature
+ * @param jwtToken The JWT token string
+ * @return The payload as JSON, or nullopt if the token can't be decoded
+ */
+std::optional<nlohmann::json> parseJwtPayload(const std::string &jwtToken);
+
+/**
+ * @brief The JWT's "channels" claim, as Centrifugo connection tokens carry it
+ * @param jwtToken The JWT token string
+ * @return Each string in the claim, in order; empty when the token has none or can't be decoded
+ */
+std::vector<std::string> parseJwtChannels(const std::string &jwtToken);
 
 /**
  * @brief Parse JWT token to extract expiration time

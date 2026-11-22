@@ -231,6 +231,7 @@ target_sources(
         ../../source/utils/jwt_parser.h
         ../../source/utils/jwt_parser.cpp
         source/test_jwt_parser.cpp
+        source/test_first_connect_recover.cpp
         source/platform_id.h
         source/test_updater.cpp
         source/test_logger.cpp

@@ -20,6 +20,7 @@
 #include "jwt_parser.h"
 #include <logger/logger.h>
 #include <nlohmann/json.hpp>
+#include <vector>
 #include <sstream>
 #include <openssl/bio.h>
 #include <openssl/evp.h>
@@ -27,7 +28,7 @@
 namespace scorbit {
 namespace detail {
 
-std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const std::string &jwtToken)
+std::optional<nlohmann::json> parseJwtPayload(const std::string &jwtToken)
 {
     try {
         // JWT tokens have three parts separated by dots: header.payload.signature
@@ -78,16 +79,27 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
             return std::nullopt;
         }
 
-        // Parse JSON payload
-        const auto json = nlohmann::json::parse(decodedPayload);
+        return nlohmann::json::parse(decodedPayload);
+    } catch (const std::exception &e) {
+        ERR("JWT token parsing failed: {}", e.what());
+        return std::nullopt;
+    }
+}
 
-        if (!json.contains("exp") || !json["exp"].is_number()) {
+std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const std::string &jwtToken)
+{
+    const auto json = parseJwtPayload(jwtToken);
+    if (!json) {
+        return std::nullopt;
+    }
+    try {
+        if (!json->contains("exp") || !(*json)["exp"].is_number()) {
             ERR("JWT token parsing failed: no expiration time found");
             return std::nullopt;
         }
 
         // Convert Unix timestamp to system_clock time_point
-        const auto expTimestamp = json["exp"].get<int64_t>();
+        const auto expTimestamp = (*json)["exp"].get<int64_t>();
         const auto expTime = std::chrono::system_clock::from_time_t(expTimestamp);
 
         INF("JWT token expires at: {}", expTimestamp);
@@ -97,6 +109,25 @@ std::optional<std::chrono::system_clock::time_point> parseJwtExpiration(const st
         ERR("JWT token parsing failed: {}", e.what());
         return std::nullopt;
     }
+}
+
+std::vector<std::string> parseJwtChannels(const std::string &jwtToken)
+{
+    std::vector<std::string> channels;
+    const auto json = parseJwtPayload(jwtToken);
+    if (!json || !json->is_object()) {
+        return channels;
+    }
+    const auto it = json->find("channels");
+    if (it == json->end() || !it->is_array()) {
+        return channels;
+    }
+    for (const auto &channel : *it) {
+        if (channel.is_string()) {
+            channels.push_back(channel.get<std::string>());
+        }
+    }
+    return channels;
 }
 
 bool isJwtTokenExpired(const std::string &jwtToken)

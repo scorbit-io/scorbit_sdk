@@ -665,6 +665,9 @@ private:
     void retireCentrifugoClient();
     void centrifugoSetup(bool fetchFreshToken = false);
     void centrifugoConnect();
+    /// Tell the client which of the current token's channels to recover on a first connect, so
+    /// the device gets the latest lobby and attract document. Runs on the Centrifugo strand.
+    void applyFirstConnectRecoverChannels();
     void centrifugoDisconnect();
     /// Publish to the machine channel. @p what names the payload for the failure log.
     void publishToMachineChannel(std::string what, nlohmann::json payload, std::string channel);
@@ -1268,6 +1271,10 @@ private:
 
     std::shared_ptr<EventManager> m_eventManager;
 };
+
+/// The channels of a Centrifugo token to recover on a first connect: its lobby: and attract:
+/// channels only.
+std::vector<std::string> firstConnectRecoverChannels(const std::string &cfToken);
 
 } // namespace detail
 } // namespace scorbit
