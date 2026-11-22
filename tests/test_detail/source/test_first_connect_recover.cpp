@@ -23,11 +23,17 @@
 
 #include "net.h"
 #include "utils/jwt_parser.h"
+#include <scorbit_sdk/scorbit_sdk.h>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/strand.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
+#include <chrono>
 #include <string>
+#include <utility>
 #include <vector>
 
+using namespace scorbit;
 using namespace scorbit::detail;
 using json = nlohmann::json;
 
@@ -96,4 +102,40 @@ TEST_CASE("Without attract: in the token, only the lobby is recovered")
     const auto t = token({{"channels", {std::string("machine:") + VM, std::string("lobby:") + VM}}});
     CHECK(firstConnectRecoverChannels(t) == std::vector<std::string> {std::string("lobby:") + VM});
     CHECK(firstConnectRecoverChannels("").empty());
+}
+
+TEST_CASE("A publication recovered on each chosen channel reaches the app with its venue machine")
+{
+    // The client hands recovered publications to the same handler as live ones
+    boost::asio::io_context io;
+    std::vector<std::pair<std::string, std::string>> lobby;
+    std::vector<std::pair<std::string, std::string>> attract;
+    scorbit::detail::Net net {DeviceInfo {}, {}};
+    NetTestAccess::setEventManager(
+            net, std::make_shared<EventManager>(boost::asio::make_strand(io),
+                                                [&](const EventBase &base) {
+                                                    const scorbit::Event event(&base);
+                                                    std::string vm;
+                                                    std::string doc;
+                                                    if (event.getLobby(vm, doc)) {
+                                                        lobby.emplace_back(vm, doc);
+                                                    } else if (event.getAttractDocument(vm, doc)) {
+                                                        attract.emplace_back(vm, doc);
+                                                    }
+                                                }));
+
+    const json doc = {{"type", "lobby"}, {"payload", {{"players", json::array()}}}};
+    const auto t = token({{"channels",
+                           {std::string("machine:") + VM, std::string("lobby:") + VM,
+                            std::string("attract:") + VM}}});
+    for (const auto &channel : firstConnectRecoverChannels(t)) {
+        NetTestAccess::handlePublication(net, channel, doc);
+    }
+    io.run_for(std::chrono::milliseconds(50));
+
+    REQUIRE(lobby.size() == 1);
+    CHECK(lobby[0].first == VM);
+    CHECK(json::parse(lobby[0].second) == doc);
+    REQUIRE(attract.size() == 1);
+    CHECK(attract[0].first == VM);
 }
