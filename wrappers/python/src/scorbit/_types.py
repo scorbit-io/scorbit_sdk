@@ -226,16 +226,21 @@ class SessionPlayers(object):
     a position's claim or display name changes.
 
     Attributes:
+        venue_machine: The machine whose game the session is; ignore the
+            event when it is not the current machine.
         session_uuid: The session the players are for.
         is_first: True for the session's first event, its baseline.
         game_active: True while the game is in progress.
         players: A list of :class:`SessionPlayer`, one per position, in order.
     """
 
-    __slots__ = ("session_uuid", "is_first", "game_active", "players")
+    __slots__ = ("venue_machine", "session_uuid", "is_first", "game_active", "players")
 
-    def __init__(self, session_uuid="", is_first=False, game_active=False, players=None):
-        # type: (str, bool, bool, list | None) -> None
+    def __init__(
+        self, venue_machine="", session_uuid="", is_first=False, game_active=False, players=None
+    ):
+        # type: (str, str, bool, bool, list | None) -> None
+        self.venue_machine = venue_machine
         self.session_uuid = session_uuid
         self.is_first = is_first
         self.game_active = game_active
@@ -243,9 +248,9 @@ class SessionPlayers(object):
 
     def __repr__(self):
         # type: () -> str
-        return "SessionPlayers(session_uuid={!r}, is_first={!r}, players={!r})".format(
-            self.session_uuid, self.is_first, self.players
-        )
+        return (
+            "SessionPlayers(venue_machine={!r}, session_uuid={!r}, is_first={!r}, players={!r})"
+        ).format(self.venue_machine, self.session_uuid, self.is_first, self.players)
 
 
 class LeaderboardPlayer(object):

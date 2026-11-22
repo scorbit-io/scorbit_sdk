@@ -266,8 +266,9 @@ struct NetTestAccess {
     /// Feeds a session reply's @p scores array to session @p sessionId's score cache.
     static void processScores(Net &net, int sessionId, const nlohmann::json &scores);
     static void handlePublication(Net &net, const std::string &channel, const nlohmann::json &data);
+    /// A non-empty @p machineUuid becomes the game's own machine, as its first post would set.
     static void seedGameSession(Net &net, int sessionId, const std::string &sessionUuid,
-                                bool active);
+                                bool active, const std::string &machineUuid = {});
     static std::string activeSessionUuid(Net &net);
     /// The tournament session @p sessionId has cached for @p player's score.
     static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);

@@ -506,9 +506,10 @@ private:
 class SessionPlayersChangedEvent : public EventBase
 {
 public:
-    SessionPlayersChangedEvent(std::string sessionUuid, bool isFirst, bool gameActive,
-                               std::vector<SessionPlayerState> players)
+    SessionPlayersChangedEvent(std::string venueMachine, std::string sessionUuid, bool isFirst,
+                               bool gameActive, std::vector<SessionPlayerState> players)
         : EventBase(EventType::SessionPlayersChanged, EventPriority::Normal)
+        , m_venueMachine {std::move(venueMachine)}
         , m_sessionUuid {std::move(sessionUuid)}
         , m_isFirst {isFirst}
         , m_gameActive {gameActive}
@@ -516,6 +517,8 @@ public:
     {
     }
 
+    /// The machine whose game the session is, so an app that switched away can ignore it
+    auto venueMachine() const -> const std::string & { return m_venueMachine; }
     auto sessionUuid() const -> const std::string & { return m_sessionUuid; }
     auto isFirst() const -> bool { return m_isFirst; }
     auto gameActive() const -> bool { return m_gameActive; }
@@ -531,6 +534,7 @@ public:
     }
 
 private:
+    std::string m_venueMachine;
     std::string m_sessionUuid;
     bool m_isFirst;
     bool m_gameActive;

@@ -519,6 +519,9 @@ bool sb_event_lobby(const sb_event_t *event, const char **venue_machine, const c
  * sb_event_session_player.
  *
  * @param [IN] event The event, of type @ref SB_EVT_SESSION_PLAYERS_CHANGED.
+ * @param [OUT] venue_machine The venue machine whose game the session is, as in
+ * @ref sb_event_lobby; ignore the event when it is not the current machine (one queued before a
+ * machine switch can arrive after it). Valid during the callback only.
  * @param [OUT] session_uuid The session's uuid; valid during the callback only.
  * @param [OUT] is_first True for the session's first event, its baseline.
  * @param [OUT] game_active True while the game is in progress.
@@ -526,8 +529,9 @@ bool sb_event_lobby(const sb_event_t *event, const char **venue_machine, const c
  * @return Returns true on success, or false for a wrong event type.
  */
 SCORBIT_SDK_EXPORT
-bool sb_event_session_players(const sb_event_t *event, const char **session_uuid, bool *is_first,
-                              bool *game_active, int *count);
+bool sb_event_session_players(const sb_event_t *event, const char **venue_machine,
+                              const char **session_uuid, bool *is_first, bool *game_active,
+                              int *count);
 
 /**
  * @brief Reads one position of a players change.

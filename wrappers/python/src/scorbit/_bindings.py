@@ -640,10 +640,11 @@ _lib.sb_event_attract_document.argtypes = [c_void_p, POINTER(c_char_p), POINTER(
 _lib.sb_event_lobby.restype = c_bool
 _lib.sb_event_lobby.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
 
-# bool sb_event_session_players(const sb_event_t*, const char**, bool*, bool*, int*)
+# bool sb_event_session_players(const sb_event_t*, const char**, const char**, bool*, bool*, int*)
 _lib.sb_event_session_players.restype = c_bool
 _lib.sb_event_session_players.argtypes = [
     c_void_p,
+    POINTER(c_char_p),
     POINTER(c_char_p),
     POINTER(c_bool),
     POINTER(c_bool),
