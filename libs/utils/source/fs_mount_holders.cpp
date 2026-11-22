@@ -114,5 +114,26 @@ bool optionsReadOnly(const std::string &options)
     return false;
 }
 
+MountInfoLine parseMountInfoLine(const std::string &line)
+{
+    // 36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue (man 5 proc)
+    std::istringstream parts(line);
+    std::string discard;
+    for (int i = 0; i < 4; ++i) {
+        parts >> discard;
+    }
+    MountInfoLine out;
+    std::string mountOptions;
+    parts >> out.mountPoint >> mountOptions;
+
+    std::string token;
+    while (parts >> token && token != "-") { }
+    std::string superOptions;
+    parts >> discard >> discard >> superOptions; // fstype, source
+
+    out.readOnly = optionsReadOnly(mountOptions) || optionsReadOnly(superOptions);
+    return out;
+}
+
 } // namespace detail
 } // namespace utils
