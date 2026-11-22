@@ -6557,7 +6557,11 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
                     gameSession.sessionUuid, change->isFirst, gameSession.gameData.isGameActive,
                     std::move(change->players)));
         }
-        scheduleSessionPlayersRefresh(gameSession.sessionUuid, gameSession.gameData.isGameActive);
+        // Only a running game arms it; a finished game's reply leaves it alone, and the timer
+        // stops by itself once no game is running
+        if (gameSession.gameData.isGameActive) {
+            armSessionPlayersRefresh();
+        }
     }
 
     if (auto changedProfiles = m_playersManager.setProfiles(val, live)) {
@@ -7044,21 +7048,22 @@ void Net::refetchActiveSession()
     requestSessionData(uuid);
 }
 
-void Net::scheduleSessionPlayersRefresh(const std::string &sessionUuid, bool gameActive)
+void Net::armSessionPlayersRefresh()
 {
-    if (!gameActive) {
-        m_worker.stopTimer(Worker::Timer::SessionPlayersRefresh);
-        return;
-    }
     m_worker.startTimer(Worker::Timer::SessionPlayersRefresh, SESSION_PLAYERS_REFRESH_INTERVAL,
-                        [this, sessionUuid] {
-                            if (m_stop || activeSessionUuid() != sessionUuid) {
+                        [this] {
+                            if (m_stop) {
                                 return;
                             }
-                            DBG("API session players refresh, uuid: {}", sessionUuid);
-                            requestSessionData(sessionUuid);
+                            // The game running now, whichever reply armed the timer
+                            const auto uuid = activeSessionUuid();
+                            if (uuid.empty()) {
+                                return; // no game running: the fallback ends here
+                            }
+                            DBG("API session players refresh, uuid: {}", uuid);
+                            requestSessionData(uuid);
                             // Re-armed here too, so a failed fetch doesn't end the fallback
-                            scheduleSessionPlayersRefresh(sessionUuid, true);
+                            armSessionPlayersRefresh();
                         });
 }
 
