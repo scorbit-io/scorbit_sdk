@@ -646,8 +646,9 @@ private:
     std::string activeSessionUuid();
     /// Refetch the running game's session, so a claim that sent no refresh still reaches the app.
     void refetchActiveSession();
-    /// Keep refetching a running game's session (SPEC-0034 REQ-9.1); stop once it isn't active.
-    void scheduleSessionPlayersRefresh(const std::string &sessionUuid, bool gameActive);
+    /// (Re)arm the fallback refetch of the running game's session (SPEC-0034 REQ-9.1). It serves
+    /// whichever game is running when it fires, so a reply for an older session can't steal it.
+    void armSessionPlayersRefresh();
 
     /// Run @p task on the Centrifugo strand. Runs inline when the caller is already on it, so
     /// callers reached from a client callback keep their existing ordering.
