@@ -2931,3 +2931,65 @@ TEST_CASE("A report refused with any 409 but start_pending is final", "[competit
     CHECK(f.net->sent.empty());
     CHECK_FALSE(f.net->retry);
 }
+
+TEST_CASE("Two releases waiting on the start both name the report, which is still sent",
+          "[competitions]")
+{
+    // Two controls arrive after the qualification while the start is unanswered: its receipt
+    // settles both `released`. The first drops the attempt and keeps the report; the second must
+    // name that report too, not drop it.
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1); // the start, in flight
+    qualify(f);
+    const auto reportId = f.record().reportId;
+    auto second = json::parse(ATTEMPT_CONTROL);
+    second["control"] = "0193a5e0-0000-7000-8000-000000000010";
+    f.release();
+    f.release(second);
+
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.game->competitions().releases().size() == 2);
+    for (const auto &release : f.game->competitions().releases()) {
+        CHECK(release.applied.state == ReleaseState::Released);
+        CHECK(release.qualification == reportId);
+    }
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+    CHECK(f.net->sent[0].body["report_id"] == reportId);
+    f.answer(reportSaved(f.net->sent[0].body));
+    CHECK(onlyReport(f).delivery == Delivery::Saved);
+    for (int i = 0; i < 2; ++i) {
+        REQUIRE(f.net->sent.size() == 1);
+        CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+        CHECK(f.net->sent[0].body["qualification"] == reportId);
+        auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+        saved["control"] = f.net->sent[0].body["control"];
+        f.answer(receipt(saved.dump().c_str()));
+    }
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A later release of a dropped attempt names the report kept for it", "[competitions]")
+{
+    // The attempt is released after qualifying, then a newer control arrives for it: not held
+    // here any more, answered unknown, but its qualification still came first
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto reportId = f.record().reportId;
+    f.release();
+    auto newer = json::parse(ATTEMPT_CONTROL);
+    newer["control"] = "0193a5e0-0000-7000-8000-000000000010";
+    f.release(newer);
+
+    REQUIRE(f.game->competitions().releases().size() == 2);
+    const auto &later = f.game->competitions().releases().back();
+    CHECK(later.applied.state == ReleaseState::Unknown);
+    CHECK(later.qualification == reportId);
+    CHECK(onlyReport(f).delivery == Delivery::Pending);
+}
