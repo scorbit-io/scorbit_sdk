@@ -107,6 +107,8 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
         return;
 
     m_updateInProgress = true;
+    // Cleared on a throw too, or no later release track reply would update
+    std::shared_ptr<void> done(nullptr, [this](void *) { m_updateInProgress = false; });
     m_feedback.clear();
 
     std::string logs;
@@ -166,8 +168,6 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     if (!logs.empty()) {
         m_net.updateConfig("sdk", SCORBIT_SDK_VERSION, success, logs);
     }
-
-    m_updateInProgress = false;
 }
 
 // The running binary reports its own version until a restart, so the version it installed would
@@ -451,11 +451,13 @@ bool Updater::tryToRemountAndUpdate(const UrlInfo &urlInfo, const BinaryInfo &bi
         return false;
     }
 
-    const auto ok = downloadAndupdateTgz(urlInfo, binaryInfo);
-    if (!remountReadOnly(mountResult.mountPoint)) {
-        WRN("Updater: failed to remount read-only: {}", mountResult.mountPoint);
-    }
-    return ok;
+    // Released on a throw too, or the holder would keep the mount writable for good
+    std::shared_ptr<void> release(nullptr, [this, &mountResult](void *) {
+        if (!remountReadOnly(mountResult.mountPoint)) {
+            WRN("Updater: failed to remount read-only: {}", mountResult.mountPoint);
+        }
+    });
+    return downloadAndupdateTgz(urlInfo, binaryInfo);
 }
 
 bool Updater::downloadAndupdateTgz(const UrlInfo &urlInfo, const BinaryInfo &binaryInfo) const

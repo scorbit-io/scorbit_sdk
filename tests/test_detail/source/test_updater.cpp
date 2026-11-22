@@ -150,6 +150,26 @@ private:
     boost::filesystem::path m_library;
 };
 
+// Holds a mount while updating, counting its releases
+class HoldingUpdater : public TestableUpdater
+{
+public:
+    using TestableUpdater::TestableUpdater;
+    mutable int releases = 0;
+
+protected:
+    utils::MakeWritableResult makeWritable(const boost::filesystem::path &) const override
+    {
+        return {true, "/held"};
+    }
+    bool remountReadOnly(const std::string &mountPoint) const override
+    {
+        CHECK(mountPoint == "/held");
+        ++releases;
+        return true;
+    }
+};
+
 std::string readFile(const boost::filesystem::path &path)
 {
     std::ifstream ifs(path.string(), std::ios::binary);
@@ -447,6 +467,34 @@ TEST_CASE("Updater stops when it can't clear the update directory")
     CHECK(readFile(library) == original);
 }
 #endif
+
+TEST_CASE("Updater releases the mount it holds when the update throws")
+{
+    const auto json = nlohmann::json::parse(R"(
+            {
+                "sdk": {
+                    "version": "1.0.2",
+                    "assets_json": ["https://example.com/scorbit_sdk-1.0.2-testarch_testabi.tgz"]
+                }
+            }
+        )");
+
+    MockNetBase mockNet;
+    HoldingUpdater updater(mockNet, false, "1.99.30", "test_platform");
+
+    {
+        REQUIRE_CALL(mockNet, download(false, _, _, _, _))
+                .THROW(std::runtime_error("download threw"))
+                .TIMES(1);
+        CHECK_THROWS_AS(updater.checkNewVersionAndUpdate(json, nullptr), std::runtime_error);
+    }
+    CHECK(updater.releases == 1);
+
+    // Not left "in progress": the next reply updates again, and releases again
+    REQUIRE_CALL(mockNet, download(false, _, _, _, _)).TIMES(1);
+    updater.checkNewVersionAndUpdate(json, nullptr);
+    CHECK(updater.releases == 2);
+}
 
 TEST_CASE("Updater relies on host-based internal download auth (not device provider)")
 {
