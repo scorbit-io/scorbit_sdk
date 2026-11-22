@@ -25,6 +25,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 
 namespace utils {
@@ -56,10 +57,16 @@ public:
     /// This process's holders of @p mountPoint, for tests.
     int holders(const std::string &mountPoint) const;
 
+    /// True while this process's last read-only remount of @p mountPoint failed, for tests.
+    bool owed(const std::string &mountPoint) const;
+
 private:
     MountOps m_ops;
     mutable std::mutex m_mutex;
     std::map<std::string, int> m_holders;
+    // Mount points whose last read-only remount by this process failed (e.g. EBUSY while a replaced
+    // binary still runs). The next writer takes it over, so its release tries again.
+    std::set<std::string> m_owed;
 };
 
 /// True when a mountinfo option list (comma separated) has the "ro" option itself; an option
