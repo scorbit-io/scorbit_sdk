@@ -98,5 +98,14 @@ void SessionPlayersTracker::clear()
     m_sessions.clear();
 }
 
+std::shared_ptr<void> RefreshGate::tryAcquire()
+{
+    if (m_busy->exchange(true)) {
+        return nullptr;
+    }
+    // Points at the flag, not null: an empty-looking token would read as "busy" to the caller
+    return std::shared_ptr<void>(m_busy.get(), [busy = m_busy](void *) { *busy = false; });
+}
+
 } // namespace detail
 } // namespace scorbit

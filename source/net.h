@@ -557,7 +557,8 @@ private:
     /// The config GET's reply, for a request made at machine generation @p gen.
     void onConfigReply(std::uint64_t gen, Error error, const std::string &reply);
 
-    void requestSessionData(const std::string &sessionUuid);
+    /// @p inFlight is held until the request's task is gone, for a RefreshGate.
+    void requestSessionData(const std::string &sessionUuid, std::shared_ptr<void> inFlight = {});
 
     void postUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
     task_t createUploadHistoryTask(const GameHistory &history, const std::string &sessionUuid);
@@ -1173,6 +1174,9 @@ private:
     std::mutex m_sessionPlayersCallbackMutex;
     /// Which session replies become SessionPlayersChanged events; thread-safe on its own.
     SessionPlayersTracker m_sessionPlayersTracker;
+    /// The refresh timer is armed under it after checking m_stop, as the probe flash retry is
+    std::mutex m_sessionRefreshMutex;
+    RefreshGate m_sessionRefreshGate;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

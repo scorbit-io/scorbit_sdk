@@ -21,8 +21,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -68,6 +70,20 @@ private:
 
     std::mutex m_mutex;
     std::deque<std::pair<std::string, std::vector<SessionPlayerState>>> m_sessions;
+};
+
+/// At most one fallback session fetch queued or in flight: during an outage a fetch can outlast
+/// the refresh interval, and stacking them would hold up the serialized session queue.
+class RefreshGate
+{
+public:
+    /// A token for the fetch to hold until its task is gone (run, failed or dropped), or empty
+    /// while the previous token is still held.
+    std::shared_ptr<void> tryAcquire();
+
+private:
+    // Shared with the token, so a token outliving the gate stays safe
+    std::shared_ptr<std::atomic_bool> m_busy {std::make_shared<std::atomic_bool>(false)};
 };
 
 } // namespace detail
