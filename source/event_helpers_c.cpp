@@ -234,16 +234,18 @@ bool sb_event_lobby(const sb_event_t *event, const char **venue_machine, const c
 
 // ----------------------- SessionPlayersChanged helpers -----------------------
 
-bool sb_event_session_players(const sb_event_t *event, const char **session_uuid, bool *is_first,
-                              bool *game_active, int *count)
+bool sb_event_session_players(const sb_event_t *event, const char **venue_machine,
+                              const char **session_uuid, bool *is_first, bool *game_active,
+                              int *count)
 {
-    if (!event || !session_uuid || !is_first || !game_active || !count) {
+    if (!event || !venue_machine || !session_uuid || !is_first || !game_active || !count) {
         return false;
     }
     auto derived = dynamic_cast<const scorbit::detail::SessionPlayersChangedEvent *>(event);
     if (!derived) {
         return false;
     }
+    *venue_machine = derived->venueMachine().c_str();
     *session_uuid = derived->sessionUuid().c_str();
     *is_first = derived->isFirst();
     *game_active = derived->gameActive();

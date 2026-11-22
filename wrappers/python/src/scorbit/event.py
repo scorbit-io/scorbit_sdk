@@ -467,12 +467,18 @@ class Event(object):
             A :class:`SessionPlayers`, or ``None`` if the event type does not
             match.
         """
+        venue_machine = c_char_p()
         uuid = c_char_p()
         is_first = c_bool(False)
         game_active = c_bool(False)
         count = c_int(0)
         if not _lib.sb_event_session_players(
-            self._ptr, byref(uuid), byref(is_first), byref(game_active), byref(count)
+            self._ptr,
+            byref(venue_machine),
+            byref(uuid),
+            byref(is_first),
+            byref(game_active),
+            byref(count),
         ):
             return None
 
@@ -493,7 +499,13 @@ class Event(object):
                 players.append(
                     SessionPlayer(position, bool(claimed.value), text(player_id), text(display_name))
                 )
-        return SessionPlayers(text(uuid), bool(is_first.value), bool(game_active.value), players)
+        return SessionPlayers(
+            text(venue_machine),
+            text(uuid),
+            bool(is_first.value),
+            bool(game_active.value),
+            players,
+        )
 
     # ------------------------------------------------------------------
     # Diagnostics

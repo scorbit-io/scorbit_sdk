@@ -5544,12 +5544,16 @@ void NetTestAccess::handlePublication(Net &net, const std::string &channel,
 }
 
 void NetTestAccess::seedGameSession(Net &net, int sessionId, const std::string &sessionUuid,
-                                    bool active)
+                                    bool active, const std::string &machineUuid)
 {
     std::scoped_lock lock(net.m_gameSessionsMutex);
     auto &gameSession = net.m_gameSessions[sessionId];
     gameSession.sessionUuid = sessionUuid;
     gameSession.gameData.isGameActive = active;
+    if (!machineUuid.empty()) {
+        gameSession.machine = Net::MachineInfo {};
+        gameSession.machine->machineUuid = machineUuid;
+    }
 }
 
 std::string NetTestAccess::activeSessionUuid(Net &net)
@@ -6558,9 +6562,11 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
     if (!gameSession.sessionUuid.empty()) {
         if (auto change = m_sessionPlayersTracker.update(gameSession.sessionUuid,
                                                          sessionPlayersFromScores(val))) {
+            // The game is on the live machine (checked above); naming it lets an app that has
+            // switched away by the time this is delivered ignore it
             m_eventManager->push(std::make_shared<SessionPlayersChangedEvent>(
-                    gameSession.sessionUuid, change->isFirst, gameSession.gameData.isGameActive,
-                    std::move(change->players)));
+                    live, gameSession.sessionUuid, change->isFirst,
+                    gameSession.gameData.isGameActive, std::move(change->players)));
         }
         // Only a running game arms it; a finished game's reply leaves it alone, and the timer
         // stops by itself once no game is running
@@ -7528,6 +7534,9 @@ void Net::updateDiscoveryDescription()
         return fmt::format("{} {}", m_deviceInfo.provider, m_deviceInfo.gameCodeVersion);
     });
 
+    if (!m_probesManager) {
+        return; // no pad on this host to describe
+    }
     const auto title = machine().title;
     if (m_probesManager->setDiscoveryDescription(m_deviceInfo.serialNumber, title, providerVersion,
                                                  m_deviceInfo.machineTitle)) {

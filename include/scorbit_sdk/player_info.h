@@ -48,6 +48,7 @@ struct SessionPlayer {
 
 /// The running session's players: see @ref scorbit::EventType::SessionPlayersChanged.
 struct SessionPlayers {
+    std::string venueMachine;           /// The machine whose game it is; ignore it if not current
     std::string sessionUuid;            /// The session the players are for
     bool isFirst {false};               /// The session's first event: its baseline
     bool gameActive {false};            /// True while the game is in progress

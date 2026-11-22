@@ -446,19 +446,21 @@ public:
      * @brief Helper function to read a session players change; see
      * @ref sb_event_session_players and @ref sb_event_session_player.
      *
-     * @param out [OUT] The session, whether this is its baseline, whether the game is active, and
-     * every position.
+     * @param out [OUT] The venue machine, the session, whether this is its baseline, whether the
+     * game is active, and every position.
      * @return Returns true on success, or false if the event type does not match.
      */
     bool getSessionPlayers(SessionPlayers &out) const
     {
+        const char *vm = nullptr;
         const char *uuid = nullptr;
         bool isFirst = false;
         bool gameActive = false;
         int count = 0;
-        if (!::sb_event_session_players(m_event, &uuid, &isFirst, &gameActive, &count)) {
+        if (!::sb_event_session_players(m_event, &vm, &uuid, &isFirst, &gameActive, &count)) {
             return false;
         }
+        out.venueMachine = vm ? std::string(vm) : std::string {};
         out.sessionUuid = uuid ? std::string(uuid) : std::string {};
         out.isFirst = isFirst;
         out.gameActive = gameActive;

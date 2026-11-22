@@ -275,6 +275,7 @@ TEST_CASE("Session replies raise a baseline, then SessionPlayersChanged only on 
     REQUIRE(n.sessions.size() == 2);
     const auto &baseline = n.sessions[0];
     CHECK(baseline.sessionUuid == SESSION_A);
+    CHECK(baseline.venueMachine.empty()); // a game with no machine of its own, on no machine yet
     CHECK(baseline.isFirst);
     CHECK(baseline.gameActive);
     REQUIRE(baseline.players.size() == 2);
@@ -301,13 +302,15 @@ TEST_CASE("A session without a uuid yet raises no SessionPlayersChanged")
 
 TEST_CASE("sb_event_session_player rejects a position out of range and a wrong event")
 {
-    const SessionPlayersChangedEvent event(SESSION_A, true, true,
+    const SessionPlayersChangedEvent event(VM, SESSION_A, true, true,
                                            {SessionPlayerState {true, "u1", "Ann"}});
+    const char *vm = nullptr;
     const char *uuid = nullptr;
     bool isFirst = false;
     bool active = false;
     int count = 0;
-    REQUIRE(sb_event_session_players(&event, &uuid, &isFirst, &active, &count));
+    REQUIRE(sb_event_session_players(&event, &vm, &uuid, &isFirst, &active, &count));
+    CHECK(std::string(vm) == VM);
     CHECK(std::string(uuid) == SESSION_A);
     CHECK(isFirst);
     CHECK(active);
@@ -323,7 +326,26 @@ TEST_CASE("sb_event_session_player rejects a position out of range and a wrong e
     CHECK_FALSE(sb_event_session_player(&event, 2, &claimed, &id, &name));
 
     const VenueMachineDocumentEvent lobby(EventType::LobbyReceived, VM, "{}");
-    CHECK_FALSE(sb_event_session_players(&lobby, &uuid, &isFirst, &active, &count));
+    CHECK_FALSE(sb_event_session_players(&lobby, &vm, &uuid, &isFirst, &active, &count));
+}
+
+TEST_CASE("SessionPlayersChanged names its machine, so one delivered after a switch can be ignored")
+{
+    constexpr auto OTHER_VM = "0b9d4c1e-5f7a-4e28-8a63-2c4f1d9e7b50";
+    AttractNet n;
+    NetTestAccess::setMachineUuid(n.net, VM);
+    NetTestAccess::seedGameSession(n.net, 1, SESSION_A, true, VM);
+    NetTestAccess::seedGameSession(n.net, 2, SESSION_B, true, OTHER_VM); // a game left behind
+
+    NetTestAccess::processScores(n.net, 1, json::array({score(1)}));
+    NetTestAccess::processScores(n.net, 2, json::array({score(1)})); // not the live machine's
+    // The device moves before the queued event is delivered
+    NetTestAccess::setMachineUuid(n.net, OTHER_VM);
+    n.drain();
+
+    REQUIRE(n.sessions.size() == 1);
+    CHECK(n.sessions[0].sessionUuid == SESSION_A);
+    CHECK(n.sessions[0].venueMachine == VM); // not OTHER_VM, the machine now current
 }
 
 // ---------------- entry_activated and the running session ----------------

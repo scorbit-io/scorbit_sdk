@@ -166,7 +166,8 @@ typedef enum {
     /**
      * @brief The running session's players became known, or a position's player changed. The first
      * event for a session is its baseline; later ones come only when a position's claim or display
-     * name changes. Use @ref sb_event_session_players and @ref sb_event_session_player.
+     * name changes. Each names the venue machine whose game it is; ignore it when that is not the
+     * current machine. Use @ref sb_event_session_players and @ref sb_event_session_player.
      */
     SB_EVT_SESSION_PLAYERS_CHANGED,
 
