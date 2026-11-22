@@ -6678,6 +6678,7 @@ void Net::fetchCentrifugoTokenNow(std::optional<std::uint64_t> asOf)
 
     if (!token.empty()) {
         scheduleCentrifugoTokenRefresh(token, serverNow);
+        onCentrifugoStrand([this] { applyFirstConnectRecoverChannels(); });
     }
 }
 
@@ -7087,6 +7088,29 @@ void Net::armSessionPlayersRefresh()
                         });
 }
 
+std::vector<std::string> firstConnectRecoverChannels(const std::string &cfToken)
+{
+    // Only these: on a first connect, recovery without a stored position would re-send the last
+    // control_scorbitron command (cache recovery) and replay the stream channels' history
+    std::vector<std::string> channels;
+    for (auto &channel : parseJwtChannels(cfToken)) {
+        if (channel.starts_with("lobby:") || channel.starts_with("attract:")) {
+            channels.push_back(std::move(channel));
+        }
+    }
+    return channels;
+}
+
+void Net::applyFirstConnectRecoverChannels()
+{
+    if (!m_centrifugo) {
+        return;
+    }
+    auto channels = firstConnectRecoverChannels(cachedCentrifugoToken());
+    DBG("API-CF first-connect recovery for {} channel(s)", channels.size());
+    m_centrifugo->setFirstConnectRecoverChannels(std::move(channels));
+}
+
 void Net::centrifugoConnect()
 {
     onCentrifugoStrand([this] {
@@ -7100,6 +7124,7 @@ void Net::centrifugoConnect()
             return;
         }
 
+        applyFirstConnectRecoverChannels();
         if (auto const res = m_centrifugo->connect(); !res) {
             ERR("API-CF Failed to connect to Centrifugo: ({}, {})", res.error().ec.value(),
                 res.error().message);
