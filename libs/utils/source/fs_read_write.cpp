@@ -18,6 +18,7 @@
  */
 
 #include <utils/fs_read_write.h>
+#include "fs_mount_holders.h"
 
 #include <vector>
 #include <sstream>
@@ -74,7 +75,8 @@ std::vector<MountInfo> parseMountInfo()
         std::string options;
         parts >> options;
 
-        bool ro = options.find("ro") != std::string::npos;
+        // The "ro" option itself: "errors=remount-ro" on a writable mount is not read-only
+        bool ro = utils::detail::optionsReadOnly(options);
 
         out.push_back({mountPoint, ro});
     }
@@ -146,29 +148,46 @@ bool remountRO(const std::string &)
 
 namespace utils {
 
+#ifdef __linux__
+
+namespace {
+
+// One per process: every writer's remounts go through it
+detail::MountHolders &mountHolders()
+{
+    static detail::MountHolders holders {detail::MountOps {
+            [](const fs::path &p) { return findMountPoint(p); },
+            [](const std::string &mp) { return isReadOnly(mp); },
+            [](const std::string &mp) { return remountRW(mp); },
+            [](const std::string &mp) { return remountRO(mp); },
+    }};
+    return holders;
+}
+
+} // namespace
+
 MakeWritableResult fsMakeWritable(const fs::path &p)
 {
-    (void)p;
-    std::string mp;
+    return mountHolders().makeWritable(p);
+}
 
-#ifdef __linux__
-    mp = findMountPoint(p);
+bool fsRemountReadOnly(const std::string &mp)
+{
+    return mountHolders().remountReadOnly(mp);
+}
 
-    if (!isReadOnly(mp)) {
-        return {true, std::string {}}; // already writable
-    }
+#else // NON-LINUX: nothing is remounted
 
-    if (!remountRW(mp)) {
-        return {false, mp};
-    }
-#endif
-
-    return {true, mp};
+MakeWritableResult fsMakeWritable(const fs::path &)
+{
+    return {true, std::string {}};
 }
 
 bool fsRemountReadOnly(const std::string &mp)
 {
     return mp.empty() || remountRO(mp);
 }
+
+#endif
 
 } // namespace utils
