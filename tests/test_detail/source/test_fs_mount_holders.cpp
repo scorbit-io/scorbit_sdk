@@ -261,3 +261,28 @@ TEST_CASE("Only the ro option itself means read-only")
     CHECK_FALSE(optionsReadOnly(""));
     CHECK_FALSE(optionsReadOnly("rootcontext=x"));
 }
+
+TEST_CASE("A mount is read-only when either its own or its superblock options say ro")
+{
+    using utils::detail::parseMountInfoLine;
+
+    const auto writable = parseMountInfoLine(
+            "25 1 179:2 / / rw,noatime shared:1 - ext4 /dev/root rw,errors=continue");
+    CHECK(writable.mountPoint == "/");
+    CHECK_FALSE(writable.readOnly);
+
+    // A Spike's read-only root
+    CHECK(parseMountInfoLine(
+                  "25 1 179:2 / / ro,noatime shared:1 - ext4 /dev/root ro,errors=continue")
+                  .readOnly);
+    // A read-only bind over a writable superblock: writes still fail
+    const auto bind = parseMountInfoLine(
+            "40 25 179:2 /data /mnt/data ro,relatime - ext4 /dev/root rw,errors=remount-ro");
+    CHECK(bind.mountPoint == "/mnt/data");
+    CHECK(bind.readOnly);
+    // No optional fields before the separator, and a superblock read-only under a rw mount
+    CHECK(parseMountInfoLine("41 25 0:30 / /boot rw,relatime - vfat /dev/mmcblk0p1 ro").readOnly);
+    CHECK_FALSE(
+            parseMountInfoLine("42 25 0:31 / /tmp rw shared:5 master:2 - tmpfs tmpfs rw,size=1k")
+                    .readOnly);
+}

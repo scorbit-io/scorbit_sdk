@@ -37,7 +37,8 @@ MakeWritableResult fsMakeWritable(const std::filesystem::path &p);
 /// holder; an empty @p mp (nothing was held) is a no-op. False when the remount failed: the next
 /// writer's release retries it. Only release what fsMakeWritable returned, once: a release with
 /// no matching fsMakeWritable would pull the mount from under another writer. To retry a failed
-/// remount, pair them: release what fsMakeWritable returns.
+/// remount, pair them: release what fsMakeWritable returns. The holder count lives in this utils
+/// copy, so all of a process's writers must link the same one (scorbitd links the SDK statically).
 bool fsRemountReadOnly(const std::string &mp);
 
 } // namespace utils

@@ -73,5 +73,13 @@ private:
 /// merely containing "ro", like "errors=remount-ro", does not count.
 bool optionsReadOnly(const std::string &options);
 
+/// One /proc/self/mountinfo line: its mount point, and whether writes there fail, i.e. "ro" in the
+/// per-mount options (field 6, e.g. a read-only bind) or in the superblock options after "-".
+struct MountInfoLine {
+    std::string mountPoint;
+    bool readOnly = false;
+};
+MountInfoLine parseMountInfoLine(const std::string &line);
+
 } // namespace detail
 } // namespace utils

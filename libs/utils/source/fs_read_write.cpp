@@ -32,12 +32,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
-struct MountInfo {
-    std::string mountPoint; // e.g. "/"
-    bool readOnly = false;
-};
-
 #ifdef __linux__
+
+using MountInfo = utils::detail::MountInfoLine;
 
 std::vector<MountInfo> parseMountInfo()
 {
@@ -48,37 +45,7 @@ std::vector<MountInfo> parseMountInfo()
     std::vector<MountInfo> out;
     std::string line;
     while (std::getline(in, line)) {
-        // Format: [see man 5 proc], fields separated by spaces
-        // sample: 39 25 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw
-        auto parts = std::stringstream(line);
-        std::string discard;
-
-        // skip to mount point (5th field)
-        for (int i = 0; i < 4; ++i)
-            parts >> discard;
-        std::string mountPoint;
-        parts >> mountPoint;
-
-        // skip to mount options (after filesystem root)
-        // find the "-" separator
-        std::string token;
-        while (parts >> token && token != "-") { }
-
-        // filesystem type
-        std::string fstype;
-        parts >> fstype;
-
-        // source
-        parts >> discard;
-
-        // superblock options
-        std::string options;
-        parts >> options;
-
-        // The "ro" option itself: "errors=remount-ro" on a writable mount is not read-only
-        bool ro = utils::detail::optionsReadOnly(options);
-
-        out.push_back({mountPoint, ro});
+        out.push_back(utils::detail::parseMountInfoLine(line));
     }
     return out;
 }
