@@ -149,6 +149,27 @@ typedef enum {
      */
     SB_EVT_LIVE_DMD_REQUESTED,
 
+    /**
+     * @brief Scorbit published this machine's attract mode document, or the SDK recovered the
+     * latest one on (re)connect. Use @ref sb_event_attract_document to get the venue machine and
+     * the whole publication as JSON; the SDK does not parse it.
+     */
+    SB_EVT_ATTRACT_DOCUMENT_RECEIVED,
+
+    /**
+     * @brief Scorbit published this machine's lobby, or the SDK recovered the latest one on
+     * (re)connect. Use @ref sb_event_lobby to get the venue machine and the whole publication as
+     * JSON; the SDK does not parse it.
+     */
+    SB_EVT_LOBBY_RECEIVED,
+
+    /**
+     * @brief The running session's players became known, or a position's player changed. The first
+     * event for a session is its baseline; later ones come only when a position's claim or display
+     * name changes. Use @ref sb_event_session_players and @ref sb_event_session_player.
+     */
+    SB_EVT_SESSION_PLAYERS_CHANGED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

@@ -404,6 +404,81 @@ public:
         return true;
     }
 
+    /**
+     * @brief Helper function to read an attract mode document; see @ref sb_event_attract_document.
+     *
+     * @param venueMachine [OUT] The venue machine's uuid, from the channel name.
+     * @param json [OUT] The whole publication as JSON, unparsed by the SDK.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getAttractDocument(std::string &venueMachine, std::string &json) const
+    {
+        const char *vm = nullptr;
+        const char *doc = nullptr;
+        if (!::sb_event_attract_document(m_event, &vm, &doc)) {
+            return false;
+        }
+        venueMachine = vm ? std::string(vm) : std::string {};
+        json = doc ? std::string(doc) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to read a lobby; see @ref sb_event_lobby.
+     *
+     * @param venueMachine [OUT] The venue machine's uuid, from the channel name.
+     * @param json [OUT] The whole publication as JSON, unparsed by the SDK.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getLobby(std::string &venueMachine, std::string &json) const
+    {
+        const char *vm = nullptr;
+        const char *doc = nullptr;
+        if (!::sb_event_lobby(m_event, &vm, &doc)) {
+            return false;
+        }
+        venueMachine = vm ? std::string(vm) : std::string {};
+        json = doc ? std::string(doc) : std::string {};
+        return true;
+    }
+
+    /**
+     * @brief Helper function to read a session players change; see
+     * @ref sb_event_session_players and @ref sb_event_session_player.
+     *
+     * @param out [OUT] The session, whether this is its baseline, whether the game is active, and
+     * every position.
+     * @return Returns true on success, or false if the event type does not match.
+     */
+    bool getSessionPlayers(SessionPlayers &out) const
+    {
+        const char *uuid = nullptr;
+        bool isFirst = false;
+        bool gameActive = false;
+        int count = 0;
+        if (!::sb_event_session_players(m_event, &uuid, &isFirst, &gameActive, &count)) {
+            return false;
+        }
+        out.sessionUuid = uuid ? std::string(uuid) : std::string {};
+        out.isFirst = isFirst;
+        out.gameActive = gameActive;
+        out.players.clear();
+        for (int p = 1; p <= count; ++p) {
+            SessionPlayer player;
+            const char *id = nullptr;
+            const char *name = nullptr;
+            if (!::sb_event_session_player(m_event, static_cast<sb_player_t>(p), &player.claimed,
+                                           &id, &name)) {
+                continue;
+            }
+            player.position = static_cast<unsigned>(p);
+            player.playerId = id ? std::string(id) : std::string {};
+            player.displayName = name ? std::string(name) : std::string {};
+            out.players.push_back(std::move(player));
+        }
+        return true;
+    }
+
 private:
     const sb_event_t *m_event;
 };

@@ -49,6 +49,9 @@ enum class EventType {
     HardwareProbeRequested = SB_EVT_HARDWARE_PROBE_REQUESTED,
     ProbeFlashRequested = SB_EVT_PROBE_FLASH_REQUESTED,
     LiveDmdRequested = SB_EVT_LIVE_DMD_REQUESTED,
+    AttractDocumentReceived = SB_EVT_ATTRACT_DOCUMENT_RECEIVED,
+    LobbyReceived = SB_EVT_LOBBY_RECEIVED,
+    SessionPlayersChanged = SB_EVT_SESSION_PLAYERS_CHANGED,
 };
 
 } // namespace scorbit

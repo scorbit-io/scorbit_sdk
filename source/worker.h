@@ -60,6 +60,7 @@ public:
         AchievementRetry,
         AchievementDefinitions,
         CompetitionRetry,
+        SessionPlayersRefresh,
 
         // IMPORTANT! This must be last entry!
         Count,

@@ -632,6 +632,34 @@ _lib.sb_event_probe_flash_requested.argtypes = [c_void_p, POINTER(c_char_p), POI
 _lib.sb_event_live_dmd_requested.restype = c_bool
 _lib.sb_event_live_dmd_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_int64)]
 
+# bool sb_event_attract_document(const sb_event_t*, const char**, const char**)
+_lib.sb_event_attract_document.restype = c_bool
+_lib.sb_event_attract_document.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
+
+# bool sb_event_lobby(const sb_event_t*, const char**, const char**)
+_lib.sb_event_lobby.restype = c_bool
+_lib.sb_event_lobby.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
+
+# bool sb_event_session_players(const sb_event_t*, const char**, bool*, bool*, int*)
+_lib.sb_event_session_players.restype = c_bool
+_lib.sb_event_session_players.argtypes = [
+    c_void_p,
+    POINTER(c_char_p),
+    POINTER(c_bool),
+    POINTER(c_bool),
+    POINTER(c_int),
+]
+
+# bool sb_event_session_player(const sb_event_t*, sb_player_t, bool*, const char**, const char**)
+_lib.sb_event_session_player.restype = c_bool
+_lib.sb_event_session_player.argtypes = [
+    c_void_p,
+    c_uint,
+    POINTER(c_bool),
+    POINTER(c_char_p),
+    POINTER(c_char_p),
+]
+
 # bool sb_event_diagnostics_upload_requested(const sb_event_t*, bool*)
 _lib.sb_event_diagnostics_upload_requested.restype = c_bool
 _lib.sb_event_diagnostics_upload_requested.argtypes = [c_void_p, POINTER(c_bool)]

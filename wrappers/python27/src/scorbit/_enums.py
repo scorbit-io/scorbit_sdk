@@ -213,6 +213,9 @@ class EventType(IntEnum):
     HardwareProbeRequested = 1004
     ProbeFlashRequested = 1005
     LiveDmdRequested = 1006
+    AttractDocumentReceived = 1007
+    LobbyReceived = 1008
+    SessionPlayersChanged = 1009
 
 
 class LogLevel(IntEnum):

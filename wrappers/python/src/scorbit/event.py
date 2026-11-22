@@ -17,7 +17,15 @@ from ctypes import POINTER, byref, c_bool, c_char_p, c_int, c_int64, c_size_t, c
 
 from ._bindings import _lib
 from ._enums import EventType
-from ._types import AchievementUnlock, BundlePrice, CompetitionGoal, PlayerInfo, PricingInfo
+from ._types import (
+    AchievementUnlock,
+    BundlePrice,
+    CompetitionGoal,
+    PlayerInfo,
+    PricingInfo,
+    SessionPlayer,
+    SessionPlayers,
+)
 
 
 class Event(object):
@@ -418,6 +426,74 @@ class Event(object):
                 val = val.decode("utf-8", errors="replace")
             return (val or ""), int(until.value)
         return None
+
+    def _venue_machine_document(self, getter):
+        # type: (object) -> tuple[str, str] | None
+        venue_machine = c_char_p()
+        doc = c_char_p()
+        if not getter(self._ptr, byref(venue_machine), byref(doc)):
+            return None
+        vals = []
+        for raw in (venue_machine.value, doc.value):
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            vals.append(raw or "")
+        return vals[0], vals[1]
+
+    def get_attract_document(self):
+        # type: () -> tuple[str, str] | None
+        """Extract ``(venue_machine, json)`` from an ``AttractDocumentReceived`` event.
+
+        ``json`` is the whole publication on the machine's ``attract:`` channel,
+        unparsed by the SDK (re-serialized, so not necessarily byte for byte).
+        Ignore a document whose ``venue_machine`` is not the current one.
+        """
+        return self._venue_machine_document(_lib.sb_event_attract_document)
+
+    def get_lobby(self):
+        # type: () -> tuple[str, str] | None
+        """Extract ``(venue_machine, json)`` from a ``LobbyReceived`` event.
+
+        ``json`` is the whole publication on the machine's ``lobby:`` channel,
+        unparsed by the SDK; a cleared lobby has an empty payload.
+        """
+        return self._venue_machine_document(_lib.sb_event_lobby)
+
+    def get_session_players(self):
+        # type: () -> SessionPlayers | None
+        """Parse a ``SessionPlayersChanged`` event.
+
+        Returns:
+            A :class:`SessionPlayers`, or ``None`` if the event type does not
+            match.
+        """
+        uuid = c_char_p()
+        is_first = c_bool(False)
+        game_active = c_bool(False)
+        count = c_int(0)
+        if not _lib.sb_event_session_players(
+            self._ptr, byref(uuid), byref(is_first), byref(game_active), byref(count)
+        ):
+            return None
+
+        def text(ptr):
+            raw = ptr.value
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            return raw or ""
+
+        players = []
+        for position in range(1, int(count.value) + 1):
+            claimed = c_bool(False)
+            player_id = c_char_p()
+            display_name = c_char_p()
+            if _lib.sb_event_session_player(
+                self._ptr, position, byref(claimed), byref(player_id), byref(display_name)
+            ):
+                players.append(
+                    SessionPlayer(position, bool(claimed.value), text(player_id), text(display_name))
+                )
+        return SessionPlayers(text(uuid), bool(is_first.value), bool(game_active.value), players)
 
     # ------------------------------------------------------------------
     # Diagnostics

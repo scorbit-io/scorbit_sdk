@@ -241,6 +241,9 @@ target_sources(
         ../../libs/utils/source/fs_mount_holders.h
         ../../libs/utils/source/fs_mount_holders.cpp
         source/test_fs_mount_holders.cpp
+        ../../source/session_players.h
+        ../../source/session_players.cpp
+        source/test_session_players.cpp
         ../../source/utils/lru_cache.hpp
         source/test_lru_cache.cpp
         ../../source/safe_multipart.h

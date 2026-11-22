@@ -20,6 +20,7 @@
 #pragma once
 
 #include <scorbit_sdk/net_types.h>
+#include "session_players.h"
 #include "leaderboard_internal.h"
 #include "net_base.h"
 #include "key_resolver.h"
@@ -264,6 +265,10 @@ struct NetTestAccess {
     static bool hasGameSession(Net &net, int sessionId);
     /// Feeds a session reply's @p scores array to session @p sessionId's score cache.
     static void processScores(Net &net, int sessionId, const nlohmann::json &scores);
+    static void handlePublication(Net &net, const std::string &channel, const nlohmann::json &data);
+    static void seedGameSession(Net &net, int sessionId, const std::string &sessionUuid,
+                                bool active);
+    static std::string activeSessionUuid(Net &net);
     /// The tournament session @p sessionId has cached for @p player's score.
     static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
 
@@ -632,6 +637,17 @@ private:
                               const std::string &since, LeaderboardVpinFilter vpinFilter,
                               LeaderboardHandleCallback callback, int deferAttempt);
     void processScoresAndPlayersProfiles(const nlohmann::json &val, GameSession &gameSession);
+    /// Act on a publication from any subscribed channel; unknown channels are ignored.
+    void handlePublication(const std::string &channel, const nlohmann::json &data);
+    /// Hand an attract: or lobby: publication to the app, unparsed (SPEC-0034 REQ-1.1, REQ-1.3).
+    void pushVenueMachineDocument(EventType type, const std::string &channel,
+                                  std::size_t prefixLength, const nlohmann::json &data);
+    /// The live machine's running game's session uuid, or empty. Takes m_gameSessionsMutex.
+    std::string activeSessionUuid();
+    /// Refetch the running game's session, so a claim that sent no refresh still reaches the app.
+    void refetchActiveSession();
+    /// Keep refetching a running game's session (SPEC-0034 REQ-9.1); stop once it isn't active.
+    void scheduleSessionPlayersRefresh(const std::string &sessionUuid, bool gameActive);
 
     /// Run @p task on the Centrifugo strand. Runs inline when the caller is already on it, so
     /// callers reached from a client callback keep their existing ordering.
@@ -1154,6 +1170,8 @@ private:
     std::mutex m_competitionGoalCallbackMutex;
     SessionPlayersCallback m_sessionPlayersCallback;
     std::mutex m_sessionPlayersCallbackMutex;
+    /// Which session replies become SessionPlayersChanged events; thread-safe on its own.
+    SessionPlayersTracker m_sessionPlayersTracker;
 
     std::shared_ptr<nfc::ProbesManager> m_probesManager;
 

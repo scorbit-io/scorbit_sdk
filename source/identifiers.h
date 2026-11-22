@@ -151,6 +151,10 @@ constexpr auto REST_PUT {"PUT"};
 constexpr auto CF_CHN_MACHINE {"machine"};
 constexpr auto CF_CHN_CONTROL_MACHINE {"control_machine"};
 constexpr auto CF_CHN_CONTROL_SCORBITRON {"control_scorbitron"};
+// Venue machine channels whose publications go to the app unparsed (SPEC-0034); with the colon so
+// another channel sharing the name's start can't match
+constexpr auto CF_CHN_ATTRACT_PREFIX {"attract:"};
+constexpr auto CF_CHN_LOBBY_PREFIX {"lobby:"};
 
 // ------------------------------- JSON -------------------------------
 
@@ -226,6 +230,7 @@ constexpr auto JVAL_CHN_TYPE_DIAG_CAPTURE_STOP {"diag_capture_stop"};
 constexpr auto JVAL_CHN_TYPE_FIRMWARE_PROBE {"firmware_probe"};
 constexpr auto JVAL_CHN_TYPE_PROBE_FLASH {"probe_flash"};
 constexpr auto JVAL_CHN_TYPE_COMPETITION_GOAL {"competition.goal"};
+constexpr auto JVAL_CHN_TYPE_ENTRY_ACTIVATED {"entry_activated"};
 
 // probe_flash request (payload of the control message) and the event's request_json
 constexpr auto JKEY_PF_PROBE {"probe"};

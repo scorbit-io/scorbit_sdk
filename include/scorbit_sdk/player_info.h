@@ -38,4 +38,19 @@ struct PlayerInfo {
     std::string claimDeeplink; /// Claim URL for unclaimed player slots (empty if claimed)
 };
 
+/// One position of a @ref SessionPlayers change.
+struct SessionPlayer {
+    unsigned position {0};   /// The position, from 1
+    bool claimed {false};    /// True when a player has claimed the position
+    std::string playerId;    /// The player's id, empty when unclaimed
+    std::string displayName; /// The player's display name (as in the lobby), empty when none
+};
+
+/// The running session's players: see @ref scorbit::EventType::SessionPlayersChanged.
+struct SessionPlayers {
+    std::string sessionUuid;            /// The session the players are for
+    bool isFirst {false};               /// The session's first event: its baseline
+    bool gameActive {false};            /// True while the game is in progress
+    std::vector<SessionPlayer> players; /// Every position, in order
+};
 }
