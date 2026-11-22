@@ -174,6 +174,33 @@ TEST_CASE("A failed remount read-only can be retried, and the count never underf
     CHECK(holders.holders("/") == 1);
 }
 
+TEST_CASE("A failed read-only remount is retried by the next writer's release")
+{
+    FakeMount mount;
+    MountHolders holders(mount.ops());
+    const auto updater = holders.makeWritable("/usr/local/bin/x");
+    mount.failRO = true; // EBUSY: a replaced binary still runs
+    CHECK_FALSE(holders.remountReadOnly(updater.mountPoint));
+    CHECK(holders.owed("/"));
+    CHECK_FALSE(mount.readOnly);
+
+    // The mount is still writable, but this process left it so: the next writer takes it over
+    const auto next = holders.makeWritable("/etc/settings");
+    CHECK(next.ok);
+    CHECK(next.mountPoint == "/");
+    CHECK(mount.rw == 1); // no second remount read-write: it is writable already
+    CHECK(holders.holders("/") == 1);
+
+    mount.failRO = false;
+    CHECK(holders.remountReadOnly(next.mountPoint)); // its release retries, and succeeds
+    CHECK(mount.readOnly);
+    CHECK_FALSE(holders.owed("/"));
+
+    // Once paid, a mount made writable outside the process is left alone again
+    mount.readOnly = false;
+    CHECK(holders.makeWritable("/etc/settings").mountPoint.empty());
+}
+
 TEST_CASE("A held mount remounted read-only from outside is taken back for the next writer")
 {
     FakeMount mount;

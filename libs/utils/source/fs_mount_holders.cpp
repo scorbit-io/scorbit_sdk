@@ -48,6 +48,12 @@ MakeWritableResult MountHolders::makeWritable(const std::filesystem::path &p)
     }
 
     if (!m_ops.isReadOnly(mountPoint)) {
+        if (m_owed.count(mountPoint) != 0) {
+            // Left writable by this process's own failed remount: this writer takes it over, so
+            // its release retries the remount
+            holders = 1;
+            return {true, mountPoint};
+        }
         // Writable, but not by this process's doing: nothing to hold or to give back
         return {true, std::string {}};
     }
@@ -74,7 +80,13 @@ bool MountHolders::remountReadOnly(const std::string &mountPoint)
     if (it != m_holders.end()) {
         m_holders.erase(it);
     }
-    return m_ops.remountRO(mountPoint);
+    const auto remounted = m_ops.remountRO(mountPoint);
+    if (remounted) {
+        m_owed.erase(mountPoint);
+    } else {
+        m_owed.insert(mountPoint);
+    }
+    return remounted;
 }
 
 int MountHolders::holders(const std::string &mountPoint) const
@@ -82,6 +94,12 @@ int MountHolders::holders(const std::string &mountPoint) const
     std::scoped_lock lock(m_mutex);
     const auto it = m_holders.find(mountPoint);
     return it == m_holders.end() ? 0 : it->second;
+}
+
+bool MountHolders::owed(const std::string &mountPoint) const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_owed.count(mountPoint) != 0;
 }
 
 bool optionsReadOnly(const std::string &options)
