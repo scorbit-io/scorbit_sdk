@@ -71,6 +71,7 @@ constexpr auto URL_ACHIEVEMENTS_REPORT {"api/v2/achievements/report/"};
 constexpr auto URL_COMPETITIONS_GOAL_INSTALLED {"api/v2/competitions/goal-installed/"};
 constexpr auto URL_COMPETITIONS_ATTEMPT_STARTED {"api/v2/competitions/attempt-started/"};
 constexpr auto URL_COMPETITIONS_ATTEMPT_RELEASED {"api/v2/competitions/attempt-released/"};
+constexpr auto URL_COMPETITIONS_QUALIFICATION {"api/v2/competitions/qualification/"};
 constexpr auto QUERY_ACHIEVEMENTS_USER_ID {"user_id"};
 
 constexpr auto PAIRING_DEEPLINK {"https://scorbit.link/"

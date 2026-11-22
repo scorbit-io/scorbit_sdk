@@ -33,8 +33,11 @@
  * | competition.attempt_control       | API → device | control_machine, `{type, payload}`  |
  * | competition.attempt_released      | device → API | POST competitions/attempt-released/ |
  * | competition.attempt_released_saved| API → device | its 200 reply                       |
+ * | competition.qualification         | device → API | POST competitions/qualification/    |
+ * | competition.qualification_saved   | API → device | its 200 reply                       |
  */
 
+#include "turn_timer.h"
 #include "../achievements/definition.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
@@ -160,6 +163,22 @@ struct ReleaseApplied {
     bool operator==(const ReleaseApplied &) const = default;
 };
 
+/**
+ * `competition.qualification` (SB-6781): an attempt's result, reported once under a report id the
+ * device chose, and resent unchanged until the server answers.
+ */
+struct QualificationReport {
+    AttemptIdentity identity;
+    /** The report's stable id, a uuid: every resend repeats it, and a release's answer names it. */
+    std::string reportId;
+    /** The admitted player's user uuid. */
+    std::string player;
+    /** The attempt's start, as sent: the server compares its session, position and time with it. */
+    AttemptStart start;
+    /** The player's time to the completing row, and what it was measured on. */
+    TurnTimeResult result;
+};
+
 /** `competition.goal_installed`. */
 const char *goalInstalledType();
 
@@ -169,6 +188,9 @@ const char *attemptStartedType();
 /** `competition.attempt_released`. */
 const char *attemptReleasedType();
 
+/** `competition.qualification`. */
+const char *qualificationType();
+
 /** `competition.goal_installed`, the goal having been saved at @p installedAtMs. */
 nlohmann::json goalInstalledMessage(const AttemptIdentity &identity, int64_t installedAtMs);
 
@@ -176,10 +198,17 @@ nlohmann::json goalInstalledMessage(const AttemptIdentity &identity, int64_t ins
 nlohmann::json attemptStartedMessage(const AttemptIdentity &identity, const AttemptStart &start);
 
 /**
- * `competition.attempt_released`, answering @p release. Its `qualification` is null: naming one
- * made before the release needs its report id, which B02F (SB-6370) introduces.
+ * `competition.attempt_released`, answering @p release. Its `qualification` is @p qualification,
+ * the report id of a qualification made on or before the release's row, or null when empty.
  */
-nlohmann::json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied);
+nlohmann::json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied,
+                                      const std::string &qualification = {});
+
+/**
+ * `competition.qualification`. Its start and device are the attempt's start and the timer's
+ * evidence, never the machine's current state: the server compares them exactly.
+ */
+nlohmann::json qualificationMessage(const QualificationReport &report);
 
 /** What the server did with a message it accepted. */
 enum class ReceiptStatus { Saved, Duplicate };
@@ -192,6 +221,32 @@ enum class ReceiptStatus { Saved, Duplicate };
 std::optional<ReceiptStatus> parseReceipt(const nlohmann::json &reply, const std::string &sentType,
                                           const AttemptIdentity &identity,
                                           const std::string &control = {});
+
+/** What the server did with a qualification report: every status is final. */
+enum class QualificationStatus {
+    Saved,     ///< Saved and credited
+    Duplicate, ///< Saved and credited already
+    Conflict,  ///< Kept for support, credited nothing; `reason` says why
+};
+
+/** `competition.qualification_saved`: the 200 reply to a qualification report. */
+struct QualificationReceipt {
+    QualificationStatus status {QualificationStatus::Saved};
+    /** Why a conflict wasn't credited; empty otherwise. */
+    std::string reason;
+    /** The saved qualification, or the kept conflict, for support. */
+    std::string caseId;
+
+    bool operator==(const QualificationReceipt &) const = default;
+};
+
+/**
+ * Parses the 200 reply to report @p reportId about @p identity. nullopt for anything else,
+ * including a receipt for another attempt or another report.
+ */
+std::optional<QualificationReceipt> parseQualificationReceipt(const nlohmann::json &reply,
+                                                              const AttemptIdentity &identity,
+                                                              const std::string &reportId);
 
 /** @p ms since the epoch as ISO 8601 UTC with milliseconds, e.g. `2026-11-06T20:00:00.250Z`. */
 std::string formatUtc(int64_t ms);

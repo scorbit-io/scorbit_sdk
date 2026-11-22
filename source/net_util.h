@@ -64,6 +64,9 @@ std::string deriveUuid(const std::string &source);
  */
 std::string generateBootId();
 
+/** A fresh random (v4) UUID on every call. */
+std::string generateUuid();
+
 std::string parseUuid(const std::string &str);
 
 std::string gameHistoryToCsv(const GameHistory &history);
