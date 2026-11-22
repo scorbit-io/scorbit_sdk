@@ -285,6 +285,11 @@ private:
 
     /** Reports @p record's qualification, just made in its game: a new report id, then queued. */
     void report(AttemptRecord &record);
+    /**
+     * The report id of @p attempt's qualification made on or before row @p sequence, from its
+     * record or, once a release dropped it, the report kept; empty when there is none.
+     */
+    std::string reportBefore(const std::string &attempt, uint64_t sequence) const;
     ReportRecord *reportOf(const std::string &reportId);
     /** Forgets the report of @p attempt, sent or not: the server can't credit it. */
     void dropReportOf(const std::string &attempt);

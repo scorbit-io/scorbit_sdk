@@ -231,11 +231,7 @@ void CompetitionService::settle(ReleaseRecord &release, ReleaseState state, bool
     // A qualification on the release's row or before came first: the answer names its report, so
     // the server keeps the game used for the result on its way. One after the release counts for
     // nothing (`after_release`), so it is neither named nor sent.
-    if (const auto it = m_attempts.find(release.release.identity.attempt);
-        it != m_attempts.end() && it->second.qualification
-        && it->second.qualification->completionSequence <= release.applied.sequence) {
-        release.qualification = it->second.reportId;
-    }
+    release.qualification = reportBefore(release.release.identity.attempt, release.applied.sequence);
     if (state == ReleaseState::Released) {
         // It stops timing, and never qualifies from here on
         forget(release.release.identity.attempt, !release.qualification.empty());
@@ -678,6 +674,24 @@ void CompetitionService::report(AttemptRecord &record)
     INF("Competitions: reporting attempt {}'s qualification as {}", record.goal.identity.attempt,
         record.reportId);
     queueReport(kept);
+}
+
+std::string CompetitionService::reportBefore(const std::string &attempt, uint64_t sequence) const
+{
+    // The attempt's own record, while held: an answered report may be gone from the list. Once a
+    // release dropped the attempt, the report it kept: another release settled with it (two
+    // controls waiting on the same start) must name it too, not drop it.
+    if (const auto it = m_attempts.find(attempt); it != m_attempts.end()) {
+        const auto &record = it->second;
+        return record.qualification && record.qualification->completionSequence <= sequence
+                     ? record.reportId
+                     : std::string {};
+    }
+    const auto kept = std::ranges::find_if(m_reports, [&](const ReportRecord &r) {
+        return r.report.identity.attempt == attempt
+            && r.report.result.completionSequence <= sequence;
+    });
+    return kept == m_reports.end() ? std::string {} : kept->report.reportId;
 }
 
 ReportRecord *CompetitionService::reportOf(const std::string &reportId)
