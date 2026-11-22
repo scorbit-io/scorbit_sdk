@@ -625,6 +625,10 @@ Net::~Net()
         // taken here no arm can land after the worker cancels its timers below.
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
     }
+    {
+        // Likewise for the session players refresh
+        std::lock_guard<std::mutex> lock(m_sessionRefreshMutex);
+    }
     // With m_stop set an NFC flash winds down at its next wait; its last posts need the worker.
     joinNfcThread();
 
@@ -4303,11 +4307,12 @@ task_t Net::createRequestMachineObjectTask()
     });
 }
 
-void Net::requestSessionData(const std::string &sessionUuid)
+void Net::requestSessionData(const std::string &sessionUuid, std::shared_ptr<void> inFlight)
 {
     INF("API post queue request session data, uuid: {} ...", sessionUuid);
 
-    auto callback = [this, sessionUuid](Error error, std::string reply) {
+    auto callback = [this, sessionUuid, inFlight = std::move(inFlight)](Error error,
+                                                                        std::string reply) {
         if (error == Error::Success) {
             INF("API get session data: ok, {}", reply);
             // Find out sessionId
@@ -7050,6 +7055,11 @@ void Net::refetchActiveSession()
 
 void Net::armSessionPlayersRefresh()
 {
+    // Checked under the lock ~Net takes after setting m_stop, so no arm lands after shutdown
+    std::lock_guard<std::mutex> lock(m_sessionRefreshMutex);
+    if (m_stop) {
+        return;
+    }
     m_worker.startTimer(Worker::Timer::SessionPlayersRefresh, SESSION_PLAYERS_REFRESH_INTERVAL,
                         [this] {
                             if (m_stop) {
@@ -7060,8 +7070,12 @@ void Net::armSessionPlayersRefresh()
                             if (uuid.empty()) {
                                 return; // no game running: the fallback ends here
                             }
-                            DBG("API session players refresh, uuid: {}", uuid);
-                            requestSessionData(uuid);
+                            if (auto inFlight = m_sessionRefreshGate.tryAcquire()) {
+                                DBG("API session players refresh, uuid: {}", uuid);
+                                requestSessionData(uuid, std::move(inFlight));
+                            } else {
+                                DBG("API session players refresh: the last one is still pending");
+                            }
                             // Re-armed here too, so a failed fetch doesn't end the fallback
                             armSessionPlayersRefresh();
                         });

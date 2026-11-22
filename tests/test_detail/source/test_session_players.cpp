@@ -178,6 +178,28 @@ TEST_CASE("The tracker keeps a few sessions, and clear forgets them all")
     CHECK(tracker.update("s5", {{}})->isFirst);
 }
 
+TEST_CASE("The refresh gate lets one fetch through until its token is gone")
+{
+    RefreshGate gate;
+    auto first = gate.tryAcquire();
+    REQUIRE(first);
+    CHECK_FALSE(gate.tryAcquire()); // still pending: the tick is skipped
+
+    auto copy = first; // a task's copies of its callback hold it too
+    first.reset();
+    CHECK_FALSE(gate.tryAcquire());
+    copy.reset();
+
+    auto next = gate.tryAcquire();
+    CHECK(next);
+
+    // A token outliving its gate releases harmlessly
+    auto gone = std::make_unique<RefreshGate>();
+    auto orphan = gone->tryAcquire();
+    gone.reset();
+    orphan.reset();
+}
+
 // ---------------- attract: and lobby: publications ----------------
 
 TEST_CASE("Each attract: and lobby: publication raises one event, with its venue machine and JSON")
