@@ -156,6 +156,9 @@ constexpr size_t DIAG_MAX_LOG_STRING_SIZE = 10 * 1024 * 1024 + 100;   // 10 MB
 constexpr auto GAME_DATA_UPDATE_INTERVAL = 2000ms;
 constexpr auto SESSION_UPDATE_ADD_PLAYER_DEBOUNCE = 300ms;
 constexpr auto SESSION_UPDATE_NO_UUID_RETRY = 1000ms;
+// The API's session refresh pushes are best effort, so a running game's players are refetched at
+// least this often (SPEC-0034 REQ-9.1 asks for 30 s at most)
+constexpr auto SESSION_PLAYERS_REFRESH_INTERVAL = 25s;
 constexpr auto TOP_SCORES_DEFER_RETRY = 1000ms;
 constexpr int TOP_SCORES_DEFER_MAX_ATTEMPTS = 30;
 constexpr auto CF_RETIRED_CLIENT_GRACE_PERIOD = 30s;
@@ -4432,6 +4435,7 @@ bool Net::setMachineIdentity(const std::string &venueMachine, bool authoritative
     if (changed) {
         // Profiles belong to the machine they were claimed on, whatever moved the device.
         m_playersManager.clear();
+        m_sessionPlayersTracker.clear();
     }
     return written;
 }
@@ -5028,6 +5032,7 @@ void Net::adoptSwitchedMachineNow(const std::string &target, const std::string &
     }
 
     m_playersManager.clear();
+    m_sessionPlayersTracker.clear();
     setMachineIdentity(target, true);
 
     bool nowPaired = false;
@@ -5525,6 +5530,26 @@ bool NetTestAccess::hasGameSession(Net &net, int sessionId)
 {
     std::scoped_lock lock(net.m_gameSessionsMutex);
     return net.m_gameSessions.count(sessionId) != 0;
+}
+
+void NetTestAccess::handlePublication(Net &net, const std::string &channel,
+                                      const nlohmann::json &data)
+{
+    net.handlePublication(channel, data);
+}
+
+void NetTestAccess::seedGameSession(Net &net, int sessionId, const std::string &sessionUuid,
+                                    bool active)
+{
+    std::scoped_lock lock(net.m_gameSessionsMutex);
+    auto &gameSession = net.m_gameSessions[sessionId];
+    gameSession.sessionUuid = sessionUuid;
+    gameSession.gameData.isGameActive = active;
+}
+
+std::string NetTestAccess::activeSessionUuid(Net &net)
+{
+    return net.activeSessionUuid();
 }
 
 void NetTestAccess::processScores(Net &net, int sessionId, const nlohmann::json &scores)
@@ -6525,6 +6550,16 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
         }
     }
 
+    if (!gameSession.sessionUuid.empty()) {
+        if (auto change = m_sessionPlayersTracker.update(gameSession.sessionUuid,
+                                                         sessionPlayersFromScores(val))) {
+            m_eventManager->push(std::make_shared<SessionPlayersChangedEvent>(
+                    gameSession.sessionUuid, change->isFirst, gameSession.gameData.isGameActive,
+                    std::move(change->players)));
+        }
+        scheduleSessionPlayersRefresh(gameSession.sessionUuid, gameSession.gameData.isGameActive);
+    }
+
     if (auto changedProfiles = m_playersManager.setProfiles(val, live)) {
         {
             std::scoped_lock lock(m_playersChangedCallbackMutex);
@@ -6856,65 +6891,78 @@ void Net::centrifugoSetup(bool fetchFreshToken)
                     pub.info->client);
             }
 
-            // Any command on a control channel counts as activity: if this connection was opened
-            // by a heartbeat wake, give it another full idle window to finish the exchange.
-            if (channel.starts_with(CF_CHN_CONTROL_MACHINE)
-                || channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
-                resetCentrifugoIdleTimerIfArmed();
-            }
-
-            if (channel.starts_with(CF_CHN_CONTROL_MACHINE)) {
-                const auto &j = pub.data;
-                if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
-                    payloadIt != j.end() && payloadIt->is_object()) {
-                    const auto type = j.value(JKEY_CHN_TYPE, "");
-
-                    if (type == JVAL_CHN_TYPE_START_GAME) {
-                        const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
-                        setNumberOfPlayersRequested(playerCount);
-                        m_eventManager->push(
-                                std::make_shared<GameStartRequestedEvent>(playerCount));
-                    } else if (type == JVAL_TYPE_ACTION) {
-                        const auto method = payloadIt->value(JKEY_METHOD, "");
-                        const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
-                        if (method == JVAL_METHOD_GET) {
-                            if (name == JVAL_ACITON_GET_SCORBITRON_SESSION) {
-                                const auto url = payloadIt->value(JKEY_URL, "");
-                                const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
-                                requestSessionData(sessionUuid);
-                            }
-                        } else if (method == JVAL_METHOD_MSG) {
-                            requestCreditsStatusEvent(); // TODO add extra condition
-                        }
-                    } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
-                        const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);
-                        const auto transaction =
-                                payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
-                        m_eventManager->push(
-                                std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
-                    } else if (type == JVAL_CHN_TYPE_DIAG_PROBE) {
-                        handleDiagnosticProbe(*payloadIt);
-                    } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_START) {
-                        handleDiagnosticCaptureStart(*payloadIt);
-                    } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_STOP) {
-                        handleDiagnosticCaptureStop(*payloadIt);
-                    } else if (type == JVAL_CHN_TYPE_FIRMWARE_PROBE) {
-                        handleHardwareProbe(*payloadIt);
-                    } else if (type == JVAL_CHN_TYPE_PROBE_FLASH) {
-                        handleProbeFlash(*payloadIt);
-                    } else if (type == JVAL_CHN_TYPE_COMPETITION_GOAL) {
-                        handleCompetitionGoal(*payloadIt);
-                    } else {
-                        WRN("API-CF Unknown publication type: {}", type);
-                    }
-                }
-            } else if (channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
-                handleControlScorbitron(pub.data);
-            }
+            handlePublication(channel, pub.data);
         } catch (const std::exception &e) {
             ERR("API-CF Error parsing publication data: {}", e.what());
         }
     }));
+}
+
+void Net::handlePublication(const std::string &channel, const nlohmann::json &data)
+{
+    // Any command on a control channel counts as activity: if this connection was opened
+    // by a heartbeat wake, give it another full idle window to finish the exchange.
+    if (channel.starts_with(CF_CHN_CONTROL_MACHINE)
+        || channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
+        resetCentrifugoIdleTimerIfArmed();
+    }
+
+    if (channel.starts_with(CF_CHN_CONTROL_MACHINE)) {
+        const auto &j = data;
+        if (const auto payloadIt = j.find(JKEY_CHN_PAYLOAD);
+            payloadIt != j.end() && payloadIt->is_object()) {
+            const auto type = j.value(JKEY_CHN_TYPE, "");
+
+            if (type == JVAL_CHN_TYPE_START_GAME) {
+                const int playerCount = payloadIt->value(JKEY_SESS_PLAYER_COUNT, 1);
+                setNumberOfPlayersRequested(playerCount);
+                m_eventManager->push(std::make_shared<GameStartRequestedEvent>(playerCount));
+            } else if (type == JVAL_TYPE_ACTION) {
+                const auto method = payloadIt->value(JKEY_METHOD, "");
+                const auto name = payloadIt->value(JKEY_ACTION_NAME, "");
+                if (method == JVAL_METHOD_GET) {
+                    if (name == JVAL_ACITON_GET_SCORBITRON_SESSION) {
+                        const auto url = payloadIt->value(JKEY_URL, "");
+                        const auto sessionUuid = parseUrlUuid(url, URL_SESSIONS_ID);
+                        requestSessionData(sessionUuid);
+                    }
+                } else if (method == JVAL_METHOD_MSG) {
+                    requestCreditsStatusEvent(); // TODO add extra condition
+                }
+            } else if (type == JVAL_CHN_TYPE_ADD_CREDITS) {
+                const int credits = payloadIt->value(JKEY_CREDITS_COUNT, 1);
+                const auto transaction = payloadIt->value(JKEY_CREDITS_TRANSACTION, std::string {});
+                m_eventManager->push(
+                        std::make_shared<CreditsAddRequestedEvent>(credits, transaction));
+            } else if (type == JVAL_CHN_TYPE_DIAG_PROBE) {
+                handleDiagnosticProbe(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_START) {
+                handleDiagnosticCaptureStart(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_DIAG_CAPTURE_STOP) {
+                handleDiagnosticCaptureStop(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_FIRMWARE_PROBE) {
+                handleHardwareProbe(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_PROBE_FLASH) {
+                handleProbeFlash(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_COMPETITION_GOAL) {
+                handleCompetitionGoal(*payloadIt);
+            } else if (type == JVAL_CHN_TYPE_ENTRY_ACTIVATED) {
+                // A use-entry claim sends no session refresh of its own (SPEC-0034 REQ-9.1)
+                INF("API-CF entry activated, refetching the running session");
+                refetchActiveSession();
+            } else {
+                WRN("API-CF Unknown publication type: {}", type);
+            }
+        }
+    } else if (channel.starts_with(CF_CHN_CONTROL_SCORBITRON)) {
+        handleControlScorbitron(data);
+    } else if (channel.starts_with(CF_CHN_ATTRACT_PREFIX)) {
+        pushVenueMachineDocument(EventType::AttractDocumentReceived, channel,
+                                 std::char_traits<char>::length(CF_CHN_ATTRACT_PREFIX), data);
+    } else if (channel.starts_with(CF_CHN_LOBBY_PREFIX)) {
+        pushVenueMachineDocument(EventType::LobbyReceived, channel,
+                                 std::char_traits<char>::length(CF_CHN_LOBBY_PREFIX), data);
+    }
 }
 
 void Net::handleControlScorbitron(const nlohmann::json &j)
@@ -6956,6 +7004,62 @@ void Net::handleControlScorbitron(const nlohmann::json &j)
         INF("API-CF Config refresh requested via control channel");
         getConfig();
     }
+}
+
+void Net::pushVenueMachineDocument(EventType type, const std::string &channel,
+                                   std::size_t prefixLength, const nlohmann::json &data)
+{
+    auto venueMachine = channel.substr(prefixLength);
+    if (venueMachine.empty()) {
+        WRN("API-CF publication on {} names no venue machine", channel);
+        return;
+    }
+    // Live and recovered publications both come here; the app can't and needn't tell them apart
+    m_eventManager->push(std::make_shared<VenueMachineDocumentEvent>(type, std::move(venueMachine),
+                                                                     data.dump()));
+}
+
+std::string Net::activeSessionUuid()
+{
+    std::scoped_lock lock(m_gameSessionsMutex);
+    const auto live = machine().machineUuid;
+    std::string uuid;
+    // The newest running game on the live machine; m_gameSessions is ordered by id
+    for (const auto &[id, gameSession] : m_gameSessions) {
+        if (gameSession.gameData.isGameActive && !gameSession.sessionUuid.empty()
+            && (!gameSession.machine || gameSession.machine->machineUuid == live)) {
+            uuid = gameSession.sessionUuid;
+        }
+    }
+    return uuid;
+}
+
+void Net::refetchActiveSession()
+{
+    const auto uuid = activeSessionUuid();
+    if (uuid.empty()) {
+        INF("API no running session to refetch");
+        return;
+    }
+    requestSessionData(uuid);
+}
+
+void Net::scheduleSessionPlayersRefresh(const std::string &sessionUuid, bool gameActive)
+{
+    if (!gameActive) {
+        m_worker.stopTimer(Worker::Timer::SessionPlayersRefresh);
+        return;
+    }
+    m_worker.startTimer(Worker::Timer::SessionPlayersRefresh, SESSION_PLAYERS_REFRESH_INTERVAL,
+                        [this, sessionUuid] {
+                            if (m_stop || activeSessionUuid() != sessionUuid) {
+                                return;
+                            }
+                            DBG("API session players refresh, uuid: {}", sessionUuid);
+                            requestSessionData(sessionUuid);
+                            // Re-armed here too, so a failed fetch doesn't end the fallback
+                            scheduleSessionPlayersRefresh(sessionUuid, true);
+                        });
 }
 
 void Net::centrifugoConnect()

@@ -60,6 +60,8 @@ from ._enums import (
 from ._types import (
     AchievementUnlock,
     CompetitionGoal,
+    SessionPlayer,
+    SessionPlayers,
     BundlePrice,
     LeaderboardEntry,
     LeaderboardPlayer,
@@ -163,6 +165,8 @@ __all__ = [
     # Types
     "AchievementUnlock",
     "CompetitionGoal",
+    "SessionPlayer",
+    "SessionPlayers",
     "BundlePrice",
     "LeaderboardEntry",
     "LeaderboardPlayer",

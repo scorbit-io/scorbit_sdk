@@ -292,6 +292,8 @@ target_sources(
         include/scorbit_sdk/player_info.h
         source/player_profiles_manager.h
         source/player_profiles_manager.cpp
+        source/session_players.h
+        source/session_players.cpp
         source/utils/lru_cache.hpp
         source/safe_multipart.h
         source/fmt_formatters.h

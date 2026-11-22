@@ -476,6 +476,74 @@ bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id
 SCORBIT_SDK_EXPORT
 bool sb_event_live_dmd_requested(const sb_event_t *event, const char **channel, int64_t *until);
 
+/**
+ * @brief Reads an attract mode document: the whole publication from Scorbit, unparsed.
+ *
+ * The JSON is the publication on `attract:{venue_machine}`, for example
+ * `{"type":"attract_document","payload":{...},"metadata":{...}}`, re-serialized by the SDK: the
+ * same JSON, though not necessarily byte for byte. Ignore a document whose venue machine is not the
+ * current one.
+ *
+ * @param [IN] event The event, of type @ref SB_EVT_ATTRACT_DOCUMENT_RECEIVED.
+ * @param [OUT] venue_machine The venue machine's uuid, from the channel name; valid during the
+ * callback only.
+ * @param [OUT] json The publication as JSON; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_attract_document(const sb_event_t *event, const char **venue_machine,
+                               const char **json);
+
+/**
+ * @brief Reads a lobby: the whole publication from Scorbit, unparsed.
+ *
+ * The JSON is the publication on `lobby:{venue_machine}`, for example
+ * `{"type":"setup_game","payload":{"players":[...]},"metadata":{...}}`; a cleared lobby has an
+ * empty payload. Re-serialized as for @ref sb_event_attract_document.
+ *
+ * @param [IN] event The event, of type @ref SB_EVT_LOBBY_RECEIVED.
+ * @param [OUT] venue_machine The venue machine's uuid, from the channel name; valid during the
+ * callback only.
+ * @param [OUT] json The publication as JSON; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_lobby(const sb_event_t *event, const char **venue_machine, const char **json);
+
+/**
+ * @brief Reads which session a players change is for, and how many positions it has.
+ *
+ * The first event for a session (`is_first`) is its baseline; later ones come only when a
+ * position's claim or display name changes. A claim is a position going from unclaimed to claimed
+ * against the previous event for the same session. Read each position with @ref
+ * sb_event_session_player.
+ *
+ * @param [IN] event The event, of type @ref SB_EVT_SESSION_PLAYERS_CHANGED.
+ * @param [OUT] session_uuid The session's uuid; valid during the callback only.
+ * @param [OUT] is_first True for the session's first event, its baseline.
+ * @param [OUT] game_active True while the game is in progress.
+ * @param [OUT] count The number of positions, numbered 1 to count.
+ * @return Returns true on success, or false for a wrong event type.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_session_players(const sb_event_t *event, const char **session_uuid, bool *is_first,
+                              bool *game_active, int *count);
+
+/**
+ * @brief Reads one position of a players change.
+ *
+ * @param [IN] event The event, of type @ref SB_EVT_SESSION_PLAYERS_CHANGED.
+ * @param [IN] position The position, 1 to the count from @ref sb_event_session_players.
+ * @param [OUT] claimed True when a player has claimed the position.
+ * @param [OUT] player_id The player's id, empty when unclaimed; valid during the callback only.
+ * @param [OUT] display_name The player's display name (the same as the lobby's), empty when
+ * unclaimed or when Scorbit sent none; valid during the callback only.
+ * @return Returns true on success, or false for a wrong event type or position.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_session_player(const sb_event_t *event, sb_player_t position, bool *claimed,
+                             const char **player_id, const char **display_name);
+
 #ifdef __cplusplus
 }
 #endif

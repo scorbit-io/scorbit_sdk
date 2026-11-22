@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "session_players.h"
 #include "scorbit_sdk/event_types.h"
 #include "player_profiles_manager.h"
 #include "identifiers.h"
@@ -477,6 +478,63 @@ public:
 private:
     std::string m_channel;
     int64_t m_until;
+};
+
+// ---------------- AttractDocumentReceived / LobbyReceived implementation ----------------
+
+/// A publication on a venue machine's attract: or lobby: channel, handed to the app unparsed.
+class VenueMachineDocumentEvent : public EventBase
+{
+public:
+    VenueMachineDocumentEvent(EventType type, std::string venueMachine, std::string json)
+        : EventBase(type, EventPriority::Normal)
+        , m_venueMachine {std::move(venueMachine)}
+        , m_json {std::move(json)}
+    {
+    }
+
+    auto venueMachine() const -> const std::string & { return m_venueMachine; }
+    auto json() const -> const std::string & { return m_json; }
+
+private:
+    std::string m_venueMachine;
+    std::string m_json;
+};
+
+// ---------------- SessionPlayersChanged implementation ----------------
+
+class SessionPlayersChangedEvent : public EventBase
+{
+public:
+    SessionPlayersChangedEvent(std::string sessionUuid, bool isFirst, bool gameActive,
+                               std::vector<SessionPlayerState> players)
+        : EventBase(EventType::SessionPlayersChanged, EventPriority::Normal)
+        , m_sessionUuid {std::move(sessionUuid)}
+        , m_isFirst {isFirst}
+        , m_gameActive {gameActive}
+        , m_players {std::move(players)}
+    {
+    }
+
+    auto sessionUuid() const -> const std::string & { return m_sessionUuid; }
+    auto isFirst() const -> bool { return m_isFirst; }
+    auto gameActive() const -> bool { return m_gameActive; }
+    auto count() const -> int { return static_cast<int>(m_players.size()); }
+
+    // Position 1..count, or nullptr
+    auto position(sb_player_t position) const -> const SessionPlayerState *
+    {
+        if (position == 0 || position > m_players.size()) {
+            return nullptr;
+        }
+        return &m_players[position - 1];
+    }
+
+private:
+    std::string m_sessionUuid;
+    bool m_isFirst;
+    bool m_gameActive;
+    std::vector<SessionPlayerState> m_players;
 };
 
 // ---------------- AchievementUnlocked implementation ----------------

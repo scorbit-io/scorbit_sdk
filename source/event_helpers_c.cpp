@@ -204,6 +204,73 @@ bool sb_event_live_dmd_requested(const sb_event_t *event, const char **channel, 
     return true;
 }
 
+// ----------------------- Attract / lobby helpers -----------------------
+
+static bool venueMachineDocument(const sb_event_t *event, EventType type,
+                                 const char **venue_machine, const char **json)
+{
+    if (!event || !venue_machine || !json) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::VenueMachineDocumentEvent *>(event);
+    if (!derived || derived->type() != type) {
+        return false;
+    }
+    *venue_machine = derived->venueMachine().c_str();
+    *json = derived->json().c_str();
+    return true;
+}
+
+bool sb_event_attract_document(const sb_event_t *event, const char **venue_machine,
+                               const char **json)
+{
+    return venueMachineDocument(event, EventType::AttractDocumentReceived, venue_machine, json);
+}
+
+bool sb_event_lobby(const sb_event_t *event, const char **venue_machine, const char **json)
+{
+    return venueMachineDocument(event, EventType::LobbyReceived, venue_machine, json);
+}
+
+// ----------------------- SessionPlayersChanged helpers -----------------------
+
+bool sb_event_session_players(const sb_event_t *event, const char **session_uuid, bool *is_first,
+                              bool *game_active, int *count)
+{
+    if (!event || !session_uuid || !is_first || !game_active || !count) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::SessionPlayersChangedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    *session_uuid = derived->sessionUuid().c_str();
+    *is_first = derived->isFirst();
+    *game_active = derived->gameActive();
+    *count = derived->count();
+    return true;
+}
+
+bool sb_event_session_player(const sb_event_t *event, sb_player_t position, bool *claimed,
+                             const char **player_id, const char **display_name)
+{
+    if (!event || !claimed || !player_id || !display_name) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::SessionPlayersChangedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    const auto *state = derived->position(position);
+    if (!state) {
+        return false;
+    }
+    *claimed = state->claimed;
+    *player_id = state->playerId.c_str();
+    *display_name = state->displayName.c_str();
+    return true;
+}
+
 // ----------------------- PlayersUpdated helpers -----------------------
 
 static const scorbit::detail::PlayerProfile *toPlayerProfile(const sb_event_t *event,

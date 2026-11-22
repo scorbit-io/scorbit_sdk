@@ -195,6 +195,61 @@ class CompetitionGoal(object):
         return "CompetitionGoal(name={!r}, attempt={!r})".format(self.name, self.attempt)
 
 
+class SessionPlayer(object):
+    """One position of a :class:`SessionPlayers` change.
+
+    Attributes:
+        position: The position, from 1.
+        claimed: True when a player has claimed the position.
+        player_id: The player's id; empty when unclaimed.
+        display_name: The player's display name, as in the lobby; empty when none.
+    """
+
+    __slots__ = ("position", "claimed", "player_id", "display_name")
+
+    def __init__(self, position=0, claimed=False, player_id="", display_name=""):
+        # type: (int, bool, str, str) -> None
+        self.position = position
+        self.claimed = claimed
+        self.player_id = player_id
+        self.display_name = display_name
+
+    def __repr__(self):
+        # type: () -> str
+        return "SessionPlayer(position={!r}, claimed={!r}, display_name={!r})".format(
+            self.position, self.claimed, self.display_name
+        )
+
+
+class SessionPlayers(object):
+    """The running session's players (``SessionPlayersChanged``).
+
+    The first event for a session is its baseline; later ones come only when
+    a position's claim or display name changes.
+
+    Attributes:
+        session_uuid: The session the players are for.
+        is_first: True for the session's first event, its baseline.
+        game_active: True while the game is in progress.
+        players: A list of :class:`SessionPlayer`, one per position, in order.
+    """
+
+    __slots__ = ("session_uuid", "is_first", "game_active", "players")
+
+    def __init__(self, session_uuid="", is_first=False, game_active=False, players=None):
+        # type: (str, bool, bool, list | None) -> None
+        self.session_uuid = session_uuid
+        self.is_first = is_first
+        self.game_active = game_active
+        self.players = players if players is not None else []
+
+    def __repr__(self):
+        # type: () -> str
+        return "SessionPlayers(session_uuid={!r}, is_first={!r}, players={!r})".format(
+            self.session_uuid, self.is_first, self.players
+        )
+
+
 class LeaderboardPlayer(object):
     """Leaderboard player information."""
 
