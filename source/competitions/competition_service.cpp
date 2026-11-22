@@ -37,11 +37,17 @@ namespace {
 /** The API's answer that refuses a message for good. */
 constexpr int HTTP_CONFLICT = 409;
 
+/** A refusal for a report naming another device, among others. */
+constexpr int HTTP_FORBIDDEN = 403;
+
 /** The positions a game slot may have, as the API bounds them. */
 constexpr sb_player_t MAX_POSITION = 6;
 
 /** A 409 that doesn't refuse: the server takes the start once the release is answered. */
 constexpr auto RELEASE_PENDING = "release_pending";
+
+/** A 409 to a report that doesn't refuse: the server takes the report once it has the start. */
+constexpr auto START_PENDING = "start_pending";
 
 /** The `code` of a refusal's `{code, detail}`; empty when it carries none. */
 std::string refusalCode(const ApiReply &reply)
@@ -77,6 +83,8 @@ const char *typeOf(MessageKind kind)
         return goalInstalledType();
     case MessageKind::AttemptStarted:
         return attemptStartedType();
+    case MessageKind::Qualification:
+        return qualificationType();
     case MessageKind::AttemptReleased:
         break;
     }
@@ -220,9 +228,17 @@ void CompetitionService::settle(ReleaseRecord &release, ReleaseState state, bool
     release.applied.state = state;
     INF("Competitions: release {} of attempt {} applied at row {}: {}", release.release.control,
         release.release.identity.attempt, release.applied.sequence, describe(state));
+    // A qualification on the release's row or before came first: the answer names its report, so
+    // the server keeps the game used for the result on its way. One after the release counts for
+    // nothing (`after_release`), so it is neither named nor sent.
+    if (const auto it = m_attempts.find(release.release.identity.attempt);
+        it != m_attempts.end() && it->second.qualification
+        && it->second.qualification->completionSequence <= release.applied.sequence) {
+        release.qualification = it->second.reportId;
+    }
     if (state == ReleaseState::Released) {
         // It stops timing, and never qualifies from here on
-        forget(release.release.identity.attempt);
+        forget(release.release.identity.attempt, !release.qualification.empty());
     }
     queueReleased(release, first);
 }
@@ -249,9 +265,12 @@ void CompetitionService::settlePending(const std::string &attempt, ReleaseState 
     }
 }
 
-void CompetitionService::forget(const std::string &attempt)
+void CompetitionService::forget(const std::string &attempt, bool keepReport)
 {
     m_outbox.drop(attempt);
+    if (!keepReport) {
+        dropReportOf(attempt);
+    }
     m_attempts.erase(attempt);
 }
 
@@ -346,6 +365,8 @@ void CompetitionService::onGameStarted(int gameSessionId, const achievements::Ti
 
     m_games.push_back(std::move(game));
     dropSettledGames();
+    // Ending the game it replaced may have qualified an attempt
+    pump();
 }
 
 void CompetitionService::onSessionCreated(int gameSessionId, const std::string &sessionUuid)
@@ -418,6 +439,7 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
     for (const auto &attempt : game.candidates) {
         qualifyFrom(game, attempt);
     }
+    pump();
 }
 
 void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
@@ -427,6 +449,7 @@ void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
         finishGame(*game, endSequence);
     }
     dropSettledGames();
+    pump();
 }
 
 void CompetitionService::apply(Game &game, const achievements::TimelineRow &row)
@@ -558,6 +581,7 @@ void CompetitionService::qualifyFrom(Game &game, const std::string &attempt)
             INF("Competitions: attempt {} met its goal in game {} at position {} in {} ms, row {}",
                 attempt, game.id, record.start->position, record.qualification->durationMs,
                 record.qualification->completionSequence);
+            report(record);
         }
         break;
     case TurnTimer::State::Ended:
@@ -641,6 +665,52 @@ void CompetitionService::dropSettledGames()
     }
 }
 
+// ---- Qualification reports ---------------------------------------------------------------------
+
+void CompetitionService::report(AttemptRecord &record)
+{
+    // Rendered once from the saved start and the timer's evidence, never the machine's current
+    // state: the server compares both exactly with the start it saved
+    record.reportId = generateUuid();
+    auto &kept = m_reports.emplace_back(ReportRecord {
+            QualificationReport {record.goal.identity, record.reportId, record.goal.player,
+                                 *record.start, *record.qualification}});
+    INF("Competitions: reporting attempt {}'s qualification as {}", record.goal.identity.attempt,
+        record.reportId);
+    queueReport(kept);
+}
+
+ReportRecord *CompetitionService::reportOf(const std::string &reportId)
+{
+    const auto it = std::ranges::find(m_reports, reportId,
+                                      [](const ReportRecord &r) { return r.report.reportId; });
+    return it == m_reports.end() ? nullptr : &*it;
+}
+
+void CompetitionService::dropReportOf(const std::string &attempt)
+{
+    std::erase_if(m_reports, [&](const ReportRecord &kept) {
+        if (kept.report.identity.attempt != attempt) {
+            return false;
+        }
+        if (kept.delivery == Delivery::Pending) {
+            INF("Competitions: dropping report {}: attempt {} can't be credited",
+                kept.report.reportId, attempt);
+        }
+        m_outbox.dropReport(kept.report.reportId);
+        return true;
+    });
+}
+
+void CompetitionService::dropAnsweredReports()
+{
+    // One still owed to the server is always kept
+    for (auto it = m_reports.begin();
+         m_reports.size() > MAX_KEPT_REPORTS && it != m_reports.end();) {
+        it = it->delivery != Delivery::Pending ? m_reports.erase(it) : std::next(it);
+    }
+}
+
 // ---- Delivery ----------------------------------------------------------------------------------
 
 void CompetitionService::queueInstalled(const AttemptRecord &record)
@@ -661,12 +731,23 @@ void CompetitionService::queueStarted(const AttemptRecord &record)
 
 void CompetitionService::queueReleased(const ReleaseRecord &release, bool first)
 {
-    OutgoingMessage message {release.release.identity.attempt, MessageKind::AttemptReleased,
-                             attemptReleasedMessage(release.release, release.applied).dump(),
-                             release.release.control};
+    OutgoingMessage message {
+            release.release.identity.attempt, MessageKind::AttemptReleased,
+            attemptReleasedMessage(release.release, release.applied, release.qualification).dump(),
+            release.release.control};
     if (first) {
         m_outbox.addFirst(std::move(message));
     } else {
+        m_outbox.add(std::move(message));
+    }
+}
+
+void CompetitionService::queueReport(const ReportRecord &report)
+{
+    if (report.delivery == Delivery::Pending) {
+        OutgoingMessage message {report.report.identity.attempt, MessageKind::Qualification,
+                                 qualificationMessage(report.report).dump()};
+        message.report = report.report.reportId;
         m_outbox.add(std::move(message));
     }
 }
@@ -691,6 +772,10 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
 {
     if (message.kind == MessageKind::AttemptReleased) {
         onReleasedReply(message, reply);
+        return;
+    }
+    if (message.kind == MessageKind::Qualification) {
+        onReportReply(message, reply);
         return;
     }
     const auto it = m_attempts.find(message.attempt);
@@ -742,8 +827,10 @@ void CompetitionService::onReply(const OutgoingMessage &message, ApiReply reply)
         // it is answered `released`: the attempt is dropped.
         WRN("Competitions: {} for attempt {} refused, forgetting the attempt: {}",
             typeOf(message.kind), message.attempt, refusalOf(reply));
-        settlePending(message.attempt, ReleaseState::Released);
+        // Forgotten first: its qualification, if any, can't be credited, so a release answered
+        // here names none
         forget(message.attempt);
+        settlePending(message.attempt, ReleaseState::Released);
         m_outbox.answered();
         pump();
         return;
@@ -800,7 +887,8 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
             // A `started` refused (`wrong_state`: the server had the start, so it was an unclaim)
             // leaves the attempt released for the server: it never plays on here
             if (release->applied.state == ReleaseState::Started) {
-                forget(message.attempt);
+                // A qualification the answer named came before the release: still reported
+                forget(message.attempt, !release->qualification.empty());
             }
             // Kept, not resent: a late goal for the attempt is still refused, and a repeated
             // release gets the same answer
@@ -817,6 +905,83 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
 
     m_outbox.answered();
     dropAnsweredReleases();
+    pump();
+}
+
+void CompetitionService::onReportReply(const OutgoingMessage &message, const ApiReply &reply)
+{
+    auto *kept = reportOf(message.report);
+    if (!kept) {
+        // Dropped while in flight: the server can't credit it
+        m_outbox.answered();
+        pump();
+        return;
+    }
+
+    std::optional<QualificationReceipt> receipt;
+    if (reply.error == Error::Success) {
+        try {
+            receipt = parseQualificationReceipt(json::parse(reply.body), kept->report.identity,
+                                                kept->report.reportId);
+        } catch (const std::exception &) {
+        }
+    }
+
+    if (receipt) {
+        // Every receipt is final: a conflict is kept for support, and resending changes nothing
+        kept->receipt = receipt;
+        switch (receipt->status) {
+        case QualificationStatus::Saved:
+        case QualificationStatus::Duplicate:
+            kept->delivery = receipt->status == QualificationStatus::Saved ? Delivery::Saved
+                                                                           : Delivery::Duplicate;
+            INF("Competitions: {} {} for attempt {}: {}, case {}", qualificationType(),
+                message.report, message.attempt,
+                receipt->status == QualificationStatus::Saved ? "saved" : "duplicate",
+                receipt->caseId);
+            break;
+        case QualificationStatus::Conflict:
+            kept->delivery = Delivery::Refused;
+            WRN("Competitions: {} {} for attempt {} kept as a conflict, not credited: {}, case {}",
+                qualificationType(), message.report, message.attempt, receipt->reason,
+                receipt->caseId);
+            break;
+        }
+    } else if (reply.httpStatus == HTTP_CONFLICT && refusalCode(reply) == START_PENDING) {
+        // Nothing saved: the server takes the report once it has the attempt's start. It is the
+        // only 409 the API's QualificationView sends today, though its comment calls every 409
+        // there retryable: a new retryable code must be added here, or reports get it as final.
+        const auto delay = retryLater();
+        WRN("Competitions: {} {} for attempt {} waits for the start, resending in {} ms",
+            qualificationType(), message.report, message.attempt, delay.count());
+        return;
+    } else if (reply.httpStatus == HTTP_CONFLICT
+               || (reply.httpStatus == HTTP_FORBIDDEN
+                   && toLowerAscii(kept->report.result.evidence.deviceId)
+                              != toLowerAscii(m_net.getMachineUuid()))) {
+        // A 403 is final only when the report names another device than this one now is (its
+        // game was timed before the machine was provisioned again): it can never be accepted.
+        // Any other 403, such as a failed authentication, is resent below.
+        WRN("Competitions: {} {} for attempt {} refused: {}", qualificationType(), message.report,
+            message.attempt, refusalOf(reply));
+        kept->delivery = Delivery::Refused;
+    } else {
+        const auto delay = retryLater();
+        if (reply.error == Error::Success) {
+            ERR("Competitions: {} {} for attempt {} answered without a receipt, resending in {} "
+                "ms: {}",
+                qualificationType(), message.report, message.attempt, delay.count(), reply.body);
+        } else {
+            WRN("Competitions: {} {} for attempt {} got no final answer (status {}), resending "
+                "in {} ms",
+                qualificationType(), message.report, message.attempt, reply.httpStatus,
+                delay.count());
+        }
+        return;
+    }
+
+    m_outbox.answered();
+    dropAnsweredReports();
     pump();
 }
 

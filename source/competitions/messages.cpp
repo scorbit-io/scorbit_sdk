@@ -47,6 +47,7 @@ constexpr auto TYPE_GOAL_INSTALLED = "competition.goal_installed";
 constexpr auto TYPE_ATTEMPT_STARTED = "competition.attempt_started";
 constexpr auto TYPE_ATTEMPT_CONTROL = "competition.attempt_control";
 constexpr auto TYPE_ATTEMPT_RELEASED = "competition.attempt_released";
+constexpr auto TYPE_QUALIFICATION = "competition.qualification";
 constexpr auto RECEIPT_SUFFIX = "_saved";
 
 constexpr auto KEY_VERSION = "version";
@@ -79,6 +80,15 @@ constexpr auto KEY_ACTION = "action";
 constexpr auto KEY_CONTROL = "control";
 constexpr auto KEY_STATE = "state";
 constexpr auto KEY_QUALIFICATION = "qualification";
+constexpr auto KEY_REPORT_ID = "report_id";
+constexpr auto KEY_QUALIFIED_AT = "qualified_at";
+constexpr auto KEY_DURATION = "duration";
+constexpr auto KEY_VALUE = "value";
+constexpr auto KEY_UNIT = "unit";
+constexpr auto KEY_DEVICE = "device";
+constexpr auto KEY_SCORBITRON = "scorbitron";
+constexpr auto KEY_REASON = "reason";
+constexpr auto KEY_CASE = "case";
 
 constexpr auto ACTION_RELEASE = "release";
 
@@ -387,14 +397,34 @@ json attemptStartedMessage(const AttemptIdentity &identity, const AttemptStart &
     return message;
 }
 
-json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied)
+json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied,
+                            const std::string &qualification)
 {
     auto message = identityJson(release.identity, TYPE_ATTEMPT_RELEASED);
     message[KEY_CONTROL] = release.control;
     message[KEY_STATE] = toString(applied.state);
     message[KEY_BOOT_ID] = applied.bootId;
     message[KEY_SEQUENCE] = applied.sequence;
-    message[KEY_QUALIFICATION] = nullptr;
+    message[KEY_QUALIFICATION] = qualification.empty() ? json(nullptr) : json(qualification);
+    return message;
+}
+
+json qualificationMessage(const QualificationReport &report)
+{
+    const auto &result = report.result;
+    auto message = identityJson(report.identity, TYPE_QUALIFICATION);
+    message[KEY_REPORT_ID] = report.reportId;
+    message[KEY_PLAYER] = report.player;
+    message[KEY_SESSION] = report.start.session;
+    message[KEY_POSITION] = report.start.position;
+    message[KEY_STARTED_AT] = formatUtc(report.start.startedAtMs);
+    message[KEY_QUALIFIED_AT] = formatUtc(result.completionUtcMs);
+    message[KEY_SEQUENCE] = result.completionSequence;
+    message[KEY_DURATION] = {{KEY_VALUE, result.durationMs}, {KEY_UNIT, result.evidence.unit}};
+    message[KEY_TIMER_POLICY] = {{KEY_NAME, TIMER_POLICY},
+                                 {KEY_VERSION, result.evidence.policyVersion}};
+    message[KEY_DEVICE] = {{KEY_SCORBITRON, result.evidence.deviceId},
+                           {KEY_BOOT_ID, result.evidence.bootId}};
     return message;
 }
 
@@ -417,6 +447,38 @@ std::optional<ReceiptStatus> parseReceipt(const json &reply, const std::string &
         return ReceiptStatus::Duplicate;
     }
     return std::nullopt;
+}
+
+std::optional<QualificationReceipt> parseQualificationReceipt(const json &reply,
+                                                              const AttemptIdentity &identity,
+                                                              const std::string &reportId)
+{
+    if (!reply.is_object()
+        || reply.value(KEY_TYPE, json {}) != std::string {TYPE_QUALIFICATION} + RECEIPT_SUFFIX
+        || reply.value(KEY_VERSION, json {}) != MESSAGE_VERSION
+        || reply.value(KEY_ATTEMPT, json {}) != identity.attempt
+        || reply.value(KEY_CHECKSUM, json {}) != identity.checksum
+        || reply.value(KEY_REPORT_ID, json {}) != reportId) {
+        return std::nullopt;
+    }
+    QualificationReceipt receipt;
+    const auto status = reply.value(KEY_STATUS, json {});
+    if (status == "saved") {
+        receipt.status = QualificationStatus::Saved;
+    } else if (status == "duplicate") {
+        receipt.status = QualificationStatus::Duplicate;
+    } else if (status == "conflict") {
+        receipt.status = QualificationStatus::Conflict;
+    } else {
+        return std::nullopt;
+    }
+    if (const auto reason = reply.value(KEY_REASON, json {}); reason.is_string()) {
+        receipt.reason = reason.get<std::string>();
+    }
+    if (const auto caseId = reply.value(KEY_CASE, json {}); caseId.is_string()) {
+        receipt.caseId = caseId.get<std::string>();
+    }
+    return receipt;
 }
 
 std::string formatUtc(int64_t ms)
@@ -445,6 +507,11 @@ const char *attemptStartedType()
 const char *attemptReleasedType()
 {
     return TYPE_ATTEMPT_RELEASED;
+}
+
+const char *qualificationType()
+{
+    return TYPE_QUALIFICATION;
 }
 
 } // namespace competitions

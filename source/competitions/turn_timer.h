@@ -106,7 +106,7 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *   the doubtful time and yield a faster result than was played.
  *
  * CompetitionService (B02B, SB-6366) runs one per attempt and position, applying every committed
- * row of the game with the goal's verdict on it. Sending the result is B02F (SB-6370).
+ * row of the game with the goal's verdict on it, and reports the result (SB-6781).
  */
 class TurnTimer
 {

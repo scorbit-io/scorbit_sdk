@@ -338,8 +338,8 @@ public:
     virtual void setSessionPlayersCallback(SessionPlayersCallback callback) { (void)callback; }
 
     /**
-     * `POST competitions/goal-installed/`, `.../attempt-started/` or `.../attempt-released/`
-     * with the JSON @p body.
+     * `POST competitions/goal-installed/`, `.../attempt-started/`, `.../attempt-released/` or
+     * `.../qualification/` with the JSON @p body.
      */
     virtual void postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                         ApiReplyCallback callback)

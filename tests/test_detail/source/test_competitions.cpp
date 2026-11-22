@@ -173,7 +173,58 @@ const char *RELEASE_PENDING = R"({
   "detail": "This attempt's release hasn't been acknowledged yet."
 })";
 
+// The qualification messages (SB-6370), as in api core/contracts/competition/v1/ on main.
+
+const char *QUALIFICATION = R"({
+  "version": 1,
+  "tournament": "0193a5e0-0000-7000-8000-000000000001",
+  "rules": "0193a5e0-0000-7000-8000-000000000002",
+  "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+  "attempt": "0193a5e0-0000-7000-8000-000000000003",
+  "type": "competition.qualification",
+  "report_id": "0193a5e0-0000-7000-8000-000000000008",
+  "player": "6f1c2d3e-4a5b-4c6d-8e7f-000000000004",
+  "session": "6f1c2d3e-4a5b-4c6d-8e7f-000000000006",
+  "position": 1,
+  "started_at": "2026-11-06T20:00:00.250Z",
+  "qualified_at": "2026-11-06T20:01:31.007Z",
+  "sequence": 1187,
+  "duration": {
+    "value": 70125,
+    "unit": "ms"
+  },
+  "timer_policy": {
+    "name": "current_player_turn",
+    "version": 1
+  },
+  "device": {
+    "scorbitron": "6f1c2d3e-4a5b-4c6d-8e7f-000000000007",
+    "boot_id": "b7e1c0de-5a1e-4c00-9d00-000000000001"
+  }
+})";
+
+const char *QUALIFICATION_SAVED = R"({
+  "version": 1,
+  "tournament": "0193a5e0-0000-7000-8000-000000000001",
+  "rules": "0193a5e0-0000-7000-8000-000000000002",
+  "checksum": "ca5f30ab82d2a8d3a69f1041795a15f3f5e78abea9239f272793fd1253ee4d53",
+  "attempt": "0193a5e0-0000-7000-8000-000000000003",
+  "type": "competition.qualification_saved",
+  "report_id": "0193a5e0-0000-7000-8000-000000000008",
+  "status": "saved",
+  "reason": null,
+  "case": "0193a5e0-0000-7000-8000-000000000009",
+  "received_at": "2026-11-07T09:14:02.481000+00:00"
+})";
+
+const char *START_PENDING = R"({
+  "code": "start_pending",
+  "detail": "The server hasn't saved this game's start yet. Try again shortly."
+})";
+
 constexpr auto CONTROL = "0193a5e0-0000-7000-8000-000000000009";
+constexpr auto REPORT_ID = "0193a5e0-0000-7000-8000-000000000008";
+constexpr auto SCORBITRON = "6f1c2d3e-4a5b-4c6d-8e7f-000000000007";
 
 constexpr auto TOURNAMENT = "0193a5e0-0000-7000-8000-000000000001";
 constexpr auto ATTEMPT = "0193a5e0-0000-7000-8000-000000000003";
@@ -234,7 +285,7 @@ public:
     void submitGameData(const GameData &, SessionFlags) override { }
     void getConfig() override { }
     void requestPairCode(StringCallback) override { }
-    const std::string &getMachineUuid() const override { return m_empty; }
+    const std::string &getMachineUuid() const override { return machine; }
     std::uint64_t getMachineSerial() const override { return 0; }
     const std::string &getPairDeeplink() const override { return m_empty; }
     const DeviceInfo &deviceInfo() const override { return m_info; }
@@ -354,6 +405,7 @@ public:
     SessionPlayersCallback sessionPlayers;
     bool clockSynchronised {true};
     std::string venue {"6f1c2d3e-4a5b-4c6d-8e7f-000000000005"};
+    std::string machine {SCORBITRON};
     CompetitionGoalCallback goalReceived;
     AttemptReleaseCallback releaseReceived;
     std::deque<Sent> sent;
@@ -652,6 +704,82 @@ TEST_CASE("A release's receipt is matched to the release it answers", "[competit
     auto other = saved;
     other["control"] = "0193a5e0-0000-7000-8000-000000000010";
     CHECK_FALSE(parseReceipt(other, attemptReleasedType(), identity, CONTROL));
+}
+
+namespace {
+
+/** The API's example report, as the device builds it. */
+QualificationReport exampleReport()
+{
+    QualificationReport report;
+    report.identity = parsed().identity;
+    report.reportId = REPORT_ID;
+    report.player = PLAYER;
+    report.start = {SESSION, 1, STARTED_AT_MS, "b7e1c0de-5a1e-4c00-9d00-000000000001", 1041};
+    report.result.durationMs = 70125;
+    report.result.startSequence = 1041;
+    report.result.completionSequence = 1187;
+    report.result.startUtcMs = STARTED_AT_MS;
+    report.result.completionUtcMs = STARTED_AT_MS + 90'757; // 20:01:31.007
+    report.result.utcSynchronised = true;
+    report.result.evidence.deviceId = SCORBITRON;
+    report.result.evidence.bootId = "b7e1c0de-5a1e-4c00-9d00-000000000001";
+    return report;
+}
+
+} // namespace
+
+TEST_CASE("A qualification report matches the API's example", "[competitions]")
+{
+    CHECK(qualificationMessage(exampleReport()) == json::parse(QUALIFICATION));
+}
+
+TEST_CASE("attempt_released names the qualification made before it", "[competitions]")
+{
+    std::string error;
+    const auto release = parseAttemptControl(json::parse(ATTEMPT_CONTROL), error);
+    REQUIRE(release);
+    const ReleaseApplied applied {ReleaseState::Released, "b7e1c0de-5a1e-4c00-9d00-000000000001",
+                                  1077};
+    auto expected = json::parse(ATTEMPT_RELEASED);
+    expected["qualification"] = REPORT_ID;
+    CHECK(attemptReleasedMessage(*release, applied, REPORT_ID) == expected);
+}
+
+TEST_CASE("A qualification's receipt keeps its status, reason and case", "[competitions]")
+{
+    const auto identity = parsed().identity;
+    const auto saved =
+            parseQualificationReceipt(json::parse(QUALIFICATION_SAVED), identity, REPORT_ID);
+    REQUIRE(saved);
+    CHECK(saved->status == QualificationStatus::Saved);
+    CHECK(saved->reason.empty());
+    CHECK(saved->caseId == "0193a5e0-0000-7000-8000-000000000009");
+
+    auto duplicate = json::parse(QUALIFICATION_SAVED);
+    duplicate["status"] = "duplicate";
+    CHECK(parseQualificationReceipt(duplicate, identity, REPORT_ID)->status
+          == QualificationStatus::Duplicate);
+
+    auto conflict = json::parse(QUALIFICATION_SAVED);
+    conflict["status"] = "conflict";
+    conflict["reason"] = "wrong_start";
+    const auto kept = parseQualificationReceipt(conflict, identity, REPORT_ID);
+    REQUIRE(kept);
+    CHECK(kept->status == QualificationStatus::Conflict);
+    CHECK(kept->reason == "wrong_start");
+
+    // Another report's, another attempt's, or an unknown status answers nothing
+    CHECK_FALSE(parseQualificationReceipt(json::parse(QUALIFICATION_SAVED), identity,
+                                          "0193a5e0-0000-7000-8000-000000000010"));
+    auto other = json::parse(QUALIFICATION_SAVED);
+    other["attempt"] = "0193a5e0-0000-7000-8000-000000000010";
+    CHECK_FALSE(parseQualificationReceipt(other, identity, REPORT_ID));
+    other = json::parse(QUALIFICATION_SAVED);
+    other["status"] = "pending";
+    CHECK_FALSE(parseQualificationReceipt(other, identity, REPORT_ID));
+    // A receipt for another message is not a qualification's
+    CHECK_FALSE(parseQualificationReceipt(json::parse(ATTEMPT_STARTED_SAVED), identity, REPORT_ID));
 }
 
 // ---- Control channel ---------------------------------------------------------------------------
@@ -2096,6 +2224,30 @@ const ReleaseRecord &onlyRelease(const Fixture &f)
     return f.game->competitions().releases().front();
 }
 
+const ReportRecord &onlyReport(const Fixture &f)
+{
+    REQUIRE(f.game->competitions().reports().size() == 1);
+    return f.game->competitions().reports().front();
+}
+
+/** The server's receipt for the report @p body, with @p status (and @p reason). */
+ApiReply reportSaved(const json &body, const char *status = "saved", const char *reason = nullptr)
+{
+    auto saved = json::parse(QUALIFICATION_SAVED);
+    saved["report_id"] = body["report_id"];
+    saved["status"] = status;
+    saved["reason"] = reason ? json(reason) : json(nullptr);
+    return receipt(saved.dump().c_str());
+}
+
+/** Plays the started attempt's goal: Ali Baba, then a score. */
+void qualify(Fixture &f)
+{
+    activate(f);
+    score(f, 10);
+    REQUIRE(f.record().qualification);
+}
+
 } // namespace
 
 TEST_CASE("A release of a running attempt drops it and says where", "[competitions]")
@@ -2197,23 +2349,252 @@ TEST_CASE("A repeated release changes nothing and gets the same answer", "[compe
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("A qualification before the release comes first in the row order", "[competitions]")
+TEST_CASE("A qualification before the release is named in its answer, and still reported",
+          "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto completion = f.record().qualification->completionSequence;
+    const auto reportId = f.record().reportId;
+    REQUIRE(f.net->sent.size() == 1); // the report, in flight
+    const auto report = f.net->sent[0].body;
+
+    // The release drops the attempt, but not its report
+    f.release();
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(onlyReport(f).delivery == Delivery::Pending);
+
+    f.answer(reportSaved(report));
+    CHECK(onlyReport(f).delivery == Delivery::Saved);
+    REQUIRE(f.net->sent.size() == 1);
+    const auto &body = f.net->sent[0].body;
+    CHECK(body["state"] == "released");
+    // Not after the release: the API keeps the result, and the game stays used for it
+    CHECK(body["sequence"].get<uint64_t>() >= completion);
+    CHECK(body["qualification"] == reportId);
+    f.answer(releaseSaved());
+    CHECK(f.net->sent.empty());
+
+    // A repeat of the release gets the same answer, naming the same report
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["qualification"] == reportId);
+}
+
+TEST_CASE("A qualification is reported once its game's start is sent", "[competitions]")
 {
     Fixture f;
     startAttempt(f);
     activate(f);
+    CHECK(f.net->sent.empty());
+
     score(f, 10);
     REQUIRE(f.record().qualification);
-    const auto completion = f.record().qualification->completionSequence;
-
-    f.release();
+    const auto &met = *f.record().qualification;
+    const auto &start = *f.record().start;
     REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
     const auto &body = f.net->sent[0].body;
-    CHECK(body["state"] == "released");
-    // Not after the release: the API keeps the result
-    CHECK(body["sequence"].get<uint64_t>() >= completion);
-    // Its report id is B02F's (SB-6370), which reports the qualification
-    CHECK(body["qualification"].is_null());
+    CHECK(body["type"] == "competition.qualification");
+    CHECK(body["attempt"] == ATTEMPT);
+    CHECK(body["report_id"] == f.record().reportId);
+    CHECK(body["player"] == PLAYER);
+    // The start as sent: the server compares it exactly with the one it saved
+    CHECK(body["session"] == start.session);
+    CHECK(body["position"] == start.position);
+    CHECK(body["started_at"] == formatUtc(start.startedAtMs));
+    CHECK(body["qualified_at"] == formatUtc(met.completionUtcMs));
+    CHECK(body["sequence"] == met.completionSequence);
+    CHECK(body["duration"] == json {{"value", met.durationMs}, {"unit", "ms"}});
+    CHECK(body["timer_policy"] == json {{"name", "current_player_turn"}, {"version", 1}});
+    CHECK(body["device"] == json {{"scorbitron", SCORBITRON}, {"boot_id", f.net->boot}});
+
+    f.answer(reportSaved(body));
+    const auto &kept = onlyReport(f);
+    CHECK(kept.delivery == Delivery::Saved);
+    REQUIRE(kept.receipt);
+    CHECK(kept.receipt->caseId == "0193a5e0-0000-7000-8000-000000000009");
+    CHECK(f.net->sent.empty());
+
+    // Later rows report nothing more
+    score(f, 20);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A qualification made before its start is saved is sent behind the start",
+          "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1); // the start, in flight
+    qualify(f);
+    CHECK(f.net->sent.size() == 1);
+
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+}
+
+TEST_CASE("A report whose receipt was lost is resent unchanged: duplicate", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto report = f.net->sent[0].body;
+
+    f.answer(noAnswer());
+    CHECK(f.net->sent.empty());
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == report);
+
+    f.answer(reportSaved(report, "duplicate"));
+    CHECK(onlyReport(f).delivery == Delivery::Duplicate);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A report refused start_pending is resent until the server has the start",
+          "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto report = f.net->sent[0].body;
+
+    for (int i = 0; i < 2; ++i) {
+        f.answer(refused(START_PENDING));
+        CHECK(onlyReport(f).delivery == Delivery::Pending);
+        f.retry();
+        REQUIRE(f.net->sent.size() == 1);
+        CHECK(f.net->sent[0].body == report);
+    }
+    f.answer(reportSaved(report));
+    CHECK(onlyReport(f).delivery == Delivery::Saved);
+}
+
+TEST_CASE("A report kept as a conflict is not resent", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto report = f.net->sent[0].body;
+
+    f.answer(reportSaved(report, "conflict", "wrong_start"));
+    const auto &kept = onlyReport(f);
+    CHECK(kept.delivery == Delivery::Refused);
+    REQUIRE(kept.receipt);
+    CHECK(kept.receipt->status == QualificationStatus::Conflict);
+    CHECK(kept.receipt->reason == "wrong_start");
+    CHECK(f.net->sent.empty());
+    CHECK_FALSE(f.net->retry);
+}
+
+TEST_CASE("A report refused for another device is final; anything else is resent",
+          "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    const auto report = f.net->sent[0].body;
+
+    // A receipt for another report answers nothing
+    auto other = json::parse(QUALIFICATION_SAVED);
+    f.answer(receipt(other.dump().c_str()));
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == report);
+
+    // A 403 while the device is still the one the report names, e.g. a failed authentication
+    f.answer(ApiReply {Error::ApiError, 403,
+                       R"({"code": "forbidden", "detail": "Not a Scorbitron."})", {}});
+    CHECK(onlyReport(f).delivery == Delivery::Pending);
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == report);
+
+    // Provisioned again since its game was timed: the report names another device, for good
+    f.net->machine = "6f1c2d3e-4a5b-4c6d-8e7f-0000000000ee";
+    f.answer(ApiReply {Error::ApiError, 403,
+                       R"({"code": "forbidden", "detail": "This report names another device."})",
+                       {}});
+    CHECK(onlyReport(f).delivery == Delivery::Refused);
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A qualification after the release isn't named, nor reported", "[competitions]")
+{
+    // The release arrives while the start is unanswered; the attempt plays on and qualifies, then
+    // the start's receipt shows the release was an unclaim, applied before the qualification
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1); // the start, in flight
+    f.release();
+    const auto releasedAt = f.game->competitions().releases().front().applied.sequence;
+    qualify(f);
+    CHECK(f.record().qualification->completionSequence > releasedAt);
+
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(f.game->competitions().reports().empty());
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent[0].body["state"] == "released");
+    CHECK(f.net->sent[0].body["qualification"].is_null());
+    f.answer(releaseSaved());
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A release answered started goes before the report it names", "[competitions]")
+{
+    // The release arrives after the qualification, while the start is unanswered: the server
+    // refuses the start, the release pending, so the answer goes first, then the start, then the
+    // report
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1); // the start, in flight
+    const auto start = f.net->sent[0].body;
+    qualify(f);
+    const auto reportId = f.record().reportId;
+    f.release();
+
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent[0].body["state"] == "started");
+    CHECK(f.net->sent[0].body["qualification"] == reportId);
+    f.answer(releaseSaved());
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == start);
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+    CHECK(f.net->sent[0].body["report_id"] == reportId);
+    f.answer(reportSaved(f.net->sent[0].body));
+    CHECK(onlyReport(f).delivery == Delivery::Saved);
+}
+
+TEST_CASE("A refused start drops its attempt's report too", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    qualify(f);
+    REQUIRE(f.game->competitions().reports().size() == 1);
+
+    f.answer(refused(ATTEMPT_REFUSED));
+    CHECK(f.game->competitions().reports().empty());
+    CHECK(f.net->sent.empty());
 }
 
 TEST_CASE("A release before the server has the start keeps the attempt: started", "[competitions]")
@@ -2242,6 +2623,7 @@ TEST_CASE("A release before the server has the start keeps the attempt: started"
     CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
     CHECK(f.net->sent[0].body["state"] == "started");
     CHECK(f.net->sent[0].body["sequence"] == 2); // the start, then the session reply's
+    CHECK(f.net->sent[0].body["qualification"].is_null());
     f.answer(releaseSaved());
 
     REQUIRE(f.net->sent.size() == 1);
@@ -2251,10 +2633,13 @@ TEST_CASE("A release before the server has the start keeps the attempt: started"
     REQUIRE(f.record().start);
     CHECK(f.record().start->session == SESSION);
 
-    // It plays on, and still qualifies
+    // It plays on, and still qualifies: reported, as the release didn't apply
     activate(f);
     score(f, 10);
-    CHECK(f.record().qualification);
+    REQUIRE(f.record().qualification);
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+    CHECK(f.net->sent[0].body["report_id"] == f.record().reportId);
 }
 
 TEST_CASE("A release while the start is unanswered: a receipt means an unclaim", "[competitions]")
@@ -2490,4 +2875,59 @@ TEST_CASE("A refused start answers the release waiting on it: released", "[compe
     CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
     REQUIRE(f.net->sent.size() == 1);
     CHECK(f.net->sent[0].body["state"] == "released");
+}
+
+TEST_CASE("A refused started answer still reports the qualification it named", "[competitions]")
+{
+    // The server had the start after all (wrong_state): the qualification came before the
+    // release, so its report is still owed
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    qualify(f);
+    const auto reportId = f.record().reportId;
+    f.release();
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+    REQUIRE(f.net->sent[0].body["qualification"] == reportId);
+
+    f.answer(refused(R"({"code": "wrong_state", "detail": "Already started."})"));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    REQUIRE(f.net->sent.size() == 1); // not the start: the report
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+    CHECK(f.net->sent[0].body["report_id"] == reportId);
+    f.answer(reportSaved(f.net->sent[0].body));
+    CHECK(onlyReport(f).delivery == Delivery::Saved);
+}
+
+TEST_CASE("A refused started answer drops a qualification made after the release",
+          "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+    REQUIRE(f.net->sent[0].body["qualification"].is_null());
+    qualify(f); // queued behind the answer and the start
+
+    f.answer(refused(R"({"code": "wrong_state", "detail": "Already started."})"));
+    CHECK(f.game->competitions().reports().empty());
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("A report refused with any 409 but start_pending is final", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    f.answer(refused(R"({"code": "attempt_locked", "detail": "Something new."})"));
+    CHECK(onlyReport(f).delivery == Delivery::Refused);
+    CHECK(f.net->sent.empty());
+    CHECK_FALSE(f.net->retry);
 }

@@ -30,7 +30,7 @@ namespace detail {
 namespace competitions {
 
 /** Which device message, and so which endpoint. */
-enum class MessageKind { GoalInstalled, AttemptStarted, AttemptReleased };
+enum class MessageKind { GoalInstalled, AttemptStarted, AttemptReleased, Qualification };
 
 /** A message for the API, rendered once from the saved record and sent unchanged every time. */
 struct OutgoingMessage {
@@ -39,6 +39,8 @@ struct OutgoingMessage {
     std::string body;
     /** The release an `attempt_released` answers; empty for the other kinds. */
     std::string control {};
+    /** The report id of a `qualification`; empty for the other kinds. */
+    std::string report {};
 
     bool operator==(const OutgoingMessage &) const = default;
 };
@@ -77,12 +79,21 @@ public:
     /**
      * Forgets every queued install and start of @p attempt, one the server refused or the device
      * dropped. An answer to a release is kept: the server waits for it whatever became of the
-     * attempt.
+     * attempt. So is a qualification report, which a release may keep: @ref dropReport forgets it.
      */
     void drop(const std::string &attempt)
     {
         std::erase_if(m_queue, [&](const OutgoingMessage &m) {
-            return m.attempt == attempt && m.kind != MessageKind::AttemptReleased;
+            return m.attempt == attempt
+                && (m.kind == MessageKind::GoalInstalled || m.kind == MessageKind::AttemptStarted);
+        });
+    }
+
+    /** Forgets qualification report @p report, if queued. One in flight is let go on its answer. */
+    void dropReport(const std::string &report)
+    {
+        std::erase_if(m_queue, [&](const OutgoingMessage &m) {
+            return m.kind == MessageKind::Qualification && m.report == report;
         });
     }
 

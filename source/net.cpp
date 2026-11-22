@@ -3090,6 +3090,8 @@ const char *competitionEndpoint(competitions::MessageKind kind)
         return URL_COMPETITIONS_GOAL_INSTALLED;
     case competitions::MessageKind::AttemptStarted:
         return URL_COMPETITIONS_ATTEMPT_STARTED;
+    case competitions::MessageKind::Qualification:
+        return URL_COMPETITIONS_QUALIFICATION;
     case competitions::MessageKind::AttemptReleased:
         break;
     }

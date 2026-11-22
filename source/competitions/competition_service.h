@@ -46,7 +46,8 @@ enum class Delivery {
     Pending,   ///< Not answered yet: it is sent, and sent again, until it is
     Saved,     ///< The server saved it
     Duplicate, ///< The server had saved it already
-    Refused,   ///< The server refused it for good (a release's answer; the others are forgotten)
+    Refused,   ///< The server refused it for good (a release's answer or a report; the others are
+               ///< forgotten), or kept a report as a conflict, credited nothing
 };
 
 /** One installed attempt, held in memory: a restart ends it (SB-6369). */
@@ -63,9 +64,22 @@ struct AttemptRecord {
     /**
      * Set once, from the attempt's own game, when its player met the goal there (SB-6366): the
      * player's turn time to the first row on which every rule held together (SB-6367). Never
-     * replaced. Sending it is B02F (SB-6370).
+     * replaced. Reported under @ref reportId (SB-6781).
      */
     std::optional<TurnTimeResult> qualification;
+    /** The qualification's report id, chosen when it was set; empty until then. */
+    std::string reportId;
+};
+
+/**
+ * A qualification's report to the API (SB-6781). Kept apart from its attempt: a release made after
+ * the qualification drops the attempt, while the report is still owed to the server.
+ */
+struct ReportRecord {
+    QualificationReport report;
+    Delivery delivery {Delivery::Pending};
+    /** The server's answer, once a receipt arrived: a conflict's reason and case among it. */
+    std::optional<QualificationReceipt> receipt {};
 };
 
 /** A release the device applied, and its answer to the API (SB-6609). */
@@ -78,6 +92,11 @@ struct ReleaseRecord {
      */
     bool decided {false};
     Delivery delivery {Delivery::Pending};
+    /**
+     * The report id of the attempt's qualification made on or before the release's row, named in
+     * the answer once decided; empty when there was none.
+     */
+    std::string qualification {};
 };
 
 /**
@@ -107,9 +126,16 @@ struct ReleaseRecord {
  *   more on the game's last row when it ends. The attempt qualifies with its own position's
  *   result, once, and only in the game it started in. A lost row, or a lost end, stops the timing:
  *   no result rather than one shorter than was played.
+ * - A qualification is reported once (SB-6781), under a report id chosen when it is made, and
+ *   resent unchanged until the server answers it: a receipt, which is final whatever its status
+ *   (`saved`, `duplicate`, or `conflict`, kept for support and credited nothing), a 409, or a
+ *   403 for a report naming another device than this one now is (any other 403 is resent).
+ *   A 409 `start_pending` is resent: the server takes the report once it has the start.
  * - A release (SB-6609) drops the attempt, which stops timing and never qualifies after it, and
  *   is answered with where it was applied: the last row's place in the row order, so a
- *   qualification on that row or before came first. An attempt whose start the server has saved
+ *   qualification on that row or before came first. Such a qualification is named in the answer
+ *   by its report id, and its report is still sent; one made after the release is not, and its
+ *   report is dropped. An attempt whose start the server has saved
  *   is `released` (an unclaim); one it hasn't is `started`, kept with its start, which is resent
  *   once the server has the answer; one not held is `unknown`. While the start is still
  *   unanswered, its answer decides: a receipt means `released`, `release_pending` `started`.
@@ -170,6 +196,9 @@ public:
     /** The releases applied here, oldest first; for tests and diagnostics. */
     const std::deque<ReleaseRecord> &releases() const { return m_releases; }
 
+    /** The qualification reports made here, oldest first; for tests and diagnostics. */
+    const std::deque<ReportRecord> &reports() const { return m_reports; }
+
 private:
     /** A game in which installed attempts may start. */
     struct Game {
@@ -206,6 +235,8 @@ private:
     static constexpr size_t MAX_KEPT_GAMES = 8;
     /** Answered releases kept to answer a repeat the same way. */
     static constexpr size_t MAX_KEPT_RELEASES = 32;
+    /** Answered reports kept, for diagnostics. */
+    static constexpr size_t MAX_KEPT_REPORTS = 32;
 
     Game *gameOf(int gameSessionId);
     /** Starts every candidate of @p game whose player holds one of @p seats. */
@@ -245,16 +276,28 @@ private:
     void settle(ReleaseRecord &release, ReleaseState state, bool first = false);
     /** Settles any release of @p attempt waiting for its start's answer. */
     void settlePending(const std::string &attempt, ReleaseState state, bool first = false);
-    /** Drops @p attempt and its unsent install and start. */
-    void forget(const std::string &attempt);
+    /**
+     * Drops @p attempt and its unsent install and start, and its qualification report unless
+     * @p keepReport: a release made after the qualification still owes the server that report.
+     */
+    void forget(const std::string &attempt, bool keepReport = false);
     void dropAnsweredReleases();
+
+    /** Reports @p record's qualification, just made in its game: a new report id, then queued. */
+    void report(AttemptRecord &record);
+    ReportRecord *reportOf(const std::string &reportId);
+    /** Forgets the report of @p attempt, sent or not: the server can't credit it. */
+    void dropReportOf(const std::string &attempt);
+    void dropAnsweredReports();
 
     void queueInstalled(const AttemptRecord &record);
     void queueStarted(const AttemptRecord &record);
     void queueReleased(const ReleaseRecord &release, bool first = false);
+    void queueReport(const ReportRecord &report);
     void pump();
     void onReply(const OutgoingMessage &message, ApiReply reply);
     void onReleasedReply(const OutgoingMessage &message, const ApiReply &reply);
+    void onReportReply(const OutgoingMessage &message, const ApiReply &reply);
     /** The in-flight message is sent again after a backoff; returns the delay. */
     std::chrono::milliseconds retryLater();
     void onRetryTimer();
@@ -271,6 +314,8 @@ private:
     std::deque<std::pair<std::string, SessionSeats>> m_unboundSeats;
     /** Releases applied this boot, oldest first. */
     std::deque<ReleaseRecord> m_releases;
+    /** Qualification reports made this boot, oldest first. */
+    std::deque<ReportRecord> m_reports;
     /** The last place in the row order handed out this boot: game state's TimelineRow::sequence. */
     uint64_t m_lastSequence {0};
     MessageOutbox m_outbox;
