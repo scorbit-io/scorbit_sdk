@@ -361,6 +361,13 @@ class Net : public NetBase
         std::optional<std::string> tournamentUuid;
         std::optional<std::string> competitionUuid;
 
+        /// The slot's Entry: its competition, else tournament_id, where older replies put both.
+        const std::optional<std::string> &entryUuid() const
+        {
+            return competitionUuid ? competitionUuid : tournamentUuid;
+        }
+
+        void readEntryFields(const nlohmann::json &score);
         void writeEntryFields(nlohmann::json &score) const;
     };
 

@@ -6550,6 +6550,13 @@ std::optional<std::string> scoreEntryUuid(const json &score, const char *key)
 
 } // namespace
 
+void Net::ScoreMetadata::readEntryFields(const json &score)
+{
+    // A reply can clear the slot's entry while the game is still running.
+    tournamentUuid = scoreEntryUuid(score, JKEY_SCR_TOURNAMENT_UUID);
+    competitionUuid = scoreEntryUuid(score, JKEY_SCR_COMPETITION_UUID);
+}
+
 void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSession)
 {
     // Process scores
@@ -6562,10 +6569,7 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
 
             obj.at(JKEY_SCR_ID).get_to(metadata.id);
             obj.at(JKEY_SCR_IS_NFC_VERIFIED).get_to(metadata.isNfcVerified);
-
-            // A reply can clear the slot's entry while the game is still running.
-            metadata.tournamentUuid = scoreEntryUuid(obj, JKEY_SCR_TOURNAMENT_UUID);
-            metadata.competitionUuid = scoreEntryUuid(obj, JKEY_SCR_COMPETITION_UUID);
+            metadata.readEntryFields(obj);
         }
     } catch (const std::exception &e) {
         ERR("Error parsing player score: {}", e.what());
@@ -6591,14 +6595,12 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
             }
             if (const auto id = player->find(JKEY_PLAYER_ID);
                 id != player->end() && id->is_string()) {
-                auto competition = scoreEntryUuid(obj, JKEY_SCR_COMPETITION_UUID);
-                if (!competition) {
-                    // Older session replies used tournament_id for achievement entries too.
-                    competition = scoreEntryUuid(obj, JKEY_SCR_TOURNAMENT_UUID);
-                }
-                seats.emplace(
-                        position->get<sb_player_t>(),
-                        SessionSeat {id->get<std::string>(), std::move(competition).value_or("")});
+                // Read from the row itself: the loop above stops at a malformed row, which would
+                // leave a later slot's cached entry from an earlier reply
+                ScoreMetadata entry;
+                entry.readEntryFields(obj);
+                seats.emplace(position->get<sb_player_t>(),
+                              SessionSeat {id->get<std::string>(), entry.entryUuid().value_or("")});
             }
         }
         std::scoped_lock lock(m_sessionPlayersCallbackMutex);
