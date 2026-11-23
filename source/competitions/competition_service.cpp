@@ -37,6 +37,9 @@ namespace {
 /** The API's answer that refuses a message for good. */
 constexpr int HTTP_CONFLICT = 409;
 
+/** The API's answer to a request it can't take as sent: as final as a 409. */
+constexpr int HTTP_BAD_REQUEST = 400;
+
 /** A refusal for a report naming another device, among others. */
 constexpr int HTTP_FORBIDDEN = 403;
 
@@ -74,8 +77,10 @@ Refusal refusalOf(const ApiReply &reply)
 
 /**
  * How @p reply answers a message of @p kind: a @p receipt is final, as is a 409 other than the
- * kind's retryable one, and a 403 when @p forbiddenRefuses. Anything else is resent: a lost or
- * failed request, but also a 4xx such as a failed re-authentication, or an API not deployed yet.
+ * kind's retryable one, a 400, and a 403 when @p forbiddenRefuses. A message is sent unchanged
+ * every time, so a 400 (`invalid_request`) would be answered the same way forever. Anything else
+ * is resent: a lost or failed request, but also a 401 or 403 such as a failed re-authentication,
+ * or an API not deployed yet.
  */
 Answer classify(MessageKind kind, const ApiReply &reply, bool receipt, const Refusal &refusal,
                 bool forbiddenRefuses = false)
@@ -87,7 +92,8 @@ Answer classify(MessageKind kind, const ApiReply &reply, bool receipt, const Ref
         const auto *waits = kindInfo(kind).waitCode;
         return waits && refusal.code == waits ? Answer::Waits : Answer::Refused;
     }
-    if (reply.httpStatus == HTTP_FORBIDDEN && forbiddenRefuses) {
+    if (reply.httpStatus == HTTP_BAD_REQUEST
+        || (reply.httpStatus == HTTP_FORBIDDEN && forbiddenRefuses)) {
         return Answer::Refused;
     }
     return Answer::Unanswered;
@@ -859,7 +865,8 @@ void CompetitionService::onAttemptReply(const OutgoingMessage &message, const Ap
         return;
     }
     case Answer::Refused:
-        // The attempt is over for the server (ADR-0052), so nothing of it is sent again, and it
+        // The attempt is over for the server (ADR-0052), or it can never take the message as
+        // sent (a 400): nothing of it is sent again, and it
         // is forgotten here. A release waiting on it is answered `released`: the attempt is
         // dropped.
         WRN("Competitions: {} refused, forgetting the attempt: {}", about(message), refusal.text);

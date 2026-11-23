@@ -128,8 +128,8 @@ struct ReleaseRecord {
  *   no result rather than one shorter than was played.
  * - A qualification is reported once (SB-6781), under a report id chosen when it is made, and
  *   resent unchanged until the server answers it: a receipt, which is final whatever its status
- *   (`saved`, `duplicate`, or `conflict`, kept for support and credited nothing), a 409, or a
- *   403 for a report naming another device than this one now is (any other 403 is resent).
+ *   (`saved`, `duplicate`, or `conflict`, kept for support and credited nothing), a 409, a 400,
+ *   or a 403 for a report naming another device than this one now is (any other 403 is resent).
  *   A 409 `start_pending` is resent: the server takes the report once it has the start.
  * - A release (SB-6609) drops the attempt, which stops timing and never qualifies after it, and
  *   is answered with where it was applied: the last row's place in the row order, so a
@@ -140,9 +140,10 @@ struct ReleaseRecord {
  *   once the server has the answer; one not held is `unknown`. While the start is still
  *   unanswered, its answer decides: a receipt means `released`, `release_pending` `started`.
  *   A repeated release changes nothing and gets the same answer.
- * - Only a receipt or a 409 answers a message. Anything else is resent, as is a 409
+ * - Only a receipt, a 409 or a 400 answers a message. Anything else is resent, as is a 409
  *   `release_pending`: the server takes the start once the release is answered. Any other 409
- *   ends the attempt for the server, so it is forgotten here.
+ *   ends the attempt for the server, so it is forgotten here. A message is sent unchanged every
+ *   time, so a 400 is never answered otherwise: it refuses the message for good, as a 409 does.
  *
  * Threading: every method runs on the thread game state lives on. Network replies and timers are
  * brought back to it through the poster.

@@ -1315,10 +1315,10 @@ TEST_CASE("A message without an answer is resent unchanged, with backoff", "[com
     CHECK(f.net->sent.empty());
 }
 
-TEST_CASE("Only a 409 refuses: any other failure is resent", "[competitions]")
+TEST_CASE("Only a 409 or a 400 refuses: any other failure is resent", "[competitions]")
 {
-    // A failed re-authentication, a refused or malformed request, or an API not deployed yet
-    for (const int status : {400, 401, 403, 404, 408, 429}) {
+    // A failed re-authentication, a refused request, or an API not deployed yet
+    for (const int status : {401, 403, 404, 408, 429}) {
         Fixture f;
         f.deliver();
         f.answer(ApiReply {Error::ApiError, status, R"({"code": "x", "detail": "y"})", {}});
@@ -1340,8 +1340,7 @@ TEST_CASE("Only a 409 refuses: any other failure is resent", "[competitions]")
 
 TEST_CASE("An attempt the server keeps failing doesn't hold up another", "[competitions]")
 {
-    // The API doesn't know the first attempt (as after a switch to another server): it answers
-    // 400 every time, never a receipt or a 409
+    // The API keeps failing the first attempt's install: never a receipt or a refusal
     Fixture f;
     f.deliver();
     auto other = goal();
@@ -1349,7 +1348,7 @@ TEST_CASE("An attempt the server keeps failing doesn't hold up another", "[compe
     other["attempt"] = "0193a5e0-0000-7000-8000-000000000013";
     f.deliver(other);
 
-    f.answer(ApiReply {Error::ApiError, 400, R"({"code": "invalid_request", "detail": "x"})", {}});
+    f.answer(ApiReply {Error::ApiError, 503, "busy", {}});
     REQUIRE(f.net->retry);
     f.net->retry();
     f.run();
@@ -2928,6 +2927,56 @@ TEST_CASE("A report refused with any 409 but start_pending is final", "[competit
     qualify(f);
     f.answer(refused(R"({"code": "attempt_locked", "detail": "Something new."})"));
     CHECK(onlyReport(f).delivery == Delivery::Refused);
+    CHECK(f.net->sent.empty());
+    CHECK_FALSE(f.net->retry);
+}
+
+TEST_CASE("A 400 refuses any message for good, as a 409 does", "[competitions]")
+{
+    // Sent unchanged every time, a message the API can't take as sent never succeeds
+    const ApiReply invalid {
+            Error::ApiError,
+            400,
+            R"({"code": "invalid_request", "detail": "Unknown attempt for this competition."})",
+            {}};
+    Fixture f;
+
+    SECTION("An install: the attempt is forgotten")
+    {
+        f.deliver();
+        f.answer(invalid);
+        CHECK(f.game->competitions().attempts().empty());
+        CHECK(f.net->goals.empty());
+    }
+
+    SECTION("A start: the attempt is forgotten, and a release waiting on it is released")
+    {
+        f.install();
+        f.startGame();
+        f.sessionCreated();
+        f.release();
+        f.answer(invalid);
+        CHECK(f.game->competitions().attempts().empty());
+        REQUIRE(f.net->sent.size() == 1);
+        CHECK(f.net->sent[0].body["state"] == "released");
+        f.answer(releaseSaved());
+    }
+
+    SECTION("A release's answer")
+    {
+        f.release();
+        f.answer(invalid);
+        CHECK(onlyRelease(f).delivery == Delivery::Refused);
+    }
+
+    SECTION("A report")
+    {
+        startAttempt(f);
+        qualify(f);
+        f.answer(invalid);
+        CHECK(onlyReport(f).delivery == Delivery::Refused);
+    }
+
     CHECK(f.net->sent.empty());
     CHECK_FALSE(f.net->retry);
 }
