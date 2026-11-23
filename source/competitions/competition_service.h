@@ -108,7 +108,8 @@ struct ReleaseRecord {
  * which never resumes. The boot id on each start tells the API a restart cut one off.
  *
  * - A goal is held in memory, then `goal_installed` is sent. A repeated delivery of an attempt
- *   changes nothing; the same attempt with another player or revision is refused.
+ *   changes nothing; the same attempt with another player or revision is refused, as is a late
+ *   one for an attempt that ended here: released, or refused for good by the server.
  * - An attempt starts in the first game that began after it was installed, with a synchronised
  *   clock, in which its player holds a slot of the positions the API accepts (1 to 6) for its
  *   competition (the slot's Entry, `tournament_id`). Who holds which slot, and for what, is known
@@ -238,6 +239,8 @@ private:
     static constexpr size_t MAX_KEPT_RELEASES = 32;
     /** Answered reports kept, for diagnostics. */
     static constexpr size_t MAX_KEPT_REPORTS = 32;
+    /** Ended attempts kept, to refuse a late goal for one. */
+    static constexpr size_t MAX_KEPT_ENDED = 64;
 
     Game *gameOf(int gameSessionId);
     /** Starts every candidate of @p game whose player holds one of @p seats. */
@@ -284,6 +287,8 @@ private:
      * @p keepReport: a release made after the qualification still owes the server that report.
      */
     void forget(const std::string &attempt, bool keepReport = false);
+    /** Notes @p attempt as over for the server: a late goal for it is refused. */
+    void markEnded(const std::string &attempt);
     void dropAnsweredReleases();
 
     /** Reports @p record's qualification, just made in its game: a new report id, then queued. */
@@ -330,6 +335,8 @@ private:
     std::deque<ReleaseRecord> m_releases;
     /** Qualification reports made this boot, oldest first. */
     std::deque<ReportRecord> m_reports;
+    /** The attempts that ended here, released or refused for good, oldest first. */
+    std::deque<std::string> m_endedAttempts;
     /** The last place in the row order handed out this boot: game state's TimelineRow::sequence. */
     uint64_t m_lastSequence {0};
     MessageOutbox m_outbox;

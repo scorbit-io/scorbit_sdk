@@ -175,13 +175,8 @@ void CompetitionService::onGoal(CompetitionGoal goal)
         INF("Competitions: attempt {} is already installed", attempt);
         return;
     }
-    if (std::ranges::any_of(m_releases, [&](const ReleaseRecord &release) {
-            // Dropped by the release, or by its refused `started` answer
-            return release.release.identity.attempt == attempt && release.decided
-                && (release.applied.state != ReleaseState::Started
-                    || release.delivery == Delivery::Refused);
-        })) {
-        refuse(goal, "the attempt was released");
+    if (std::ranges::find(m_endedAttempts, attempt) != m_endedAttempts.end()) {
+        refuse(goal, "the attempt has ended: released, or refused by the server");
         return;
     }
 
@@ -256,6 +251,9 @@ void CompetitionService::settle(ReleaseRecord &release, ReleaseState state, bool
     if (state == ReleaseState::Released) {
         // It stops timing, and never qualifies from here on
         forget(release.release.identity.attempt, namesReport(release.release.identity.attempt));
+    } else if (state == ReleaseState::Unknown) {
+        // Not held here, and over for the server: a late goal for it is refused
+        markEnded(release.release.identity.attempt);
     }
     queueReleased(release, first);
 }
@@ -297,13 +295,24 @@ void CompetitionService::forget(const std::string &attempt, bool keepReport)
         dropReportOf(attempt);
     }
     m_attempts.erase(attempt);
+    markEnded(attempt);
+}
+
+void CompetitionService::markEnded(const std::string &attempt)
+{
+    if (std::ranges::find(m_endedAttempts, attempt) != m_endedAttempts.end()) {
+        return;
+    }
+    m_endedAttempts.push_back(attempt);
+    while (m_endedAttempts.size() > MAX_KEPT_ENDED) {
+        m_endedAttempts.pop_front();
+    }
 }
 
 void CompetitionService::dropAnsweredReleases()
 {
     // Only answered ones, and not while a resend of the answer is queued or in flight: one still
-    // owed to the server is always kept. An older one forgotten no longer refuses a late goal for
-    // its attempt; the server refuses that attempt's start and results.
+    // owed to the server is always kept
     for (auto it = m_releases.begin();
          m_releases.size() > MAX_KEPT_RELEASES && it != m_releases.end();) {
         const bool answered = it->decided && it->delivery != Delivery::Pending

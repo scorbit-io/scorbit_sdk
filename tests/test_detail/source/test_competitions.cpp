@@ -2862,6 +2862,31 @@ TEST_CASE("A refused started answer leaves the attempt released", "[competitions
     CHECK(f.game->competitions().attempts().empty());
 }
 
+TEST_CASE("A start refused after its started answer was saved keeps a late goal out",
+          "[competitions]")
+{
+    // The release is answered `started` and saved, then the resent start is refused for good:
+    // the server ended the attempt
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    f.release();
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+    f.answer(releaseSaved());
+    REQUIRE(f.net->sent.size() == 1);
+    REQUIRE(f.net->sent[0].kind == MessageKind::AttemptStarted);
+    f.answer(refused(ATTEMPT_REFUSED));
+    REQUIRE(f.game->competitions().attempts().empty());
+
+    // A late resend of its goal installs nothing
+    f.deliver();
+    CHECK(f.game->competitions().attempts().empty());
+    CHECK(f.net->sent.empty());
+}
+
 TEST_CASE("A refused start answers the release waiting on it: released", "[competitions]")
 {
     Fixture f;
