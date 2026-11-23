@@ -37,6 +37,9 @@ namespace {
 /** The API's answer that refuses a message for good. */
 constexpr int HTTP_CONFLICT = 409;
 
+/** A release's answer refused because the server had the start: the release was an unclaim. */
+constexpr auto WRONG_STATE = "wrong_state";
+
 /** The API's answer to a request it can't take as sent: as final as a 409. */
 constexpr int HTTP_BAD_REQUEST = 400;
 
@@ -252,7 +255,7 @@ void CompetitionService::settle(ReleaseRecord &release, ReleaseState state, bool
     release.qualification = reportBefore(release.release.identity.attempt, release.applied.sequence);
     if (state == ReleaseState::Released) {
         // It stops timing, and never qualifies from here on
-        forget(release.release.identity.attempt, !release.qualification.empty());
+        forget(release.release.identity.attempt, namesReport(release.release.identity.attempt));
     }
     queueReleased(release, first);
 }
@@ -277,6 +280,14 @@ void CompetitionService::settlePending(const std::string &attempt, ReleaseState 
     } else {
         std::ranges::for_each(m_releases, apply);
     }
+}
+
+bool CompetitionService::namesReport(const std::string &attempt) const
+{
+    return std::ranges::any_of(m_releases, [&](const ReleaseRecord &release) {
+        return release.decided && release.release.identity.attempt == attempt
+            && !release.qualification.empty();
+    });
 }
 
 void CompetitionService::forget(const std::string &attempt, bool keepReport)
@@ -914,11 +925,13 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
         // Only the first answer counts: once saved, a refused resend (a newer release has
         // replaced this one) changes nothing
         if (release->delivery == Delivery::Pending) {
-            // A `started` refused (`wrong_state`: the server had the start, so it was an unclaim)
-            // leaves the attempt released for the server: it never plays on here
-            if (release->applied.state == ReleaseState::Started) {
-                // A qualification the answer named came before the release: still reported
-                forget(message.attempt, !release->qualification.empty());
+            // A `started` refused `wrong_state` (the server had the start, so it was an unclaim)
+            // leaves the attempt released for the server: it never plays on here. Any other
+            // refusal is of this control alone (`unknown_control`: a newer one replaced it), so
+            // the attempt plays on, and the newer one's answer decides.
+            if (release->applied.state == ReleaseState::Started && refusal.code == WRONG_STATE) {
+                // A qualification an answer named came before its release: still reported
+                forget(message.attempt, namesReport(message.attempt));
             }
             // Kept, not resent: a late goal for the attempt is still refused, and a repeated
             // release gets the same answer

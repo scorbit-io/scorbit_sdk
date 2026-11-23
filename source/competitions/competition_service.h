@@ -277,6 +277,8 @@ private:
     void settle(ReleaseRecord &release, ReleaseState state, bool first = false);
     /** Settles any release of @p attempt waiting for its start's answer. */
     void settlePending(const std::string &attempt, ReleaseState state, bool first = false);
+    /** Whether some decided release of @p attempt names its qualification's report. */
+    bool namesReport(const std::string &attempt) const;
     /**
      * Drops @p attempt and its unsent install and start, and its qualification report unless
      * @p keepReport: a release made after the qualification still owes the server that report.

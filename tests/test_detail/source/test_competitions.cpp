@@ -2920,6 +2920,80 @@ TEST_CASE("A refused started answer drops a qualification made after the release
     CHECK(f.net->sent.empty());
 }
 
+TEST_CASE("A refused earlier started answer keeps the report a later one names", "[competitions]")
+{
+    // Two controls wait on the start, the qualification between them: only the later one's
+    // answer names it. The earlier one's is refused wrong_state, which drops the attempt, but the
+    // later answer still names the report, so it is still owed to the server.
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1); // the start, in flight
+    f.release();
+    qualify(f);
+    const auto reportId = f.record().reportId;
+    auto later = json::parse(ATTEMPT_CONTROL);
+    later["control"] = "0193a5e0-0000-7000-8000-000000000010";
+    f.release(later);
+
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    REQUIRE(f.net->sent[0].body["control"] == CONTROL);
+    REQUIRE(f.net->sent[0].body["state"] == "started");
+    REQUIRE(f.net->sent[0].body["qualification"].is_null());
+
+    f.answer(refused(R"({"code": "wrong_state", "detail": "Already started."})"));
+    CHECK_FALSE(f.game->competitions().attempts().contains(ATTEMPT));
+    CHECK(onlyReport(f).delivery == Delivery::Pending);
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["control"] == later["control"]);
+    CHECK(f.net->sent[0].body["qualification"] == reportId);
+    auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+    saved["control"] = later["control"];
+    f.answer(receipt(saved.dump().c_str()));
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::Qualification);
+    CHECK(f.net->sent[0].body["report_id"] == reportId);
+}
+
+TEST_CASE("A replaced release's refused answer leaves the attempt to the newer one",
+          "[competitions]")
+{
+    // Two controls wait on the start. The server answers the older one unknown_control, as the
+    // newer one replaced it: the attempt still plays on here, and the newer answer decides.
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    const auto start = f.net->sent[0].body;
+    f.release();
+    auto newer = json::parse(ATTEMPT_CONTROL);
+    newer["control"] = "0193a5e0-0000-7000-8000-000000000010";
+    f.release(newer);
+
+    f.answer(refused(RELEASE_PENDING));
+    f.retry();
+    REQUIRE(f.net->sent[0].body["control"] == CONTROL);
+    f.answer(refused(R"({"code": "unknown_control", "detail": "Not the release."})"));
+    CHECK(f.game->competitions().attempts().contains(ATTEMPT));
+
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["control"] == newer["control"]);
+    CHECK(f.net->sent[0].body["state"] == "started");
+    auto saved = json::parse(ATTEMPT_RELEASED_SAVED);
+    saved["control"] = newer["control"];
+    f.answer(receipt(saved.dump().c_str()));
+
+    // Its start goes once the server has the newer answer, and it still qualifies
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body == start);
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    qualify(f);
+}
+
 TEST_CASE("A report refused with any 409 but start_pending is final", "[competitions]")
 {
     Fixture f;
