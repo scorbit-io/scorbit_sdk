@@ -300,9 +300,15 @@ private:
     void queueReleased(const ReleaseRecord &release, bool first = false);
     void queueReport(const ReportRecord &report);
     void pump();
-    void onReply(const OutgoingMessage &message, ApiReply reply);
+    /** The API answered the in-flight @p message: handled by its kind. */
+    void onReply(const OutgoingMessage &message, const ApiReply &reply);
+    void onAttemptReply(const OutgoingMessage &message, const ApiReply &reply);
     void onReleasedReply(const OutgoingMessage &message, const ApiReply &reply);
     void onReportReply(const OutgoingMessage &message, const ApiReply &reply);
+    /** The in-flight @p message got no final answer in @p reply: sent again after a backoff. */
+    void resend(const OutgoingMessage &message, const ApiReply &reply);
+    /** The in-flight message is answered for good: what is answered is let go, the next goes. */
+    void sendNext();
     /** The in-flight message is sent again after a backoff; returns the delay. */
     std::chrono::milliseconds retryLater();
     void onRetryTimer();

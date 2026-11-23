@@ -37,6 +37,7 @@
  * | competition.qualification_saved   | API → device | its 200 reply                       |
  */
 
+#include "message_outbox.h"
 #include "turn_timer.h"
 #include "../achievements/definition.h"
 #include <nlohmann/json.hpp>
@@ -190,6 +191,22 @@ const char *attemptReleasedType();
 
 /** `competition.qualification`. */
 const char *qualificationType();
+
+/** What each kind of device message is, and how the API may answer it. */
+struct MessageKindInfo {
+    /** The message's `type`. */
+    const char *type;
+    /** The API endpoint it is posted to. */
+    const char *endpoint;
+    /**
+     * The `code` of the one 409 that doesn't refuse it: the server takes it once it has what it
+     * waits for, so it is resent. Null for a kind every 409 refuses.
+     */
+    const char *waitCode;
+};
+
+/** @p kind's type, endpoint and retryable 409. */
+const MessageKindInfo &kindInfo(MessageKind kind);
 
 /** `competition.goal_installed`, the goal having been saved at @p installedAtMs. */
 nlohmann::json goalInstalledMessage(const AttemptIdentity &identity, int64_t installedAtMs);

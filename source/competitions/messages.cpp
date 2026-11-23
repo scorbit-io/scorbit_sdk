@@ -21,6 +21,7 @@
 #include "../achievements/definition.h"
 #include "../achievements/definition_check.h"
 #include "../achievements/json_codec.h"
+#include "../identifiers.h"
 #include "../net_util.h"
 #include <fmt/format.h>
 #include <algorithm>
@@ -492,6 +493,31 @@ std::string formatUtc(int64_t ms)
                        static_cast<unsigned>(date.month()), static_cast<unsigned>(date.day()),
                        clock.hours().count(), clock.minutes().count(), clock.seconds().count(),
                        clock.subseconds().count());
+}
+
+const MessageKindInfo &kindInfo(MessageKind kind)
+{
+    // The server takes a start once the release waiting on it is answered (SB-6368 D3), and a
+    // report once it has the attempt's start
+    static const MessageKindInfo goalInstalled {TYPE_GOAL_INSTALLED,
+                                                URL_COMPETITIONS_GOAL_INSTALLED, nullptr};
+    static const MessageKindInfo attemptStarted {
+            TYPE_ATTEMPT_STARTED, URL_COMPETITIONS_ATTEMPT_STARTED, "release_pending"};
+    static const MessageKindInfo attemptReleased {TYPE_ATTEMPT_RELEASED,
+                                                  URL_COMPETITIONS_ATTEMPT_RELEASED, nullptr};
+    static const MessageKindInfo qualification {TYPE_QUALIFICATION, URL_COMPETITIONS_QUALIFICATION,
+                                                "start_pending"};
+    switch (kind) {
+    case MessageKind::GoalInstalled:
+        return goalInstalled;
+    case MessageKind::AttemptStarted:
+        return attemptStarted;
+    case MessageKind::Qualification:
+        return qualification;
+    case MessageKind::AttemptReleased:
+        break;
+    }
+    return attemptReleased;
 }
 
 const char *goalInstalledType()

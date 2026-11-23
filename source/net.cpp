@@ -3081,29 +3081,10 @@ void Net::handleAttemptControl(const json &payload)
     }
 }
 
-namespace {
-
-const char *competitionEndpoint(competitions::MessageKind kind)
-{
-    switch (kind) {
-    case competitions::MessageKind::GoalInstalled:
-        return URL_COMPETITIONS_GOAL_INSTALLED;
-    case competitions::MessageKind::AttemptStarted:
-        return URL_COMPETITIONS_ATTEMPT_STARTED;
-    case competitions::MessageKind::Qualification:
-        return URL_COMPETITIONS_QUALIFICATION;
-    case competitions::MessageKind::AttemptReleased:
-        break;
-    }
-    return URL_COMPETITIONS_ATTEMPT_RELEASED;
-}
-
-} // namespace
-
 void Net::postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                  ApiReplyCallback callback)
 {
-    const auto *endpoint = competitionEndpoint(kind);
+    const auto *endpoint = competitions::kindInfo(kind).endpoint;
     auto replyCallback = [callback = std::move(callback), endpoint](Error error, int httpStatus,
                                                                     const std::string &reply) {
         if (error == Error::Success) {
