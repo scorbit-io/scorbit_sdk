@@ -23,6 +23,7 @@
 // runs, and the session tasks are run inline through NetTestAccess.
 
 #include "net.h"
+#include "event_manager.h"
 #include "game_data.h"
 #include "session_flags.h"
 #include <catch2/catch_test_macros.hpp>
@@ -96,25 +97,95 @@ TEST_CASE("A session reply without a tournament clears the one cached for that s
     const std::string tournament = "5f0c4a7e-2b1d-4c3e-9a8b-7d6e5f4c3b2a";
     Net net(DeviceInfo {}, {});
     NetTestAccess::processScores(net, 1, reply(tournament));
-    REQUIRE(NetTestAccess::scoreTournament(net, 1, 1) == tournament);
+    const auto fields = [&] { return NetTestAccess::scoreEntryFields(net, 1, 1); };
+    CHECK(fields() == nlohmann::json {{"tournament_id", tournament}});
 
     SECTION("a null tournament, as after the entry is returned")
     {
         NetTestAccess::processScores(net, 1, reply(nullptr));
-        const auto cached = NetTestAccess::scoreTournament(net, 1, 1);
-        CHECK_FALSE(cached);
-        // The score row is built as {key, cached}: an empty cache is sent as null.
-        CHECK(nlohmann::json {{"tournament_id", cached}}.at("tournament_id").is_null());
+        CHECK(fields() == nlohmann::json {{"tournament_id", nullptr}});
     }
     SECTION("no tournament key at all")
     {
         NetTestAccess::processScores(net, 1, reply(nullptr, false));
-        CHECK_FALSE(NetTestAccess::scoreTournament(net, 1, 1));
+        CHECK(fields() == nlohmann::json {{"tournament_id", nullptr}});
     }
     SECTION("a different tournament replaces it")
     {
         const std::string other = "0e1d2c3b-4a59-4687-b5c4-d3e2f1a0b9c8";
         NetTestAccess::processScores(net, 1, reply(other));
-        CHECK(NetTestAccess::scoreTournament(net, 1, 1) == other);
+        CHECK(fields() == nlohmann::json {{"tournament_id", other}});
+    }
+}
+
+TEST_CASE("Achievement entries publish separately from tournaments and still attribute seats")
+{
+    using json = nlohmann::json;
+    const std::string session = "267f7995-3ce4-4837-90e2-3b6824ef0d71";
+    const std::string user = "7ffa90aa-4dc9-4795-aeb7-45041ea7ddfe";
+    const std::string competition = "0e1d2c3b-4a59-4687-b5c4-d3e2f1a0b9c8";
+    const std::string tournament = "5f0c4a7e-2b1d-4c3e-9a8b-7d6e5f4c3b2a";
+
+    boost::asio::io_context io;
+    Net net(DeviceInfo {}, {});
+    NetTestAccess::setEventManager(net,
+                                   std::make_shared<EventManager>(boost::asio::make_strand(io)));
+    NetTestAccess::seedGameSession(net, 1, session, false);
+    SessionSeats seats;
+    net.setSessionPlayersCallback([&](const std::string &sessionUuid, SessionSeats replySeats) {
+        CHECK(sessionUuid == session);
+        seats = std::move(replySeats);
+    });
+    const auto process = [&](const json &entryFields) {
+        json score {{"position", 1U},
+                    {"id", 41},
+                    {"is_nfc_verified", true},
+                    {"player",
+                     {{"id", user},
+                      {"username", "player"},
+                      {"display_name", "Player One"},
+                      {"initials", "P1"},
+                      {"url", ""}}}};
+        score.update(entryFields);
+        seats.clear();
+        NetTestAccess::processScores(net, 1, json::array({score}));
+        REQUIRE(seats.size() == 1);
+        CHECK(seats.at(1).userId == user);
+        return NetTestAccess::scoreEntryFields(net, 1, 1);
+    };
+
+    const json achievementFields {{"tournament_id", nullptr}, {"competition_id", competition}};
+    CHECK(process(achievementFields) == achievementFields);
+    CHECK(seats.at(1).tournament == competition);
+
+    SECTION("an explicit competition wins if both fields are present")
+    {
+        CHECK(process({{"tournament_id", tournament}, {"competition_id", competition}})
+              == achievementFields);
+        CHECK(seats.at(1).tournament == competition);
+    }
+    SECTION("a legacy reply still attributes seats using the tournament")
+    {
+        const json legacyFields {{"tournament_id", tournament}};
+        CHECK(process(legacyFields) == legacyFields);
+        CHECK(seats.at(1).tournament == tournament);
+    }
+    SECTION("null clears the competition")
+    {
+        CHECK(process({{"tournament_id", nullptr}, {"competition_id", nullptr}})
+              == json {{"tournament_id", nullptr}});
+        CHECK(seats.at(1).tournament.empty());
+    }
+    SECTION("omitting both fields clears the competition")
+    {
+        CHECK(process(json::object()) == json {{"tournament_id", nullptr}});
+        CHECK(seats.at(1).tournament.empty());
+    }
+    SECTION("malformed fields clear both entry IDs")
+    {
+        process({{"tournament_id", tournament}, {"competition_id", competition}});
+        CHECK(process({{"tournament_id", "invalid uuid"}, {"competition_id", 17}})
+              == json {{"tournament_id", nullptr}});
+        CHECK(seats.at(1).tournament.empty());
     }
 }

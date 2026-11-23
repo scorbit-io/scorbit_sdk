@@ -271,8 +271,8 @@ struct NetTestAccess {
     static void seedGameSession(Net &net, int sessionId, const std::string &sessionUuid,
                                 bool active, const std::string &machineUuid = {});
     static std::string activeSessionUuid(Net &net);
-    /// The tournament session @p sessionId has cached for @p player's score.
-    static std::optional<std::string> scoreTournament(Net &net, int sessionId, sb_player_t player);
+    /// The entry fields score_update and game_end publish for @p player's cached score.
+    static nlohmann::json scoreEntryFields(Net &net, int sessionId, sb_player_t player);
 
     /// Stands in for the table-mappings GET, and the switch-machine and table-lookup POSTs.
     struct VpinTransport {
@@ -359,6 +359,9 @@ class Net : public NetBase
         uint64_t id {0}; // score id
         bool isNfcVerified {false};
         std::optional<std::string> tournamentUuid;
+        std::optional<std::string> competitionUuid;
+
+        void writeEntryFields(nlohmann::json &score) const;
     };
 
     struct MachineInfo {
