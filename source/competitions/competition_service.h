@@ -64,11 +64,9 @@ struct AttemptRecord {
     /**
      * Set once, from the attempt's own game, when its player met the goal there (SB-6366): the
      * player's turn time to the first row on which every rule held together (SB-6367). Never
-     * replaced. Reported under @ref reportId (SB-6781).
+     * replaced. Reported once, its report kept apart (SB-6781).
      */
     std::optional<TurnTimeResult> qualification;
-    /** The qualification's report id, chosen when it was set; empty until then. */
-    std::string reportId;
 };
 
 /**
@@ -237,7 +235,7 @@ private:
     static constexpr size_t MAX_KEPT_GAMES = 8;
     /** Answered releases kept to answer a repeat the same way. */
     static constexpr size_t MAX_KEPT_RELEASES = 32;
-    /** Answered reports kept, for diagnostics. */
+    /** Answered reports kept, for diagnostics, beyond those a release may name. */
     static constexpr size_t MAX_KEPT_REPORTS = 32;
     /** Ended attempts kept, to refuse a late goal for one. */
     static constexpr size_t MAX_KEPT_ENDED = 64;
@@ -294,8 +292,8 @@ private:
     /** Reports @p record's qualification, just made in its game: a new report id, then queued. */
     void report(AttemptRecord &record);
     /**
-     * The report id of @p attempt's qualification made on or before row @p sequence, from its
-     * record or, once a release dropped it, the report kept; empty when there is none.
+     * The report id of @p attempt's qualification made on or before row @p sequence; empty when
+     * there is none.
      */
     std::string reportBefore(const std::string &attempt, uint64_t sequence) const;
     ReportRecord *reportOf(const std::string &reportId);

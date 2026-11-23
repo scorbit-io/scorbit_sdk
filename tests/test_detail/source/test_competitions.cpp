@@ -2240,6 +2240,17 @@ const ReportRecord &onlyReport(const Fixture &f)
     return f.game->competitions().reports().front();
 }
 
+/** The report id of the example attempt's qualification. */
+std::string reportIdOf(const Fixture &f)
+{
+    const auto &reports = f.game->competitions().reports();
+    const auto it = std::ranges::find(reports, std::string {ATTEMPT}, [](const ReportRecord &r) {
+        return r.report.identity.attempt;
+    });
+    REQUIRE(it != reports.end());
+    return it->report.reportId;
+}
+
 /** The server's receipt for the report @p body, with @p status (and @p reason). */
 ApiReply reportSaved(const json &body, const char *status = "saved", const char *reason = nullptr)
 {
@@ -2366,7 +2377,7 @@ TEST_CASE("A qualification before the release is named in its answer, and still 
     startAttempt(f);
     qualify(f);
     const auto completion = f.record().qualification->completionSequence;
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     REQUIRE(f.net->sent.size() == 1); // the report, in flight
     const auto report = f.net->sent[0].body;
 
@@ -2408,7 +2419,7 @@ TEST_CASE("A qualification is reported once its game's start is sent", "[competi
     const auto &body = f.net->sent[0].body;
     CHECK(body["type"] == "competition.qualification");
     CHECK(body["attempt"] == ATTEMPT);
-    CHECK(body["report_id"] == f.record().reportId);
+    CHECK(body["report_id"] == reportIdOf(f));
     CHECK(body["player"] == PLAYER);
     // The start as sent: the server compares it exactly with the one it saved
     CHECK(body["session"] == start.session);
@@ -2571,7 +2582,7 @@ TEST_CASE("A release answered started goes before the report it names", "[compet
     REQUIRE(f.net->sent.size() == 1); // the start, in flight
     const auto start = f.net->sent[0].body;
     qualify(f);
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     f.release();
 
     f.answer(refused(RELEASE_PENDING));
@@ -2649,7 +2660,7 @@ TEST_CASE("A release before the server has the start keeps the attempt: started"
     REQUIRE(f.record().qualification);
     REQUIRE(f.net->sent.size() == 1);
     CHECK(f.net->sent[0].kind == MessageKind::Qualification);
-    CHECK(f.net->sent[0].body["report_id"] == f.record().reportId);
+    CHECK(f.net->sent[0].body["report_id"] == reportIdOf(f));
 }
 
 TEST_CASE("A release while the start is unanswered: a receipt means an unclaim", "[competitions]")
@@ -2921,7 +2932,7 @@ TEST_CASE("A refused started answer still reports the qualification it named", "
     f.startGame();
     f.sessionCreated();
     qualify(f);
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     f.release();
     f.answer(refused(RELEASE_PENDING));
     f.retry();
@@ -2968,7 +2979,7 @@ TEST_CASE("A refused earlier started answer keeps the report a later one names",
     REQUIRE(f.net->sent.size() == 1); // the start, in flight
     f.release();
     qualify(f);
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     auto later = json::parse(ATTEMPT_CONTROL);
     later["control"] = "0193a5e0-0000-7000-8000-000000000010";
     f.release(later);
@@ -3103,7 +3114,7 @@ TEST_CASE("Two releases waiting on the start both name the report, which is stil
     f.sessionCreated();
     REQUIRE(f.net->sent.size() == 1); // the start, in flight
     qualify(f);
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     auto second = json::parse(ATTEMPT_CONTROL);
     second["control"] = "0193a5e0-0000-7000-8000-000000000010";
     f.release();
@@ -3140,7 +3151,7 @@ TEST_CASE("A later release of a dropped attempt names the report kept for it", "
     Fixture f;
     startAttempt(f);
     qualify(f);
-    const auto reportId = f.record().reportId;
+    const auto reportId = reportIdOf(f);
     f.release();
     auto newer = json::parse(ATTEMPT_CONTROL);
     newer["control"] = "0193a5e0-0000-7000-8000-000000000010";

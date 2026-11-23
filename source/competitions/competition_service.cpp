@@ -705,26 +705,18 @@ void CompetitionService::report(AttemptRecord &record)
 {
     // Rendered once from the saved start and the timer's evidence, never the machine's current
     // state: the server compares both exactly with the start it saved
-    record.reportId = generateUuid();
     auto &kept = m_reports.emplace_back(ReportRecord {
-            QualificationReport {record.goal.identity, record.reportId, record.goal.player,
+            QualificationReport {record.goal.identity, generateUuid(), record.goal.player,
                                  *record.start, *record.qualification}});
     INF("Competitions: reporting attempt {}'s qualification as {}", record.goal.identity.attempt,
-        record.reportId);
+        kept.report.reportId);
     queueReport(kept);
 }
 
 std::string CompetitionService::reportBefore(const std::string &attempt, uint64_t sequence) const
 {
-    // The attempt's own record, while held: an answered report may be gone from the list. Once a
-    // release dropped the attempt, the report it kept: another release settled with it (two
-    // controls waiting on the same start) must name it too, not drop it.
-    if (const auto it = m_attempts.find(attempt); it != m_attempts.end()) {
-        const auto &record = it->second;
-        return record.qualification && record.qualification->completionSequence <= sequence
-                     ? record.reportId
-                     : std::string {};
-    }
+    // Kept while its attempt is held or a release names it, so a later release, or another one
+    // settled with it (two controls waiting on the same start), names it too
     const auto kept = std::ranges::find_if(m_reports, [&](const ReportRecord &r) {
         return r.report.identity.attempt == attempt
             && r.report.result.completionSequence <= sequence;
@@ -756,10 +748,18 @@ void CompetitionService::dropReportOf(const std::string &attempt)
 
 void CompetitionService::dropAnsweredReports()
 {
-    // One still owed to the server is always kept
+    // One still owed to the server is always kept, as is one a release may still name: its
+    // attempt is held, or a kept release names it already
+    auto needed = [&](const ReportRecord &kept) {
+        return kept.delivery == Delivery::Pending
+            || m_attempts.contains(kept.report.identity.attempt)
+            || std::ranges::any_of(m_releases, [&](const ReleaseRecord &release) {
+                   return release.qualification == kept.report.reportId;
+               });
+    };
     for (auto it = m_reports.begin();
          m_reports.size() > MAX_KEPT_REPORTS && it != m_reports.end();) {
-        it = it->delivery != Delivery::Pending ? m_reports.erase(it) : std::next(it);
+        it = needed(*it) ? std::next(it) : m_reports.erase(it);
     }
 }
 
