@@ -644,9 +644,10 @@ void CompetitionService::matchPlayers(Game &game, const SessionSeats &seats)
             if (toLowerAscii(seat.userId) != record.goal.player) {
                 continue;
             }
-            if (toLowerAscii(seat.tournament) != record.goal.identity.tournament) {
+            if (toLowerAscii(seat.competition) != record.goal.identity.tournament) {
                 INF("Competitions: attempt {} not started: its player's slot {} is for {}", attempt,
-                    slot, seat.tournament.empty() ? std::string {"no competition"} : seat.tournament);
+                    slot,
+                    seat.competition.empty() ? std::string {"no competition"} : seat.competition);
                 continue;
             }
             if (slot < 1 || slot > MAX_POSITION) {

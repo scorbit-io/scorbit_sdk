@@ -156,36 +156,36 @@ TEST_CASE("Achievement entries publish separately from tournaments and still att
 
     const json achievementFields {{"tournament_id", nullptr}, {"competition_id", competition}};
     CHECK(process(achievementFields) == achievementFields);
-    CHECK(seats.at(1).tournament == competition);
+    CHECK(seats.at(1).competition == competition);
 
     SECTION("an explicit competition wins if both fields are present")
     {
         CHECK(process({{"tournament_id", tournament}, {"competition_id", competition}})
               == achievementFields);
-        CHECK(seats.at(1).tournament == competition);
+        CHECK(seats.at(1).competition == competition);
     }
     SECTION("a legacy reply still attributes seats using the tournament")
     {
         const json legacyFields {{"tournament_id", tournament}};
         CHECK(process(legacyFields) == legacyFields);
-        CHECK(seats.at(1).tournament == tournament);
+        CHECK(seats.at(1).competition == tournament);
     }
     SECTION("null clears the competition")
     {
         CHECK(process({{"tournament_id", nullptr}, {"competition_id", nullptr}})
               == json {{"tournament_id", nullptr}});
-        CHECK(seats.at(1).tournament.empty());
+        CHECK(seats.at(1).competition.empty());
     }
     SECTION("omitting both fields clears the competition")
     {
         CHECK(process(json::object()) == json {{"tournament_id", nullptr}});
-        CHECK(seats.at(1).tournament.empty());
+        CHECK(seats.at(1).competition.empty());
     }
     SECTION("malformed fields clear both entry IDs")
     {
         process({{"tournament_id", tournament}, {"competition_id", competition}});
         CHECK(process({{"tournament_id", "invalid uuid"}, {"competition_id", 17}})
               == json {{"tournament_id", nullptr}});
-        CHECK(seats.at(1).tournament.empty());
+        CHECK(seats.at(1).competition.empty());
     }
 }
