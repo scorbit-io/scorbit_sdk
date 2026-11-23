@@ -50,9 +50,8 @@ void TurnTimer::begin(const achievements::TimelineRow &startRow, bool goalMet)
         interrupt("the game start has no place in the row order");
         return;
     }
+    m_startElapsedMs = *startRow.elapsedMs;
     m_lastElapsedMs = *startRow.elapsedMs;
-    m_lastUtcMs = startRow.timeMs;
-    m_lastSynchronised = startRow.clockSynchronised;
     m_nextSequence = startRow.sequence + 1;
     if (startRow.player == m_player) {
         m_openSinceMs = *startRow.elapsedMs;
@@ -84,8 +83,6 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
         return;
     }
     m_lastElapsedMs = now;
-    m_lastUtcMs = row.timeMs;
-    m_lastSynchronised = row.clockSynchronised;
     ++m_nextSequence;
 
     // The player change first, at the row's instant: the time up to it is the previous player's
@@ -103,13 +100,16 @@ void TurnTimer::onRow(const achievements::TimelineRow &row, bool goalMet)
 
 void TurnTimer::complete()
 {
+    // The completion's UTC is placed from the start's on the elapsed clock: the server checks it
+    // against the competition's window and orders equal durations by it, so a clock that drifted
+    // or lost its sync since the start must not move it
     const auto now = m_lastElapsedMs;
     m_result = TurnTimeResult {.durationMs = elapsedAt(now),
                                .startSequence = m_startSequence,
                                .completionSequence = m_nextSequence - 1,
                                .startUtcMs = m_startUtcMs,
-                               .completionUtcMs = m_lastUtcMs,
-                               .utcSynchronised = m_startSynchronised && m_lastSynchronised,
+                               .completionUtcMs = m_startUtcMs + (now - m_startElapsedMs),
+                               .utcSynchronised = m_startSynchronised,
                                .evidence = m_evidence};
     closeTurn(now);
     m_state = State::Completed;

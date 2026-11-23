@@ -1610,8 +1610,10 @@ TEST_CASE("Ali Baba then the score: the goal is met at the score", "[competition
     score(f, 10);
     REQUIRE(f.record().qualification);
     const auto &met = *f.record().qualification;
-    CHECK(met.completionUtcMs >= before);
-    CHECK(met.completionUtcMs <= nowMs());
+    // Placed from the start's UTC on the elapsed clock, both read in whole milliseconds: within
+    // one of the row's own
+    CHECK(met.completionUtcMs >= before - 1);
+    CHECK(met.completionUtcMs <= nowMs() + 1);
     // Rows: the start, the session reply's, Ali Baba, then the score
     CHECK(met.startSequence == 1);
     CHECK(met.completionSequence == 4);
@@ -1786,7 +1788,8 @@ TEST_CASE("A goal met before the reply seats its player qualifies at the origina
     f.sessionCreated();
     REQUIRE(f.record().start);
     REQUIRE(f.record().qualification);
-    CHECK(f.record().qualification->completionUtcMs <= metBy);
+    // Placed from the start's UTC on the elapsed clock, both whole milliseconds: one at most past
+    CHECK(f.record().qualification->completionUtcMs <= metBy + 1);
     // Rows: the start, Ali Baba, then the score
     CHECK(f.record().qualification->completionSequence == 3);
 }
@@ -2029,19 +2032,26 @@ TEST_CASE("A lost row stops the timing: no result shorter than was played", "[co
     CHECK_FALSE(f.record().qualification);
 }
 
-TEST_CASE("A goal met on a row whose clock wasn't vouched for qualifies, flagged", "[competitions]")
+TEST_CASE("A goal met on a row whose clock wasn't vouched for qualifies on the start's",
+          "[competitions]")
 {
     Fixture f;
     f.install();
     f.startGame();
     f.sessionCreated();
 
-    // Only the completion's UTC is in doubt: the duration is on the elapsed clock
+    // The duration is on the elapsed clock, and the completion's UTC is placed from the start's,
+    // which was vouched for: `qualified_at` is never a clock the server didn't vouch for
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
     f.net->clockSynchronised = false;
     activate(f);
     score(f, 10);
     REQUIRE(f.record().qualification);
-    CHECK_FALSE(f.record().qualification->utcSynchronised);
+    const auto &met = *f.record().qualification;
+    CHECK(met.utcSynchronised);
+    CHECK(met.completionUtcMs >= f.record().start->startedAtMs);
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].body["qualified_at"] == formatUtc(met.completionUtcMs));
 }
 
 TEST_CASE("An attempt seated late is timed by its own position's turns only", "[competitions]")
@@ -2174,7 +2184,8 @@ TEST_CASE("A goal's timer rules are judged on the elapsed clock, whatever UTC do
     REQUIRE(record.qualification);
     CHECK(record.qualification->durationMs == 60'000);
     CHECK(record.qualification->completionSequence == 4);
-    CHECK(record.qualification->completionUtcMs == t - 58'000); // still the row's own UTC
+    // Placed from the start's UTC on the elapsed clock, not the row's stepped UTC
+    CHECK(record.qualification->completionUtcMs == t + 60'000);
 }
 
 TEST_CASE("TIMER_BETWEEN is refused where a later occurrence would shorten its span",
