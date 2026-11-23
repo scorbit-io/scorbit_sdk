@@ -350,7 +350,8 @@ TEST_CASE("A game ending on its last row completes there when the end meets the 
     CHECK(timer.result()->startSequence == 1);
     CHECK(timer.result()->completionSequence == endRow.sequence);
     CHECK(timer.result()->completionUtcMs == endRow.timeMs);
-    CHECK_FALSE(timer.result()->utcSynchronised); // the end row's clock wasn't vouched for
+    // The end row's clock wasn't vouched for, but its UTC is placed from the start's, which was
+    CHECK(timer.result()->utcSynchronised);
     CHECK_FALSE(timer.openSinceMs());
 }
 
@@ -397,9 +398,10 @@ TEST_CASE("UTC steps forward or backward add and remove nothing", "[competitions
 
     REQUIRE(timer.result());
     CHECK(timer.result()->durationMs == 70 * S);
-    // The original UTC is kept as it was, for schedule and calendar eligibility only
+    // The start's UTC is kept as it was, and the completion's placed from it on the elapsed
+    // clock: for schedule and calendar eligibility only
     CHECK(timer.result()->startUtcMs == start.timeMs);
-    CHECK(timer.result()->completionUtcMs == completing.timeMs);
+    CHECK(timer.result()->completionUtcMs == start.timeMs + 70 * S);
 }
 
 TEST_CASE("UTC that doesn't move at all doesn't stop the timer", "[competitions][turn_timer]")
@@ -448,7 +450,7 @@ TEST_CASE("Results carry the evidence they rest on", "[competitions][turn_timer]
     CHECK(r.evidence.bootId == "6c0e9d1a-2f3b-4c5d-8e9f-0a1b2c3d4e5f");
 }
 
-TEST_CASE("UTC is only vouched for when both rows had a synchronised clock",
+TEST_CASE("UTC is only vouched for when the start row had a synchronised clock",
           "[competitions][turn_timer]")
 {
     Game g;
@@ -460,6 +462,26 @@ TEST_CASE("UTC is only vouched for when both rows had a synchronised clock",
     REQUIRE(timer.result());
     CHECK(timer.result()->durationMs == 10 * S); // the elapsed clock needs no server's word
     CHECK_FALSE(timer.result()->utcSynchronised);
+}
+
+TEST_CASE("The completion's UTC follows the start's on the elapsed clock, whatever UTC does",
+          "[competitions][turn_timer]")
+{
+    // The start's clock is vouched for. Then sync is lost, and device UTC steps an hour back
+    Game g;
+    const auto start = g.row(0, 1);
+    auto timer = begun(start);
+    timer.onRow(g.row(20 * S, 1), false);
+    g.setSynchronised(false);
+    g.stepUtc(-3600 * S);
+    const auto completing = g.row(45 * S, 1);
+    timer.onRow(completing, true);
+
+    REQUIRE(timer.result());
+    CHECK(timer.result()->startUtcMs == start.timeMs);
+    CHECK(timer.result()->completionUtcMs == start.timeMs + 45 * S);
+    CHECK(timer.result()->completionUtcMs != completing.timeMs);
+    CHECK(timer.result()->utcSynchronised);
 }
 
 TEST_CASE("The elapsed clock's resolution is never finer than a millisecond",

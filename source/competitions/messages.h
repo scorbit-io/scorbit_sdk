@@ -30,8 +30,15 @@
  * | competition.goal_installed_saved  | API → device | its 200 reply                       |
  * | competition.attempt_started       | device → API | POST competitions/attempt-started/  |
  * | competition.attempt_started_saved | API → device | its 200 reply                       |
+ * | competition.attempt_control       | API → device | control_machine, `{type, payload}`  |
+ * | competition.attempt_released      | device → API | POST competitions/attempt-released/ |
+ * | competition.attempt_released_saved| API → device | its 200 reply                       |
+ * | competition.qualification         | device → API | POST competitions/qualification/    |
+ * | competition.qualification_saved   | API → device | its 200 reply                       |
  */
 
+#include "message_outbox.h"
+#include "turn_timer.h"
 #include "../achievements/definition.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
@@ -123,11 +130,83 @@ struct AttemptStart {
     bool operator==(const AttemptStart &) const = default;
 };
 
+/**
+ * `competition.attempt_control` with action `release` (SB-6368): the player unclaimed, left the
+ * lobby, or their reservation lapsed, and the device is to drop the attempt.
+ */
+struct AttemptRelease {
+    AttemptIdentity identity;
+    /** The release's stable id: every resend of it repeats it, and the answer names it. */
+    std::string control;
+};
+
+/**
+ * Parses a `competition.attempt_control` payload. Only `release` is applied: any other action, or
+ * a release without its `control`, is refused, returning nullopt and saying why in @p error.
+ */
+std::optional<AttemptRelease> parseAttemptControl(const nlohmann::json &payload,
+                                                  std::string &error);
+
+/** What became of a release on the device: the `state` of `attempt_released`. */
+enum class ReleaseState {
+    Released, ///< The attempt was held, and is dropped
+    Started,  ///< Its game had started before the API saved the start: the attempt is kept
+    Unknown,  ///< It isn't held here, e.g. after a restart
+};
+
+/** Where the device applied a release, sent as `attempt_released`. */
+struct ReleaseApplied {
+    ReleaseState state {ReleaseState::Unknown};
+    std::string bootId;
+    /** The device's ordinal for applying the release, from the order of rows the start shares. */
+    uint64_t sequence {0};
+
+    bool operator==(const ReleaseApplied &) const = default;
+};
+
+/**
+ * `competition.qualification` (SB-6781): an attempt's result, reported once under a report id the
+ * device chose, and resent unchanged until the server answers.
+ */
+struct QualificationReport {
+    AttemptIdentity identity;
+    /** The report's stable id, a uuid: every resend repeats it, and a release's answer names it. */
+    std::string reportId;
+    /** The admitted player's user uuid. */
+    std::string player;
+    /** The attempt's start, as sent: the server compares its session, position and time with it. */
+    AttemptStart start;
+    /** The player's time to the completing row, and what it was measured on. */
+    TurnTimeResult result;
+};
+
 /** `competition.goal_installed`. */
 const char *goalInstalledType();
 
 /** `competition.attempt_started`. */
 const char *attemptStartedType();
+
+/** `competition.attempt_released`. */
+const char *attemptReleasedType();
+
+/** `competition.qualification`. */
+const char *qualificationType();
+
+/** What each kind of device message is, and how the API may answer it. */
+struct MessageKindInfo {
+    /** The message's `type`. */
+    const char *type;
+    /** The API endpoint it is posted to. */
+    const char *endpoint;
+    /**
+     * The `code` of the one 409 that doesn't refuse it: the server takes it once it has what it
+     * waits for, so it is resent. Null for a kind every 409 refuses.
+     */
+    const char *waitCode;
+};
+
+/** @p kind's type, endpoint and retryable 409. */
+const MessageKindInfo &kindInfo(MessageKind kind);
 
 /** `competition.goal_installed`, the goal having been saved at @p installedAtMs. */
 nlohmann::json goalInstalledMessage(const AttemptIdentity &identity, int64_t installedAtMs);
@@ -135,15 +214,56 @@ nlohmann::json goalInstalledMessage(const AttemptIdentity &identity, int64_t ins
 /** `competition.attempt_started`. */
 nlohmann::json attemptStartedMessage(const AttemptIdentity &identity, const AttemptStart &start);
 
+/**
+ * `competition.attempt_released`, answering @p release. Its `qualification` is @p qualification,
+ * the report id of a qualification made on or before the release's row, or null when empty.
+ */
+nlohmann::json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied,
+                                      const std::string &qualification = {});
+
+/**
+ * `competition.qualification`. Its start and device are the attempt's start and the timer's
+ * evidence, never the machine's current state: the server compares them exactly.
+ */
+nlohmann::json qualificationMessage(const QualificationReport &report);
+
 /** What the server did with a message it accepted. */
 enum class ReceiptStatus { Saved, Duplicate };
 
 /**
  * Parses the 200 reply to a message of @p sentType about @p identity: its receipt, of type
- * `<sentType>_saved`. nullopt for anything else, including a receipt for another attempt.
+ * `<sentType>_saved`. nullopt for anything else, including a receipt for another attempt, or,
+ * when @p control is given, for another release.
  */
 std::optional<ReceiptStatus> parseReceipt(const nlohmann::json &reply, const std::string &sentType,
-                                          const AttemptIdentity &identity);
+                                          const AttemptIdentity &identity,
+                                          const std::string &control = {});
+
+/** What the server did with a qualification report: every status is final. */
+enum class QualificationStatus {
+    Saved,     ///< Saved and credited
+    Duplicate, ///< Saved and credited already
+    Conflict,  ///< Kept for support, credited nothing; `reason` says why
+};
+
+/** `competition.qualification_saved`: the 200 reply to a qualification report. */
+struct QualificationReceipt {
+    QualificationStatus status {QualificationStatus::Saved};
+    /** Why a conflict wasn't credited; empty otherwise. */
+    std::string reason;
+    /** The saved qualification, or the kept conflict, for support. */
+    std::string caseId;
+
+    bool operator==(const QualificationReceipt &) const = default;
+};
+
+/**
+ * Parses the 200 reply to report @p reportId about @p identity. nullopt for anything else,
+ * including a receipt for another attempt or another report.
+ */
+std::optional<QualificationReceipt> parseQualificationReceipt(const nlohmann::json &reply,
+                                                              const AttemptIdentity &identity,
+                                                              const std::string &reportId);
 
 /** @p ms since the epoch as ISO 8601 UTC with milliseconds, e.g. `2026-11-06T20:00:00.250Z`. */
 std::string formatUtc(int64_t ms);

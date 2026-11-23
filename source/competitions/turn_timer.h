@@ -63,8 +63,10 @@ struct TurnTimeResult {
     uint64_t completionSequence {0};
 
     /**
-     * Device UTC of both rows, for schedule and calendar eligibility only: never used to measure.
-     * @ref utcSynchronised tells whether the server vouched for the clock on both.
+     * UTC of both rows, for schedule and calendar eligibility only: never used to measure. The
+     * start's is the start row's device UTC; the completion's is placed from it on the elapsed
+     * clock, so a UTC correction, or a clock no longer vouched for, during the game never moves
+     * it. @ref utcSynchronised tells whether the server vouched for the start's clock.
      */
     int64_t startUtcMs {0};
     int64_t completionUtcMs {0};
@@ -94,7 +96,8 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *   count while the player is current. Another player's turn adds nothing.
  * - Measured on each row's @ref achievements::TimelineRow::elapsedMs, on @ref ElapsedClock: a UTC
  *   correction can neither add nor remove time, and time the machine spends suspended still
- *   counts. UTC is only carried into the result.
+ *   counts. UTC is only carried into the result: the start row's, and the completion's placed
+ *   from it on the elapsed clock.
  * - A row is one input event, applied whole: a player change takes effect at the row's instant,
  *   then the goal is checked at that same instant. When a switch and a completion share a row, the
  *   time up to the row belongs to whoever was current before it, whichever player completed, so no
@@ -106,7 +109,7 @@ inline std::partial_ordering compareDurations(const TurnTimeResult &a, const Tur
  *   the doubtful time and yield a faster result than was played.
  *
  * CompetitionService (B02B, SB-6366) runs one per attempt and position, applying every committed
- * row of the game with the goal's verdict on it. Sending the result is B02F (SB-6370).
+ * row of the game with the goal's verdict on it, and reports the result (SB-6781).
  */
 class TurnTimer
 {
@@ -188,15 +191,13 @@ private:
     int64_t m_closedMs {0};
     std::optional<int64_t> m_openSinceMs;
     int64_t m_lastElapsedMs {0};
-    /** The last row applied's device UTC, and whether the server vouched for its clock. */
-    int64_t m_lastUtcMs {0};
-    bool m_lastSynchronised {false};
     /** The sequence the next row must carry: one past the last row applied. */
     uint64_t m_nextSequence {0};
 
     /** What the result needs of the game's start row. */
     uint64_t m_startSequence {0};
     int64_t m_startUtcMs {0};
+    int64_t m_startElapsedMs {0};
     bool m_startSynchronised {false};
 
     std::optional<TurnTimeResult> m_result;

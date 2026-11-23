@@ -92,6 +92,11 @@ std::string deriveUuid(const std::string &source)
 
 std::string generateBootId()
 {
+    return generateUuid();
+}
+
+std::string generateUuid()
+{
     return to_string(boost::uuids::random_generator()());
 }
 

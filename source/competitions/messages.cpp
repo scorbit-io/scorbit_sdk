@@ -21,6 +21,7 @@
 #include "../achievements/definition.h"
 #include "../achievements/definition_check.h"
 #include "../achievements/json_codec.h"
+#include "../identifiers.h"
 #include "../net_util.h"
 #include <fmt/format.h>
 #include <algorithm>
@@ -45,6 +46,9 @@ constexpr int TIMER_POLICY_VERSION = 1;
 constexpr auto TYPE_GOAL = "competition.goal";
 constexpr auto TYPE_GOAL_INSTALLED = "competition.goal_installed";
 constexpr auto TYPE_ATTEMPT_STARTED = "competition.attempt_started";
+constexpr auto TYPE_ATTEMPT_CONTROL = "competition.attempt_control";
+constexpr auto TYPE_ATTEMPT_RELEASED = "competition.attempt_released";
+constexpr auto TYPE_QUALIFICATION = "competition.qualification";
 constexpr auto RECEIPT_SUFFIX = "_saved";
 
 constexpr auto KEY_VERSION = "version";
@@ -73,6 +77,21 @@ constexpr auto KEY_STARTED_AT = "started_at";
 constexpr auto KEY_BOOT_ID = "boot_id";
 constexpr auto KEY_SEQUENCE = "sequence";
 constexpr auto KEY_STATUS = "status";
+constexpr auto KEY_ACTION = "action";
+constexpr auto KEY_CONTROL = "control";
+constexpr auto KEY_STATE = "state";
+constexpr auto KEY_QUALIFICATION = "qualification";
+constexpr auto KEY_REPORT_ID = "report_id";
+constexpr auto KEY_QUALIFIED_AT = "qualified_at";
+constexpr auto KEY_DURATION = "duration";
+constexpr auto KEY_VALUE = "value";
+constexpr auto KEY_UNIT = "unit";
+constexpr auto KEY_DEVICE = "device";
+constexpr auto KEY_SCORBITRON = "scorbitron";
+constexpr auto KEY_REASON = "reason";
+constexpr auto KEY_CASE = "case";
+
+constexpr auto ACTION_RELEASE = "release";
 
 /** Positions a game slot may have, as the API bounds them. */
 constexpr int MIN_POSITION = 1;
@@ -243,24 +262,42 @@ json identityJson(const AttemptIdentity &identity, const char *type)
 
 } // namespace
 
+/** The identity of @p payload, an API message of @p type in this version; throws if it isn't. */
+AttemptIdentity identityOf(const json &payload, const char *type)
+{
+    if (!payload.is_object()) {
+        throw std::invalid_argument("not an object");
+    }
+    if (integer(payload, KEY_VERSION) != MESSAGE_VERSION) {
+        throw std::invalid_argument(
+                fmt::format("unsupported version {}", member(payload, KEY_VERSION).dump()));
+    }
+    if (member(payload, KEY_TYPE) != type) {
+        throw std::invalid_argument(
+                fmt::format("not a {}: {}", type, member(payload, KEY_TYPE).dump()));
+    }
+    return {uuid(payload, KEY_TOURNAMENT), uuid(payload, KEY_RULES), checksum(payload),
+            uuid(payload, KEY_ATTEMPT)};
+}
+
+const char *toString(ReleaseState state)
+{
+    switch (state) {
+    case ReleaseState::Released:
+        return "released";
+    case ReleaseState::Started:
+        return "started";
+    case ReleaseState::Unknown:
+        break;
+    }
+    return "unknown";
+}
+
 std::optional<CompetitionGoal> parseGoal(const json &payload, std::string &error)
 {
     try {
-        if (!payload.is_object()) {
-            throw std::invalid_argument("not an object");
-        }
-        if (integer(payload, KEY_VERSION) != MESSAGE_VERSION) {
-            throw std::invalid_argument(
-                    fmt::format("unsupported version {}", member(payload, KEY_VERSION).dump()));
-        }
-        if (member(payload, KEY_TYPE) != TYPE_GOAL) {
-            throw std::invalid_argument(
-                    fmt::format("not a {}: {}", TYPE_GOAL, member(payload, KEY_TYPE).dump()));
-        }
-
         CompetitionGoal goal;
-        goal.identity = {uuid(payload, KEY_TOURNAMENT), uuid(payload, KEY_RULES), checksum(payload),
-                         uuid(payload, KEY_ATTEMPT)};
+        goal.identity = identityOf(payload, TYPE_GOAL);
         goal.player = uuid(payload, KEY_PLAYER);
         goal.venueMachine = uuid(payload, KEY_VENUEMACHINE);
 
@@ -282,6 +319,22 @@ std::optional<CompetitionGoal> parseGoal(const json &payload, std::string &error
         }
         goal.message = payload;
         return goal;
+    } catch (const std::exception &e) {
+        error = e.what();
+        return std::nullopt;
+    }
+}
+
+std::optional<AttemptRelease> parseAttemptControl(const json &payload, std::string &error)
+{
+    try {
+        AttemptRelease release;
+        release.identity = identityOf(payload, TYPE_ATTEMPT_CONTROL);
+        if (const auto &action = member(payload, KEY_ACTION); action != ACTION_RELEASE) {
+            throw std::invalid_argument(fmt::format("unsupported action {}", action.dump()));
+        }
+        release.control = uuid(payload, KEY_CONTROL);
+        return release;
     } catch (const std::exception &e) {
         error = e.what();
         return std::nullopt;
@@ -345,13 +398,46 @@ json attemptStartedMessage(const AttemptIdentity &identity, const AttemptStart &
     return message;
 }
 
+json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied,
+                            const std::string &qualification)
+{
+    auto message = identityJson(release.identity, TYPE_ATTEMPT_RELEASED);
+    message[KEY_CONTROL] = release.control;
+    message[KEY_STATE] = toString(applied.state);
+    message[KEY_BOOT_ID] = applied.bootId;
+    message[KEY_SEQUENCE] = applied.sequence;
+    message[KEY_QUALIFICATION] = qualification.empty() ? json(nullptr) : json(qualification);
+    return message;
+}
+
+json qualificationMessage(const QualificationReport &report)
+{
+    const auto &result = report.result;
+    auto message = identityJson(report.identity, TYPE_QUALIFICATION);
+    message[KEY_REPORT_ID] = report.reportId;
+    message[KEY_PLAYER] = report.player;
+    message[KEY_SESSION] = report.start.session;
+    message[KEY_POSITION] = report.start.position;
+    message[KEY_STARTED_AT] = formatUtc(report.start.startedAtMs);
+    message[KEY_QUALIFIED_AT] = formatUtc(result.completionUtcMs);
+    message[KEY_SEQUENCE] = result.completionSequence;
+    message[KEY_DURATION] = {{KEY_VALUE, result.durationMs}, {KEY_UNIT, result.evidence.unit}};
+    message[KEY_TIMER_POLICY] = {{KEY_NAME, TIMER_POLICY},
+                                 {KEY_VERSION, result.evidence.policyVersion}};
+    message[KEY_DEVICE] = {{KEY_SCORBITRON, result.evidence.deviceId},
+                           {KEY_BOOT_ID, result.evidence.bootId}};
+    return message;
+}
+
 std::optional<ReceiptStatus> parseReceipt(const json &reply, const std::string &sentType,
-                                          const AttemptIdentity &identity)
+                                          const AttemptIdentity &identity,
+                                          const std::string &control)
 {
     if (!reply.is_object() || reply.value(KEY_TYPE, json {}) != sentType + RECEIPT_SUFFIX
         || reply.value(KEY_VERSION, json {}) != MESSAGE_VERSION
         || reply.value(KEY_ATTEMPT, json {}) != identity.attempt
-        || reply.value(KEY_CHECKSUM, json {}) != identity.checksum) {
+        || reply.value(KEY_CHECKSUM, json {}) != identity.checksum
+        || (!control.empty() && reply.value(KEY_CONTROL, json {}) != control)) {
         return std::nullopt;
     }
     const auto status = reply.value(KEY_STATUS, json {});
@@ -362,6 +448,38 @@ std::optional<ReceiptStatus> parseReceipt(const json &reply, const std::string &
         return ReceiptStatus::Duplicate;
     }
     return std::nullopt;
+}
+
+std::optional<QualificationReceipt> parseQualificationReceipt(const json &reply,
+                                                              const AttemptIdentity &identity,
+                                                              const std::string &reportId)
+{
+    if (!reply.is_object()
+        || reply.value(KEY_TYPE, json {}) != std::string {TYPE_QUALIFICATION} + RECEIPT_SUFFIX
+        || reply.value(KEY_VERSION, json {}) != MESSAGE_VERSION
+        || reply.value(KEY_ATTEMPT, json {}) != identity.attempt
+        || reply.value(KEY_CHECKSUM, json {}) != identity.checksum
+        || reply.value(KEY_REPORT_ID, json {}) != reportId) {
+        return std::nullopt;
+    }
+    QualificationReceipt receipt;
+    const auto status = reply.value(KEY_STATUS, json {});
+    if (status == "saved") {
+        receipt.status = QualificationStatus::Saved;
+    } else if (status == "duplicate") {
+        receipt.status = QualificationStatus::Duplicate;
+    } else if (status == "conflict") {
+        receipt.status = QualificationStatus::Conflict;
+    } else {
+        return std::nullopt;
+    }
+    if (const auto reason = reply.value(KEY_REASON, json {}); reason.is_string()) {
+        receipt.reason = reason.get<std::string>();
+    }
+    if (const auto caseId = reply.value(KEY_CASE, json {}); caseId.is_string()) {
+        receipt.caseId = caseId.get<std::string>();
+    }
+    return receipt;
 }
 
 std::string formatUtc(int64_t ms)
@@ -377,6 +495,31 @@ std::string formatUtc(int64_t ms)
                        clock.subseconds().count());
 }
 
+const MessageKindInfo &kindInfo(MessageKind kind)
+{
+    // The server takes a start once the release waiting on it is answered (SB-6368 D3), and a
+    // report once it has the attempt's start
+    static const MessageKindInfo goalInstalled {TYPE_GOAL_INSTALLED,
+                                                URL_COMPETITIONS_GOAL_INSTALLED, nullptr};
+    static const MessageKindInfo attemptStarted {
+            TYPE_ATTEMPT_STARTED, URL_COMPETITIONS_ATTEMPT_STARTED, "release_pending"};
+    static const MessageKindInfo attemptReleased {TYPE_ATTEMPT_RELEASED,
+                                                  URL_COMPETITIONS_ATTEMPT_RELEASED, nullptr};
+    static const MessageKindInfo qualification {TYPE_QUALIFICATION, URL_COMPETITIONS_QUALIFICATION,
+                                                "start_pending"};
+    switch (kind) {
+    case MessageKind::GoalInstalled:
+        return goalInstalled;
+    case MessageKind::AttemptStarted:
+        return attemptStarted;
+    case MessageKind::Qualification:
+        return qualification;
+    case MessageKind::AttemptReleased:
+        break;
+    }
+    return attemptReleased;
+}
+
 const char *goalInstalledType()
 {
     return TYPE_GOAL_INSTALLED;
@@ -385,6 +528,16 @@ const char *goalInstalledType()
 const char *attemptStartedType()
 {
     return TYPE_ATTEMPT_STARTED;
+}
+
+const char *attemptReleasedType()
+{
+    return TYPE_ATTEMPT_RELEASED;
+}
+
+const char *qualificationType()
+{
+    return TYPE_QUALIFICATION;
 }
 
 } // namespace competitions

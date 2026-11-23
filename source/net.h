@@ -151,6 +151,7 @@ struct NetTestAccess {
     static void handleControlScorbitron(Net &net, const nlohmann::json &message);
     static void handleProbeFlash(Net &net, const nlohmann::json &payload);
     static void handleCompetitionGoal(Net &net, const nlohmann::json &payload);
+    static void handleAttemptControl(Net &net, const nlohmann::json &payload);
     static void requestOpenProbeFlash(Net &net, bool startup);
     static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
                                       const std::string &body);
@@ -496,6 +497,7 @@ public:
     void setPlayersChangedCallback(PlayersChangedCallback callback) override;
     void setTokenRefreshedCallback(TokenRefreshedCallback callback) override;
     void setCompetitionGoalCallback(CompetitionGoalCallback callback) override;
+    void setAttemptReleaseCallback(AttemptReleaseCallback callback) override;
     void setSessionPlayersCallback(SessionPlayersCallback callback) override;
     void postCompetitionMessage(competitions::MessageKind kind, std::string body,
                                 ApiReplyCallback callback) override;
@@ -874,6 +876,8 @@ private:
     void handleProbeFlash(const nlohmann::json &payload);
     /// A `competition.goal` from control_machine: parsed, then handed over or refused.
     void handleCompetitionGoal(const nlohmann::json &payload);
+    /// A `competition.attempt_control` from control_machine: a release is handed over.
+    void handleAttemptControl(const nlohmann::json &payload);
     /// Asks the api for the open probe flash run a missed push left (after auth, on reconnect).
     void requestOpenProbeFlash(bool startup);
     /// A 200 is the probe_flash control message: its payload goes through handleProbeFlash.
@@ -1174,6 +1178,8 @@ private:
     std::mutex m_tokenRefreshedCallbackMutex;
     CompetitionGoalCallback m_competitionGoalCallback;
     std::mutex m_competitionGoalCallbackMutex;
+    AttemptReleaseCallback m_attemptReleaseCallback;
+    std::mutex m_attemptReleaseCallbackMutex;
     SessionPlayersCallback m_sessionPlayersCallback;
     std::mutex m_sessionPlayersCallbackMutex;
     /// Which session replies become SessionPlayersChanged events; thread-safe on its own.
