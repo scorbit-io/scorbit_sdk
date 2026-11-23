@@ -2300,6 +2300,24 @@ TEST_CASE("A release of a running attempt drops it and says where", "[competitio
     CHECK(f.net->sent.empty());
 }
 
+TEST_CASE("A release is applied after every row handed out, sent or not", "[competitions]")
+{
+    // Rows dropped while authentication fails keep their place in the row order: a release
+    // arriving after them is applied after them too
+    Fixture f;
+    f.install();
+    f.startGame(); // row 1
+    f.net->auth = AuthStatus::AuthenticationFailed;
+    activate(f);  // row 2, dropped
+    score(f, 10); // row 3, dropped
+    f.net->auth = AuthStatus::AuthenticatedPaired;
+
+    f.release();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent[0].kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent[0].body["sequence"] == 3);
+}
+
 TEST_CASE("A release before the start drops the attempt, which never starts", "[competitions]")
 {
     // Released while its game is under way, before a reply seats its player

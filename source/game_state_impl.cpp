@@ -152,7 +152,8 @@ GameStateImpl::GameStateImpl(std::unique_ptr<NetBase> net)
     });
     m_net->setAttemptReleaseCallback([this](competitions::AttemptRelease release) {
         post([this, release = std::move(release)]() mutable {
-            m_competitions->onRelease(std::move(release));
+            // Read here, on the game's thread: the rows handed out so far, dropped ones too
+            m_competitions->onRelease(std::move(release), m_rowSequence);
         });
     });
     m_net->setSessionPlayersCallback([this](const std::string &sessionUuid, SessionSeats seats) {

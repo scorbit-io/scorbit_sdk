@@ -198,7 +198,7 @@ void CompetitionService::onGoal(CompetitionGoal goal)
 
 // ---- Releases ----------------------------------------------------------------------------------
 
-void CompetitionService::onRelease(AttemptRelease release)
+void CompetitionService::onRelease(AttemptRelease release, uint64_t lastSequence)
 {
     if (auto *kept = releaseOf(release.control)) {
         // A resend: the same answer, sent again once decided (the server answers `duplicate`)
@@ -213,7 +213,7 @@ void CompetitionService::onRelease(AttemptRelease release)
 
     // Applied after the last row: a qualification on it or before came first
     auto &kept = m_releases.emplace_back(
-            ReleaseRecord {std::move(release), {ReleaseState::Unknown, m_bootId, m_lastSequence}});
+            ReleaseRecord {std::move(release), {ReleaseState::Unknown, m_bootId, lastSequence}});
     const auto attempt = kept.release.identity.attempt;
     const auto it = m_attempts.find(attempt);
     if (it == m_attempts.end()) {
@@ -337,7 +337,6 @@ void CompetitionService::publishGoal(const CompetitionGoal &goal)
 
 void CompetitionService::onGameStarted(int gameSessionId, const achievements::TimelineRow &firstRow)
 {
-    sawSequence(firstRow.sequence);
     // A game that never saw its end (a new one replaced it) can't start anything any more. It
     // ends on its last row, just before the new one's first, and is judged there once more, as at
     // an end. (0, no row's place, if the new row has none: then it ended out of sight.)
@@ -452,7 +451,6 @@ void CompetitionService::onSessionPlayers(const std::string &sessionUuid, Sessio
 
 void CompetitionService::onRow(const achievements::TimelineRow &row)
 {
-    sawSequence(row.sequence);
     // Only the game in progress takes rows, and only while it may start an attempt
     if (m_games.empty()) {
         return;
@@ -478,7 +476,6 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
 
 void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
 {
-    sawSequence(endSequence);
     if (auto *game = gameOf(gameSessionId); game && !game->finished) {
         finishGame(*game, endSequence);
     }

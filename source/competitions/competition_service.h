@@ -25,7 +25,6 @@
 #include "../net_base.h"
 #include "../achievements/player_facts.h"
 #include "../achievements/timeline_row.h"
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -187,8 +186,12 @@ public:
      */
     void onGameFinished(int gameSessionId, uint64_t endSequence);
 
-    /** A `competition.attempt_control` release arrived and parsed. */
-    void onRelease(AttemptRelease release);
+    /**
+     * A `competition.attempt_control` release arrived and parsed, after the row numbered
+     * @p lastSequence (TimelineRow::sequence): the last handed out this boot, committed or not,
+     * 0 before any. A qualification on that row or before came first.
+     */
+    void onRelease(AttemptRelease release, uint64_t lastSequence);
 
     /** The attempts installed here; for tests and diagnostics. */
     const std::map<std::string, AttemptRecord> &attempts() const { return m_attempts; }
@@ -268,8 +271,6 @@ private:
     /** Tells the host Scorbit confirmed @p goal is installed: CompetitionGoalReceived. */
     void publishGoal(const CompetitionGoal &goal);
 
-    /** Notes @p sequence as handed out: a release is applied after the last row. */
-    void sawSequence(uint64_t sequence) { m_lastSequence = std::max(m_lastSequence, sequence); }
     ReleaseRecord *releaseOf(const std::string &control);
     /**
      * Decides @p release as @p state and queues its answer, ahead of every other message when
@@ -335,8 +336,6 @@ private:
     std::deque<ReportRecord> m_reports;
     /** The attempts that ended here, released or refused for good, oldest first. */
     std::deque<std::string> m_endedAttempts;
-    /** The last place in the row order handed out this boot: game state's TimelineRow::sequence. */
-    uint64_t m_lastSequence {0};
     MessageOutbox m_outbox;
 
     /** Guards the service against replies arriving after it was destroyed. */
