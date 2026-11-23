@@ -98,7 +98,7 @@ TEST_CASE("A session reply without a tournament clears the one cached for that s
     Net net(DeviceInfo {}, {});
     NetTestAccess::processScores(net, 1, reply(tournament));
     const auto fields = [&] { return NetTestAccess::scoreEntryFields(net, 1, 1); };
-    CHECK(fields() == nlohmann::json {{"tournament_id", tournament}});
+    REQUIRE(fields() == nlohmann::json {{"tournament_id", tournament}});
 
     SECTION("a null tournament, as after the entry is returned")
     {
