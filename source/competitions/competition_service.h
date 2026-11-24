@@ -109,7 +109,7 @@ struct ReleaseRecord {
  *   one for an attempt that ended here: released, or refused for good by the server.
  * - An attempt starts in the first game that began after it was installed, with a synchronised
  *   clock, in which its player holds a slot of the positions the API accepts (1 to 6) for its
- *   competition (the slot's Entry, `tournament_id`). Who holds which slot, and for what, is known
+ *   competition (the slot's Entry). Who holds which slot, and for what, is known
  *   from the game's own session replies: the create reply, then any update that seats a player
  *   later. The machine-wide profiles are never used, as a late reply for another session rewrites
  *   them.

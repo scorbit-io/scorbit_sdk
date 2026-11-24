@@ -84,8 +84,8 @@ using AttemptReleaseCallback = std::function<void(competitions::AttemptRelease r
 /** One claimed slot of a session, as a session reply's `scores` names it. */
 struct SessionSeat {
     std::string userId;
-    /** The competition the slot's Entry is for (`tournament_id`); empty when it has none. */
-    std::string tournament;
+    /** The slot's `competition_id`, falling back to `tournament_id` on older replies. */
+    std::string competition;
 };
 
 /** Who holds which slot of one session: position → seat, claimed slots only. */

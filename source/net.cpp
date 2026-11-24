@@ -3988,6 +3988,15 @@ void Net::sendLatestGameData(int sessionId)
     postOrHoldForSwitch(sessionId, [this, sessionId] { commitLatestGameData(sessionId); });
 }
 
+void Net::ScoreMetadata::writeEntryFields(json &score) const
+{
+    // Older listeners use tournament_id to classify a tournament score.
+    score[JKEY_SCR_TOURNAMENT_UUID] = competitionUuid ? std::nullopt : tournamentUuid;
+    if (competitionUuid) {
+        score[JKEY_SCR_COMPETITION_UUID] = *competitionUuid;
+    }
+}
+
 void Net::commitLatestGameData(int sessionId)
 {
     m_worker.postCommitTask([this, sessionId]() {
@@ -4078,12 +4087,12 @@ void Net::commitLatestGameData(int sessionId)
                 json playerScoreJson {{JKEY_SCR_POSITION, playerNum},
                                       {JKEY_SCR_ID, meta.id},
                                       {JKEY_SCR_IS_NFC_VERIFIED, meta.isNfcVerified},
-                                      {JKEY_SCR_TOURNAMENT_UUID, meta.tournamentUuid},
                                       {JKEY_SCR_PLAYER, playerProfileJson},
                                       {JKEY_SCR_SCORE, playerState.score()},
                                       {JKEY_SCR_BALL, gameData.ball},
                                       {JKEY_SCR_BALL_IN_PROGRESS, valBallInProgress},
                                       {JKEY_SCR_MODES, modes}};
+                meta.writeEntryFields(playerScoreJson);
 
                 scores.emplace_back(playerScoreJson);
             }
@@ -5587,11 +5596,12 @@ void NetTestAccess::processScores(Net &net, int sessionId, const nlohmann::json 
     net.processScoresAndPlayersProfiles(scores, net.m_gameSessions[sessionId]);
 }
 
-std::optional<std::string> NetTestAccess::scoreTournament(Net &net, int sessionId,
-                                                          sb_player_t player)
+json NetTestAccess::scoreEntryFields(Net &net, int sessionId, sb_player_t player)
 {
     std::scoped_lock lock(net.m_gameSessionsMutex);
-    return net.m_gameSessions.at(sessionId).scoresMetadata.at(player).tournamentUuid;
+    json score;
+    net.m_gameSessions.at(sessionId).scoresMetadata.at(player).writeEntryFields(score);
+    return score;
 }
 
 bool NetTestAccess::rearmAuthAfterFailure(Net &net, AuthStatus from)
@@ -6523,6 +6533,30 @@ void Net::notifyAuthStatusChanged()
     }
 }
 
+namespace {
+
+std::optional<std::string> scoreEntryUuid(const json &score, const char *key)
+{
+    const auto it = score.find(key);
+    if (it == score.end() || !it->is_string()) {
+        return std::nullopt;
+    }
+    const auto &uuid = it->get_ref<const std::string &>();
+    if (!isUuid(uuid)) {
+        return std::nullopt;
+    }
+    return uuid;
+}
+
+} // namespace
+
+void Net::ScoreMetadata::readEntryFields(const json &score)
+{
+    // A reply can clear the slot's entry while the game is still running.
+    tournamentUuid = scoreEntryUuid(score, JKEY_SCR_TOURNAMENT_UUID);
+    competitionUuid = scoreEntryUuid(score, JKEY_SCR_COMPETITION_UUID);
+}
+
 void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSession)
 {
     // Process scores
@@ -6535,15 +6569,7 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
 
             obj.at(JKEY_SCR_ID).get_to(metadata.id);
             obj.at(JKEY_SCR_IS_NFC_VERIFIED).get_to(metadata.isNfcVerified);
-
-            // A null or absent tournament clears the cached one: an entry returned mid-session
-            // must not stay on the row for every later score_update and game_end.
-            if (const auto it = obj.find(JKEY_SCR_TOURNAMENT_UUID);
-                it != obj.end() && it->is_string()) {
-                metadata.tournamentUuid = it->get<std::string>();
-            } else {
-                metadata.tournamentUuid.reset();
-            }
+            metadata.readEntryFields(obj);
         }
     } catch (const std::exception &e) {
         ERR("Error parsing player score: {}", e.what());
@@ -6569,13 +6595,12 @@ void Net::processScoresAndPlayersProfiles(const json &val, GameSession &gameSess
             }
             if (const auto id = player->find(JKEY_PLAYER_ID);
                 id != player->end() && id->is_string()) {
-                // The slot's chosen competition: a player may hold attempts for several
-                const auto tournament = obj.find(JKEY_SCR_TOURNAMENT_UUID);
+                // Read from the row itself: the loop above stops at a malformed row, which would
+                // leave a later slot's cached entry from an earlier reply
+                ScoreMetadata entry;
+                entry.readEntryFields(obj);
                 seats.emplace(position->get<sb_player_t>(),
-                              SessionSeat {id->get<std::string>(),
-                                           tournament != obj.end() && tournament->is_string()
-                                                   ? tournament->get<std::string>()
-                                                   : std::string {}});
+                              SessionSeat {id->get<std::string>(), entry.entryUuid().value_or("")});
             }
         }
         std::scoped_lock lock(m_sessionPlayersCallbackMutex);
