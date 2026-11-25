@@ -62,6 +62,10 @@ constexpr auto URL_DIAGNOSTICS_PROBE_FLASH_STAGE_PATH {
         "internal/api/diagnostics/probe-flash-stage/{run_id}/"};
 constexpr auto URL_DIAGNOSTICS_PROBE_FLASH_RESULT_PATH {
         "internal/api/diagnostics/probe-flash-result/{run_id}/"};
+// Prepare run: the unit's pending run (the token names the unit), and one POST per step result
+constexpr auto URL_DIAGNOSTICS_PREPARE_PENDING_PATH {"internal/api/diagnostics/prepare/pending/"};
+constexpr auto URL_DIAGNOSTICS_PREPARE_STEPS_PATH {
+        "internal/api/diagnostics/prepare/{run_id}/steps/"};
 
 constexpr auto URL_V2_PROVISION {"api/v2/provision/"};
 
@@ -436,6 +440,7 @@ constexpr auto JKEY_SOBJ_DIAG_CAPTURE_CAPABLE {"diag_capture_capable"};
 constexpr auto JKEY_SOBJ_DIAG_SDK_PROBE_CAPABLE {"diag_sdk_probe_capable"};
 constexpr auto JKEY_SOBJ_PROBE_FLASH_CAPABLE {"probe_flash_capable"};
 constexpr auto JKEY_SOBJ_PROBE_FLASH_PROBES {"probe_flash_probes"};
+constexpr auto JKEY_SOBJ_PREPARE_STEPS {"prepare_steps"};
 constexpr auto JKEY_SOBJ_LAN_IP {"lan_ip"};
 constexpr auto JKEY_SOBJ_BOOT_ID {"boot_id"};
 
@@ -490,6 +495,9 @@ constexpr auto JVAL_ACTION_SCORBITRON_PAIRED {"scorbitronPaired"};
 constexpr auto JVAL_ACTION_SCORBITRON_UNPAIRED {"scorbitronUnpaired"};
 constexpr auto JVAL_ACTION_VPIN_TABLE_MAPPINGS_CHANGED {"vpinTableMappingsChanged"};
 constexpr auto JVAL_ACTION_LIVE_DMD {"scorbitronLiveDmd"};
+constexpr auto JVAL_ACTION_PREPARE_RUN {"scorbitronPrepareRun"};
+// A pending Prepare run: run_id (JKEY_DIAG_RUN_ID), deadline, steps
+constexpr auto JKEY_PREP_DEADLINE {"deadline"};
 
 // Live DMD signal metadata
 constexpr auto JKEY_CHN_METADATA {"metadata"};

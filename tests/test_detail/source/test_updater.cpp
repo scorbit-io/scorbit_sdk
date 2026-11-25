@@ -496,6 +496,86 @@ TEST_CASE("Updater releases the mount it holds when the update throws")
     CHECK(updater.releases == 2);
 }
 
+namespace {
+
+// Updates a scorbitd named as the real one, so the update is not refused for its path
+class ScorbitdUpdater : public TestableUpdater
+{
+public:
+    using TestableUpdater::TestableUpdater;
+
+protected:
+    boost::filesystem::path getProcessExecutablePath() const override { return "/fake/scorbitd"; }
+};
+
+nlohmann::json scorbitdTrack(const std::string &version, const std::string &platform)
+{
+    return {{"id", "lab"},
+            {"scorbitd",
+             {{"version", version},
+              {"assets_json",
+               {{{"name", "scorbitd-" + version + "-" + platform + ".tgz"},
+                 {"download_url", "https://example.com/scorbitd.tgz"},
+                 {"content_type", "application/gzip"},
+                 {"size", 10}}}}}}};
+}
+
+} // namespace
+
+TEST_CASE("A recheck hears Updating before the scorbitd download starts")
+{
+    MockNetBase mockNet;
+    ScorbitdUpdater updater(mockNet, false, "0.8.5", "test_platform");
+
+    std::vector<std::string> order;
+    std::string detail;
+    REQUIRE_CALL(mockNet, download(false, _, "https://example.com/scorbitd.tgz", _, _))
+            .LR_SIDE_EFFECT(order.push_back("download"))
+            .TIMES(1);
+    ALLOW_CALL(mockNet, updateConfig(_, _, _, _, _));
+
+    updater.checkNewVersionAndUpdate(scorbitdTrack("0.8.6", "test_platform"), nullptr,
+                                     [&](RecheckResult result, const std::string &d) {
+                                         CHECK(result == RecheckResult::Updating);
+                                         order.push_back("updating");
+                                         detail = d;
+                                     });
+
+    CHECK(order == std::vector<std::string> {"updating", "download"});
+    CHECK(detail == "track lab running 0.8.5 offers 0.8.6");
+}
+
+TEST_CASE("A recheck hears why a track's scorbitd could not be installed")
+{
+    MockNetBase mockNet;
+    ScorbitdUpdater updater(mockNet, false, "0.8.5", "test_platform");
+    ALLOW_CALL(mockNet, updateConfig(_, _, _, _, _));
+
+    std::vector<std::pair<RecheckResult, std::string>> heard;
+    updater.checkNewVersionAndUpdate(
+            scorbitdTrack("0.8.6", "other_platform"), nullptr,
+            [&](RecheckResult result, const std::string &d) { heard.emplace_back(result, d); });
+    REQUIRE(heard.size() == 1);
+    CHECK(heard[0].first == RecheckResult::Failed);
+    CHECK(heard[0].second.find("track lab running 0.8.5 offers 0.8.6") == 0);
+    CHECK(heard[0].second.find("Couldn't find update file") != std::string::npos);
+}
+
+TEST_CASE("A recheck fails when the track offers no scorbitd")
+{
+    MockNetBase mockNet;
+    ScorbitdUpdater updater(mockNet, false, "0.8.5", "test_platform");
+    ALLOW_CALL(mockNet, updateConfig(_, _, _, _, _));
+
+    std::vector<std::pair<RecheckResult, std::string>> heard;
+    updater.checkNewVersionAndUpdate(
+            nlohmann::json {{"id", "lab"}}, nullptr,
+            [&](RecheckResult result, const std::string &d) { heard.emplace_back(result, d); });
+    REQUIRE(heard.size() == 1);
+    CHECK(heard[0].first == RecheckResult::Failed);
+    CHECK(heard[0].second == "release track offers no scorbitd");
+}
+
 TEST_CASE("Updater relies on host-based internal download auth (not device provider)")
 {
     // Real Net attaches auth to same-host downloads for SDK tarball URLs. Non-Scorbitron

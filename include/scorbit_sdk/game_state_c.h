@@ -821,6 +821,57 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
                                   void *user_data);
 
 /**
+ * @brief Internal use. Submit the result of one step of a Prepare run announced by
+ * @ref SB_EVT_PREPARE_RUN_REQUESTED.
+ *
+ * POSTs @p step_json verbatim (name, status, detail, changed, at, and facts where the step has
+ * them) to the step endpoint derived from @p run_id. Nothing is sent when @p run_id is not a UUID
+ * or @p step_json is not a JSON object; @p callback then gets @ref SB_EC_UNKNOWN with HTTP status
+ * 0.
+ *
+ * @note The SDK resends after no response, 429, 5xx, or an attempt authentication held back,
+ * backing off, until the run's deadline (or about 2 h for a run this process was not handed);
+ * @p callback gets the final answer. 2xx means accepted, and 409 a different result already
+ * recorded for the step: both are final, as is any other status.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param run_id The run id from @ref sb_event_prepare_run_requested.
+ * @param step_json The serialized step result object.
+ * @param callback Optional callback receiving the error, the HTTP status of the final attempt and
+ * the raw reply. Pass NULL if not needed.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_submit_prepare_step(sb_game_handle_t handle, const char *run_id, const char *step_json,
+                            sb_http_status_callback_t callback, void *user_data);
+
+/**
+ * @brief Internal use. Re-read the unit's release track now rather than at the next start.
+ *
+ * Re-sends the Scorbitron object, which returns the current release track, then checks that track
+ * and updates as at start. @p callback reports the outcome for the running scorbitd, once:
+ * @ref SB_RECHECK_UPDATING as soon as an update is decided on, before the binary is replaced and
+ * before @ref SB_EVT_SCORBITD_UPDATED, or when this process already installed the offered version.
+ * An update already in progress is reported as @ref SB_RECHECK_FAILED. The SDK does not wait for
+ * the game to end: check that no game is active before calling, as restarting after an update is
+ * the host's to schedule.
+ *
+ * @note @ref SB_RECHECK_UPDATING means the update was started, not that it succeeded: only
+ * @ref SB_EVT_SCORBITD_UPDATED confirms the new binary is in place, so restart only after it. An
+ * update that fails afterwards is reported by no second callback; the version the unit reports
+ * after its next start shows it.
+ * @note @p callback runs on an SDK thread; do not block in it. It runs once, or not at all if the
+ * game state is destroyed first.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ * @param callback Optional callback receiving the result and its detail. Pass NULL if not needed.
+ * @param user_data User data passed back to @p callback.
+ */
+SCORBIT_SDK_EXPORT
+void sb_recheck_release_track(sb_game_handle_t handle, sb_recheck_callback_t callback,
+                              void *user_data);
+
+/**
  * @brief Internal use. Publish @p json_data to @p channel on the device's realtime connection,
  * e.g. the live display for @ref SB_EVT_LIVE_DMD_REQUESTED.
  *

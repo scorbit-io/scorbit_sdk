@@ -354,6 +354,16 @@ void sb_config_add_probe_flash_probe(sb_config_t config, const char *probe);
 SCORBIT_SDK_EXPORT
 void sb_config_set_probe_flash_nfc_trigger(sb_config_t config, bool triggers);
 
+/**
+ * Internal use. A Prepare step the host performs itself: call once per step, before the game
+ * state is created. The SDK reports the steps to the backend and, when at least one is declared,
+ * looks for a pending Prepare run, raising @ref SB_EVT_PREPARE_RUN_REQUESTED.
+ *
+ * @param name The step name, e.g. "device_assess"; an empty name is ignored, a repeat counted once.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_add_prepare_step(sb_config_t config, const char *name);
+
 SCORBIT_SDK_EXPORT
 void sb_config_set_machine_title(sb_config_t config, const char *title);
 

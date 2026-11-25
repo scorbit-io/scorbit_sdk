@@ -737,6 +737,22 @@ public:
                                      cbPair.first, cbPair.second);
     }
 
+    /// @copydoc sb_submit_prepare_step
+    void submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                           HttpStatusCallback callback = {})
+    {
+        auto cbPair = prepareHttpStatusCallback(std::move(callback));
+        sb_submit_prepare_step(m_handle.get(), runId.c_str(), stepJson.c_str(), cbPair.first,
+                               cbPair.second);
+    }
+
+    /// @copydoc sb_recheck_release_track
+    void recheckReleaseTrack(RecheckCallback callback = {})
+    {
+        auto *userData = new RecheckCallback(std::move(callback));
+        sb_recheck_release_track(m_handle.get(), &GameState::recheck_callback_c, userData);
+    }
+
     /**
      * @brief Internal use. Publish @p jsonData to @p channel on the realtime connection; see
      * @ref sb_publish.
@@ -963,6 +979,16 @@ private:
                 m_handle.get(), logArr.empty() ? nullptr : const_cast<const char **>(logArr.data()),
                 logArr.size(), recArr.empty() ? nullptr : const_cast<const char **>(recArr.data()),
                 recArr.size(), logString.c_str(), requestGeneration);
+    }
+
+    static void recheck_callback_c(sb_recheck_result_t result, const char *detail, void *user_data)
+    {
+        auto *cb = static_cast<RecheckCallback *>(user_data);
+        if (*cb) {
+            (*cb)(static_cast<RecheckResult>(result),
+                  detail ? std::string(detail) : std::string {});
+        }
+        delete cb;
     }
 
     static void http_status_callback_c(sb_error_t error, int http_status, const char *reply,

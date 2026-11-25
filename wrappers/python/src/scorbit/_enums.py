@@ -125,6 +125,14 @@ class PublishResult(IntEnum):
     Refused = 4
 
 
+class RecheckResult(IntEnum):
+    """Internal use: how a :meth:`GameState.recheck_release_track` call ended (append-only)."""
+
+    UpToDate = 0
+    Updating = 1
+    Failed = 2
+
+
 class SwitchMachineResult(IntEnum):
     """How a :meth:`GameState.switch_machine` call ended (append-only)."""
 
@@ -210,6 +218,7 @@ class EventType(IntEnum):
     AttractDocumentReceived = 1007
     LobbyReceived = 1008
     SessionPlayersChanged = 1009
+    PrepareRunRequested = 1010
 
 
 class LogLevel(IntEnum):

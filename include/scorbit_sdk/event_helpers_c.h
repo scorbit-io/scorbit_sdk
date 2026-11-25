@@ -463,6 +463,20 @@ bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id
                                     const char **request_json);
 
 /**
+ * @brief Internal use. Helper function to process a @ref SB_EVT_PREPARE_RUN_REQUESTED event.
+ *
+ * @param [IN] event A pointer to an sb_event_t structure containing the event data.
+ * @param [OUT] run_id Receives the run id, lower case; valid only during the event callback.
+ * @param [OUT] request_json Receives the run as the server sent it: run_id, deadline (ISO 8601)
+ * and steps, a list of {name} still waiting for this unit, in run order; valid only during the
+ * event callback.
+ * @return Returns true on success, or false if the event type is wrong.
+ */
+SCORBIT_SDK_EXPORT
+bool sb_event_prepare_run_requested(const sb_event_t *event, const char **run_id,
+                                    const char **request_json);
+
+/**
  * @brief Helper function to process a @ref SB_EVT_LIVE_DMD_REQUESTED event.
  *
  * Both values are passed on as the server sent them. Publish the display to @p channel with

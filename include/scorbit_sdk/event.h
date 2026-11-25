@@ -387,6 +387,19 @@ public:
         return true;
     }
 
+    /// @copydoc sb_event_prepare_run_requested
+    bool eventPrepareRunRequested(std::string &runId, std::string &requestJson) const
+    {
+        const char *runIdCStr = nullptr;
+        const char *requestJsonCStr = nullptr;
+        if (!::sb_event_prepare_run_requested(m_event, &runIdCStr, &requestJsonCStr)) {
+            return false;
+        }
+        runId = runIdCStr ? std::string(runIdCStr) : std::string {};
+        requestJson = requestJsonCStr ? std::string(requestJsonCStr) : std::string {};
+        return true;
+    }
+
     /**
      * @brief Helper function to process a live DMD request; see @ref sb_event_live_dmd_requested.
      *

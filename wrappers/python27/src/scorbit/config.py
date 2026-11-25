@@ -487,6 +487,12 @@ class Config(object):
         _lib.sb_config_set_probe_flash_nfc_trigger(self._handle, bool(triggers))
         return self
 
+    def add_prepare_step(self, name):
+        # type: (str) -> Config
+        """Internal use: a Prepare step the host performs, e.g. "device_assess"."""
+        _lib.sb_config_add_prepare_step(self._handle, _encode(name))
+        return self
+
     def set_machine_title(self, title):
         # type: (str) -> Config
         _lib.sb_config_set_machine_title(self._handle, _encode(title))

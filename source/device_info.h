@@ -132,6 +132,8 @@ struct DeviceInfo {
     std::set<std::string> probeFlashProbes;
     /// Set by the deprecated sb_config_set_probe_flash_nfc_trigger; unused (SB-5759).
     bool probeFlashNfcTrigger {false};
+    /// Prepare steps the host performs, in declaration order; empty means it takes no Prepare run.
+    std::vector<std::string> prepareSteps;
     std::string machineTitle;
     std::string extraFingerprint;
 

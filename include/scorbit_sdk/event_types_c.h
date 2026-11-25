@@ -171,6 +171,14 @@ typedef enum {
      */
     SB_EVT_SESSION_PLAYERS_CHANGED,
 
+    /**
+     * @brief Internal use. A Prepare run is waiting for this unit's steps. Raised once per run per
+     * process, whether the run was announced or found pending at start or on a reconnect; only for
+     * a unit that declared steps with @ref sb_config_add_prepare_step. Use
+     * @ref sb_event_prepare_run_requested, then @ref sb_submit_prepare_step for each step.
+     */
+    SB_EVT_PREPARE_RUN_REQUESTED,
+
 } sb_event_type_t;
 
 typedef struct sb_event_t sb_event_t;

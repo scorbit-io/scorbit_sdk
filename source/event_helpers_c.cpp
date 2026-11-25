@@ -188,6 +188,21 @@ bool sb_event_probe_flash_requested(const sb_event_t *event, const char **run_id
     return true;
 }
 
+bool sb_event_prepare_run_requested(const sb_event_t *event, const char **run_id,
+                                    const char **request_json)
+{
+    if (!event || !run_id || !request_json) {
+        return false;
+    }
+    auto derived = dynamic_cast<const scorbit::detail::PrepareRunRequestedEvent *>(event);
+    if (!derived) {
+        return false;
+    }
+    *run_id = derived->runId().c_str();
+    *request_json = derived->requestJson().c_str();
+    return true;
+}
+
 bool sb_event_live_dmd_requested(const sb_event_t *event, const char **channel, int64_t *until)
 {
     if (!event || !channel || !until) {

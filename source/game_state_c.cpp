@@ -284,6 +284,20 @@ struct JobSubmitProbeFlashResult {
     void *user_data;
 };
 
+struct JobSubmitPrepareStep {
+    sb_game_state_struct *h;
+    std::string run_id;
+    std::string step_json;
+    sb_http_status_callback_t callback;
+    void *user_data;
+};
+
+struct JobRecheckReleaseTrack {
+    sb_game_state_struct *h;
+    sb_recheck_callback_t callback;
+    void *user_data;
+};
+
 struct JobPublish {
     sb_game_state_struct *h;
     std::string channel;
@@ -301,7 +315,8 @@ using ApiQueueItem =
                      JobSwitchMachine, JobMatchTableMapping, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
                      JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
-                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult, JobPublish>;
+                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult, JobSubmitPrepareStep,
+                     JobRecheckReleaseTrack, JobPublish>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -500,6 +515,20 @@ void dispatchApiJob(ApiQueueItem &&item)
                         j.h->gameState.submitProbeFlashResult(
                                 j.run_id, j.result_json,
                                 makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobSubmitPrepareStep &&j) {
+                        j.h->gameState.submitPrepareStep(
+                                j.run_id, j.step_json,
+                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                    },
+                    [](JobRecheckReleaseTrack &&j) {
+                        j.h->gameState.recheckReleaseTrack([cb = j.callback, ud = j.user_data](
+                                                                   RecheckResult result,
+                                                                   const std::string &detail) {
+                            if (cb) {
+                                cb(static_cast<sb_recheck_result_t>(result), detail.c_str(), ud);
+                            }
+                        });
                     },
                     [](JobPublish &&j) {
                         j.h->gameState.publish(
@@ -943,6 +972,19 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
 {
     handle->postApiJob(JobSubmitProbeFlashResult {handle, copyCStr(run_id), copyCStr(result_json),
                                                   callback, user_data});
+}
+
+void sb_submit_prepare_step(sb_game_handle_t handle, const char *run_id, const char *step_json,
+                            sb_http_status_callback_t callback, void *user_data)
+{
+    handle->postApiJob(JobSubmitPrepareStep {handle, copyCStr(run_id), copyCStr(step_json),
+                                             callback, user_data});
+}
+
+void sb_recheck_release_track(sb_game_handle_t handle, sb_recheck_callback_t callback,
+                              void *user_data)
+{
+    handle->postApiJob(JobRecheckReleaseTrack {handle, callback, user_data});
 }
 
 void sb_publish(sb_game_handle_t handle, const char *channel, const char *json_data,

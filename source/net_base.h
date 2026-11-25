@@ -242,6 +242,25 @@ public:
         }
     }
 
+    /// POSTs a Prepare step result for @p runId until final; see sb_submit_prepare_step.
+    virtual void submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                                   HttpStatusCallback callback = {})
+    {
+        (void)runId;
+        (void)stepJson;
+        if (callback) {
+            callback(Error::Unknown, 0, "unsupported");
+        }
+    }
+
+    /// Re-reads the release track and updates; see sb_recheck_release_track.
+    virtual void recheckReleaseTrack(RecheckCallback callback = {})
+    {
+        if (callback) {
+            callback(RecheckResult::Failed, "unsupported");
+        }
+    }
+
     // ---- Achievements (contract v1, §10) --------------------------------------------
 
     /** `GET achievements/scorbitron/`, revalidated with `If-None-Match: @p etag` when not empty. */

@@ -156,6 +156,9 @@ struct NetTestAccess {
     static void onProbeFlashOpenReply(Net &net, Error error, int httpStatus,
                                       const std::string &body);
     static void markProbeFlashRunSeen(Net &net, const std::string &runId);
+    static void requestPreparePending(Net &net, bool startup);
+    static void checkReleaseTrackReply(Net &net, Error error, const std::string &reply,
+                                       RecheckCallback report);
     static void markKnownNfcRunsSeen(Net &net);
     static void setNfcFlashable(Net &net, bool flashable);
     static bool nfcFlashIdle(Net &net);
@@ -495,6 +498,9 @@ public:
     void matchTableMapping(TableMatchRequestData request, TableMatchCallback callback) override;
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback = {}) override;
+    void submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                           HttpStatusCallback callback = {}) override;
+    void recheckReleaseTrack(RecheckCallback callback = {}) override;
 
     void fetchAchievementDefinitions(std::string etag, ApiReplyCallback callback) override;
     void fetchAchievementProgress(std::string userId, ApiReplyCallback callback) override;
@@ -587,8 +593,10 @@ private:
     // The post-authentication startup requests, as tasks, so they can be queued on one strand
     // instead of racing each other. The two that depend on device capability or provider return
     // an empty task when they do not apply.
-    task_t createSendScorbitronObjectTask();
-    task_t createRequestReleaseTrackInfoTask();
+    /// @p after, when given, hears whether the PATCH succeeded, after its reply is applied.
+    task_t createSendScorbitronObjectTask(
+            std::function<void(bool sent, const std::string &reply)> after = {});
+    task_t createRequestReleaseTrackInfoTask(RecheckCallback report = {});
     task_t createGetConfigTask();
     task_t createRequestFirmwaresListTask();
     task_t createNfcNoncesTask();
@@ -874,13 +882,28 @@ private:
     void handleControlScorbitron(const nlohmann::json &message);
 
     // probe_flash (SB-5764): the router, and the result POSTs it and the host make
+    // Also carries Prepare step results, which share the resend queue and its timer
     struct PendingProbeFlashResult {
         std::string runId;
         std::string body;
         int failures {0};
         std::chrono::steady_clock::time_point due;
         HttpStatusCallback callback;
+        const char *path {URL_DIAGNOSTICS_PROBE_FLASH_RESULT_PATH};
+        /// Resent until then rather than for a fixed number of attempts, when set
+        std::optional<std::chrono::steady_clock::time_point> giveUpAt {};
+        bool prepareStep {false}; ///< For the logs: a Prepare step result, not a probe flash one
     };
+    /// Asks for this unit's pending Prepare run, if it declared steps.
+    void requestPreparePending(bool startup);
+    void onPreparePendingReply(Error error, int httpStatus, const std::string &body);
+    /// The steady-clock time a step result for @p runId is resent until; nullopt if unknown.
+    std::optional<std::chrono::steady_clock::time_point> prepareGiveUpAt(const std::string &runId);
+    /// After the Scorbitron PATCH of a recheck: the release track check, answering @p report.
+    void recheckTrackAfterPatch(bool patched, const std::string &reply, RecheckCallback report);
+    /// A release track reply, checked and updated from as at start; @p report (if any) answered.
+    void checkReleaseTrackReply(Error error, const std::string &reply,
+                                const RecheckCallback &report);
     /// The probes the API may send probe_flash for: the host's, plus NFC when the SDK runs it.
     std::vector<std::string> probeFlashProbes() const;
     void handleProbeFlash(const nlohmann::json &payload);
@@ -952,6 +975,18 @@ protected:
     /// One GET of the unit's open, unstarted probe flash run, while paired; on the startup queue
     /// when @p startup, so after the scorbitron PATCH. Virtual so tests capture it.
     virtual void getProbeFlashOpen(HttpStatusCallback callback, bool startup);
+
+    /// One GET of the unit's pending Prepare run, paired or not; on the startup queue when
+    /// @p startup, so after the scorbitron PATCH. Virtual so tests capture it.
+    virtual void getPreparePending(HttpStatusCallback callback, bool startup);
+
+    /// The recheck's Scorbitron PATCH then, given whether it was sent, @p after. Virtual so tests
+    /// capture it.
+    virtual void
+    sendScorbitronObjectThen(std::function<void(bool sent, const std::string &reply)> after);
+    /// The release track GET, its reply checked as at start and reported to @p report. Virtual so
+    /// tests capture it.
+    virtual void requestReleaseTrackFor(RecheckCallback report);
 
 private:
     // Halves of the result POST, split so NetTestAccess can run them over a scripted transport.
@@ -1151,6 +1186,10 @@ private:
     // Same bounded dedupe for probe_flash run_ids.
     RecentIds m_seenProbeFlashRunIds {10};
     std::mutex m_seenProbeFlashRunIdsMutex;
+    // Prepare runs handed to the host: each once per process, and each run's resend limit
+    std::mutex m_prepareMutex;
+    RecentIds m_seenPrepareRunIds {10};
+    std::deque<std::pair<std::string, std::chrono::steady_clock::time_point>> m_prepareGiveUpAt;
     /// Guards the two below. In memory only: a restart forgets a running flash.
     std::mutex m_probeFlashMutex;
     std::optional<std::string> m_probeFlashRunId; ///< The flash running on the unit, if any
