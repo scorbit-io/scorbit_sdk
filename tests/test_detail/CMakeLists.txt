@@ -196,6 +196,7 @@ target_sources(
         source/test_boot_id.cpp
         source/test_probe_firmware.cpp
         source/test_probe_flash.cpp
+        source/test_prepare_run.cpp
         ../../source/http_session_pool.h
         ../../source/http_session_pool.cpp
         source/test_http_session_pool.cpp

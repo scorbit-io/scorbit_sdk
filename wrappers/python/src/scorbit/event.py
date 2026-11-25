@@ -411,6 +411,20 @@ class Event(object):
             return vals[0], vals[1]
         return None
 
+    def get_prepare_run_requested(self):
+        # type: () -> tuple[str, str] | None
+        """Internal use: ``(run_id, request_json)`` from a ``PrepareRunRequested`` event."""
+        run_id = c_char_p()
+        request = c_char_p()
+        if _lib.sb_event_prepare_run_requested(self._ptr, byref(run_id), byref(request)):
+            vals = []
+            for raw in (run_id.value, request.value):
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", errors="replace")
+                vals.append(raw or "")
+            return vals[0], vals[1]
+        return None
+
     def get_live_dmd_requested(self):
         # type: () -> tuple[str, int] | None
         """Extract ``(channel, until)`` from a ``LiveDmdRequested`` event.

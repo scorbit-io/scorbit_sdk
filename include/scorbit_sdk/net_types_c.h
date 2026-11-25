@@ -229,6 +229,26 @@ typedef enum {
 typedef void (*sb_publish_callback_t)(sb_publish_result_t result, int code, void *user_data);
 
 /**
+ * @brief Internal use. Outcome of @ref sb_recheck_release_track, for the running scorbitd.
+ */
+typedef enum {
+    SB_RECHECK_UP_TO_DATE = 0, ///< The release track offers the running version.
+    SB_RECHECK_UPDATING = 1,   ///< An update to the offered version starts, or awaits a restart.
+    SB_RECHECK_FAILED = 2,     ///< The track could not be read or acted on; see detail.
+} sb_recheck_result_t;
+
+/**
+ * Release track recheck callback.
+ *
+ * - **result**: The outcome; see @ref sb_recheck_result_t.
+ * - **detail**: "track <id> running <version> offers <version>" for an up-to-date or updating
+ *   result, else why it failed.
+ * - **user_data**: The user data passed to @ref sb_recheck_release_track.
+ */
+typedef void (*sb_recheck_callback_t)(sb_recheck_result_t result, const char *detail,
+                                      void *user_data);
+
+/**
  * Save key callback function type.
  *
  * Called by the SDK to persist a key. The implementation should save the key

@@ -52,6 +52,7 @@ enum class EventType {
     AttractDocumentReceived = SB_EVT_ATTRACT_DOCUMENT_RECEIVED,
     LobbyReceived = SB_EVT_LOBBY_RECEIVED,
     SessionPlayersChanged = SB_EVT_SESSION_PLAYERS_CHANGED,
+    PrepareRunRequested = SB_EVT_PREPARE_RUN_REQUESTED,
 };
 
 } // namespace scorbit

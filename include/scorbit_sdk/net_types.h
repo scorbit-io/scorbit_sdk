@@ -115,6 +115,16 @@ constexpr auto PUBLISH_MAX_BYTES = SB_PUBLISH_MAX_BYTES;
 /// Receives the outcome of a publish; @p code is the server's error code when refused, else 0.
 using PublishCallback = std::function<void(PublishResult result, int code)>;
 
+/// @copydoc sb_recheck_result_t
+enum class RecheckResult {
+    UpToDate = SB_RECHECK_UP_TO_DATE,
+    Updating = SB_RECHECK_UPDATING,
+    Failed = SB_RECHECK_FAILED,
+};
+
+/// Receives the outcome of a release track recheck; see @ref sb_recheck_callback_t.
+using RecheckCallback = std::function<void(RecheckResult result, const std::string &detail)>;
+
 /// HTTP header list for download functions.
 using HttpHeaders = std::vector<std::pair<std::string, std::string>>;
 

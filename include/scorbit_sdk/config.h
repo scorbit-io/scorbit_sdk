@@ -406,6 +406,13 @@ public:
         return *this;
     }
 
+    /// @copydoc sb_config_add_prepare_step
+    Config &addPrepareStep(const std::string &name)
+    {
+        sb_config_add_prepare_step(m_handle.get(), name.c_str());
+        return *this;
+    }
+
     Config &setMachineTitle(const std::string &title)
     {
         sb_config_set_machine_title(m_handle.get(), title.c_str());

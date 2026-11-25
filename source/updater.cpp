@@ -101,10 +101,15 @@ bool Updater::remountReadOnly(const std::string &mountPoint) const
 }
 
 void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
-                                       std::shared_ptr<EventManager> eventManager)
+                                       std::shared_ptr<EventManager> eventManager,
+                                       const RecheckCallback &recheck)
 {
-    if (m_updateInProgress)
+    if (m_updateInProgress) {
+        if (recheck) {
+            recheck(RecheckResult::Failed, "update in progress");
+        }
         return;
+    }
 
     m_updateInProgress = true;
     // Cleared on a throw too, or no later release track reply would update
@@ -142,11 +147,24 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
     if (const auto it = json.find("scorbitd"); it != json.end() && it->is_object()) {
         const auto urlInfo = parseUrls(*it);
         const BinaryInfo binaryInfo {getProcessExecutablePath(), std::regex {SCORBITD_PATTERN}};
+        const auto idIt = json.find("id");
+        const auto track = idIt == json.end() ? std::string {"?"}
+                         : idIt->is_string()  ? idIt->get<std::string>()
+                                              : idIt->dump();
+        const auto detail = fmt::format("track {} running {} offers {}", track, m_scorbitdVersion,
+                                        urlInfo.version);
 
         if (isInstalledThisSession(urlInfo.version, m_scorbitdInstalledVersion)) {
             DBG("Updater: scorbitd {} is installed, waiting for a restart", urlInfo.version);
+            if (recheck) {
+                recheck(RecheckResult::Updating, detail);
+            }
         } else if (canUpdateScorbitd(urlInfo, binaryInfo)) {
             INF("Updater: trying to update Scorbitd to version: {}", urlInfo.version);
+            // Before the replacement, which may end in a restart the host schedules
+            if (recheck) {
+                recheck(RecheckResult::Updating, detail);
+            }
             success = tryToRemountAndUpdate(urlInfo, binaryInfo);
 
             if (success) {
@@ -156,6 +174,11 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
                 eventManager->push(std::make_shared<ScorbitdUpdatedEvent>(
                         urlInfo.version, binaryInfo.path.string()));
             }
+        } else if (recheck && !m_scorbitdVersion.empty() && urlInfo.version == m_scorbitdVersion) {
+            recheck(RecheckResult::UpToDate, detail);
+        } else if (recheck) {
+            recheck(RecheckResult::Failed,
+                    m_feedback.empty() ? detail : fmt::format("{}: {}", detail, m_feedback));
         }
 
         if (!m_feedback.empty() || success) {
@@ -163,6 +186,8 @@ void Updater::checkNewVersionAndUpdate(const nlohmann::json &json,
             logs.append(fmt::format("----- scorbitd ----- {:%Y-%m-%d %H:%M:%S}\n\n{}", timestamp,
                                     m_feedback));
         }
+    } else if (recheck) {
+        recheck(RecheckResult::Failed, "release track offers no scorbitd");
     }
 
     if (!logs.empty()) {

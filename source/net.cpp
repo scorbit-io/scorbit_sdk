@@ -2175,6 +2175,100 @@ void Net::onProbeFlashOpenReply(Error error, int httpStatus, const std::string &
     handleProbeFlash(*payload);
 }
 
+void Net::requestPreparePending(bool startup)
+{
+    // A unit that declared no steps takes no run: the API skips its device steps
+    if (m_stop || m_deviceInfo.prepareSteps.empty()) {
+        return;
+    }
+    getPreparePending(
+            [this](Error error, int httpStatus, const std::string &body) {
+                onPreparePendingReply(error, httpStatus, body);
+            },
+            startup);
+}
+
+void Net::getPreparePending(HttpStatusCallback callback, bool startup)
+{
+    auto task = createHttpRequestTask(
+            REST_GET, std::move(callback),
+            [this] {
+                return make_tuple(url(URL_DIAGNOSTICS_PREPARE_PENDING_PATH), cpr::Parameters {});
+            },
+            [this](const cpr::Url &url, const cpr::Parameters &params, const cpr::Header &header,
+                   const cpr::Timeout &timeout, bool /*resilient*/) {
+                return HttpSessionPool::instance().Get(url, params, header, timeout, sslOptions());
+            },
+            // An unpaired unit is prepared too
+            {AuthStatus::AuthenticatedUnpaired, AuthStatus::AuthenticatedPaired}, false, false,
+            true,
+            false); // no retry after no response: the next push or reconnect asks again
+    if (startup) {
+        m_worker.postStartupQueue(std::move(task));
+    } else {
+        m_worker.post(std::move(task));
+    }
+}
+
+void Net::onPreparePendingReply(Error error, int httpStatus, const std::string &body)
+{
+    // 204 is no run waiting; a failure is silent, the next push or reconnect asks again
+    if (m_stop || error != Error::Success || httpStatus != 200) {
+        DBG("DIAG: pending Prepare run: none (HTTP {})", httpStatus);
+        return;
+    }
+    const auto run = json::parse(body, nullptr, false);
+    const auto runIdIt = run.is_object() ? run.find(JKEY_DIAG_RUN_ID) : run.end();
+    if (!run.is_object() || runIdIt == run.end() || !runIdIt->is_string()
+        || !isUuid(runIdIt->get_ref<const std::string &>())) {
+        WRN("DIAG: pending Prepare run: malformed reply, ignored");
+        return;
+    }
+    const auto runId = toLowerAscii(runIdIt->get<std::string>());
+    // A run's step results are resent until its deadline, at most a day off so a skewed clock
+    // can't keep them going
+    const auto deadlineIt = run.find(JKEY_PREP_DEADLINE);
+    const auto deadline =
+            deadlineIt != run.end() && deadlineIt->is_string()
+                    ? parseProbeFlashDeadline(deadlineIt->get_ref<const std::string &>())
+                    : std::nullopt;
+    {
+        std::lock_guard<std::mutex> lock(m_prepareMutex);
+        // The API answers with the same run until its steps are final: the host hears it once
+        if (!m_seenPrepareRunIds.insert(runId)) {
+            DBG("DIAG: pending Prepare run_id={} already handed over", runId);
+            return;
+        }
+        if (deadline) {
+            const auto left = std::clamp<std::chrono::system_clock::duration>(
+                    *deadline - std::chrono::system_clock::now(),
+                    std::chrono::system_clock::duration::zero(), PROBE_FLASH_DEADLINE_HORIZON);
+            constexpr size_t KEPT = 10; // as the seen set
+            m_prepareGiveUpAt.emplace_back(
+                    runId,
+                    std::chrono::steady_clock::now()
+                            + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                    left));
+            while (m_prepareGiveUpAt.size() > KEPT) {
+                m_prepareGiveUpAt.pop_front();
+            }
+        }
+    }
+    INF("DIAG: Prepare run requested run_id={}", runId);
+    m_eventManager->push(std::make_shared<PrepareRunRequestedEvent>(runId, body));
+}
+
+std::optional<std::chrono::steady_clock::time_point> Net::prepareGiveUpAt(const std::string &runId)
+{
+    std::lock_guard<std::mutex> lock(m_prepareMutex);
+    for (const auto &[id, giveUpAt] : m_prepareGiveUpAt) {
+        if (id == runId) {
+            return giveUpAt;
+        }
+    }
+    return std::nullopt;
+}
+
 namespace {
 
 // As scorbitd's probe flash: a flash waits until the unit has seen no game for this long.
@@ -2559,6 +2653,28 @@ void Net::submitProbeFlashResult(const std::string &runId, const std::string &re
     sendProbeFlashResult(run, result, std::move(callback));
 }
 
+void Net::submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                            HttpStatusCallback callback)
+{
+    const auto step = json::parse(stepJson, nullptr, false);
+    if (!isUuid(runId) || step.is_discarded() || !step.is_object()) {
+        WRN("DIAG: Prepare step not sent: invalid run_id or step JSON");
+        if (callback) {
+            callback(Error::Unknown, 0, "invalid run_id or step_json");
+        }
+        return;
+    }
+    const auto run = toLowerAscii(runId);
+    const auto now = std::chrono::steady_clock::now();
+    const auto giveUpAt = prepareGiveUpAt(run); // before the queue's lock: never both held
+    {
+        std::lock_guard<std::mutex> lock(m_probeFlashMutex);
+        m_probeFlashResults.push_back({run, step.dump(), 0, now, std::move(callback),
+                                       URL_DIAGNOSTICS_PREPARE_STEPS_PATH, giveUpAt, true});
+    }
+    resendDueProbeFlashResults(now);
+}
+
 void Net::sendProbeFlashResult(const std::string &runId, const nlohmann::json &result,
                                HttpStatusCallback callback)
 {
@@ -2585,7 +2701,8 @@ void Net::resendDueProbeFlashResults(std::chrono::steady_clock::time_point now)
     for (auto &pending : due) {
         auto body = pending.body;
         const auto runId = pending.runId;
-        postProbeFlash(URL_DIAGNOSTICS_PROBE_FLASH_RESULT_PATH, runId, std::move(body),
+        const auto *path = pending.path;
+        postProbeFlash(path, runId, std::move(body),
                        [this, pending = std::move(pending)](Error error, int httpStatus,
                                                             const std::string &reply) mutable {
                            probeFlashResultAnswered(std::move(pending), error, httpStatus, reply);
@@ -2597,17 +2714,20 @@ void Net::probeFlashResultAnswered(PendingProbeFlashResult pending, Error error,
                                    const std::string &reply)
 {
     constexpr int MAX_ATTEMPTS = 30; // about 2 h at the 5 min cap
+    const auto *what = pending.prepareStep ? "Prepare step" : "probe flash result";
     ++pending.failures;
+    const auto wait = probeFlashResultBackoff(pending.failures);
+    // A run's deadline, when known, bounds the resends instead of the attempt count
+    const bool outOfTime = pending.giveUpAt
+                                 ? std::chrono::steady_clock::now() + wait > *pending.giveUpAt
+                                 : pending.failures >= MAX_ATTEMPTS;
     // Stopping ends retries too: a timer armed after the worker cancelled its timers would hold
     // the shutdown until it fired.
-    if (!isProbeFlashResultRetryable(error, httpStatus) || pending.failures >= MAX_ATTEMPTS
-        || m_stop) {
+    if (!isProbeFlashResultRetryable(error, httpStatus) || outOfTime || m_stop) {
         if (error == Error::Success) {
-            INF("API probe flash result: ok, run_id={}, http status: {}", pending.runId,
-                httpStatus);
+            INF("API {}: ok, run_id={}, http status: {}", what, pending.runId, httpStatus);
         } else {
-            WRN("API probe flash result: final failure, run_id={}, http status: {}, attempts: {}, "
-                "reply: {}",
+            WRN("API {}: final failure, run_id={}, http status: {}, attempts: {}, reply: {}", what,
                 pending.runId, httpStatus, pending.failures, reply);
         }
         if (pending.callback) {
@@ -2616,9 +2736,8 @@ void Net::probeFlashResultAnswered(PendingProbeFlashResult pending, Error error,
         return;
     }
 
-    const auto wait = probeFlashResultBackoff(pending.failures);
-    WRN("API probe flash result: run_id={}, http status: {}, resending in {}s", pending.runId,
-        httpStatus, wait.count());
+    WRN("API {}: run_id={}, http status: {}, resending in {}s", what, pending.runId, httpStatus,
+        wait.count());
     {
         // Checked again under the lock: shutdown may have begun since the check above, and once
         // the destructor has passed its barrier nothing may be queued or armed any more.
@@ -2630,7 +2749,7 @@ void Net::probeFlashResultAnswered(PendingProbeFlashResult pending, Error error,
             return;
         }
     }
-    WRN("API probe flash result: run_id={} not resent, the SDK is stopping", pending.runId);
+    WRN("API {}: run_id={} not resent, the SDK is stopping", what, pending.runId);
     if (pending.callback) {
         pending.callback(error, httpStatus, reply);
     }
@@ -2645,7 +2764,8 @@ void Net::finishPendingProbeFlashResults()
         m_probeFlashRetryAt.reset();
     }
     for (auto &result : pending) {
-        WRN("API probe flash result: run_id={} not sent, the SDK is stopping", result.runId);
+        WRN("API {}: run_id={} not sent, the SDK is stopping",
+            result.prepareStep ? "Prepare step" : "probe flash result", result.runId);
         if (result.callback) {
             result.callback(Error::ApiError, 0, "SDK stopping");
         }
@@ -2679,7 +2799,7 @@ void Net::postProbeFlash(const char *pathTemplate, const std::string &runId, std
                                         [this, pathTemplate, runId, body = std::move(body)]() {
                                             const auto endpoint =
                                                     url(pathTemplate, fmt::arg(ARG_RUN_ID, runId));
-                                            INF("API sending probe flash {}: run_id={}, {} bytes",
+                                            INF("API sending {}: run_id={}, {} bytes",
                                                 endpoint.str(), runId, body.size());
                                             return std::make_tuple(endpoint, cpr::Body {body});
                                         },
@@ -4141,6 +4261,7 @@ void Net::initializeConnectionState()
     m_worker.postStartupQueue(createSendScorbitronObjectTask());
     // After the PATCH, so the api answers from this unit's current probes and versions
     requestOpenProbeFlash(true);
+    requestPreparePending(true);
     m_worker.postStartupQueue(createRequestReleaseTrackInfoTask());
     m_worker.postStartupQueue(createGetConfigTask()); // Get template
     if (auto task = createRequestFirmwaresListTask()) {
@@ -4203,6 +4324,8 @@ void Net::initScorbitronObject()
     const auto flashProbes = probeFlashProbes();
     m_scorbitronObject[JKEY_SOBJ_PROBE_FLASH_CAPABLE] = !flashProbes.empty();
     m_scorbitronObject[JKEY_SOBJ_PROBE_FLASH_PROBES] = flashProbes;
+    // The Prepare steps the host performs; empty tells the API it takes no Prepare run
+    m_scorbitronObject[JKEY_SOBJ_PREPARE_STEPS] = m_deviceInfo.prepareSteps;
 
     if (const auto lanIp = getPrimaryLanIp(); !lanIp.empty()) {
         m_scorbitronObject[JKEY_SOBJ_LAN_IP] = lanIp;
@@ -4221,10 +4344,11 @@ std::string Net::scorbitronObjectBody() const
     return m_scorbitronObject.dump();
 }
 
-task_t Net::createSendScorbitronObjectTask()
+task_t
+Net::createSendScorbitronObjectTask(std::function<void(bool sent, const std::string &reply)> after)
 {
     return createPatchRequestTask(
-            [this, gen = machineGen()](Error error, std::string reply) {
+            [this, gen = machineGen(), after = std::move(after)](Error error, std::string reply) {
                 if (error == Error::Success) {
                     INF("API initial Scorbitron object sent: ok, {}", reply);
                 } else {
@@ -4234,6 +4358,9 @@ task_t Net::createSendScorbitronObjectTask()
                 }
                 scorbitronObjectSendDone(error == Error::Success);
                 parseScorbitronObject(error, reply, gen);
+                if (after) {
+                    after(error == Error::Success, reply);
+                }
             },
             [this]() {
                 auto body = scorbitronObjectBody();
@@ -4254,22 +4381,95 @@ void Net::requestReleaseTrackInfo()
     m_worker.post(createRequestReleaseTrackInfoTask());
 }
 
-task_t Net::createRequestReleaseTrackInfoTask()
+void Net::recheckReleaseTrack(RecheckCallback callback)
 {
-    auto callback = [this](Error error, std::string reply) {
-        if (error == Error::Success) {
-            INF("API get release track info: ok, {}", reply);
-            try {
-                json j = json::parse(reply);
-                m_updater.checkNewVersionAndUpdate(j, m_eventManager);
-            } catch (const std::exception &e) {
-                ERR("API error parsing release track info reply: {}", e.what());
+    // Exactly one answer, whichever step gives it
+    auto answered = std::make_shared<std::atomic_bool>(false);
+    RecheckCallback report = [answered, callback = std::move(callback)](RecheckResult result,
+                                                                        const std::string &detail) {
+        if (!answered->exchange(true)) {
+            INF("API release track recheck: {} ({})", static_cast<int>(result), detail);
+            if (callback) {
+                callback(result, detail);
             }
-            // m_eventManager->push(std::make_shared<ScorbitdUpdateReceivedEvent>(reply));
-        } else {
-            ERR("API get release track info: failed, error code: {}, reply: {}",
-                static_cast<int>(error), reply);
         }
+    };
+    if (m_stop) {
+        report(RecheckResult::Failed, "SDK stopping");
+        return;
+    }
+    INF("API release track recheck requested");
+    // The PATCH's reply carries the current release track url
+    sendScorbitronObjectThen([this, report](bool sent, const std::string &reply) {
+        recheckTrackAfterPatch(sent, reply, report);
+    });
+}
+
+void Net::sendScorbitronObjectThen(std::function<void(bool sent, const std::string &reply)> after)
+{
+    ++m_scorbitronObjectSends; // observed by tests only
+    m_worker.postStartupQueue(createSendScorbitronObjectTask(std::move(after)));
+}
+
+void Net::recheckTrackAfterPatch(bool patched, const std::string &reply, RecheckCallback report)
+{
+    if (!patched) {
+        report(RecheckResult::Failed, "Scorbitron object not sent");
+        return;
+    }
+    // From this reply only: a url kept from an earlier one may name a track the unit has left
+    const auto object = json::parse(reply, nullptr, false);
+    std::string url;
+    if (object.is_object()) {
+        if (const auto track = object.find(JKEY_SOBJ_RELEASE_TRACK);
+            track != object.end() && track->is_object()) {
+            if (const auto it = track->find(JKEY_SOBJ_RELEASE_URL);
+                it != track->end() && it->is_string()) {
+                url = it->get<std::string>();
+            }
+        }
+    }
+    if (url.empty()) {
+        report(RecheckResult::Failed, "no release track");
+        return;
+    }
+    requestReleaseTrackFor(std::move(report));
+}
+
+void Net::requestReleaseTrackFor(RecheckCallback report)
+{
+    m_worker.postStartupQueue(createRequestReleaseTrackInfoTask(std::move(report)));
+}
+
+void Net::checkReleaseTrackReply(Error error, const std::string &reply,
+                                 const RecheckCallback &report)
+{
+    if (error == Error::Success) {
+        INF("API get release track info: ok, {}", reply);
+        try {
+            json j = json::parse(reply);
+            m_updater.checkNewVersionAndUpdate(j, m_eventManager, report);
+        } catch (const std::exception &e) {
+            ERR("API error parsing release track info reply: {}", e.what());
+        }
+        // m_eventManager->push(std::make_shared<ScorbitdUpdateReceivedEvent>(reply));
+    } else {
+        ERR("API get release track info: failed, error code: {}, reply: {}",
+            static_cast<int>(error), reply);
+    }
+    // Answers only a report not answered above
+    if (report) {
+        report(RecheckResult::Failed,
+               error == Error::Success
+                       ? "release track reply not understood"
+                       : fmt::format("release track not read, error {}", static_cast<int>(error)));
+    }
+}
+
+task_t Net::createRequestReleaseTrackInfoTask(RecheckCallback report)
+{
+    auto callback = [this, report = std::move(report)](Error error, std::string reply) {
+        checkReleaseTrackReply(error, reply, report);
     };
 
     return createGetRequestTask(
@@ -5924,6 +6124,17 @@ void NetTestAccess::markProbeFlashRunSeen(Net &net, const std::string &runId)
     net.markProbeFlashRunSeen(runId);
 }
 
+void NetTestAccess::requestPreparePending(Net &net, bool startup)
+{
+    net.requestPreparePending(startup);
+}
+
+void NetTestAccess::checkReleaseTrackReply(Net &net, Error error, const std::string &reply,
+                                           RecheckCallback report)
+{
+    net.checkReleaseTrackReply(error, reply, report);
+}
+
 void NetTestAccess::markKnownNfcRunsSeen(Net &net)
 {
     net.markKnownNfcRunsSeen();
@@ -6876,6 +7087,7 @@ void Net::centrifugoSetup(bool fetchFreshToken)
         requestCreditsStatusIfReady();
         // A probe_flash pushed while the channel was down is otherwise lost (SB-6154 contract)
         requestOpenProbeFlash(false);
+        requestPreparePending(false); // likewise a Prepare run's push
     }));
 
     m_centrifugo->onDisconnected(withActiveClient([this, withActiveClient](
@@ -7071,6 +7283,10 @@ void Net::handleControlScorbitron(const nlohmann::json &j)
     } else if (method == JVAL_METHOD_GET && name == JVAL_ACTION_CONFIG_REFRESH) {
         INF("API-CF Config refresh requested via control channel");
         getConfig();
+    } else if (method == JVAL_METHOD_SIGNAL && name == JVAL_ACTION_PREPARE_RUN) {
+        // Only a nudge: the run itself comes from the pending GET
+        INF("API-CF Prepare run signal received");
+        requestPreparePending(false);
     }
 }
 

@@ -255,6 +255,26 @@ private:
     std::string m_requestJson;
 };
 
+// ---------------- PrepareRunRequested implementation ----------------
+
+class PrepareRunRequestedEvent : public EventBase
+{
+public:
+    PrepareRunRequestedEvent(std::string runId, std::string requestJson)
+        : EventBase(EventType::PrepareRunRequested, EventPriority::Normal)
+        , m_runId {std::move(runId)}
+        , m_requestJson {std::move(requestJson)}
+    {
+    }
+
+    auto runId() const -> const std::string & { return m_runId; }
+    auto requestJson() const -> const std::string & { return m_requestJson; }
+
+private:
+    std::string m_runId;
+    std::string m_requestJson;
+};
+
 // ---------------- PlayersUpdated implementation ----------------
 
 class PlayersUpdatedEvent : public EventBase

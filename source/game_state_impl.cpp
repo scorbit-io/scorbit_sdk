@@ -541,6 +541,17 @@ void GameStateImpl::submitProbeFlashResult(const std::string &runId, const std::
     m_net->submitProbeFlashResult(runId, resultJson, std::move(callback));
 }
 
+void GameStateImpl::submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                                      HttpStatusCallback callback)
+{
+    m_net->submitPrepareStep(runId, stepJson, std::move(callback));
+}
+
+void GameStateImpl::recheckReleaseTrack(RecheckCallback callback)
+{
+    m_net->recheckReleaseTrack(std::move(callback));
+}
+
 void GameStateImpl::addNewPlayer(sb_player_t player)
 {
     if (m_data.players.count(player) != 0) {

@@ -34,6 +34,7 @@ from ._bindings import (
     sb_http_status_callback_t,
     sb_leaderboard_callback_t,
     sb_publish_callback_t,
+    sb_recheck_callback_t,
     sb_switch_machine_callback_t,
     sb_string_callback_t,
     sb_table_match_callback_t,
@@ -45,6 +46,7 @@ from ._enums import (
     LeaderboardPeriod,
     LeaderboardScope,
     PublishResult,
+    RecheckResult,
     SwitchMachineResult,
     TableMappingsResult,
     TableMatchResult,
@@ -985,6 +987,42 @@ class GameState(object):
         _lib.sb_submit_probe_flash_result(
             self._handle, _encode(run_id), _encode(result_json), cb, None
         )
+
+    def submit_prepare_step(self, run_id, step_json, callback=None):
+        # type: (str, str, ...) -> None
+        """Internal use: POST a Prepare step result, resent until the run's deadline.
+
+        2xx and 409 are final; see ``sb_submit_prepare_step``.
+        """
+        cb = self._make_http_status_cb(callback) if callback else sb_http_status_callback_t()
+        _lib.sb_submit_prepare_step(self._handle, _encode(run_id), _encode(step_json), cb, None)
+
+    def recheck_release_track(self, callback=None):
+        # type: (...) -> None
+        """Internal use: re-read the release track now and update from it.
+
+        Args:
+            callback: Optional ``(result: RecheckResult, detail: str) -> None``, called once
+                on an SDK thread; see ``sb_recheck_release_track``.
+        """
+        if callback is None:
+            _lib.sb_recheck_release_track(self._handle, sb_recheck_callback_t(), None)
+            return
+
+        @sb_recheck_callback_t
+        def _trampoline(result, detail, user_data):
+            if _config_mod._shutting_down:
+                return
+            try:
+                text = detail
+                if isinstance(text, bytes):
+                    text = text.decode("utf-8", errors="replace")
+                callback(RecheckResult(result), text or "")
+            except Exception:
+                traceback.print_exc()
+
+        self._async_callbacks.append(_trampoline)
+        _lib.sb_recheck_release_track(self._handle, _trampoline, None)
 
     def publish(self, channel, json_data, callback=None):
         # type: (str, str, ...) -> None

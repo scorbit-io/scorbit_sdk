@@ -241,6 +241,17 @@ void sb_config_set_probe_flash_nfc_trigger(sb_config_t config, bool triggers)
     }
 }
 
+void sb_config_add_prepare_step(sb_config_t config, const char *name)
+{
+    if (!config || !name || !*name) {
+        return;
+    }
+    // Kept in declaration order: the backend reads the list as given
+    if (std::ranges::find(config->prepareSteps, name) == config->prepareSteps.end()) {
+        config->prepareSteps.emplace_back(name);
+    }
+}
+
 void sb_config_set_machine_title(sb_config_t config, const char *title)
 {
     if (config) {

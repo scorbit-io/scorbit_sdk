@@ -95,6 +95,9 @@ sb_table_match_callback_t = CFUNCTYPE(None, c_int, sb_table_match_t, c_void_p)
 # void (*sb_publish_callback_t)(sb_publish_result_t, int code, void *user_data)
 sb_publish_callback_t = CFUNCTYPE(None, c_int, c_int, c_void_p)
 
+# void (*sb_recheck_callback_t)(sb_recheck_result_t, const char *detail, void *user_data)
+sb_recheck_callback_t = CFUNCTYPE(None, c_int, c_char_p, c_void_p)
+
 # int (*sb_signer_callback_t)(uint8_t signature[72], size_t *signature_len,
 #                              const uint8_t digest[32], void *user_data)
 sb_signer_callback_t = CFUNCTYPE(
@@ -794,6 +797,25 @@ _lib.sb_submit_probe_flash_result.restype = None
 _lib.sb_submit_probe_flash_result.argtypes = [
     sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
 ]
+
+# void sb_submit_prepare_step(sb_game_handle_t, const char*, const char*,
+#                             sb_http_status_callback_t, void*)
+_lib.sb_submit_prepare_step.restype = None
+_lib.sb_submit_prepare_step.argtypes = [
+    sb_game_handle_t, c_char_p, c_char_p, sb_http_status_callback_t, c_void_p
+]
+
+# void sb_recheck_release_track(sb_game_handle_t, sb_recheck_callback_t, void*)
+_lib.sb_recheck_release_track.restype = None
+_lib.sb_recheck_release_track.argtypes = [sb_game_handle_t, sb_recheck_callback_t, c_void_p]
+
+# void sb_config_add_prepare_step(sb_config_t, const char*)
+_lib.sb_config_add_prepare_step.restype = None
+_lib.sb_config_add_prepare_step.argtypes = [sb_config_t, c_char_p]
+
+# bool sb_event_prepare_run_requested(const sb_event_t*, const char**, const char**)
+_lib.sb_event_prepare_run_requested.restype = c_bool
+_lib.sb_event_prepare_run_requested.argtypes = [c_void_p, POINTER(c_char_p), POINTER(c_char_p)]
 
 # void sb_publish(sb_game_handle_t, const char*, const char*, sb_publish_callback_t, void*)
 _lib.sb_publish.restype = None

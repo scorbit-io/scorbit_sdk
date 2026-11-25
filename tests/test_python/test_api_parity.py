@@ -78,6 +78,10 @@ for _name in [
     "sb_submit_hardware_probe_result",
     "sb_submit_probe_flash_result",
     "sb_submit_probe_flash_stage",
+    "sb_config_add_prepare_step",
+    "sb_event_prepare_run_requested",
+    "sb_submit_prepare_step",
+    "sb_recheck_release_track",
 ]:
     EXCEPTIONS.setdefault(_name, {})["godot"] = "Scorbitron device daemon plumbing"
 

@@ -50,8 +50,11 @@ public:
     Updater(NetBase &net, bool useEncryptedKey, const std::string &scorbitdVersion,
             const std::string &scorbitdPlatformId);
 
+    /// @p recheck, when given, hears the outcome for scorbitd: Updating before the replacement.
+    /// It may be left uncalled (e.g. on a throw); the caller ensures one answer.
     void checkNewVersionAndUpdate(const nlohmann::json &json,
-                                  std::shared_ptr<EventManager> eventManager);
+                                  std::shared_ptr<EventManager> eventManager,
+                                  const RecheckCallback &recheck = {});
 
 private:
     static bool isInstalledThisSession(const std::string &version, const std::string &installed);

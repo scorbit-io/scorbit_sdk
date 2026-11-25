@@ -94,6 +94,15 @@ static MunitResult test_live_dmd_c_surface(const MunitParameter params[], void *
 
     // Appended after the last event, and the publish results keep their values.
     munit_assert_int(SB_EVT_LIVE_DMD_REQUESTED, ==, SB_EVT_PROBE_FLASH_REQUESTED + 1);
+    munit_assert_int(SB_EVT_PREPARE_RUN_REQUESTED, ==, SB_EVT_SESSION_PLAYERS_CHANGED + 1);
+    munit_assert_int(SB_RECHECK_UP_TO_DATE, ==, 0);
+    munit_assert_int(SB_RECHECK_FAILED, ==, 2);
+    sb_recheck_callback_t recheck = NULL;
+    (void)recheck;
+    (void)&sb_recheck_release_track;
+    (void)&sb_submit_prepare_step;
+    (void)&sb_config_add_prepare_step;
+    munit_assert(!sb_event_prepare_run_requested(NULL, NULL, NULL));
     munit_assert_int(SB_PUBLISH_OK, ==, 0);
     munit_assert_int(SB_PUBLISH_REFUSED, ==, 4);
     munit_assert_int(SB_PUBLISH_MAX_BYTES, ==, 48 * 1024);

@@ -152,6 +152,9 @@ public:
     void publish(const std::string &channel, const std::string &data, PublishCallback callback);
     void submitProbeFlashResult(const std::string &runId, const std::string &resultJson,
                                 HttpStatusCallback callback);
+    void submitPrepareStep(const std::string &runId, const std::string &stepJson,
+                           HttpStatusCallback callback);
+    void recheckReleaseTrack(RecheckCallback callback);
 
     achievements::AchievementService &achievements() { return *m_achievements; }
 
