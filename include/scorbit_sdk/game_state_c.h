@@ -832,7 +832,8 @@ void sb_submit_probe_flash_result(sb_game_handle_t handle, const char *run_id,
  * @note The SDK resends after no response, 429, 5xx, or an attempt authentication held back,
  * backing off, until the run's deadline (or about 2 h for a run this process was not handed);
  * @p callback gets the final answer. 2xx means accepted, and 409 a different result already
- * recorded for the step: both are final, as is any other status.
+ * recorded for the step: both are final, as is any other status. @p callback runs once, or not at
+ * all if the game state is destroyed first.
  *
  * @param handle The game handle created by @ref sb_create_game_state.
  * @param run_id The run id from @ref sb_event_prepare_run_requested.

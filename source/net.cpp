@@ -2225,33 +2225,35 @@ void Net::onPreparePendingReply(Error error, int httpStatus, const std::string &
         return;
     }
     const auto runId = toLowerAscii(runIdIt->get<std::string>());
-    // A run's step results are resent until its deadline, at most a day off so a skewed clock
-    // can't keep them going
     const auto deadlineIt = run.find(JKEY_PREP_DEADLINE);
     const auto deadline =
             deadlineIt != run.end() && deadlineIt->is_string()
                     ? parseProbeFlashDeadline(deadlineIt->get_ref<const std::string &>())
                     : std::nullopt;
+    const auto stepsIt = run.find(JKEY_PREP_STEPS);
+    const bool stepsOk =
+            stepsIt != run.end() && stepsIt->is_array()
+            && std::ranges::all_of(*stepsIt, [](const json &step) {
+                   return step.is_object() && step.contains("name") && step.at("name").is_string();
+               });
+    // Ignored, not recorded: a corrected reply for the same run is still handed over
+    if (!deadline || !stepsOk) {
+        WRN("DIAG: pending Prepare run_id={}: invalid deadline or steps, ignored", runId);
+        return;
+    }
+    // Step results are resent until the deadline, at most a day off so a skewed clock can't keep
+    // them going
+    const auto left = std::clamp<std::chrono::system_clock::duration>(
+            *deadline - std::chrono::system_clock::now(),
+            std::chrono::system_clock::duration::zero(), PROBE_FLASH_DEADLINE_HORIZON);
+    const auto giveUpAt = std::chrono::steady_clock::now()
+                        + std::chrono::duration_cast<std::chrono::steady_clock::duration>(left);
     {
         std::lock_guard<std::mutex> lock(m_prepareMutex);
         // The API answers with the same run until its steps are final: the host hears it once
-        if (!m_seenPrepareRunIds.insert(runId)) {
+        if (!m_prepareRuns.emplace(runId, giveUpAt).second) {
             DBG("DIAG: pending Prepare run_id={} already handed over", runId);
             return;
-        }
-        if (deadline) {
-            const auto left = std::clamp<std::chrono::system_clock::duration>(
-                    *deadline - std::chrono::system_clock::now(),
-                    std::chrono::system_clock::duration::zero(), PROBE_FLASH_DEADLINE_HORIZON);
-            constexpr size_t KEPT = 10; // as the seen set
-            m_prepareGiveUpAt.emplace_back(
-                    runId,
-                    std::chrono::steady_clock::now()
-                            + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                    left));
-            while (m_prepareGiveUpAt.size() > KEPT) {
-                m_prepareGiveUpAt.pop_front();
-            }
         }
     }
     INF("DIAG: Prepare run requested run_id={}", runId);
@@ -2261,10 +2263,8 @@ void Net::onPreparePendingReply(Error error, int httpStatus, const std::string &
 std::optional<std::chrono::steady_clock::time_point> Net::prepareGiveUpAt(const std::string &runId)
 {
     std::lock_guard<std::mutex> lock(m_prepareMutex);
-    for (const auto &[id, giveUpAt] : m_prepareGiveUpAt) {
-        if (id == runId) {
-            return giveUpAt;
-        }
+    if (const auto it = m_prepareRuns.find(runId); it != m_prepareRuns.end()) {
+        return it->second;
     }
     return std::nullopt;
 }
@@ -2699,6 +2699,16 @@ void Net::resendDueProbeFlashResults(std::chrono::steady_clock::time_point now)
         armProbeFlashResultRetryLocked(); // for whatever is not due yet
     }
     for (auto &pending : due) {
+        // A resend that a late timer or a busy worker held past its run's deadline is not sent:
+        // the last answer stands
+        if (pending.failures > 0 && pending.giveUpAt && now >= *pending.giveUpAt) {
+            WRN("API Prepare step: run_id={} expired before its resend, http status: {}",
+                pending.runId, pending.lastStatus);
+            if (pending.callback) {
+                pending.callback(pending.lastError, pending.lastStatus, pending.lastReply);
+            }
+            continue;
+        }
         auto body = pending.body;
         const auto runId = pending.runId;
         const auto *path = pending.path;
@@ -2744,6 +2754,9 @@ void Net::probeFlashResultAnswered(PendingProbeFlashResult pending, Error error,
         std::lock_guard<std::mutex> lock(m_probeFlashMutex);
         if (!m_stop) {
             pending.due = std::chrono::steady_clock::now() + wait;
+            pending.lastError = error;
+            pending.lastStatus = httpStatus;
+            pending.lastReply = reply;
             m_probeFlashResults.push_back(std::move(pending));
             armProbeFlashResultRetryLocked();
             return;
@@ -4433,12 +4446,13 @@ void Net::recheckTrackAfterPatch(bool patched, const std::string &reply, Recheck
         report(RecheckResult::Failed, "no release track");
         return;
     }
-    requestReleaseTrackFor(std::move(report));
+    // Read from this url, not the member: a reply cut short before it was written leaves that stale
+    requestReleaseTrackFor(std::move(url), std::move(report));
 }
 
-void Net::requestReleaseTrackFor(RecheckCallback report)
+void Net::requestReleaseTrackFor(std::string url, RecheckCallback report)
 {
-    m_worker.postStartupQueue(createRequestReleaseTrackInfoTask(std::move(report)));
+    m_worker.postStartupQueue(createRequestReleaseTrackInfoTask(std::move(report), std::move(url)));
 }
 
 void Net::checkReleaseTrackReply(Error error, const std::string &reply,
@@ -4466,22 +4480,22 @@ void Net::checkReleaseTrackReply(Error error, const std::string &reply,
     }
 }
 
-task_t Net::createRequestReleaseTrackInfoTask(RecheckCallback report)
+task_t Net::createRequestReleaseTrackInfoTask(RecheckCallback report, std::string url)
 {
     auto callback = [this, report = std::move(report)](Error error, std::string reply) {
         checkReleaseTrackReply(error, reply, report);
     };
 
-    return createGetRequestTask(
-            std::move(callback),
-            [this]() {
-                INF("API request release track info using {}...", m_releaseTrackUrl);
-                return make_tuple(cpr::Url {m_releaseTrackUrl}, cpr::Parameters {});
-            },
-            {
-                    AuthStatus::AuthenticatedUnpaired,
-                    AuthStatus::AuthenticatedPaired,
-            });
+    return createGetRequestTask(std::move(callback),
+                                [this, url = std::move(url)]() {
+                                    const auto &trackUrl = url.empty() ? m_releaseTrackUrl : url;
+                                    INF("API request release track info using {}...", trackUrl);
+                                    return make_tuple(cpr::Url {trackUrl}, cpr::Parameters {});
+                                },
+                                {
+                                        AuthStatus::AuthenticatedUnpaired,
+                                        AuthStatus::AuthenticatedPaired,
+                                });
 }
 
 void Net::requestMachineObject()

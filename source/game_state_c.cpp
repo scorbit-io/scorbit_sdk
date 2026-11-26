@@ -519,16 +519,25 @@ void dispatchApiJob(ApiQueueItem &&item)
                     [](JobSubmitPrepareStep &&j) {
                         j.h->gameState.submitPrepareStep(
                                 j.run_id, j.step_json,
-                                makeCHttpStatusReplyBridge(j.callback, j.user_data));
+                                [h = j.h, cb = j.callback, ud = j.user_data](
+                                        Error error, int httpStatus, const std::string &reply) {
+                                    // Not once destruction has begun: resends outlive the call
+                                    if (cb && h->cApiAccepting.load(std::memory_order_relaxed)) {
+                                        cb(static_cast<sb_error_t>(error), httpStatus,
+                                           reply.c_str(), ud);
+                                    }
+                                });
                     },
                     [](JobRecheckReleaseTrack &&j) {
-                        j.h->gameState.recheckReleaseTrack([cb = j.callback, ud = j.user_data](
-                                                                   RecheckResult result,
-                                                                   const std::string &detail) {
-                            if (cb) {
-                                cb(static_cast<sb_recheck_result_t>(result), detail.c_str(), ud);
-                            }
-                        });
+                        j.h->gameState.recheckReleaseTrack(
+                                [h = j.h, cb = j.callback, ud = j.user_data](
+                                        RecheckResult result, const std::string &detail) {
+                                    // Not once destruction has begun; see sb_recheck_release_track
+                                    if (cb && h->cApiAccepting.load(std::memory_order_relaxed)) {
+                                        cb(static_cast<sb_recheck_result_t>(result), detail.c_str(),
+                                           ud);
+                                    }
+                                });
                     },
                     [](JobPublish &&j) {
                         j.h->gameState.publish(
