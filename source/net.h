@@ -596,7 +596,8 @@ private:
     /// @p after, when given, hears whether the PATCH succeeded, after its reply is applied.
     task_t createSendScorbitronObjectTask(
             std::function<void(bool sent, const std::string &reply)> after = {});
-    task_t createRequestReleaseTrackInfoTask(RecheckCallback report = {});
+    /// From @p url, or the url the last Scorbitron reply gave when empty.
+    task_t createRequestReleaseTrackInfoTask(RecheckCallback report = {}, std::string url = {});
     task_t createGetConfigTask();
     task_t createRequestFirmwaresListTask();
     task_t createNfcNoncesTask();
@@ -893,6 +894,10 @@ private:
         /// Resent until then rather than for a fixed number of attempts, when set
         std::optional<std::chrono::steady_clock::time_point> giveUpAt {};
         bool prepareStep {false}; ///< For the logs: a Prepare step result, not a probe flash one
+        // The last failed attempt's answer, given to the callback if the run expires while queued
+        Error lastError {Error::Unknown};
+        int lastStatus {0};
+        std::string lastReply {};
     };
     /// Asks for this unit's pending Prepare run, if it declared steps.
     void requestPreparePending(bool startup);
@@ -986,7 +991,7 @@ protected:
     sendScorbitronObjectThen(std::function<void(bool sent, const std::string &reply)> after);
     /// The release track GET, its reply checked as at start and reported to @p report. Virtual so
     /// tests capture it.
-    virtual void requestReleaseTrackFor(RecheckCallback report);
+    virtual void requestReleaseTrackFor(std::string url, RecheckCallback report);
 
 private:
     // Halves of the result POST, split so NetTestAccess can run them over a scripted transport.
@@ -1186,10 +1191,10 @@ private:
     // Same bounded dedupe for probe_flash run_ids.
     RecentIds m_seenProbeFlashRunIds {10};
     std::mutex m_seenProbeFlashRunIdsMutex;
-    // Prepare runs handed to the host: each once per process, and each run's resend limit
+    // Every Prepare run handed to the host this process, never forgotten (runs are few), with the
+    // steady-clock time its step results are resent until
     std::mutex m_prepareMutex;
-    RecentIds m_seenPrepareRunIds {10};
-    std::deque<std::pair<std::string, std::chrono::steady_clock::time_point>> m_prepareGiveUpAt;
+    std::map<std::string, std::chrono::steady_clock::time_point> m_prepareRuns;
     /// Guards the two below. In memory only: a restart forgets a running flash.
     std::mutex m_probeFlashMutex;
     std::optional<std::string> m_probeFlashRunId; ///< The flash running on the unit, if any

@@ -100,10 +100,12 @@ struct PrepareNet : IoHolder, Net {
         patches.push_back(std::move(after));
     }
 
-    void requestReleaseTrackFor(RecheckCallback report) override
+    void requestReleaseTrackFor(std::string url, RecheckCallback report) override
     {
+        trackUrls.push_back(std::move(url));
         trackReads.push_back(std::move(report));
     }
+    std::vector<std::string> trackUrls;
 
     /// Answers the last pending GET as the API would, then drains the events it raised.
     void answerPending(Error error, int httpStatus, const std::string &body)
@@ -238,6 +240,44 @@ TEST_CASE("No run, a failed ask or a malformed reply raises nothing")
     CHECK(net.runs.empty());
 }
 
+TEST_CASE("A run without a valid deadline or steps is ignored, and its corrected reply is handed "
+          "over")
+{
+    PrepareNet net;
+    NetTestAccess::requestPreparePending(net, false);
+    net.answerPending(Error::Success, 200,
+                      json {{"run_id", RUN_A}, {"steps", json::array()}}.dump());
+    net.answerPending(
+            Error::Success, 200,
+            json {{"run_id", RUN_A}, {"deadline", "soon"}, {"steps", json::array()}}.dump());
+    net.answerPending(Error::Success, 200,
+                      json {{"run_id", RUN_A}, {"deadline", "2099-01-01T00:00:00Z"}}.dump());
+    net.answerPending(Error::Success, 200,
+                      json {{"run_id", RUN_A},
+                            {"deadline", "2099-01-01T00:00:00Z"},
+                            {"steps", json::array({"device_assess"})}}
+                              .dump());
+    CHECK(net.runs.empty());
+
+    net.answerPending(Error::Success, 200, runBody(RUN_A));
+    REQUIRE(net.runs.size() == 1);
+    CHECK(net.runs[0].first == RUN_A);
+}
+
+TEST_CASE("Every run is handed over once per process, however many runs come between")
+{
+    PrepareNet net;
+    NetTestAccess::requestPreparePending(net, false);
+    std::vector<std::string> ids;
+    for (int i = 0; i < 12; ++i) {
+        ids.push_back(fmt::format("3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e{:02x}", i));
+        net.answerPending(Error::Success, 200, runBody(ids.back().c_str()));
+    }
+    REQUIRE(net.runs.size() == 12);
+    net.answerPending(Error::Success, 200, runBody(ids.front().c_str()));
+    CHECK(net.runs.size() == 12);
+}
+
 // ----------------------------------- step results -----------------------------------
 
 TEST_CASE("A step result is posted to its run's steps endpoint; 2xx and 409 end it")
@@ -296,6 +336,25 @@ TEST_CASE("A step result is not resent past its run's deadline")
     Recorded r;
     net.submitPrepareStep(RUN_A, R"({"name":"device_assess","status":"ok"})", recordTo(r));
     net.posts.back().callback(Error::ApiError, 503, "");
+    CHECK(r.calls == 1);
+    CHECK(r.status == 503);
+    CHECK(NetTestAccess::pendingProbeFlashResults(net) == 0);
+}
+
+TEST_CASE("A resend held past the run's deadline is not sent; the last answer is final")
+{
+    PrepareNet net;
+    NetTestAccess::requestPreparePending(net, false);
+    net.answerPending(Error::Success, 200, runBody(RUN_A, "2099-01-01T00:00:00Z"));
+
+    Recorded r;
+    net.submitPrepareStep(RUN_A, R"({"name":"device_assess","status":"ok"})", recordTo(r));
+    net.posts.back().callback(Error::ApiError, 503, "");
+    REQUIRE(r.calls == 0);
+
+    // The timer fires only after the deadline (clamped to a day ahead) has passed
+    NetTestAccess::resendDueProbeFlashResults(net, std::chrono::steady_clock::now() + 25h);
+    CHECK(net.posts.size() == 1);
     CHECK(r.calls == 1);
     CHECK(r.status == 503);
     CHECK(NetTestAccess::pendingProbeFlashResults(net) == 0);
@@ -375,6 +434,8 @@ TEST_CASE("A recheck re-sends the Scorbitron object, then reads the track it nam
 
     net.patches[0](true, TRACKED);
     REQUIRE(net.trackReads.size() == 1);
+    // The url of this reply, whatever the reply's other parts left in the SDK's state
+    CHECK(net.trackUrls[0] == "https://example.com/api/v2/release-tracks/lab/");
     CHECK(answers.list.empty());
 }
 

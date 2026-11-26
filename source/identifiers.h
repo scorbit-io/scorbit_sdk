@@ -498,6 +498,7 @@ constexpr auto JVAL_ACTION_LIVE_DMD {"scorbitronLiveDmd"};
 constexpr auto JVAL_ACTION_PREPARE_RUN {"scorbitronPrepareRun"};
 // A pending Prepare run: run_id (JKEY_DIAG_RUN_ID), deadline, steps
 constexpr auto JKEY_PREP_DEADLINE {"deadline"};
+constexpr auto JKEY_PREP_STEPS {"steps"};
 
 // Live DMD signal metadata
 constexpr auto JKEY_CHN_METADATA {"metadata"};
