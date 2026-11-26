@@ -26,6 +26,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -274,6 +275,25 @@ TEST_CASE("GameState::publish delivers each result to its own callback", "[GameS
             {"offline", scorbit::PublishResult::NotConnected},
     };
     CHECK(results == expected);
+}
+
+TEST_CASE("Recheck and Prepare step callbacks are released when the game state goes first",
+          "[GameState][Prepare]")
+{
+    // Each callback holds a token: once the game state is gone nothing else may, whether the
+    // callback ran or destruction cut it short
+    auto token = std::make_shared<int>(0);
+    {
+        scorbit::Config config;
+        config.setProvider("vscorbitron").setMachineId(4419).setGameCodeVersion("0.1.0");
+        config.setSigner(dummySigner);
+        auto gameState = scorbit::createGameState(config);
+        gameState.recheckReleaseTrack([token](scorbit::RecheckResult, const std::string &) {});
+        gameState.submitPrepareStep("3f2b8c1e-8d4a-4a57-9a3e-2c6f1d0b7e55",
+                                    R"({"name":"device_assess","status":"ok"})",
+                                    [token](scorbit::Error, int, const std::string &) {});
+    }
+    CHECK(token.use_count() == 1);
 }
 
 TEST_CASE("Create game state with software key from callback", "[GameState][SoftKey]")
