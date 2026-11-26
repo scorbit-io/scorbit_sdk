@@ -130,6 +130,9 @@ public:
      */
     void setGameFinished() { sb_set_game_finished(m_handle.get()); }
 
+    /// @copydoc sb_report_competition_input_gap
+    void reportCompetitionInputGap() { sb_report_competition_input_gap(m_handle.get()); }
+
     /**
      * @brief Set the current ball number.
      *

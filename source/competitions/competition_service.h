@@ -180,6 +180,9 @@ public:
     /** A row was committed to the timeline of the game in progress. */
     void onRow(const achievements::TimelineRow &row);
 
+    /// The cabinet could not observe part of the game before numbering its rows (SB-6367).
+    void onInputGap(int gameSessionId);
+
     /**
      * Game @p gameSessionId ended, its end row the one numbered @p endSequence, committed or not.
      * What closes then (a turn, a mode) is judged once more on that row, if it was the last seen.
@@ -259,6 +262,7 @@ private:
     bool judging(const Game &game) const;
     /** Feeds @p row, or the game's end on its last row when null, to @p game's running timers. */
     void advance(Game &game, const achievements::TimelineRow *row);
+    static void interruptTimers(Game &game, const char *reason);
     /** Ends @p game, whose end row is numbered @p endSequence (0 if unknown). */
     void finishGame(Game &game, uint64_t endSequence);
     /**

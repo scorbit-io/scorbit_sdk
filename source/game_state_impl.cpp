@@ -238,6 +238,13 @@ void GameStateImpl::setGameFinished()
     m_data = GameData {};
 }
 
+void GameStateImpl::reportCompetitionInputGap()
+{
+    if (m_data.isGameActive) {
+        m_competitions->onInputGap(m_data.id);
+    }
+}
+
 void GameStateImpl::setCurrentBall(sb_ball_t ball)
 {
     if (!m_data.isGameActive) {
