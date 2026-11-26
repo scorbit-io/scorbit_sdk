@@ -257,6 +257,11 @@ TEST_CASE("A run without a valid deadline or steps is ignored, and its corrected
                             {"deadline", "2099-01-01T00:00:00Z"},
                             {"steps", json::array({"device_assess"})}}
                               .dump());
+    // An empty steps list is not a run: nothing waiting is a 204
+    net.answerPending(
+            Error::Success, 200,
+            json {{"run_id", RUN_A}, {"deadline", "2099-01-01T00:00:00Z"}, {"steps", json::array()}}
+                    .dump());
     CHECK(net.runs.empty());
 
     net.answerPending(Error::Success, 200, runBody(RUN_A));

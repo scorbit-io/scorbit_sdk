@@ -90,6 +90,8 @@ public:
             m_pendingSwitches = std::move(other.m_pendingSwitches);
             m_pendingMatches = std::move(other.m_pendingMatches);
             m_pendingPublishes = std::move(other.m_pendingPublishes);
+            m_pendingRechecks = std::move(other.m_pendingRechecks);
+            m_pendingPrepareSteps = std::move(other.m_pendingPrepareSteps);
             m_handle = std::move(other.m_handle);
         }
         return *this;
@@ -741,16 +743,18 @@ public:
     void submitPrepareStep(const std::string &runId, const std::string &stepJson,
                            HttpStatusCallback callback = {})
     {
-        auto cbPair = prepareHttpStatusCallback(std::move(callback));
-        sb_submit_prepare_step(m_handle.get(), runId.c_str(), stepJson.c_str(), cbPair.first,
-                               cbPair.second);
+        // Owned here rather than by the callback, which destruction may cut short
+        auto *pending = m_pendingPrepareSteps->add(std::move(callback));
+        sb_submit_prepare_step(m_handle.get(), runId.c_str(), stepJson.c_str(),
+                               &GameState::prepare_step_callback_c, pending);
     }
 
     /// @copydoc sb_recheck_release_track
     void recheckReleaseTrack(RecheckCallback callback = {})
     {
-        auto *userData = new RecheckCallback(std::move(callback));
-        sb_recheck_release_track(m_handle.get(), &GameState::recheck_callback_c, userData);
+        // Owned here rather than by the callback, which destruction may cut short
+        auto *pending = m_pendingRechecks->add(std::move(callback));
+        sb_recheck_release_track(m_handle.get(), &GameState::recheck_callback_c, pending);
     }
 
     /**
@@ -864,6 +868,42 @@ private:
                      venuemachine ? std::string(venuemachine) : std::string {});
         }
     }
+
+    /// Callbacks not yet answered, of one kind; whatever destruction leaves here is freed with this
+    /// object, as the C side then never calls back.
+    template<typename Callback>
+    struct PendingCallbacks {
+        struct Entry {
+            PendingCallbacks *owner {nullptr};
+            typename std::list<Entry>::iterator self;
+            Callback callback;
+        };
+        std::mutex mutex;
+        std::list<Entry> list;
+
+        /// The user data to pass the C call: its entry, which @ref take later releases.
+        Entry *add(Callback callback)
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            list.emplace_back();
+            auto *entry = &list.back();
+            entry->owner = this;
+            entry->self = std::prev(list.end());
+            entry->callback = std::move(callback);
+            return entry;
+        }
+
+        /// The callback of @p userData's entry, which is released.
+        static Callback take(void *userData)
+        {
+            auto *entry = static_cast<Entry *>(userData);
+            auto *owner = entry->owner;
+            std::lock_guard<std::mutex> lock(owner->mutex);
+            Callback callback = std::move(entry->callback);
+            owner->list.erase(entry->self);
+            return callback;
+        }
+    };
 
     struct PendingPublishes;
     struct PendingPublish {
@@ -983,12 +1023,19 @@ private:
 
     static void recheck_callback_c(sb_recheck_result_t result, const char *detail, void *user_data)
     {
-        auto *cb = static_cast<RecheckCallback *>(user_data);
-        if (*cb) {
-            (*cb)(static_cast<RecheckResult>(result),
-                  detail ? std::string(detail) : std::string {});
+        if (auto callback = PendingCallbacks<RecheckCallback>::take(user_data)) {
+            callback(static_cast<RecheckResult>(result),
+                     detail ? std::string(detail) : std::string {});
         }
-        delete cb;
+    }
+
+    static void prepare_step_callback_c(sb_error_t error, int http_status, const char *reply,
+                                        void *user_data)
+    {
+        if (auto callback = PendingCallbacks<HttpStatusCallback>::take(user_data)) {
+            callback(static_cast<Error>(error), http_status,
+                     reply ? std::string(reply) : std::string {});
+        }
     }
 
     static void http_status_callback_c(sb_error_t error, int http_status, const char *reply,
@@ -1048,6 +1095,10 @@ private:
     std::unique_ptr<PendingSwitches> m_pendingSwitches {new PendingSwitches};
     std::unique_ptr<PendingMatches> m_pendingMatches {new PendingMatches};
     std::unique_ptr<PendingPublishes> m_pendingPublishes {new PendingPublishes};
+    std::unique_ptr<PendingCallbacks<RecheckCallback>> m_pendingRechecks {
+            new PendingCallbacks<RecheckCallback>};
+    std::unique_ptr<PendingCallbacks<HttpStatusCallback>> m_pendingPrepareSteps {
+            new PendingCallbacks<HttpStatusCallback>};
 
     std::unique_ptr<std::remove_pointer<sb_game_handle_t>::type, void (*)(sb_game_handle_t)>
             m_handle;

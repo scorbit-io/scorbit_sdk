@@ -2231,8 +2231,9 @@ void Net::onPreparePendingReply(Error error, int httpStatus, const std::string &
                     ? parseProbeFlashDeadline(deadlineIt->get_ref<const std::string &>())
                     : std::nullopt;
     const auto stepsIt = run.find(JKEY_PREP_STEPS);
+    // Empty is no run at all: with nothing waiting the API answers 204
     const bool stepsOk =
-            stepsIt != run.end() && stepsIt->is_array()
+            stepsIt != run.end() && stepsIt->is_array() && !stepsIt->empty()
             && std::ranges::all_of(*stepsIt, [](const json &step) {
                    return step.is_object() && step.contains("name") && step.at("name").is_string();
                });
