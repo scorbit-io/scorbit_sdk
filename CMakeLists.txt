@@ -49,6 +49,37 @@ if(NOT _SCORBIT_SDK_COMMIT)
             file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" _SCORBIT_SDK_SOURCE)
             if(_SCORBIT_SDK_TOPLEVEL STREQUAL _SCORBIT_SDK_SOURCE)
                 set(_SCORBIT_SDK_COMMIT "${_SCORBIT_SDK_HEAD}")
+                # Configure again when HEAD moves, so an incremental build never reports an older
+                # commit: HEAD itself, the branch it names and packed-refs (worktree-aware paths)
+                execute_process(
+                    COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD
+                    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                    OUTPUT_VARIABLE _SCORBIT_SDK_GIT_REF
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ERROR_QUIET
+                )
+                foreach(_SCORBIT_SDK_GIT_NAME HEAD packed-refs ${_SCORBIT_SDK_GIT_REF})
+                    execute_process(
+                        COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path ${_SCORBIT_SDK_GIT_NAME}
+                        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+                        OUTPUT_VARIABLE _SCORBIT_SDK_GIT_PATH
+                        OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET
+                    )
+                    get_filename_component(
+                        _SCORBIT_SDK_GIT_PATH
+                        "${_SCORBIT_SDK_GIT_PATH}"
+                        ABSOLUTE
+                        BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+                    )
+                    if(EXISTS "${_SCORBIT_SDK_GIT_PATH}")
+                        set_property(
+                            DIRECTORY
+                            APPEND
+                            PROPERTY CMAKE_CONFIGURE_DEPENDS "${_SCORBIT_SDK_GIT_PATH}"
+                        )
+                    endif()
+                endforeach()
             endif()
         endif()
     endif()

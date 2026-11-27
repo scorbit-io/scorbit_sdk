@@ -201,7 +201,12 @@ TEST_CASE("A map change sends the whole build identity with this boot's id")
         CHECK(net.patches[1] == expected);
         net.finishLast(false);
 
-        net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN); // unchanged, but owed
+        // Unchanged reports wait out the backoff rather than queue a PATCH each
+        net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN);
+        net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN);
+        CHECK(net.patches.size() == 2);
+        NetTestAccess::expireScorbitronRetries(net);
+        net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN); // unchanged, owed and due
         REQUIRE(net.patches.size() == 3);
         CHECK(net.patches[2] == expected);
         net.finishLast(true);
@@ -213,6 +218,21 @@ TEST_CASE("A map change sends the whole build identity with this boot's id")
         // A retry armed by an earlier failure finds nothing owed once a later send landed
         NetTestAccess::retryBuildIdentity(net);
         CHECK(net.patches.size() == 3);
+    }
+    SECTION("while a resend is in flight, unchanged reports queue nothing; a change still goes")
+    {
+        net.finishLast(false);
+        NetTestAccess::retryBuildIdentity(net); // in flight now
+        REQUIRE(net.patches.size() == 2);
+        NetTestAccess::expireScorbitronRetries(net); // leaves an in-flight send alone
+        for (int i = 0; i < 5; ++i) {
+            net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN);
+        }
+        CHECK(net.patches.size() == 2);
+
+        net.setMappingIdentity(CPU_MAP, DMD_PATTERN);
+        REQUIRE(net.patches.size() == 3);
+        CHECK(net.patches[2].at("cpu_map_sha256") == CPU_MAP);
     }
     SECTION("no active pattern is sent as null")
     {
