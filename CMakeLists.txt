@@ -72,6 +72,22 @@ if(NOT _SCORBIT_SDK_COMMIT)
                         ABSOLUTE
                         BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
                     )
+                    # A branch kept only in packed-refs has no loose file until its next commit
+                    # writes one: watch the nearest existing directory, which that creates in
+                    while(
+                        _SCORBIT_SDK_GIT_NAME STREQUAL _SCORBIT_SDK_GIT_REF
+                        AND NOT EXISTS "${_SCORBIT_SDK_GIT_PATH}"
+                    )
+                        get_filename_component(
+                            _SCORBIT_SDK_GIT_PARENT
+                            "${_SCORBIT_SDK_GIT_PATH}"
+                            DIRECTORY
+                        )
+                        if(_SCORBIT_SDK_GIT_PARENT STREQUAL _SCORBIT_SDK_GIT_PATH)
+                            break()
+                        endif()
+                        set(_SCORBIT_SDK_GIT_PATH "${_SCORBIT_SDK_GIT_PARENT}")
+                    endwhile()
                     if(EXISTS "${_SCORBIT_SDK_GIT_PATH}")
                         set_property(
                             DIRECTORY
