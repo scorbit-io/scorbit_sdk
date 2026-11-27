@@ -1364,8 +1364,13 @@ void Net::setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern)
                 m_scorbitronObject.erase(key);
             }
         }
-        // A set that failed to send goes again with this report, changed or not
-        owed = owed || m_unsentScorbitronFields.contains(JKEY_SOBJ_BOOT_ID);
+        // An unchanged set that failed to send goes again with this report once its backoff has
+        // passed, as other fields do; not while a send of it is in flight (retryAt max)
+        if (const auto unsent = m_unsentScorbitronFields.find(JKEY_SOBJ_BOOT_ID);
+            unsent != m_unsentScorbitronFields.end()
+            && steady_clock::now() >= unsent->second.retryAt) {
+            owed = true;
+        }
     }
     if (owed) {
         resendBuildIdentity();
