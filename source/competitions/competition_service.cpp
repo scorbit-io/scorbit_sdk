@@ -45,6 +45,9 @@ constexpr int HTTP_BAD_REQUEST = 400;
 
 /** A refusal for a report naming another device, among others. */
 constexpr int HTTP_FORBIDDEN = 403;
+constexpr int HTTP_NOT_FOUND = 404;
+
+constexpr auto PHYSICAL_INPUT_GAP = "physical score input continuity is unknown";
 
 /** The positions a game slot may have, as the API bounds them. */
 constexpr sb_player_t MAX_POSITION = 6;
@@ -451,16 +454,16 @@ void CompetitionService::onSessionPlayers(const std::string &sessionUuid, Sessio
 
 void CompetitionService::onRow(const achievements::TimelineRow &row)
 {
-    // Only the game in progress takes rows, and only while it may start an attempt
+    // The active game keeps its last reliable row for interruption evidence.
     if (m_games.empty()) {
         return;
     }
     auto &game = m_games.back();
-    if (game.finished || game.timers.empty()) {
+    if (game.finished || game.candidates.empty()) {
         return;
     }
     if (!judging(game)) {
-        // Nothing left to time here: a late seat needs only the timers, not the facts
+        // A late seat needs only its timer's outcome. A later gap still needs the current row.
         game.facts = {};
         game.lastSequence = row.sequence;
         return;
@@ -477,16 +480,23 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
 void CompetitionService::onInputGap(int gameSessionId)
 {
     auto *game = gameOf(gameSessionId);
-    if (!game || game->finished) {
+    if (!game || game->finished || game->inputGapSequence) {
         return;
     }
 
-    // Governing: SB-6367. A physical gap predates the SDK's row numbering. A completion the
-    // timer already saw still belongs to its player, even if the session reply hasn't seated them.
-    interruptTimers(*game, "physical score input continuity is unknown");
+    // SB-7000. Preserve the first cutoff through recovery and delayed seat assignments.
+    game->inputGapSequence = game->lastSequence;
+    interruptTimers(*game, PHYSICAL_INPUT_GAP);
     for (const auto &attempt : game->candidates) {
+        const auto it = m_attempts.find(attempt);
+        if (it != m_attempts.end() && it->second.qualification && it->second.start
+            && it->second.start->sequence == game->startSequence) {
+            // A seated player who already qualified no longer has a timer in this game.
+            queueInterrupted(it->second, *game->inputGapSequence);
+        }
         qualifyFrom(*game, attempt);
     }
+    pump();
 }
 
 void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
@@ -632,7 +642,7 @@ void CompetitionService::qualifyFrom(Game &game, const std::string &attempt)
             INF("Competitions: attempt {} met its goal in game {} at position {} in {} ms, row {}",
                 attempt, game.id, record.start->position, record.qualification->durationMs,
                 record.qualification->completionSequence);
-            report(record);
+            report(record, game.inputGapSequence);
         }
         break;
     case TurnTimer::State::Ended:
@@ -641,6 +651,9 @@ void CompetitionService::qualifyFrom(Game &game, const std::string &attempt)
     case TurnTimer::State::Interrupted:
         WRN("Competitions: attempt {} can't qualify in game {}: {}", attempt, game.id,
             timer->second.interruption().value_or(""));
+        if (game.inputGapSequence && timer->second.interruption() == PHYSICAL_INPUT_GAP) {
+            queueInterrupted(record, *game.inputGapSequence);
+        }
         break;
     }
     // What came of the attempt's game is final
@@ -719,7 +732,7 @@ void CompetitionService::dropSettledGames()
 
 // ---- Qualification reports ---------------------------------------------------------------------
 
-void CompetitionService::report(AttemptRecord &record)
+void CompetitionService::report(AttemptRecord &record, std::optional<uint64_t> inputGapSequence)
 {
     // Rendered once from the saved start and the timer's evidence, never the machine's current
     // state: the server compares both exactly with the start it saved
@@ -728,6 +741,9 @@ void CompetitionService::report(AttemptRecord &record)
                                  *record.start, *record.qualification}});
     INF("Competitions: reporting attempt {}'s qualification as {}", record.goal.identity.attempt,
         kept.report.reportId);
+    if (inputGapSequence) {
+        queueInterrupted(record, *inputGapSequence);
+    }
     queueReport(kept);
 }
 
@@ -760,6 +776,14 @@ void CompetitionService::dropReportOf(const std::string &attempt)
                 kept.report.reportId, attempt);
         }
         m_outbox.dropReport(kept.report.reportId);
+        const auto interruption = m_pendingInterruptions.find(attempt);
+        if (interruption != m_pendingInterruptions.end()
+            && interruption->second.qualification == kept.report.reportId) {
+            // The release's earlier cutoff made this report ineligible. Don't leave the API
+            // waiting for a qualification the device has discarded.
+            m_outbox.dropInterruption(attempt);
+            m_pendingInterruptions.erase(interruption);
+        }
         return true;
     });
 }
@@ -812,6 +836,23 @@ void CompetitionService::queueReleased(const ReleaseRecord &release, bool first)
     }
 }
 
+void CompetitionService::queueInterrupted(const AttemptRecord &record, uint64_t cutoff)
+{
+    const auto &identity = record.goal.identity;
+    const auto qualification = reportBefore(identity.attempt, cutoff);
+    if (record.qualification && qualification.empty()) {
+        // An explicit null is reserved for a timer known to have no qualifying result.
+        return;
+    }
+    if (m_pendingInterruptions
+                .emplace(identity.attempt, PendingInterruption {identity, qualification})
+                .second) {
+        m_outbox.add({identity.attempt, MessageKind::AttemptInterrupted,
+                      attemptInterruptedMessage(identity, *record.start, cutoff, qualification)
+                              .dump()});
+    }
+}
+
 void CompetitionService::queueReport(const ReportRecord &report)
 {
     if (report.delivery == Delivery::Pending) {
@@ -847,6 +888,9 @@ void CompetitionService::onReply(const OutgoingMessage &message, const ApiReply 
         return;
     case MessageKind::AttemptReleased:
         onReleasedReply(message, reply);
+        return;
+    case MessageKind::AttemptInterrupted:
+        onInterruptedReply(message, reply);
         return;
     case MessageKind::Qualification:
         onReportReply(message, reply);
@@ -910,6 +954,8 @@ void CompetitionService::onAttemptReply(const OutgoingMessage &message, const Ap
         WRN("Competitions: {} refused, forgetting the attempt: {}", about(message), refusal.text);
         // Forgotten first: its qualification, if any, can't be credited, so a release answered
         // here names none
+        m_outbox.dropInterruption(message.attempt);
+        m_pendingInterruptions.erase(message.attempt);
         forget(message.attempt);
         settlePending(message.attempt, ReleaseState::Released);
         break;
@@ -969,6 +1015,43 @@ void CompetitionService::onReleasedReply(const OutgoingMessage &message, const A
         resend(message, reply);
         return;
     }
+    sendNext();
+}
+
+void CompetitionService::onInterruptedReply(const OutgoingMessage &message, const ApiReply &reply)
+{
+    const auto it = m_pendingInterruptions.find(message.attempt);
+    if (it == m_pendingInterruptions.end()) {
+        sendNext();
+        return;
+    }
+
+    std::optional<ReceiptStatus> receipt;
+    if (reply.error == Error::Success) {
+        try {
+            receipt =
+                    parseReceipt(json::parse(reply.body), kindInfo(message.kind).type,
+                                 it->second.identity);
+        } catch (const std::exception &) {
+        }
+    }
+
+    const auto refusal = receipt ? Refusal {} : refusalOf(reply);
+    const auto answer = classify(message.kind, reply, receipt.has_value(), refusal);
+    if ((answer == Answer::Unanswered || answer == Answer::Waits)
+        && reply.httpStatus != HTTP_NOT_FOUND) {
+        resend(message, reply);
+        return;
+    }
+    if (answer == Answer::Receipt) {
+        INF("Competitions: {}: {}", about(message),
+            *receipt == ReceiptStatus::Saved ? "saved" : "duplicate");
+    } else {
+        // An API without the endpoint cannot use this evidence. Keep the outbox moving.
+        WRN("Competitions: {} refused (HTTP {}): {}", about(message), reply.httpStatus,
+            refusal.text);
+    }
+    m_pendingInterruptions.erase(it);
     sendNext();
 }
 

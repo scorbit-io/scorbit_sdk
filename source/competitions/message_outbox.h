@@ -30,7 +30,13 @@ namespace detail {
 namespace competitions {
 
 /** Which device message, and so which endpoint. */
-enum class MessageKind { GoalInstalled, AttemptStarted, AttemptReleased, Qualification };
+enum class MessageKind {
+    GoalInstalled,
+    AttemptStarted,
+    AttemptReleased,
+    AttemptInterrupted,
+    Qualification,
+};
 
 /** A message for the API, rendered once from the saved record and sent unchanged every time. */
 struct OutgoingMessage {
@@ -86,6 +92,14 @@ public:
         std::erase_if(m_queue, [&](const OutgoingMessage &m) {
             return m.attempt == attempt
                 && (m.kind == MessageKind::GoalInstalled || m.kind == MessageKind::AttemptStarted);
+        });
+    }
+
+    /** Drops a queued interruption when its attempt or named qualification can't count. */
+    void dropInterruption(const std::string &attempt)
+    {
+        std::erase_if(m_queue, [&](const OutgoingMessage &m) {
+            return m.kind == MessageKind::AttemptInterrupted && m.attempt == attempt;
         });
     }
 
