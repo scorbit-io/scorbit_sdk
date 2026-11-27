@@ -56,6 +56,9 @@ struct CapturingNet : Net {
 
     void finishLast(bool sent) { scorbitronUpdateDone(patches.back(), sent); }
 
+    /// What captured PATCH @p i would send if its request ran now.
+    json whenRun(std::size_t i) const { return currentScorbitronFields(patches.at(i)); }
+
     std::vector<json> patches;
 };
 
@@ -216,6 +219,16 @@ TEST_CASE("A map change sends the whole build identity with this boot's id")
         net.setMappingIdentity(NEW_CPU_MAP, std::string {});
         REQUIRE(net.patches.size() == 2);
         CHECK(net.patches[1].at("dmd_pattern_sha256").is_null());
+    }
+    SECTION("a set still queued sends the identity as it stands when the request runs")
+    {
+        // Queued with the new map; before it runs the map is cleared and a pattern goes unknown
+        net.setMappingIdentity(std::string {}, std::nullopt);
+        REQUIRE(net.patches.size() == 2);
+        const auto first = net.whenRun(0);
+        CHECK(first.at("cpu_map_sha256").is_null());
+        CHECK_FALSE(first.contains("dmd_pattern_sha256"));
+        CHECK(first.at("boot_id") == net.bootId());
     }
     SECTION("a malformed map is left out of the set, and of the object")
     {

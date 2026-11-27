@@ -629,6 +629,10 @@ Net::~Net()
         // Likewise for the session players refresh
         std::lock_guard<std::mutex> lock(m_sessionRefreshMutex);
     }
+    {
+        // Likewise for the build identity retry
+        std::lock_guard<std::mutex> lock(m_scorbitronObjectMutex);
+    }
     // With m_stop set an NFC flash winds down at its next wait; its last posts need the worker.
     joinNfcThread();
 
@@ -1495,6 +1499,12 @@ nlohmann::json Net::currentScorbitronFields(const nlohmann::json &fields) const
     }
     auto current = fields;
     std::scoped_lock lock(m_scorbitronObjectMutex);
+    if (fields.contains(JKEY_SOBJ_BOOT_ID)) {
+        // The build identity is a whole set: rebuilt as it stands now, so a hash erased or
+        // learned while the request was queued is neither kept nor missed
+        return buildIdentityFields(m_deviceInfo, sdkCommit(), m_cpuMapSha256, m_dmdPatternSha256,
+                                   m_bootId);
+    }
     for (auto it = current.begin(); it != current.end(); ++it) {
         if (!m_scorbitronObject.contains(it.key())) {
             continue; // the object was rebuilt without it: send what was queued
@@ -1516,7 +1526,6 @@ nlohmann::json Net::currentScorbitronFields(const nlohmann::json &fields) const
 void Net::scorbitronUpdateDone(const nlohmann::json &body, bool sent)
 {
     const auto now = steady_clock::now();
-    std::optional<seconds> identityRetry;
     {
         std::scoped_lock lock(m_scorbitronObjectMutex);
         forEachScorbitronField(body, [this, sent, now](const std::string &field) {
@@ -1532,15 +1541,15 @@ void Net::scorbitronUpdateDone(const nlohmann::json &body, bool sent)
             }
             unsent->second.retryAt = now + unsent->second.backoff;
         });
-        if (!sent && body.is_object() && body.contains(JKEY_SOBJ_BOOT_ID)) {
-            identityRetry = m_unsentScorbitronFields.at(JKEY_SOBJ_BOOT_ID).backoff;
+        // Unlike other fields, no later report is sure to come: the build identity retries
+        // itself, since the API counts only a set sent under the current boot. Armed under the
+        // lock after checking m_stop, which the destructor takes once it is set, so no arm lands
+        // after the worker cancels its timers.
+        if (!sent && !m_stop && body.is_object() && body.contains(JKEY_SOBJ_BOOT_ID)) {
+            m_worker.startTimer(Worker::Timer::BuildIdentityRetry,
+                                m_unsentScorbitronFields.at(JKEY_SOBJ_BOOT_ID).backoff,
+                                [this] { retryBuildIdentity(); });
         }
-    }
-    // Unlike other fields, no later report is sure to come: the build identity retries itself,
-    // since the API counts only a set sent under the current boot
-    if (identityRetry) {
-        m_worker.startTimer(Worker::Timer::BuildIdentityRetry, *identityRetry,
-                            [this] { retryBuildIdentity(); });
     }
 }
 
