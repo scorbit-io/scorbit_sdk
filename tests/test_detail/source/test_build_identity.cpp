@@ -193,7 +193,7 @@ TEST_CASE("A map change sends the whole build identity with this boot's id")
         net.finishLast(false);
         CHECK(NetTestAccess::scorbitronRetryBackoff(net, "boot_id").has_value());
 
-        NetTestAccess::resendBuildIdentity(net);
+        NetTestAccess::retryBuildIdentity(net);
         REQUIRE(net.patches.size() == 2);
         CHECK(net.patches[1] == expected);
         net.finishLast(false);
@@ -205,6 +205,10 @@ TEST_CASE("A map change sends the whole build identity with this boot's id")
         CHECK_FALSE(NetTestAccess::scorbitronRetryBackoff(net, "boot_id").has_value());
 
         net.setMappingIdentity(NEW_CPU_MAP, DMD_PATTERN);
+        CHECK(net.patches.size() == 3);
+
+        // A retry armed by an earlier failure finds nothing owed once a later send landed
+        NetTestAccess::retryBuildIdentity(net);
         CHECK(net.patches.size() == 3);
     }
     SECTION("no active pattern is sent as null")

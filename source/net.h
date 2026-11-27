@@ -258,7 +258,7 @@ struct NetTestAccess {
     /// Makes every failed Scorbitron field's retry due, as if its backoff had passed.
     static void expireScorbitronRetries(Net &net);
     /// The build identity's retry, as its timer would fire it.
-    static void resendBuildIdentity(Net &net);
+    static void retryBuildIdentity(Net &net);
     /// How the full object's PATCH ending as @p sent is recorded.
     static void scorbitronObjectSendDone(Net &net, bool sent);
     /// The backoff a failed Scorbitron @p field waits out, or nullopt if it is not owed.
@@ -568,8 +568,10 @@ protected:
     nlohmann::json currentScorbitronFields(const nlohmann::json &fields) const;
     /// Records how the full object's PATCH ended: a failure leaves each of its fields owed.
     void scorbitronObjectSendDone(bool sent);
-    /// Sends the build identity again if a PATCH carrying it failed: its retry timer's work.
+    /// Sends the whole build identity with boot_id now.
     void resendBuildIdentity();
+    /// The retry timer's work: resends the build identity only while a send of it is owed.
+    void retryBuildIdentity();
 
 private:
     void sendScorbitronObject();
