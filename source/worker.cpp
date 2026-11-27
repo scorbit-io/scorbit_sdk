@@ -108,6 +108,9 @@ struct fmt::formatter<Worker::Timer> : fmt::formatter<std::string_view> {
         case Worker::Timer::SessionPlayersRefresh:
             name = "SessionPlayersRefresh";
             break;
+        case Worker::Timer::BuildIdentityRetry:
+            name = "BuildIdentityRetry";
+            break;
         case Worker::Timer::Count:
             break;
         }
@@ -134,6 +137,7 @@ Worker::Worker(int threadNiceValue, int blockingThreadCount)
               boost::asio::steady_timer {m_ioc}, boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc}, boost::asio::steady_timer {m_ioc},
               boost::asio::steady_timer {m_ioc}, boost::asio::steady_timer {m_ioc},
+              boost::asio::steady_timer {m_ioc},
       }}
 {
 }

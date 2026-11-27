@@ -1338,6 +1338,58 @@ void Net::setPbspkcommFirmwareId(const std::string &firmwareId)
                            "pbspkcomm firmware id");
 }
 
+void Net::setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern)
+{
+    bool owed = false;
+    {
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        m_cpuMapSha256 = std::move(cpuMap);
+        m_dmdPatternSha256 = std::move(dmdPattern);
+        const auto identity = buildIdentityFields(m_deviceInfo, sdkCommit(), m_cpuMapSha256,
+                                                  m_dmdPatternSha256, m_bootId);
+        for (const auto *key : {JKEY_SOBJ_CPU_MAP_SHA256, JKEY_SOBJ_DMD_PATTERN_SHA256}) {
+            const auto now = identity.find(key);
+            const auto stored = m_scorbitronObject.find(key);
+            const bool known = now != identity.end();
+            if (known != (stored != m_scorbitronObject.end()) || (known && *now != *stored)) {
+                owed = true;
+            }
+            if (known) {
+                m_scorbitronObject[key] = *now;
+            } else {
+                m_scorbitronObject.erase(key);
+            }
+        }
+        // A set that failed to send goes again with this report, changed or not
+        owed = owed || m_unsentScorbitronFields.contains(JKEY_SOBJ_BOOT_ID);
+    }
+    if (owed) {
+        resendBuildIdentity();
+    }
+}
+
+void Net::resendBuildIdentity()
+{
+    // Before authentication the full object's first send carries the set
+    if (!isAuthenticated() && m_status != AuthStatus::AuthenticatedCheckingPairing) {
+        return;
+    }
+    nlohmann::json identity;
+    {
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        identity = buildIdentityFields(m_deviceInfo, sdkCommit(), m_cpuMapSha256,
+                                       m_dmdPatternSha256, m_bootId);
+        forEachScorbitronField(identity, [this](const std::string &field) {
+            if (const auto unsent = m_unsentScorbitronFields.find(field);
+                unsent != m_unsentScorbitronFields.end()) {
+                unsent->second.retryAt = steady_clock::time_point::max();
+            }
+        });
+    }
+    // Every key, changed or not: the API reads a body with boot_id as the whole set
+    sendScorbitronUpdate(identity.dump(), "build identity");
+}
+
 void Net::updateScorbitronObject(const nlohmann::json &fields, const char *what)
 {
     // Only what differs from the object, or failed to send and is due a retry, is stored and
@@ -1452,20 +1504,32 @@ nlohmann::json Net::currentScorbitronFields(const nlohmann::json &fields) const
 void Net::scorbitronUpdateDone(const nlohmann::json &body, bool sent)
 {
     const auto now = steady_clock::now();
-    std::scoped_lock lock(m_scorbitronObjectMutex);
-    forEachScorbitronField(body, [this, sent, now](const std::string &field) {
-        if (sent) {
-            m_unsentScorbitronFields.erase(field);
-            return;
+    std::optional<seconds> identityRetry;
+    {
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        forEachScorbitronField(body, [this, sent, now](const std::string &field) {
+            if (sent) {
+                m_unsentScorbitronFields.erase(field);
+                return;
+            }
+            auto [unsent, first] = m_unsentScorbitronFields.try_emplace(
+                    field, UnsentScorbitronField {{}, SCORBITRON_UPDATE_RETRY_INITIAL_BACKOFF});
+            if (!first) {
+                unsent->second.backoff = std::min<seconds>(unsent->second.backoff * 2,
+                                                           SCORBITRON_UPDATE_RETRY_MAX_BACKOFF);
+            }
+            unsent->second.retryAt = now + unsent->second.backoff;
+        });
+        if (!sent && body.is_object() && body.contains(JKEY_SOBJ_BOOT_ID)) {
+            identityRetry = m_unsentScorbitronFields.at(JKEY_SOBJ_BOOT_ID).backoff;
         }
-        auto [unsent, first] = m_unsentScorbitronFields.try_emplace(
-                field, UnsentScorbitronField {{}, SCORBITRON_UPDATE_RETRY_INITIAL_BACKOFF});
-        if (!first) {
-            unsent->second.backoff = std::min<seconds>(unsent->second.backoff * 2,
-                                                       SCORBITRON_UPDATE_RETRY_MAX_BACKOFF);
-        }
-        unsent->second.retryAt = now + unsent->second.backoff;
-    });
+    }
+    // Unlike other fields, no later report is sure to come: the build identity retries itself,
+    // since the API counts only a set sent under the current boot
+    if (identityRetry) {
+        m_worker.startTimer(Worker::Timer::BuildIdentityRetry, *identityRetry,
+                            [this] { resendBuildIdentity(); });
+    }
 }
 
 void Net::scorbitronObjectSendDone(bool sent)
@@ -4301,7 +4365,9 @@ void Net::initScorbitronObject()
     m_scorbitronObject[JKEY_SOBJ_SDK_VERSION] = SCORBIT_SDK_VERSION;
     m_scorbitronObject[JKEY_SOBJ_SCORBITD_VERSION] = m_deviceInfo.scorbitdVersion;
     m_scorbitronObject[JKEY_SOBJ_GAME_CODE_VERSION] = m_deviceInfo.gameCodeVersion;
-    m_scorbitronObject[JKEY_SOBJ_BOOT_ID] = m_bootId;
+    // Build identity, with boot_id: the API stamps the set with this boot's id on every send
+    m_scorbitronObject.update(buildIdentityFields(m_deviceInfo, sdkCommit(), m_cpuMapSha256,
+                                                  m_dmdPatternSha256, m_bootId));
 
     // Only what the host set: an omitted key leaves the API's value alone (SB-4880).
     for (const auto &[key, value] : {
@@ -5748,6 +5814,11 @@ void NetTestAccess::expireScorbitronRetries(Net &net)
             unsent.retryAt = steady_clock::time_point::min();
         }
     }
+}
+
+void NetTestAccess::resendBuildIdentity(Net &net)
+{
+    net.resendBuildIdentity();
 }
 
 std::optional<seconds> NetTestAccess::scorbitronRetryBackoff(Net &net, const std::string &field)

@@ -368,6 +368,62 @@ std::string toLowerAscii(std::string_view text)
     return lower;
 }
 
+std::optional<std::string> hexDigest(std::string_view value, std::size_t digits)
+{
+    if (value.size() != digits || !std::ranges::all_of(value, [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        })) {
+        return std::nullopt;
+    }
+    return toLowerAscii(value);
+}
+
+#ifndef SCORBIT_SDK_COMMIT
+#    define SCORBIT_SDK_COMMIT ""
+#endif
+
+const char *sdkCommit()
+{
+    return SCORBIT_SDK_COMMIT;
+}
+
+nlohmann::json buildIdentityFields(const DeviceInfo &info, const std::string &sdkCommitId,
+                                   const MappingHash &cpuMap, const MappingHash &dmdPattern,
+                                   const std::string &bootId)
+{
+    auto fields = nlohmann::json::object();
+    fields[JKEY_SOBJ_BOOT_ID] = bootId;
+
+    const auto commit = [&fields](const char *key, const std::string &value) {
+        if (const auto digest = hexDigest(value, COMMIT_HEX_DIGITS)) {
+            fields[key] = *digest;
+        } else if (!value.empty()) {
+            WRN("Scorbitron {} '{}' is not a {}-digit hex commit, left out", key, value,
+                COMMIT_HEX_DIGITS);
+        }
+    };
+    commit(JKEY_SOBJ_SDK_COMMIT, sdkCommitId);
+    commit(JKEY_SOBJ_SCORBITD_COMMIT, info.scorbitdCommit);
+    if (info.scorbitdDirty) {
+        fields[JKEY_SOBJ_SCORBITD_DIRTY] = *info.scorbitdDirty;
+    }
+
+    for (const auto &[key, hash] : {std::pair {JKEY_SOBJ_CPU_MAP_SHA256, &cpuMap},
+                                    std::pair {JKEY_SOBJ_DMD_PATTERN_SHA256, &dmdPattern}}) {
+        if (!hash->has_value()) {
+            continue;
+        }
+        if ((*hash)->empty()) {
+            fields[key] = nullptr;
+        } else if (const auto digest = hexDigest(**hash, SHA256_HEX_DIGITS)) {
+            fields[key] = *digest;
+        } else {
+            WRN("Scorbitron {} '{}' is not a SHA-256, left out", key, **hash);
+        }
+    }
+    return fields;
+}
+
 std::optional<std::string> probeFlashPayloadError(const nlohmann::json &payload)
 {
     constexpr uint64_t MIN_BUILD = 10'000'000'000'000; // 14 digits: YYYYMMDDHHMMSS

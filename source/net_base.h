@@ -387,6 +387,12 @@ public:
         (void)firmware;
     }
     virtual void setPbspkcommFirmwareId(const std::string &firmwareId) { (void)firmwareId; }
+    /// The active CPU map's and DMD pattern's SHA-256 after startup (see MappingHash).
+    virtual void setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern)
+    {
+        (void)cpuMap;
+        (void)dmdPattern;
+    }
 
     /// The VenueMachine uuid the device is on (the scorbitron object's machine.id), "" if none.
     virtual std::string venueMachine() const { return {}; }

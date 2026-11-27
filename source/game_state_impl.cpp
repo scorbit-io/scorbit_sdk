@@ -439,6 +439,11 @@ void GameStateImpl::setPbspkcommFirmwareId(const std::string &firmwareId)
     m_net->setPbspkcommFirmwareId(firmwareId);
 }
 
+void GameStateImpl::setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern)
+{
+    m_net->setMappingIdentity(std::move(cpuMap), std::move(dmdPattern));
+}
+
 void GameStateImpl::setCreditsDropped(int credits, const std::string &transaction, bool success)
 {
     m_net->setCreditsDropped(credits, transaction, success);

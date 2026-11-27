@@ -216,6 +216,14 @@ void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmwar
     }
 }
 
+void sb_config_set_scorbitd_build(sb_config_t config, const char *commit, bool dirty)
+{
+    if (config) {
+        config->scorbitdCommit = commit ? commit : std::string {};
+        config->scorbitdDirty = dirty;
+    }
+}
+
 void sb_config_set_probe_firmware(sb_config_t config, const char *probe, bool present,
                                   uint64_t timestamp_utc, uint32_t uid, uint8_t boot_reason,
                                   uint32_t watchdog_count)

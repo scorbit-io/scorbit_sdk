@@ -384,6 +384,13 @@ public:
         return *this;
     }
 
+    /// @copydoc sb_config_set_scorbitd_build
+    Config &setScorbitdBuild(const std::string &commit, bool dirty)
+    {
+        sb_config_set_scorbitd_build(m_handle.get(), commit.c_str(), dirty);
+        return *this;
+    }
+
     Config &setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
                              uint32_t uid, uint8_t bootReason, uint32_t watchdogCount)
     {

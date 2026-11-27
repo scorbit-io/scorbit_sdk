@@ -208,6 +208,12 @@ struct JobSetPbspkcommFirmwareId {
     std::string firmware_id;
 };
 
+struct JobSetMappingIdentity {
+    sb_game_state_struct *h;
+    std::string cpu_map_sha256;
+    std::string dmd_pattern_sha256;
+};
+
 struct JobCreditsDropped {
     sb_game_state_struct *h;
     int credits;
@@ -315,8 +321,8 @@ using ApiQueueItem =
                      JobSwitchMachine, JobMatchTableMapping, JobCreditsDropped, JobCreditsStatus,
                      JobDownload, JobDownloadBuffer, JobUploadDiagnostics, JobReportDeviceState,
                      JobSubmitHardwareProbeResult, JobSetProbeFirmware, JobSetPbspkcommFirmwareId,
-                     JobSubmitProbeFlashStage, JobSubmitProbeFlashResult, JobSubmitPrepareStep,
-                     JobRecheckReleaseTrack, JobPublish>;
+                     JobSetMappingIdentity, JobSubmitProbeFlashStage, JobSubmitProbeFlashResult,
+                     JobSubmitPrepareStep, JobRecheckReleaseTrack, JobPublish>;
 
 // Combines lambdas into one functor for std::visit (standard C++17 pattern). C++17 helper for
 // std::visit. In C++20+, equivalent functionality may be provided by a standard or library helper
@@ -440,6 +446,11 @@ void dispatchApiJob(ApiQueueItem &&item)
                     },
                     [](JobSetPbspkcommFirmwareId &&j) {
                         j.h->gameState.setPbspkcommFirmwareId(j.firmware_id);
+                    },
+                    [](JobSetMappingIdentity &&j) {
+                        // Reported at runtime, so known: NULL or "" is none active
+                        j.h->gameState.setMappingIdentity(std::move(j.cpu_map_sha256),
+                                                          std::move(j.dmd_pattern_sha256));
                     },
                     [](JobPairMachine &&j) {
                         j.h->gameState.requestPairMachine(
@@ -857,6 +868,13 @@ void sb_set_probe_firmware(sb_game_handle_t handle, const char *probe, bool pres
 void sb_set_pbspkcomm_firmware_id(sb_game_handle_t handle, const char *firmware_id)
 {
     handle->postApiJob(JobSetPbspkcommFirmwareId {handle, copyCStr(firmware_id)});
+}
+
+void sb_set_mapping_identity(sb_game_handle_t handle, const char *cpu_map_sha256,
+                             const char *dmd_pattern_sha256)
+{
+    handle->postApiJob(
+            JobSetMappingIdentity {handle, copyCStr(cpu_map_sha256), copyCStr(dmd_pattern_sha256)});
 }
 
 void sb_set_credits_dropped(sb_game_handle_t handle, int credits, const char *transaction,

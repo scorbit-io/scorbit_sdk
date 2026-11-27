@@ -15,6 +15,59 @@ endif()
 
 project(scorbit_sdk VERSION ${SCORBIT_SDK_VERSION} LANGUAGES CXX)
 
+# ---- Source commit, reported to the API as sdk_commit ----
+# First found wins: the -D option (a host pinning an archive passes it), the commit `git archive`
+# writes into source/build_commit.txt (export-subst), then this checkout's HEAD. Anything else is
+# left empty, and the SDK omits the field rather than guess.
+set(SCORBIT_SDK_COMMIT "" CACHE STRING "The 40-hex commit the SDK is built from")
+set(_SCORBIT_SDK_COMMIT "${SCORBIT_SDK_COMMIT}")
+if(NOT _SCORBIT_SDK_COMMIT)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/source/build_commit.txt" _SCORBIT_SDK_COMMIT)
+    string(STRIP "${_SCORBIT_SDK_COMMIT}" _SCORBIT_SDK_COMMIT)
+    if(NOT _SCORBIT_SDK_COMMIT MATCHES "^[0-9a-f]+$")
+        set(_SCORBIT_SDK_COMMIT "")
+    endif()
+endif()
+if(NOT _SCORBIT_SDK_COMMIT)
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        # Only this repository's own HEAD: a copy vendored inside another repo must not report its
+        # host's commit.
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" rev-parse --show-toplevel HEAD
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            OUTPUT_VARIABLE _SCORBIT_SDK_GIT
+            RESULT_VARIABLE _SCORBIT_SDK_GIT_RESULT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(_SCORBIT_SDK_GIT_RESULT EQUAL 0)
+            string(REPLACE "\n" ";" _SCORBIT_SDK_GIT "${_SCORBIT_SDK_GIT}")
+            list(GET _SCORBIT_SDK_GIT 0 _SCORBIT_SDK_TOPLEVEL)
+            list(GET _SCORBIT_SDK_GIT 1 _SCORBIT_SDK_HEAD)
+            file(REAL_PATH "${_SCORBIT_SDK_TOPLEVEL}" _SCORBIT_SDK_TOPLEVEL)
+            file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" _SCORBIT_SDK_SOURCE)
+            if(_SCORBIT_SDK_TOPLEVEL STREQUAL _SCORBIT_SDK_SOURCE)
+                set(_SCORBIT_SDK_COMMIT "${_SCORBIT_SDK_HEAD}")
+            endif()
+        endif()
+    endif()
+endif()
+string(TOLOWER "${_SCORBIT_SDK_COMMIT}" _SCORBIT_SDK_COMMIT)
+if(_SCORBIT_SDK_COMMIT AND NOT _SCORBIT_SDK_COMMIT MATCHES "^[0-9a-f]+$")
+    message(WARNING "SCORBIT_SDK_COMMIT '${_SCORBIT_SDK_COMMIT}' is not hex; sdk_commit omitted")
+    set(_SCORBIT_SDK_COMMIT "")
+endif()
+string(LENGTH "${_SCORBIT_SDK_COMMIT}" _SCORBIT_SDK_COMMIT_LENGTH)
+if(_SCORBIT_SDK_COMMIT AND NOT _SCORBIT_SDK_COMMIT_LENGTH EQUAL 40)
+    message(
+        WARNING
+        "SCORBIT_SDK_COMMIT '${_SCORBIT_SDK_COMMIT}' is not 40 hex digits; sdk_commit omitted"
+    )
+    set(_SCORBIT_SDK_COMMIT "")
+endif()
+message(STATUS "scorbit_sdk commit: ${_SCORBIT_SDK_COMMIT}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -256,6 +309,7 @@ target_sources(
         include/scorbit_sdk/net_types.h
         source/net_util.h
         source/net_util.cpp
+        source/build_commit.txt
         source/nfc_flash.h
         source/nfc_flash.cpp
         source/nfc_flash_pad.h
@@ -312,6 +366,13 @@ target_sources(
         source/provisioning_client.cpp
         source/soft_key_resolver.h
         source/soft_key_resolver.cpp
+)
+
+# On one file only, so a new commit recompiles just it
+set_property(
+    SOURCE source/net_util.cpp
+    APPEND
+    PROPERTY COMPILE_DEFINITIONS "SCORBIT_SDK_COMMIT=\"${_SCORBIT_SDK_COMMIT}\""
 )
 
 # Callback logger: full C bridge; spdlog: no-op stubs so public headers always link

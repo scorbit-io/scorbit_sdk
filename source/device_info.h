@@ -36,6 +36,10 @@
 
 namespace scorbit {
 
+/// An active CPU map's or DMD pattern's SHA-256 as the host reported it: nullopt when never
+/// reported (unknown), "" when none is active, otherwise the digest as given.
+using MappingHash = std::optional<std::string>;
+
 /// A probe's installed firmware: its build number (0 when the firmware reports none) and UID,
 /// and how it last booted. Legacy firmware reports no boot info: boot reason 0, count 0.
 struct ProbeFirmware {
@@ -126,6 +130,9 @@ struct DeviceInfo {
     std::string gameFirmwareVersion;
     std::string gameSerial;
     std::string pbspkcommFirmwareId; ///< The game firmware ID the installed pbspk*comm targets.
+    /// The host's own build (sb_config_set_scorbitd_build); empty and nullopt when not reported.
+    std::string scorbitdCommit;
+    std::optional<bool> scorbitdDirty;
     /// Probes the host reported (CPU, DMD) by name; nullopt marks one that is not attached.
     std::map<std::string, std::optional<ProbeFirmware>> probeFirmware;
     /// Probes the host flashes itself on a probe_flash request; empty routes none to it.

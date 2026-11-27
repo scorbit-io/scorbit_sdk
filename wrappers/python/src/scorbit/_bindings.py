@@ -234,6 +234,10 @@ _lib.sb_config_set_game_firmware.argtypes = [sb_config_t, c_char_p, c_char_p, c_
 _lib.sb_config_set_pbspkcomm_firmware_id.restype = None
 _lib.sb_config_set_pbspkcomm_firmware_id.argtypes = [sb_config_t, c_char_p]
 
+# void sb_config_set_scorbitd_build(sb_config_t, const char*, bool)
+_lib.sb_config_set_scorbitd_build.restype = None
+_lib.sb_config_set_scorbitd_build.argtypes = [sb_config_t, c_char_p, c_bool]
+
 # void sb_config_set_probe_firmware(sb_config_t, const char*, bool, uint64_t, uint32_t,
 #                                   uint8_t, uint32_t)
 _lib.sb_config_set_probe_firmware.restype = None
@@ -527,6 +531,10 @@ _lib.sb_set_probe_firmware.argtypes = [
 # void sb_set_pbspkcomm_firmware_id(sb_game_handle_t, const char*)
 _lib.sb_set_pbspkcomm_firmware_id.restype = None
 _lib.sb_set_pbspkcomm_firmware_id.argtypes = [sb_game_handle_t, c_char_p]
+
+# void sb_set_mapping_identity(sb_game_handle_t, const char*, const char*)
+_lib.sb_set_mapping_identity.restype = None
+_lib.sb_set_mapping_identity.argtypes = [sb_game_handle_t, c_char_p, c_char_p]
 
 # void sb_download(sb_game_handle_t, const char*, const char*,
 #                  const sb_http_header_t*, size_t, sb_string_callback_t, void*)

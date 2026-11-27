@@ -947,6 +947,12 @@ class GameState(object):
         # type: (str) -> None
         _lib.sb_set_pbspkcomm_firmware_id(self._handle, _encode(firmware_id))
 
+    def set_mapping_identity(self, cpu_map_sha256, dmd_pattern_sha256):
+        # type: (str | None, str | None) -> None
+        _lib.sb_set_mapping_identity(
+            self._handle, _encode(cpu_map_sha256), _encode(dmd_pattern_sha256)
+        )
+
     def submit_hardware_probe_result(self, run_id, result_json, callback=None):
         # type: (str, str, ...) -> None
         """POST a hardware probe result (serialized JSON object, sent verbatim).

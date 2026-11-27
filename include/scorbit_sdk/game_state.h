@@ -698,6 +698,12 @@ public:
         sb_set_pbspkcomm_firmware_id(m_handle.get(), firmwareId.c_str());
     }
 
+    /// @copydoc sb_set_mapping_identity
+    void setMappingIdentity(const std::string &cpuMapSha256, const std::string &dmdPatternSha256)
+    {
+        sb_set_mapping_identity(m_handle.get(), cpuMapSha256.c_str(), dmdPatternSha256.c_str());
+    }
+
     /**
      * @brief Submit the result of a hardware probe requested by
      * @ref EventType::HardwareProbeRequested.

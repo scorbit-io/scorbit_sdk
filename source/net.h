@@ -257,6 +257,8 @@ struct NetTestAccess {
     static void checkNfcBootReason(Net &net);
     /// Makes every failed Scorbitron field's retry due, as if its backoff had passed.
     static void expireScorbitronRetries(Net &net);
+    /// The build identity's retry, as its timer would fire it.
+    static void resendBuildIdentity(Net &net);
     /// How the full object's PATCH ending as @p sent is recorded.
     static void scorbitronObjectSendDone(Net &net, bool sent);
     /// The backoff a failed Scorbitron @p field waits out, or nullopt if it is not owed.
@@ -469,6 +471,7 @@ public:
     void setCapabilities(Capabilities capabilities) override;
     void setProbeFirmware(const std::string &probe, std::optional<ProbeFirmware> firmware) override;
     void setPbspkcommFirmwareId(const std::string &firmwareId) override;
+    void setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern) override;
     /// Reads the NFC pad's firmware and reports it, e.g. after flashing the pad. Blocks on the
     /// probe read. A failed read reports nothing.
     void refreshNfcFirmware();
@@ -565,6 +568,8 @@ protected:
     nlohmann::json currentScorbitronFields(const nlohmann::json &fields) const;
     /// Records how the full object's PATCH ended: a failure leaves each of its fields owed.
     void scorbitronObjectSendDone(bool sent);
+    /// Sends the build identity again if a PATCH carrying it failed: its retry timer's work.
+    void resendBuildIdentity();
 
 private:
     void sendScorbitronObject();
@@ -1175,6 +1180,10 @@ private:
     };
     /// Keyed "key" or "probe_firmware/<probe>"; under the mutex.
     std::map<std::string, UnsentScorbitronField> m_unsentScorbitronFields;
+    /// The active CPU map and DMD pattern, as the host last reported them (unknown until then);
+    /// under the object's mutex.
+    MappingHash m_cpuMapSha256;
+    MappingHash m_dmdPatternSha256;
 
     // Diagnostic probe (SB-3363). m_diagProbeSequence is a per-process
     // counter for the JKEY_SCR_SEQUENCE field on outbound probe publications;
