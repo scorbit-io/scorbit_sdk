@@ -1368,6 +1368,18 @@ void Net::setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern)
     }
 }
 
+void Net::retryBuildIdentity()
+{
+    {
+        // A later send may have landed since the timer was armed
+        std::scoped_lock lock(m_scorbitronObjectMutex);
+        if (!m_unsentScorbitronFields.contains(JKEY_SOBJ_BOOT_ID)) {
+            return;
+        }
+    }
+    resendBuildIdentity();
+}
+
 void Net::resendBuildIdentity()
 {
     // Before authentication the full object's first send carries the set
@@ -1528,7 +1540,7 @@ void Net::scorbitronUpdateDone(const nlohmann::json &body, bool sent)
     // since the API counts only a set sent under the current boot
     if (identityRetry) {
         m_worker.startTimer(Worker::Timer::BuildIdentityRetry, *identityRetry,
-                            [this] { resendBuildIdentity(); });
+                            [this] { retryBuildIdentity(); });
     }
 }
 
@@ -5816,9 +5828,9 @@ void NetTestAccess::expireScorbitronRetries(Net &net)
     }
 }
 
-void NetTestAccess::resendBuildIdentity(Net &net)
+void NetTestAccess::retryBuildIdentity(Net &net)
 {
-    net.resendBuildIdentity();
+    net.retryBuildIdentity();
 }
 
 std::optional<seconds> NetTestAccess::scorbitronRetryBackoff(Net &net, const std::string &field)
