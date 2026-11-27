@@ -108,6 +108,7 @@ public:
     void setProbeFirmware(const std::string &probe, bool present, uint64_t timestampUtc,
                           uint32_t uid, uint8_t bootReason, uint32_t watchdogCount);
     void setPbspkcommFirmwareId(const std::string &firmwareId);
+    void setMappingIdentity(MappingHash cpuMap, MappingHash dmdPattern);
 
     void setCreditsDropped(int credits, const std::string &transaction, bool success);
     void setCreditsStatus(bool freePlay, int credits, int maxCredits, const char *pricing);

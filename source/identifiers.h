@@ -417,6 +417,12 @@ constexpr auto JKEY_SOBJ_MACHINE_UUID {"id"};
 constexpr auto JKEY_SOBJ_SDK_VERSION {"sdk_version"};
 constexpr auto JKEY_SOBJ_SCORBITD_VERSION {"scorbitd_version"};
 constexpr auto JKEY_SOBJ_GAME_CODE_VERSION {"game_code_version"};
+// Build identity: sent together with boot_id, which the API reads as the complete set
+constexpr auto JKEY_SOBJ_SDK_COMMIT {"sdk_commit"};
+constexpr auto JKEY_SOBJ_SCORBITD_COMMIT {"scorbitd_commit"};
+constexpr auto JKEY_SOBJ_SCORBITD_DIRTY {"scorbitd_dirty"};
+constexpr auto JKEY_SOBJ_CPU_MAP_SHA256 {"cpu_map_sha256"};
+constexpr auto JKEY_SOBJ_DMD_PATTERN_SHA256 {"dmd_pattern_sha256"};
 constexpr auto JKEY_SOBJ_GAME_FIRMWARE_ID {"game_firmware_id"};
 constexpr auto JKEY_SOBJ_GAME_FIRMWARE_VERSION {"game_firmware_version"};
 constexpr auto JKEY_SOBJ_GAME_SERIAL {"game_serial"};

@@ -749,6 +749,22 @@ SCORBIT_SDK_EXPORT
 void sb_set_pbspkcomm_firmware_id(sb_game_handle_t handle, const char *firmware_id);
 
 /**
+ * @brief Report the CPU map and DMD pattern now active, whenever either changes.
+ *
+ * Sent with the Scorbitron object as cpu_map_sha256 and dmd_pattern_sha256. Until the first
+ * call both are left out, which the API reads as unknown. A change, or a report after a failed
+ * send, sends the whole build identity with this boot's id once authenticated, and again until
+ * it is sent.
+ *
+ * @param cpu_map_sha256 The active CPU map's SHA-256, 64 hex digits; NULL or "" reports that
+ * none is active. A malformed value is left out, which the API reads as unknown.
+ * @param dmd_pattern_sha256 As @p cpu_map_sha256, for the DMD pattern.
+ */
+SCORBIT_SDK_EXPORT
+void sb_set_mapping_identity(sb_game_handle_t handle, const char *cpu_map_sha256,
+                             const char *dmd_pattern_sha256);
+
+/**
  * @brief Submit the result of a hardware probe requested by @ref SB_EVT_HARDWARE_PROBE_REQUESTED.
  *
  * POSTs @p result_json verbatim, with device authentication, to the result endpoint derived from

@@ -58,6 +58,7 @@ EXCEPTIONS = {
 for _name in [
     "sb_config_add_probe_flash_probe",
     "sb_config_set_pbspkcomm_firmware_id",
+    "sb_config_set_scorbitd_build",
     "sb_config_set_probe_firmware",
     "sb_config_set_probe_flash_nfc_trigger",
     "sb_config_set_scorbitd_platform_id",
@@ -74,6 +75,7 @@ for _name in [
     "sb_event_scorbitd_update_received",
     "sb_event_scorbitd_updated",
     "sb_set_pbspkcomm_firmware_id",
+    "sb_set_mapping_identity",
     "sb_set_probe_firmware",
     "sb_submit_hardware_probe_result",
     "sb_submit_probe_flash_result",

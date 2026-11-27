@@ -320,6 +320,17 @@ SCORBIT_SDK_EXPORT
 void sb_config_set_pbspkcomm_firmware_id(sb_config_t config, const char *firmware_id);
 
 /**
+ * The host's own build, sent with the Scorbitron object as scorbitd_commit and scorbitd_dirty.
+ * Not calling it reports neither, which the API reads as unknown.
+ *
+ * @param commit The host's 40-hex-digit source commit. NULL, "" or a malformed value leaves
+ * scorbitd_commit out.
+ * @param dirty Whether the host was built with uncommitted changes.
+ */
+SCORBIT_SDK_EXPORT
+void sb_config_set_scorbitd_build(sb_config_t config, const char *commit, bool dirty);
+
+/**
  * A probe's installed firmware at startup, sent with the Scorbitron object. A probe never set is
  * not reported. Use @ref sb_set_probe_firmware for a change after the game state exists.
  *

@@ -176,6 +176,25 @@ bool isUuid(std::string_view id);
 /// @p text with ASCII letters lower-cased, so a UUID compares the same in either case.
 std::string toLowerAscii(std::string_view text);
 
+/// Hex digits in a git commit id, and in a SHA-256 digest.
+constexpr std::size_t COMMIT_HEX_DIGITS = 40;
+constexpr std::size_t SHA256_HEX_DIGITS = 64;
+
+/// @p value lower-cased when it is exactly @p digits hex digits; nullopt otherwise.
+std::optional<std::string> hexDigest(std::string_view value, std::size_t digits);
+
+/// The commit this SDK was built from, as CMake resolved it; "" when unknown.
+const char *sdkCommit();
+
+/**
+ * The scorbitron object's build identity: @p bootId with every identity key whose value is known.
+ * The API takes a body carrying boot_id as the complete set, so a key left out reads as unknown:
+ * a malformed value is left out rather than sent. A hash of "" is null, none active.
+ */
+nlohmann::json buildIdentityFields(const DeviceInfo &info, const std::string &sdkCommitId,
+                                   const MappingHash &cpuMap, const MappingHash &dmdPattern,
+                                   const std::string &bootId);
+
 /**
  * Why a probe_flash payload is malformed, or nullopt when every field is well formed: probe is
  * cpu, dmd, nfc or link; target_build a 14-digit build; sha256 64 hex digits; size a positive

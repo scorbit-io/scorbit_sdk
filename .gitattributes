@@ -1,0 +1,2 @@
+# A `git archive` (and so a GitHub source tarball) writes its commit here; see CMakeLists.txt.
+source/build_commit.txt export-subst

@@ -36,6 +36,7 @@ OUT_OF_SCOPE = {
     "requestPairMachine": "internal",
     "setProbeFirmware": "device plumbing",
     "setPbspkcommFirmwareId": "device plumbing",
+    "setMappingIdentity": "device plumbing",
     "submitHardwareProbeResult": "device plumbing",
     "submitProbeFlashStage": "device plumbing",
     "submitProbeFlashResult": "device plumbing",
