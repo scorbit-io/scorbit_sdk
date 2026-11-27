@@ -124,6 +124,9 @@ struct ReleaseRecord {
  *   more on the game's last row when it ends. The attempt qualifies with its own position's
  *   result, once, and only in the game it started in. A lost row, or a lost end, stops the timing:
  *   no result rather than one shorter than was played.
+ * - The first physical input gap freezes the last reliable row (SB-7000). Once the game's own
+ *   session reply seats a player, interruption evidence names that exact attempt and the
+ *   qualification it earned before the gap, if any.
  * - A qualification is reported once (SB-6781), under a report id chosen when it is made, and
  *   resent unchanged until the server answers it: a receipt, which is final whatever its status
  *   (`saved`, `duplicate`, or `conflict`, kept for support and credited nothing), a 409, a 400,
@@ -219,6 +222,8 @@ private:
         int64_t startElapsedMs {0};
         /** The last row applied: its place in the row order, and its time as the facts have it. */
         uint64_t lastSequence {0};
+        /** The inclusive cutoff at the first physical input gap. */
+        std::optional<uint64_t> inputGapSequence;
         int64_t lastTimeMs {0};
         std::string sessionUuid;
         bool finished {false};
@@ -294,8 +299,8 @@ private:
     void markEnded(const std::string &attempt);
     void dropAnsweredReleases();
 
-    /** Reports @p record's qualification, just made in its game: a new report id, then queued. */
-    void report(AttemptRecord &record);
+    /** Records a qualification with a new report id. A known gap can name it before delivery. */
+    void report(AttemptRecord &record, std::optional<uint64_t> inputGapSequence);
     /**
      * The report id of @p attempt's qualification made on or before row @p sequence; empty when
      * there is none.
@@ -309,12 +314,14 @@ private:
     void queueInstalled(const AttemptRecord &record);
     void queueStarted(const AttemptRecord &record);
     void queueReleased(const ReleaseRecord &release, bool first = false);
+    void queueInterrupted(const AttemptRecord &record, uint64_t cutoff);
     void queueReport(const ReportRecord &report);
     void pump();
     /** The API answered the in-flight @p message: handled by its kind. */
     void onReply(const OutgoingMessage &message, const ApiReply &reply);
     void onAttemptReply(const OutgoingMessage &message, const ApiReply &reply);
     void onReleasedReply(const OutgoingMessage &message, const ApiReply &reply);
+    void onInterruptedReply(const OutgoingMessage &message, const ApiReply &reply);
     void onReportReply(const OutgoingMessage &message, const ApiReply &reply);
     /** The in-flight @p message got no final answer in @p reply: sent again after a backoff. */
     void resend(const OutgoingMessage &message, const ApiReply &reply);
@@ -336,6 +343,12 @@ private:
     std::deque<std::pair<std::string, SessionSeats>> m_unboundSeats;
     /** Releases applied this boot, oldest first. */
     std::deque<ReleaseRecord> m_releases;
+    /** An interruption waiting for a receipt, possibly through a release. */
+    struct PendingInterruption {
+        AttemptIdentity identity;
+        std::string qualification;
+    };
+    std::map<std::string, PendingInterruption> m_pendingInterruptions;
     /** Qualification reports made this boot, oldest first. */
     std::deque<ReportRecord> m_reports;
     /** The attempts that ended here, released or refused for good, oldest first. */

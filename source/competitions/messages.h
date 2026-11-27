@@ -33,6 +33,8 @@
  * | competition.attempt_control       | API → device | control_machine, `{type, payload}`  |
  * | competition.attempt_released      | device → API | POST competitions/attempt-released/ |
  * | competition.attempt_released_saved| API → device | its 200 reply                       |
+ * | competition.attempt_interrupted   | device → API | POST competitions/attempt-interrupted/ |
+ * | competition.attempt_interrupted_saved | API → device | its 200 reply                   |
  * | competition.qualification         | device → API | POST competitions/qualification/    |
  * | competition.qualification_saved   | API → device | its 200 reply                       |
  */
@@ -220,6 +222,13 @@ nlohmann::json attemptStartedMessage(const AttemptIdentity &identity, const Atte
  */
 nlohmann::json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied &applied,
                                       const std::string &qualification = {});
+
+/**
+ * `competition.attempt_interrupted`. The last good row is inclusive. `qualification` names the
+ * report the seated player earned on or before that row, or is null for an interrupted timer.
+ */
+nlohmann::json attemptInterruptedMessage(const AttemptIdentity &identity, const AttemptStart &start,
+                                         uint64_t lastSequence, const std::string &qualification);
 
 /**
  * `competition.qualification`. Its start and device are the attempt's start and the timer's

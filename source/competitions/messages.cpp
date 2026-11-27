@@ -48,6 +48,7 @@ constexpr auto TYPE_GOAL_INSTALLED = "competition.goal_installed";
 constexpr auto TYPE_ATTEMPT_STARTED = "competition.attempt_started";
 constexpr auto TYPE_ATTEMPT_CONTROL = "competition.attempt_control";
 constexpr auto TYPE_ATTEMPT_RELEASED = "competition.attempt_released";
+constexpr auto TYPE_ATTEMPT_INTERRUPTED = "competition.attempt_interrupted";
 constexpr auto TYPE_QUALIFICATION = "competition.qualification";
 constexpr auto RECEIPT_SUFFIX = "_saved";
 
@@ -76,6 +77,7 @@ constexpr auto KEY_SESSION = "session";
 constexpr auto KEY_STARTED_AT = "started_at";
 constexpr auto KEY_BOOT_ID = "boot_id";
 constexpr auto KEY_SEQUENCE = "sequence";
+constexpr auto KEY_LAST_SEQUENCE = "last_sequence";
 constexpr auto KEY_STATUS = "status";
 constexpr auto KEY_ACTION = "action";
 constexpr auto KEY_CONTROL = "control";
@@ -410,6 +412,18 @@ json attemptReleasedMessage(const AttemptRelease &release, const ReleaseApplied 
     return message;
 }
 
+json attemptInterruptedMessage(const AttemptIdentity &identity, const AttemptStart &start,
+                               uint64_t lastSequence, const std::string &qualification)
+{
+    auto message = identityJson(identity, TYPE_ATTEMPT_INTERRUPTED);
+    message[KEY_SESSION] = start.session;
+    message[KEY_POSITION] = start.position;
+    message[KEY_BOOT_ID] = start.bootId;
+    message[KEY_LAST_SEQUENCE] = lastSequence;
+    message[KEY_QUALIFICATION] = qualification.empty() ? json(nullptr) : json(qualification);
+    return message;
+}
+
 json qualificationMessage(const QualificationReport &report)
 {
     const auto &result = report.result;
@@ -505,6 +519,8 @@ const MessageKindInfo &kindInfo(MessageKind kind)
             TYPE_ATTEMPT_STARTED, URL_COMPETITIONS_ATTEMPT_STARTED, "release_pending"};
     static const MessageKindInfo attemptReleased {TYPE_ATTEMPT_RELEASED,
                                                   URL_COMPETITIONS_ATTEMPT_RELEASED, nullptr};
+    static const MessageKindInfo attemptInterrupted {
+            TYPE_ATTEMPT_INTERRUPTED, URL_COMPETITIONS_ATTEMPT_INTERRUPTED, "start_pending"};
     static const MessageKindInfo qualification {TYPE_QUALIFICATION, URL_COMPETITIONS_QUALIFICATION,
                                                 "start_pending"};
     switch (kind) {
@@ -512,6 +528,8 @@ const MessageKindInfo &kindInfo(MessageKind kind)
         return goalInstalled;
     case MessageKind::AttemptStarted:
         return attemptStarted;
+    case MessageKind::AttemptInterrupted:
+        return attemptInterrupted;
     case MessageKind::Qualification:
         return qualification;
     case MessageKind::AttemptReleased:

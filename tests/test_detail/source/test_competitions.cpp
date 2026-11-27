@@ -331,7 +331,7 @@ public:
     std::string venueMachine() const override { return venue; }
     void postCompetitionMessage(MessageKind kind, std::string body, ApiReplyCallback cb) override
     {
-        sent.push_back({kind, json::parse(body), std::move(cb)});
+        sent.push_back({kind, json::parse(body), std::move(cb), std::move(body)});
     }
     void scheduleCompetitionRetry(std::chrono::steady_clock::duration delay,
                                   std::function<void()> fn) override
@@ -394,6 +394,7 @@ public:
         MessageKind kind;
         json body;
         ApiReplyCallback reply;
+        std::string serializedBody;
     };
 
     /** Each Net's own, as Net generates one per instance. */
@@ -1859,7 +1860,6 @@ TEST_CASE("Only a known physical turn can earn a competition time", "[competitio
     if (interrupted) {
         // No SDK row was produced by the unreadable physical input.
         f.game->reportCompetitionInputGap();
-        f.game->reportCompetitionInputGap();
     }
 
     // The first readable sample after the switch already meets player 2's goal.
@@ -1868,6 +1868,10 @@ TEST_CASE("Only a known physical turn can earn a competition time", "[competitio
     f.game->addMode(ALI_BABA);
     f.game->commit();
     f.run();
+    if (interrupted) {
+        // Repeated notification after a later row must leave the first gap's cutoff intact.
+        f.game->reportCompetitionInputGap();
+    }
     if (seatsArriveLate) {
         seatPlayers();
     }
@@ -1888,6 +1892,35 @@ TEST_CASE("Only a known physical turn can earn a competition time", "[competitio
     if (!interrupted) {
         CHECK(reports.back().report.player == OTHER_PLAYER);
         CHECK(reports.back().report.identity.attempt == SECOND);
+    }
+
+    std::vector<json> interruptions;
+    while (!f.net->sent.empty()) {
+        auto body = f.net->sent.front().body;
+        const auto type = body.at("type").get<std::string>();
+        if (type == "competition.attempt_interrupted") {
+            interruptions.push_back(body);
+        }
+        body["type"] = type + "_saved";
+        body["status"] = "saved";
+        f.answer(receipt(body.dump().c_str()));
+    }
+
+    REQUIRE(interruptions.size() == (interrupted ? 2 : 0));
+    for (const auto &message : interruptions) {
+        const bool firstPlayer = message.at("attempt") == ATTEMPT;
+        CHECK(message.at("attempt") == (firstPlayer ? ATTEMPT : SECOND));
+        CHECK(message.at("session") == SESSION);
+        CHECK(message.at("position") == (firstPlayer ? 1 : 2));
+        CHECK(message.at("boot_id") == f.net->boot);
+        // The start, activation, score and deactivation are good rows. An early session
+        // reply also sends the initial state, giving it its own row.
+        CHECK(message.at("last_sequence") == (seatsArriveLate ? 4 : 5));
+        CHECK(message.at("qualification")
+              == (firstPlayer ? json(reports.front().report.reportId) : json(nullptr)));
+    }
+    if (interrupted) {
+        CHECK(interruptions[0].at("attempt") != interruptions[1].at("attempt"));
     }
 }
 
@@ -2346,6 +2379,88 @@ void qualify(Fixture &f)
 
 } // namespace
 
+TEST_CASE("A gap after qualification records the last readable row", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    qualify(f);
+    REQUIRE(f.net->sent.size() == 1);
+    const auto reportId = f.net->sent.front().body.at("report_id");
+    f.answer(reportSaved(f.net->sent.front().body));
+
+    deactivate(f);
+    f.game->reportCompetitionInputGap();
+    f.run();
+
+    REQUIRE(f.net->sent.size() == 1);
+    const auto &message = f.net->sent.front().body;
+    CHECK(message.at("type") == "competition.attempt_interrupted");
+    // Start, the early session reply, activation, score and deactivation.
+    CHECK(message.at("last_sequence") == 5);
+    CHECK(message.at("qualification") == reportId);
+}
+
+TEST_CASE("An input interruption is resent unchanged until it is confirmed", "[competitions]")
+{
+    Fixture f;
+    startAttempt(f);
+    f.game->reportCompetitionInputGap();
+    f.run();
+
+    REQUIRE(f.net->sent.size() == 1);
+    const auto original = f.net->sent.front().serializedBody;
+    auto saved = f.net->sent.front().body;
+    CHECK(saved.at("type") == "competition.attempt_interrupted");
+    CHECK(saved.at("qualification").is_null());
+    CHECK(std::string {kindInfo(f.net->sent.front().kind).endpoint}
+          == "api/v2/competitions/attempt-interrupted/");
+    saved["type"] = "competition.attempt_interrupted_saved";
+    saved["status"] = "duplicate";
+
+    f.answer(noAnswer());
+    CHECK(f.net->sent.empty());
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent.front().serializedBody == original);
+
+    f.answer(refused(START_PENDING));
+    CHECK(f.net->sent.empty());
+    f.retry();
+    REQUIRE(f.net->sent.size() == 1);
+    CHECK(f.net->sent.front().serializedBody == original);
+
+    f.answer(receipt(saved.dump().c_str()));
+    f.game->reportCompetitionInputGap();
+    f.run();
+    CHECK(f.net->sent.empty());
+}
+
+TEST_CASE("An older API can still receive a qualification after a gap", "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    activate(f);
+    score(f, 10);
+    CHECK_FALSE(f.record().qualification);
+
+    f.game->reportCompetitionInputGap();
+    f.sessionCreated();
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+    REQUIRE(f.net->sent.size() == 1);
+    const auto gap = f.net->sent.front().body;
+    CHECK(gap.at("type") == "competition.attempt_interrupted");
+
+    f.answer(ApiReply {Error::ApiError, 404, {}, {}});
+    REQUIRE(f.net->sent.size() == 1);
+    const auto report = f.net->sent.front().body;
+    CHECK(report.at("type") == "competition.qualification");
+    CHECK(report.at("report_id") == gap.at("qualification"));
+    CHECK(report.at("sequence") == gap.at("last_sequence"));
+    f.answer(reportSaved(report));
+    CHECK(f.net->sent.empty());
+}
+
 TEST_CASE("A release of a running attempt drops it and says where", "[competitions]")
 {
     Fixture f;
@@ -2771,6 +2886,68 @@ TEST_CASE("A release while the start is unanswered: a receipt means an unclaim",
     REQUIRE(f.net->sent.size() == 1);
     CHECK(f.net->sent[0].body["state"] == "released");
     CHECK(f.net->sent[0].body["sequence"] == 2); // where it arrived, not where it was decided
+}
+
+TEST_CASE("An unclaim keeps only interruption evidence that still describes the attempt",
+          "[competitions]")
+{
+    Fixture f;
+    f.install();
+    f.startGame();
+    f.sessionCreated();
+    REQUIRE(f.net->sent.size() == 1);
+    REQUIRE(f.net->sent.front().kind == MessageKind::AttemptStarted);
+
+    std::string validReport;
+    bool keepInterruption = true;
+    SECTION("A qualification after the release is discarded with the gap naming it")
+    {
+        f.release();
+        qualify(f);
+        keepInterruption = false;
+    }
+    SECTION("A qualification on the release cutoff is credited with the gap naming it")
+    {
+        qualify(f);
+        validReport = reportIdOf(f);
+        f.release();
+    }
+    SECTION("A gap confirming an unfinished attempt can still be delivered")
+    {
+        f.release();
+    }
+
+    f.game->reportCompetitionInputGap();
+    f.run();
+    REQUIRE(f.net->sent.size() == 1); // The start still owns the outbox.
+    CHECK_FALSE(onlyRelease(f).decided);
+    f.answer(receipt(ATTEMPT_STARTED_SAVED));
+
+    REQUIRE(f.net->sent.size() == 1);
+    if (!validReport.empty()) {
+        REQUIRE(f.net->sent.front().kind == MessageKind::Qualification);
+        CHECK(f.net->sent.front().body.at("report_id") == validReport);
+        f.answer(reportSaved(f.net->sent.front().body));
+        REQUIRE(f.net->sent.size() == 1);
+    } else {
+        CHECK(f.game->competitions().reports().empty());
+    }
+
+    const auto qualification = validReport.empty() ? json(nullptr) : json(validReport);
+    if (keepInterruption) {
+        auto gap = f.net->sent.front().body;
+        CHECK(gap.at("type") == "competition.attempt_interrupted");
+        CHECK(gap.at("qualification") == qualification);
+        gap["type"] = "competition.attempt_interrupted_saved";
+        gap["status"] = "saved";
+        f.answer(receipt(gap.dump().c_str()));
+        REQUIRE(f.net->sent.size() == 1);
+    }
+
+    REQUIRE(f.net->sent.front().kind == MessageKind::AttemptReleased);
+    CHECK(f.net->sent.front().body.at("qualification") == qualification);
+    f.answer(releaseSaved());
+    CHECK(f.net->sent.empty());
 }
 
 TEST_CASE("A start refused release_pending is resent until the server saves it", "[competitions]")
