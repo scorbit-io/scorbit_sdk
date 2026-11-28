@@ -474,6 +474,21 @@ void CompetitionService::onRow(const achievements::TimelineRow &row)
     pump();
 }
 
+void CompetitionService::onInputGap(int gameSessionId)
+{
+    auto *game = gameOf(gameSessionId);
+    if (!game || game->finished) {
+        return;
+    }
+
+    // Governing: SB-6367. A physical gap predates the SDK's row numbering. A completion the
+    // timer already saw still belongs to its player, even if the session reply hasn't seated them.
+    interruptTimers(*game, "physical score input continuity is unknown");
+    for (const auto &attempt : game->candidates) {
+        qualifyFrom(*game, attempt);
+    }
+}
+
 void CompetitionService::onGameFinished(int gameSessionId, uint64_t endSequence)
 {
     if (auto *game = gameOf(gameSessionId); game && !game->finished) {
@@ -552,6 +567,15 @@ void CompetitionService::advance(Game &game, const achievements::TimelineRow *ro
     }
 }
 
+void CompetitionService::interruptTimers(Game &game, const char *reason)
+{
+    for (auto &[attempt, timers] : game.timers) {
+        for (auto &[position, timer] : timers) {
+            timer.interrupt(reason);
+        }
+    }
+}
+
 void CompetitionService::finishGame(Game &game, uint64_t endSequence)
 {
     if (!game.timers.empty()) {
@@ -565,11 +589,7 @@ void CompetitionService::finishGame(Game &game, uint64_t endSequence)
             WRN("Competitions: game {} ended at row {}, its last row seen is {}: its attempts "
                 "can't qualify in it",
                 game.id, endSequence, game.lastSequence);
-            for (auto &[attempt, timers] : game.timers) {
-                for (auto &[position, timer] : timers) {
-                    timer.interrupt("the game's end row is missing");
-                }
-            }
+            interruptTimers(game, "the game's end row is missing");
         }
         for (const auto &attempt : game.candidates) {
             qualifyFrom(game, attempt);

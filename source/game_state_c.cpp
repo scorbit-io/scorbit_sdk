@@ -683,6 +683,12 @@ void sb_set_game_finished(sb_game_handle_t handle)
     handle->postApiJob(JobSetGameFinished {handle});
 }
 
+void sb_report_competition_input_gap(sb_game_handle_t handle)
+{
+    handle->postApiJob(
+            JobRunOnDispatcher {[handle] { handle->gameState.reportCompetitionInputGap(); }});
+}
+
 void sb_set_current_ball(sb_game_handle_t handle, sb_ball_t ball)
 {
     handle->postApiJob(JobSetCurrentBall {handle, ball});

@@ -52,6 +52,11 @@ EXCEPTIONS = {
         "serve; the add-on authenticates with encrypted_key",
     },
     "sb_download_with_options": {"godot": "internal use"},
+    "sb_report_competition_input_gap": {
+        "py3": "physical cabinet extraction runs in scorbitd",
+        "py27": "physical cabinet extraction runs in scorbitd",
+        "godot": "physical cabinet extraction runs in scorbitd",
+    },
 }
 
 # The Scorbitron device daemon's probe and self-update plumbing: no game calls these.

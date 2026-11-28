@@ -117,6 +117,18 @@ SCORBIT_SDK_EXPORT
 void sb_set_game_finished(sb_game_handle_t handle);
 
 /**
+ * @brief Report loss of physical score input during the current game.
+ *
+ * Call before passing any recovered game state. The SDK stops timing unfinished competition
+ * attempts in this game because it cannot establish whose turn occupied the missing interval.
+ * Earlier qualifications, game state and ordinary scoring are preserved.
+ *
+ * @param handle The game handle created by @ref sb_create_game_state.
+ */
+SCORBIT_SDK_EXPORT
+void sb_report_competition_input_gap(sb_game_handle_t handle);
+
+/**
  * @brief Set the current ball number.
  *
  * Updates the current ball number in the game. When the game starts, the ball number is

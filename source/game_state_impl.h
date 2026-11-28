@@ -44,6 +44,7 @@ public:
 
     void setGameStarted(GameStartOrigin origin);
     void setGameFinished();
+    void reportCompetitionInputGap();
 
     void setCurrentBall(sb_ball_t ball);
 

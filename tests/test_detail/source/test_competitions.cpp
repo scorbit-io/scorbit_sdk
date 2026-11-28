@@ -1816,6 +1816,81 @@ TEST_CASE("Only the attempt's own position meets its goal", "[competitions]")
     CHECK(f.record().qualification);
 }
 
+TEST_CASE("Only a known physical turn can earn a competition time", "[competitions]")
+{
+    bool interrupted = false;
+    bool seatsArriveLate = false;
+    SECTION("Continuous input gives each player credit for their own turn")
+    {
+    }
+    SECTION("Missing input blocks recovery credit but keeps the first player's time")
+    {
+        interrupted = true;
+    }
+    SECTION("A valid pre-gap time survives even when the session seats arrive late")
+    {
+        interrupted = true;
+        seatsArriveLate = true;
+    }
+
+    auto second = goalFor(SECOND);
+    second["player"] = OTHER_PLAYER;
+
+    Fixture f;
+    f.install();
+    f.deliver(second);
+    f.startGame();
+
+    const auto seatPlayers = [&] {
+        REQUIRE(f.net->sessionCreated);
+        f.net->sessionPlayers(SESSION, {{1, SessionSeat {PLAYER, TOURNAMENT}},
+                                        {2, SessionSeat {OTHER_PLAYER, TOURNAMENT}}});
+        f.net->sessionCreated(SESSION);
+        f.run();
+    };
+    if (!seatsArriveLate) {
+        seatPlayers();
+    }
+
+    activate(f);
+    score(f, 10, 1);
+    deactivate(f);
+
+    if (interrupted) {
+        // No SDK row was produced by the unreadable physical input.
+        f.game->reportCompetitionInputGap();
+        f.game->reportCompetitionInputGap();
+    }
+
+    // The first readable sample after the switch already meets player 2's goal.
+    f.game->setActivePlayer(2);
+    f.game->setScore(2, 10);
+    f.game->addMode(ALI_BABA);
+    f.game->commit();
+    f.run();
+    if (seatsArriveLate) {
+        seatPlayers();
+    }
+    f.game->setGameFinished();
+    f.run();
+
+    REQUIRE(f.record().start);
+    REQUIRE(attemptOf(f, SECOND).start);
+    CHECK(f.record().start->position == 1);
+    CHECK(attemptOf(f, SECOND).start->position == 2);
+    REQUIRE(f.record().qualification);
+    CHECK(attemptOf(f, SECOND).qualification.has_value() == !interrupted);
+
+    const auto &reports = f.game->competitions().reports();
+    REQUIRE(reports.size() == (interrupted ? 1 : 2));
+    CHECK(reports.front().report.player == PLAYER);
+    CHECK(reports.front().report.identity.attempt == ATTEMPT);
+    if (!interrupted) {
+        CHECK(reports.back().report.player == OTHER_PLAYER);
+        CHECK(reports.back().report.identity.attempt == SECOND);
+    }
+}
+
 TEST_CASE("A rule that becomes false again is met only while every rule holds together",
           "[competitions]")
 {

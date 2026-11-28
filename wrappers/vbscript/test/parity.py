@@ -42,6 +42,7 @@ OUT_OF_SCOPE = {
     "submitProbeFlashResult": "device plumbing",
     "submitPrepareStep": "device plumbing",
     "recheckReleaseTrack": "device plumbing",
+    "reportCompetitionInputGap": "physical cabinet extraction runs in scorbitd",
     "publish": "device plumbing",
     "download": "device plumbing",
     "downloadWithOptions": "device plumbing",
